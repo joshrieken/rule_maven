@@ -1,0 +1,78 @@
+i# --- Build artifacts -------------------------------------------------
+
+# The directory Mix downloads your dependencies sources to.
+/deps/
+
+# The directory Mix writes compiled artifacts to.
+/_build/
+
+# Build artifacts for any nested apps in an umbrella project.
+apps/*/_build/
+apps/*/deps/
+
+# If the VM crashes, it generates a crash dump — ignore it.
+erl_crash.dump
+
+# Archive / package build output.
+*.ez
+*.tar
+
+# Compiled beam files left at the project root (rare, but possible).
+*.beam
+
+# --- Testing / docs / tooling ----------------------------------------
+
+# Coverage output from `mix test --cover`.
+/cover/
+
+# Generated docs (ExDoc).
+/doc/
+
+# Dialyzer's PLT cache.
+/priv/plts/
+*.plt
+*.plt.hash
+
+# In case you edit deps locally and don't want a stray .fetch tracked.
+/.fetch
+
+# Temp files, often created by tests.
+/tmp/
+
+# --- Phoenix assets ----------------------------------------------------
+
+# Compiled/digested static assets.
+/priv/static/assets/
+/priv/static/cache_manifest.json
+
+# Node modules for the asset pipeline (esbuild/tailwind/npm packages).
+/assets/node_modules/
+
+# npm/yarn logs.
+npm-debug.log*
+yarn-error.log*
+
+# --- Secrets / environment ---------------------------------------------
+
+# Never commit real secrets or local env overrides.
+.env
+.env.*
+!.env.example
+/config/*.secret.exs
+
+# --- Editors / IDEs ------------------------------------------------------
+
+.elixir_ls/
+.lexical/
+.vscode/
+.idea/
+*.iml
+
+# --- OS cruft ------------------------------------------------------------
+
+.DS_Store
+Thumbs.db
+
+# --- Logs ------------------------------------------------------------------
+
+*.log
