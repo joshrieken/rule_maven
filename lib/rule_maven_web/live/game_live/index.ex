@@ -216,7 +216,7 @@ defmodule RuleMavenWeb.GameLive.Index do
 
   defp load_games(socket) do
     if RuleMaven.Users.game_master?(socket.assigns.current_user) do
-      Games.list_games()
+      Games.list_base_games()
     else
       Games.list_games_with_documents()
     end
@@ -240,9 +240,15 @@ defmodule RuleMavenWeb.GameLive.Index do
   def handle_info({:refresh_complete}, socket) do
     games = load_games(socket)
 
+    expansion_counts =
+      Enum.reduce(games, %{}, fn game, acc ->
+        count = length(Games.expansions_with_documents(game))
+        Map.put(acc, game.id, count)
+      end)
+
     {:noreply,
      socket
-     |> assign(games: games, refreshing: 0, refresh_total: 0)
+     |> assign(games: games, expansion_counts: expansion_counts, refreshing: 0, refresh_total: 0)
      |> put_flash(:info, "Refresh complete!")}
   end
 
