@@ -710,7 +710,7 @@ defmodule RuleMavenWeb.GameLive.Form do
   def handle_info({:refresh_bgg}, socket) do
     game = socket.assigns.game
 
-    case RuleMaven.BGG.enrich_game(game) do
+    case RuleMaven.BGG.enrich_game(game, force: true) do
       {:ok, updated} ->
         {:noreply,
          socket
@@ -752,7 +752,7 @@ defmodule RuleMavenWeb.GameLive.Form do
   @impl true
   def handle_info({:pull_bgg_info, changeset}, socket) do
     case RuleMaven.BGG.fetch_game_info(changeset.data.bgg_id) do
-      {:ok, info} ->
+      {:ok, info, _raw_xml} ->
         changeset = %{
           changeset
           | data: %{

@@ -63,7 +63,7 @@ defmodule RuleMavenWeb.GameLive.Index do
       |> Enum.each(fn {game, i} ->
         send(pid, {:refresh_progress, game.name, i, length(games)})
 
-        case BGG.enrich_game(game) do
+        case BGG.enrich_game(game, force: true) do
           {:ok, _} -> send(pid, {:refresh_done, game.name, :ok})
           {:error, _} -> send(pid, {:refresh_done, game.name, :error})
         end

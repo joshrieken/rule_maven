@@ -104,7 +104,8 @@ defmodule RuleMaven.BGG do
     case Req.get(url, headers: headers, max_retries: 0, receive_timeout: 15_000) do
       {:ok, %{status: 200, body: body}} ->
         Logger.debug("Game info fetched for #{bgg_id}: #{byte_size(body)} bytes")
-        parse_game_info(body)
+        {:ok, info} = parse_game_info(body)
+        {:ok, info, body}
 
       {:ok, %{status: 202}} ->
         :timer.sleep(3000)
@@ -129,11 +130,27 @@ defmodule RuleMaven.BGG do
   Fetches game info and updates the game record in the DB.
   Returns `{:ok, game}` or `{:error, reason}`.
   """
-  def enrich_game(game) do
+  def enrich_game(game, opts \\ []) do
+    force? = Keyword.get(opts, :force, false)
+
+    if game.bgg_data && !force? do
+      # Use cached data, don't hit BGG API
+      relink_from_cache(game)
+
+      game
+      # no-op update to return {:ok, game}
+      |> RuleMaven.Games.update_game(%{})
+    else
+      fetch_and_enrich(game)
+    end
+  end
+
+  defp fetch_and_enrich(game) do
     case fetch_game_info(game.bgg_id) do
-      {:ok, info} ->
+      {:ok, info, raw_xml} ->
         expansion_links = Map.get(info, :expansion_links, [])
         info = Map.delete(info, :expansion_links)
+        info = Map.put(info, :bgg_data, raw_xml)
 
         case RuleMaven.Games.update_game(game, info) do
           {:ok, updated} ->
@@ -149,6 +166,26 @@ defmodule RuleMaven.BGG do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  @doc """
+  Re-parses expansion links from a game's cached BGG XML data.
+  Useful to re-link expansions without hitting BGG API again.
+  Returns :ok or {:error, reason}.
+  """
+  def relink_from_cache(%RuleMaven.Games.Game{} = game) do
+    if game.bgg_data do
+      {:ok, info} = parse_game_info(game.bgg_data)
+      expansion_links = Map.get(info, :expansion_links, [])
+
+      if expansion_links != [] do
+        link_expansions(game, expansion_links)
+      end
+
+      :ok
+    else
+      {:error, "No cached BGG data for this game"}
     end
   end
 
