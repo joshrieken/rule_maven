@@ -10,8 +10,13 @@ defmodule RuleMaven.Games.QuestionLog do
     field :llm_provider, :string
     field :llm_model, :string
     field :cited_page, :integer
+    field :question_embedding, Pgvector.Ecto.Vector
+    field :source_chunk_ids, {:array, :integer}
+    field :feedback, :string
+    field :cluster_id, :integer
     belongs_to :game, RuleMaven.Games.Game
     belongs_to :user, RuleMaven.Users.User
+    belongs_to :document, RuleMaven.Games.Document
 
     timestamps(type: :utc_datetime)
   end
@@ -28,7 +33,12 @@ defmodule RuleMaven.Games.QuestionLog do
       :llm_provider,
       :llm_model,
       :user_id,
-      :cited_page
+      :cited_page,
+      :question_embedding,
+      :source_chunk_ids,
+      :feedback,
+      :cluster_id,
+      :document_id
     ])
     |> validate_required([:question, :answer, :game_id])
   end

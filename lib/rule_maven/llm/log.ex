@@ -21,8 +21,17 @@ defmodule RuleMaven.LLM.Log do
   def changeset(log, attrs) do
     log
     |> cast(attrs, [
-      :provider, :model, :operation, :prompt_tokens, :completion_tokens,
-      :total_tokens, :duration_ms, :success, :error_message, :game_id, :user_id
+      :provider,
+      :model,
+      :operation,
+      :prompt_tokens,
+      :completion_tokens,
+      :total_tokens,
+      :duration_ms,
+      :success,
+      :error_message,
+      :game_id,
+      :user_id
     ])
     |> validate_required([:provider, :model, :operation])
   end

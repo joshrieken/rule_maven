@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.GameLive.Show do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.Games
+  alias RuleMaven.{Games, CheatSheet}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -21,14 +21,15 @@ defmodule RuleMavenWeb.GameLive.Show do
   def handle_params(%{"id" => id}, _uri, socket) do
     game = Games.get_game!(id)
     grouped = Games.grouped_questions(game)
-    source_count = length(Games.list_rulebook_sources(game))
     conversation = build_conversation(grouped)
+    sources = Games.list_documents(game)
 
     {:noreply,
      assign(socket,
        game: game,
        conversation: conversation,
-       source_count: source_count,
+       sources: sources,
+       source_count: length(sources),
        question: "",
        loading: false
      )}
@@ -88,7 +89,9 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       # Check if already asked
       already =
-        Enum.find(convo, fn m -> m.role == :user && String.downcase(m.content) == String.downcase(question) end)
+        Enum.find(convo, fn m ->
+          m.role == :user && String.downcase(m.content) == String.downcase(question)
+        end)
 
       if already do
         {:noreply,
@@ -211,14 +214,50 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
+  def handle_event("thumbs_up", %{"id" => id_str}, socket) do
+    handle_feedback(id_str, "up", socket)
+  end
+
+  @impl true
+  def handle_event("thumbs_down", %{"id" => id_str}, socket) do
+    handle_feedback(id_str, "down", socket)
+  end
+
+  defp handle_feedback(id_str, value, socket) do
+    {id, _} = Integer.parse(id_str)
+    game = socket.assigns.game
+
+    q = find_question_log(game, id)
+
+    if q && is_nil(q.feedback) do
+      Games.log_question_update(q, %{feedback: value})
+
+      updated =
+        Enum.map(socket.assigns.conversation, fn msg ->
+          if msg.id == id, do: Map.put(msg, :feedback, value), else: msg
+        end)
+
+      {:noreply, assign(socket, conversation: updated)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  defp find_question_log(game, id) do
+    game
+    |> Games.recent_questions(100)
+    |> Enum.find(&(&1.id == id))
+  end
+
+  @impl true
   def handle_info({:ask_question, question}, socket) do
     %{game: game, conversation: convo} = socket.assigns
 
     result =
       try do
         case RuleMaven.LLM.ask(game, question) do
-          {:ok, %{answer: answer} = result} ->
-            passage = result[:cited_passage]
+          {:ok, %{answer: answer} = llm_result} ->
+            passage = llm_result[:cited_passage]
             citation = find_citation_link(game, passage)
 
             Games.log_question(%{
@@ -226,13 +265,14 @@ defmodule RuleMavenWeb.GameLive.Show do
               question: question,
               answer: answer,
               cited_passage: passage,
-              llm_provider: result[:provider],
-              llm_model: result[:model],
+              llm_provider: llm_result[:provider],
+              llm_model: llm_result[:model],
               user_id: socket.assigns.current_user.id,
-              cited_page: citation[:page]
+              cited_page: citation[:page],
+              question_embedding: llm_result[:question_embedding]
             })
 
-            {:ok, answer, passage, result, citation}
+            {:ok, answer, passage, llm_result, citation}
 
           {:error, reason} ->
             {:error, reason}
@@ -255,6 +295,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           llm_provider: llm_result[:provider],
           llm_model: llm_result[:model],
           cited_html_link: citation[:link],
+          faq_hit: llm_result[:faq_hit] || false,
           timestamp: DateTime.utc_now()
         }
 
@@ -281,23 +322,71 @@ defmodule RuleMavenWeb.GameLive.Show do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="chat-layout" style="display:flex;flex-direction:column;height:calc(100dvh - 3.5rem);position:fixed;top:3.5rem;left:0;right:0;bottom:0;z-index:10;background:var(--bg)">
+    <div
+      class="chat-layout"
+      style="display:flex;flex-direction:column;height:calc(100dvh - 3.5rem);position:fixed;top:3.5rem;left:0;right:0;bottom:0;z-index:10;background:var(--bg)"
+    >
       <!-- Header -->
-      <div class="chat-header" style="flex-shrink:0;padding:0.5rem 1rem;border-bottom:1px solid var(--border);background:var(--bg-surface)">
+      <div
+        class="chat-header"
+        style="flex-shrink:0;padding:0.5rem 1rem;border-bottom:1px solid var(--border);background:var(--bg-surface)"
+      >
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2">
             <.link navigate={~p"/"} class="text-blue-600 hover:underline text-sm font-semibold">
               &larr; Games
             </.link>
             <h1 class="text-base font-bold truncate">{@game.name}</h1>
             <%= if @game.image_url do %>
-              <img src={@game.image_url} alt="" style="width:32px;height:32px;border-radius:4px;object-fit:cover" />
+              <img
+                src={@game.image_url}
+                alt=""
+                style="width:28px;height:28px;border-radius:4px;object-fit:cover"
+              />
             <% end %>
+            <%!-- Rulebook sources dropdown --%>
+            <div :if={@sources != []} style="position:relative">
+              <details style="font-size:0.7rem">
+                <summary style="cursor:pointer;color:var(--text-muted);font-weight:600;user-select:none">
+                  Rulebooks ({length(@sources)})
+                </summary>
+                <div style="position:absolute;top:100%;left:0;margin-top:0.25rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.5rem;min-width:180px;z-index:20;box-shadow:0 4px 12px rgba(0,0,0,0.15)">
+                  <%= for src <- @sources do %>
+                    <div style="padding:0.3rem 0;font-size:0.7rem;display:flex;gap:0.5rem;align-items:center;white-space:nowrap">
+                      <span style="color:var(--text);font-weight:500">{src.label}</span>
+                      <%= if src.pdf_path do %>
+                        <.link
+                          href={"/#{src.pdf_path}"}
+                          target="_blank"
+                          style="color:var(--blue);font-size:0.65rem;font-weight:600"
+                        >
+                          PDF
+                        </.link>
+                      <% end %>
+                      <%= if src.html_path do %>
+                        <.link
+                          href={"/#{src.html_path}"}
+                          target="_blank"
+                          style="color:var(--blue);font-size:0.65rem;font-weight:600"
+                        >
+                          HTML
+                        </.link>
+                      <% end %>
+                    </div>
+                  <% end %>
+                </div>
+              </details>
+            </div>
           </div>
           <div class="flex items-center gap-3">
-            <%= if @game.cheat_pdf_path do %>
-              <.link href={"/#{@game.cheat_pdf_path}"} target="_blank" class="text-xs text-blue-500 hover:underline font-semibold">
-                Cheat Sheet PDF
+            <%!-- Cheat Sheet --%>
+            <%= if Enum.any?(@sources, &(CheatSheet.active_version(&1.id) != nil)) do %>
+              <.link
+                href={~p"/games/#{@game.id}/cheatsheet"}
+                target="_blank"
+                class="text-xs text-blue-500 hover:underline font-semibold"
+              >
+                Cheat Sheet
               </.link>
             <% end %>
             <.link
@@ -306,6 +395,13 @@ defmodule RuleMavenWeb.GameLive.Show do
               class="text-blue-600 hover:underline text-sm"
             >
               Edit
+            </.link>
+            <.link
+              :if={RuleMaven.Users.game_master?(@current_user)}
+              navigate={~p"/games/#{@game.id}/review"}
+              class="text-blue-600 hover:underline text-sm"
+            >
+              Review
             </.link>
           </div>
         </div>
@@ -332,7 +428,10 @@ defmodule RuleMavenWeb.GameLive.Show do
         <% end %>
 
         <%= for msg <- @conversation do %>
-          <div class={["chat-msg", msg.role == :user && "chat-msg-user"]} style={"display:flex;flex-direction:column;align-items:#{if msg.role == :user, do: "flex-end", else: "flex-start"}"}>
+          <div
+            class={["chat-msg", msg.role == :user && "chat-msg-user"]}
+            style={"display:flex;flex-direction:column;align-items:#{if msg.role == :user, do: "flex-end", else: "flex-start"}"}
+          >
             <div style={"max-width:85%;padding:0.6rem 0.85rem;border-radius:0.85rem;font-size:0.875rem;line-height:1.55;box-shadow:0 1px 3px rgba(0,0,0,0.08);#{if msg.role == :user, do: "background:var(--accent);color:#fff;border-bottom-right-radius:0.25rem;margin-left:auto", else: "background:var(--bg-surface);color:var(--text);border-bottom-left-radius:0.25rem"}"}>
               <div class="whitespace-pre-wrap">{msg.content}</div>
 
@@ -344,17 +443,61 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <span class="italic">{msg.cited_passage}</span>
                   <%= if msg[:cited_html_link] do %>
                     <div style="margin-top:0.35rem">
-                      <.link href={msg.cited_html_link} target="_blank" style={"font-size:0.72rem;font-weight:600;#{if msg.role == :user, do: "color:#fff", else: "color:var(--blue)"}"}>
+                      <.link
+                        href={msg.cited_html_link}
+                        target="_blank"
+                        style={"font-size:0.72rem;font-weight:600;#{if msg.role == :user, do: "color:#fff", else: "color:var(--blue)"}"}
+                      >
                         View in rulebook &rarr;
                       </.link>
                     </div>
                   <% end %>
                 </div>
               <% end %>
+
+              <!-- FAQ badge -->
+              <div
+                :if={msg[:faq_hit]}
+                style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:#16a34a"
+              >
+                ✅ FAQ &mdash; instant answer
+              </div>
+
+              <!-- Thumbs up/down (LLM answers only, not FAQ) -->
+              <div
+                :if={msg.role == :assistant && !msg[:faq_hit]}
+                style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center"
+              >
+                <button
+                  :if={msg[:feedback] != "down"}
+                  type="button"
+                  phx-click="thumbs_up"
+                  phx-value-id={msg.id}
+                  disabled={msg[:feedback] != nil}
+                  style="background:none;border:none;font-size:1rem;cursor:pointer;opacity:0.5"
+                  title="Helpful"
+                >👍</button>
+                <button
+                  :if={msg[:feedback] != "up"}
+                  type="button"
+                  phx-click="thumbs_down"
+                  phx-value-id={msg.id}
+                  disabled={msg[:feedback] != nil}
+                  style="background:none;border:none;font-size:1rem;cursor:pointer;opacity:0.5"
+                  title="Not helpful"
+                >👎</button>
+                <%= if msg[:feedback] do %>
+                  <span style="font-size:0.65rem;color:var(--text-muted)">Thanks!</span>
+                <% end %>
+              </div>
             </div>
 
             <!-- Message actions (admin only) -->
-            <div :if={RuleMaven.Users.game_master?(@current_user) && msg.role == :assistant} class="flex items-center gap-1 mt-0.5" style="padding-left:0.25rem">
+            <div
+              :if={RuleMaven.Users.game_master?(@current_user) && msg.role == :assistant}
+              class="flex items-center gap-1 mt-0.5"
+              style="padding-left:0.25rem"
+            >
               <button
                 type="button"
                 phx-click="retry_question"
@@ -373,8 +516,17 @@ defmodule RuleMavenWeb.GameLive.Show do
               >★</button>
               <%= if @confirm_delete_id == msg.id do %>
                 <span class="text-xs" style="color:#dc2626">Delete?</span>
-                <button type="button" phx-click="confirm_delete_question" phx-value-id={msg.id} style="color:#dc2626;background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer">Yes</button>
-                <button type="button" phx-click="cancel_delete_question" style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer">No</button>
+                <button
+                  type="button"
+                  phx-click="confirm_delete_question"
+                  phx-value-id={msg.id}
+                  style="color:#dc2626;background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
+                >Yes</button>
+                <button
+                  type="button"
+                  phx-click="cancel_delete_question"
+                  style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                >No</button>
               <% else %>
                 <button
                   :if={!msg[:history]}
@@ -386,7 +538,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                 >✕</button>
               <% end %>
               <%= if RuleMaven.Users.game_master?(@current_user) && (msg[:llm_provider] || msg[:llm_model]) do %>
-                <span class="text-xs" style="color:var(--text-muted);margin-left:0.5rem">{msg[:llm_provider]} &middot; {msg[:llm_model]}</span>
+                <span class="text-xs" style="color:var(--text-muted);margin-left:0.5rem">{msg[
+                  :llm_provider
+                ]} &middot; {msg[:llm_model]}</span>
               <% end %>
             </div>
           </div>
@@ -394,7 +548,10 @@ defmodule RuleMavenWeb.GameLive.Show do
 
         <!-- Loading indicator -->
         <div :if={@loading} class="chat-msg" style="display:flex;align-items:flex-start">
-          <div class="animate-pulse" style="background:var(--bg-surface);color:var(--text-secondary);padding:0.6rem 0.85rem;border-radius:0.85rem;border-bottom-left-radius:0.25rem;font-size:0.875rem;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+          <div
+            class="animate-pulse"
+            style="background:var(--bg-surface);color:var(--text-secondary);padding:0.6rem 0.85rem;border-radius:0.85rem;border-bottom-left-radius:0.25rem;font-size:0.875rem;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
+          >
             Thinking...
           </div>
         </div>
@@ -403,26 +560,30 @@ defmodule RuleMavenWeb.GameLive.Show do
       <!-- Input -->
       <div style="flex-shrink:0;padding:0.75rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface)">
         <div style="max-width:48rem;margin:0 auto;width:100%">
-        <form phx-submit="ask" class="flex gap-2">
-          <input
-            type="text"
-            name="question"
-            value={@question}
-            placeholder={if @source_count > 0, do: "Ask a rules question...", else: "Add rulebook text to start asking..."}
-            class="flex-1 border rounded-full px-4 py-2.5 text-sm"
-            style="background:var(--bg);color:var(--text);border-color:var(--border-strong)"
-            disabled={@loading || @source_count == 0}
-            autocomplete="off"
-            autofocus
-          />
-          <button
-            type="submit"
-            disabled={@loading || @source_count == 0}
-            style="background:var(--accent);color:white;border:none;padding:0.5rem 1.25rem;border-radius:2rem;font-weight:600;font-size:0.85rem;cursor:pointer"
-          >
-            {if @loading, do: "...", else: "Send"}
-          </button>
-        </form>
+          <form phx-submit="ask" class="flex gap-2">
+            <input
+              type="text"
+              name="question"
+              value={@question}
+              placeholder={
+                if @source_count > 0,
+                  do: "Ask a rules question...",
+                  else: "Add rulebook text to start asking..."
+              }
+              class="flex-1 border rounded-full px-4 py-2.5 text-sm"
+              style="background:var(--bg);color:var(--text);border-color:var(--border-strong)"
+              disabled={@loading || @source_count == 0}
+              autocomplete="off"
+              autofocus
+            />
+            <button
+              type="submit"
+              disabled={@loading || @source_count == 0}
+              style="background:var(--accent);color:white;border:none;padding:0.5rem 1.25rem;border-radius:2rem;font-weight:600;font-size:0.85rem;cursor:pointer"
+            >
+              {if @loading, do: "...", else: "Send"}
+            </button>
+          </form>
         </div>
       </div>
     </div>
@@ -501,7 +662,9 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp rate_limit_setting(key, default) do
     case RuleMaven.Settings.get(key) do
-      nil -> default
+      nil ->
+        default
+
       val ->
         case Integer.parse(to_string(val)) do
           {n, _} -> n

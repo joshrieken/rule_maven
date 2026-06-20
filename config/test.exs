@@ -11,7 +11,8 @@ config :rule_maven, RuleMaven.Repo,
   hostname: "localhost",
   database: "rule_maven_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  pool_size: System.schedulers_online() * 2,
+  types: RuleMaven.PostgresTypes
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
@@ -33,3 +34,6 @@ config :phoenix_live_view,
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# Disable Oban in test — conflicts with Ecto Sandbox
+config :rule_maven, Oban, testing: :manual

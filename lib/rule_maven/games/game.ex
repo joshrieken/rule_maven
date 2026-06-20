@@ -10,7 +10,6 @@ defmodule RuleMaven.Games.Game do
     field :max_players, :integer
     field :playing_time, :integer
     field :image_url, :string
-    field :cheat_pdf_path, :string
 
     timestamps(type: :utc_datetime)
   end
@@ -25,8 +24,7 @@ defmodule RuleMaven.Games.Game do
       :min_players,
       :max_players,
       :playing_time,
-      :image_url,
-      :cheat_pdf_path
+      :image_url
     ])
     |> validate_required([:name])
   end

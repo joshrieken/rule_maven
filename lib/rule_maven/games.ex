@@ -8,196 +8,186 @@ defmodule RuleMaven.Games do
 
   alias RuleMaven.Games.Game
   alias RuleMaven.Games.QuestionLog
-  alias RuleMaven.Games.RulebookSource
+  alias RuleMaven.Games.Document
+  alias RuleMaven.Games.Chunk
+  alias Oban
 
-  @doc """
-  Returns the list of games.
+  # ── Games ──
 
-  ## Examples
+  def list_games, do: Repo.all(Game)
 
-      iex> list_games()
-      [%Game{}, ...]
-
-  """
-  def list_games do
-    Repo.all(Game)
+  def list_games_with_documents do
+    Repo.all(
+      from g in Game,
+        join: d in Document,
+        on: d.game_id == g.id,
+        where: d.status == "published",
+        distinct: true,
+        select: g
+    )
+    |> Enum.sort_by(&String.downcase(&1.name))
   end
 
-  @doc """
-  Gets a single game.
-
-  Raises `Ecto.NoResultsError` if the Game does not exist.
-
-  ## Examples
-
-      iex> get_game!(123)
-      %Game{}
-
-      iex> get_game!(456)
-      ** (Ecto.NoResultsError)
-
-  """
   def get_game!(id), do: Repo.get!(Game, id)
 
-  @doc """
-  Creates a game.
-
-  ## Examples
-
-      iex> create_game(%{field: value})
-      {:ok, %Game{}}
-
-      iex> create_game(%{field: bad_value})
-      {:error, %Ecto.Changeset{}}
-
-  """
   def create_game(attrs) do
     %Game{}
     |> Game.changeset(attrs)
     |> Repo.insert()
   end
 
-  @doc """
-  Updates a game.
-
-  ## Examples
-
-      iex> update_game(game, %{field: new_value})
-      {:ok, %Game{}}
-
-      iex> update_game(game, %{field: bad_value})
-      {:error, %Ecto.Changeset{}}
-
-  """
   def update_game(%Game{} = game, attrs) do
     game
     |> Game.changeset(attrs)
     |> Repo.update()
   end
 
-  @doc """
-  Deletes a game.
-
-  ## Examples
-
-      iex> delete_game(game)
-      {:ok, %Game{}}
-
-      iex> delete_game(game)
-      {:error, %Ecto.Changeset{}}
-
-  """
   def delete_game(%Game{} = game) do
-    Repo.delete_all(from r in RulebookSource, where: r.game_id == ^game.id)
+    Repo.delete_all(from d in Document, where: d.game_id == ^game.id)
     Repo.delete_all(from q in QuestionLog, where: q.game_id == ^game.id)
+    Repo.delete_all(from f in "faq_entries", where: f.game_id == ^game.id)
     Repo.delete(game)
   end
 
-  @doc """
-  Deletes all games and associated data. Returns {count, nil}.
-  """
   def delete_all_games do
-    Repo.delete_all(RulebookSource)
+    Repo.delete_all(Document)
     Repo.delete_all(QuestionLog)
+    Repo.delete_all("faq_entries")
     {count, _} = Repo.delete_all(Game)
     {count, nil}
   end
 
-  @doc """
-  Returns an `%Ecto.Changeset{}` for tracking game changes.
-
-  ## Examples
-
-      iex> change_game(game)
-      %Ecto.Changeset{data: %Game{}}
-
-  """
   def change_game(%Game{} = game, attrs \\ %{}) do
     Game.changeset(game, attrs)
   end
 
-  # --- Rulebook Sources ---
+  # ── Documents ──
 
-  @doc """
-  Returns the list of rulebook sources for a game.
-  """
-  def list_rulebook_sources(%Game{} = game) do
-    Repo.all(from r in RulebookSource, where: r.game_id == ^game.id)
+  def list_documents(%Game{} = game) do
+    Repo.all(from d in Document, where: d.game_id == ^game.id)
   end
 
-  @doc """
-  Creates a rulebook source.
-  """
-  def create_rulebook_source(attrs) do
+  def create_document(attrs) do
+    # Auto-publish if quality looks good
+    status =
+      if RuleMaven.Settings.get("auto_approve_documents") != "false" and
+           quality_ok?(attrs[:full_text] || "") do
+        "published"
+      else
+        "pending_review"
+      end
+
     result =
-      %RulebookSource{}
-      |> RulebookSource.changeset(attrs)
+      %Document{}
+      |> Document.changeset(Map.put(attrs, :status, status))
       |> Repo.insert()
 
     case result do
-      {:ok, source} ->
-        chunk_source(source)
-        {:ok, source}
+      {:ok, doc} ->
+        chunk_document(doc)
+
+        # Enqueue cheatsheet generation (skip in test)
+        unless testing?() do
+          %{document_id: doc.id}
+          |> RuleMaven.Workers.CheatSheetWorker.new()
+          |> Oban.insert()
+        end
+
+        {:ok, doc}
 
       error ->
         error
     end
   end
 
-  @doc """
-  Deletes a rulebook source.
-  """
-  def delete_rulebook_source(%RulebookSource{} = source) do
-    Repo.delete(source)
+  defp quality_ok?(text) do
+    stripped = String.trim(text)
+
+    # Too short = garbage
+    if String.length(stripped) < 500 do
+      false
+    else
+      # Check ratio of dictionary-like words
+      words = String.split(stripped, ~r/\s+/)
+      total = length(words)
+
+      if total == 0 do
+        false
+      else
+        # Words that look like English: contain at least one vowel
+        valid =
+          Enum.count(words, fn w ->
+            String.match?(String.downcase(w), ~r/[aeiou]/) and
+              String.length(w) >= 2
+          end)
+
+        ratio = valid / total
+        ratio >= 0.7
+      end
+    end
   end
 
-  @doc """
-  Returns the full concatenated rulebook text for a game.
-  """
-  def rulebook_text(%Game{} = game) do
+  defp testing? do
+    Application.get_env(:rule_maven, Oban)[:testing] == :manual
+  end
+
+  def get_document!(id), do: Repo.get!(Document, id)
+
+  def update_document(%Document{} = doc, attrs) do
+    doc
+    |> Document.changeset(attrs)
+    |> Repo.update()
+  end
+
+  def delete_document(%Document{} = doc) do
+    Repo.delete_all(from c in Chunk, where: c.document_id == ^doc.id)
+    Repo.delete(doc)
+  end
+
+  def document_full_text(%Game{} = game) do
     game
-    |> list_rulebook_sources()
+    |> list_documents()
     |> Enum.map_join("\n\n", & &1.full_text)
   end
 
-  # --- Question Log ---
+  # Backward compat aliases
+  defdelegate list_rulebook_sources(game), to: __MODULE__, as: :list_documents
+  defdelegate create_rulebook_source(attrs), to: __MODULE__, as: :create_document
+  defdelegate delete_rulebook_source(doc), to: __MODULE__, as: :delete_document
+  defdelegate rulebook_text(game), to: __MODULE__, as: :document_full_text
 
-  @doc """
-  Logs a question and answer.
-  """
+  # ── Question Log ──
+
   def log_question(attrs) do
     %QuestionLog{}
     |> QuestionLog.changeset(attrs)
     |> Repo.insert()
   end
 
-  @doc """
-  Returns the count of questions logged for a game.
-  """
+  def log_question_update(%QuestionLog{} = q, attrs) do
+    q
+    |> QuestionLog.changeset(attrs)
+    |> Repo.update()
+  end
+
   def question_count(%Game{} = game) do
     Repo.aggregate(from(q in QuestionLog, where: q.game_id == ^game.id), :count)
   end
 
-  @doc """
-  Returns the count of questions asked by a user since a given datetime.
-  """
   def recent_question_count(user_id, since) do
     Repo.aggregate(
-      from(q in QuestionLog, where: q.user_id == ^user_id and q.inserted_at >= ^since),
+      from(q in QuestionLog,
+        where: q.user_id == ^user_id and q.inserted_at >= ^since
+      ),
       :count
     )
   end
 
-  @doc """
-  Returns recent questions grouped by question text, with the pinned one
-  first (or most recent if none pinned).
-  """
   def grouped_questions(%Game{} = game) do
     game
     |> recent_questions(100)
     |> Enum.group_by(&String.downcase(String.trim(&1.question)))
     |> Enum.map(fn {_key, entries} ->
-      # Sort: pinned first, then by most recent
       sorted =
         entries
         |> Enum.sort(fn a, b ->
@@ -215,14 +205,13 @@ defmodule RuleMaven.Games do
     |> Enum.sort_by(& &1.primary.inserted_at, {:desc, DateTime})
   end
 
-  @doc """
-  Pins a question log entry and unpins others with the same question.
-  """
   def pin_question(%QuestionLog{} = q) do
-    # Unpin all with same question
     Repo.update_all(
       from(ql in QuestionLog,
-        where: ql.game_id == ^q.game_id and ql.question == ^q.question and ql.pinned == true
+        where:
+          ql.game_id == ^q.game_id and
+            ql.question == ^q.question and
+            ql.pinned == true
       ),
       set: [pinned: false]
     )
@@ -230,16 +219,8 @@ defmodule RuleMaven.Games do
     Repo.update(QuestionLog.changeset(q, %{pinned: true}))
   end
 
-  @doc """
-  Deletes a single question log entry.
-  """
-  def delete_question(%QuestionLog{} = q) do
-    Repo.delete(q)
-  end
+  def delete_question(%QuestionLog{} = q), do: Repo.delete(q)
 
-  @doc """
-  Returns the recent questions for a game.
-  """
   def recent_questions(%Game{} = game, limit \\ 20) do
     Repo.all(
       from q in QuestionLog,
@@ -249,55 +230,91 @@ defmodule RuleMaven.Games do
     )
   end
 
-  @doc """
-  Deletes all question logs for a game. Returns `{count, nil}` where count
-  is the number of deleted records.
-  """
   def delete_all_questions(%Game{} = game) do
     {count, _} =
-      Repo.delete_all(
-        from q in QuestionLog,
-          where: q.game_id == ^game.id
-      )
+      Repo.delete_all(from q in QuestionLog, where: q.game_id == ^game.id)
 
     {count, nil}
   end
 
-  # --- Rulebook Chunks (RAG) ---
+  # ── Chunking (RAG) ──
 
-  alias RuleMaven.Games.RulebookChunk
+  def chunk_document(%Document{} = doc) do
+    Repo.delete_all(from c in Chunk, where: c.document_id == ^doc.id)
 
-  @doc """
-  Chunks the full_text of a source into ~500 token sections and stores them.
-  Deletes old chunks for this source first.
-  """
-  def chunk_source(%RulebookSource{} = source) do
-    Repo.delete_all(from c in RulebookChunk, where: c.source_id == ^source.id)
+    chunks =
+      doc.full_text
+      |> split_into_chunks(500)
+      |> Enum.with_index()
 
-    source.full_text
-    |> split_into_chunks(500)
-    |> Enum.with_index()
-    |> Enum.each(fn {chunk, idx} ->
-      %RulebookChunk{}
-      |> RulebookChunk.changeset(%{
-        game_id: source.game_id,
-        source_id: source.id,
+    # Insert all chunks (embeddings generated async via Oban)
+    Enum.each(chunks, fn {text, idx} ->
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
         chunk_index: idx,
-        content: chunk
+        content: text
       })
       |> Repo.insert!()
     end)
+
+    # Enqueue embedding generation as Oban job (skip in test)
+    unless testing?() do
+      %{document_id: doc.id}
+      |> RuleMaven.Workers.EmbedChunksWorker.new()
+      |> Oban.insert()
+    end
   end
 
-  @doc """
-  Retrieves top-N most relevant chunks for a question using keyword overlap.
-  """
+  # Backward compat alias
+  defdelegate chunk_source(source), to: __MODULE__, as: :chunk_document
+
   def retrieve_chunks(%Game{} = game, question, limit \\ 6) do
-    chunks = Repo.all(from c in RulebookChunk, where: c.game_id == ^game.id)
+    # Try semantic retrieval via pgvector
+    case RuleMaven.Embed.embed(question) do
+      {:ok, question_vec} ->
+        chunks =
+          Repo.all(
+            from c in Chunk,
+              join: d in Document,
+              on: c.document_id == d.id,
+              where:
+                d.game_id == ^game.id and d.status == "published" and
+                  not is_nil(c.embedding),
+              order_by:
+                fragment(
+                  "cosine_distance(?, ?::vector)",
+                  c.embedding,
+                  ^Pgvector.new(question_vec)
+                ),
+              limit: ^limit,
+              select: %{content: c.content}
+          )
+
+        if chunks == [] do
+          [{nil, document_full_text(game)}]
+        else
+          Enum.map(chunks, &{nil, &1.content})
+        end
+
+      {:error, _} ->
+        # Fallback to keyword overlap
+        keyword_retrieve(game, question, limit)
+    end
+  end
+
+  defp keyword_retrieve(game, question, limit) do
+    chunks =
+      Repo.all(
+        from c in Chunk,
+          join: d in Document,
+          on: c.document_id == d.id,
+          where: d.game_id == ^game.id and d.status == "published",
+          select: %{content: c.content}
+      )
 
     if chunks == [] do
-      # Fallback: return full rulebook text as single chunk
-      [{nil, rulebook_text(game)}]
+      [{nil, document_full_text(game)}]
     else
       question_words = tokenize(question)
 
@@ -310,11 +327,13 @@ defmodule RuleMaven.Games do
       |> Enum.take(limit)
       |> Enum.reject(fn {score, _} -> score == 0 end)
       |> case do
-        [] -> [{nil, rulebook_text(game)}]
+        [] -> [{nil, document_full_text(game)}]
         results -> results
       end
     end
   end
+
+  # ── Chunk helpers ──
 
   defp split_into_chunks(text, target_words) do
     paragraphs = String.split(text, ~r{\n\s*\n})
@@ -338,7 +357,8 @@ defmodule RuleMaven.Games do
   defp word_count(text), do: text |> String.split(~r/\s+/) |> length()
 
   defp tokenize(text) do
-    stop_words = ~w(the a an and or but in on at to for of with by from is are was were be been being have has had do does did will would can could should may might i you he she it we they me him her us them my your his its our their this that these those)
+    stop_words =
+      ~w(the a an and or but in on at to for of with by from is are was were be been being have has had do does did will would can could should may might i you he she it we they me him her us them my your his its our their this that these those)
 
     text
     |> String.downcase()
@@ -351,8 +371,15 @@ defmodule RuleMaven.Games do
   defp relevance_score(chunk_text, question_words) do
     chunk_words = tokenize(chunk_text)
     overlap = Enum.count(question_words, &(&1 in chunk_words))
-    # Bonus for exact phrase matches
-    phrase_bonus = if String.contains?(String.downcase(chunk_text), String.downcase(Enum.join(question_words, " "))), do: 5, else: 0
+
+    phrase_bonus =
+      if String.contains?(
+           String.downcase(chunk_text),
+           String.downcase(Enum.join(question_words, " "))
+         ),
+         do: 5,
+         else: 0
+
     overlap + phrase_bonus
   end
 end

@@ -188,3 +188,24 @@ implemented two reasonable ways with different tradeoffs
 sync vs. async), say so and ask rather than silently picking
 one. Surface the tradeoff in a sentence or two — don't just
 guess and move on.
+
+## LiveView — Stale UI After DB Update
+
+**Problem:** `handle_event` updates DB, assigns same value to socket, UI doesn't update until manual refresh.
+
+**Root cause:** LiveView skips re-render when assign value hasn't changed (`assign(socket, foo: true)` when `foo` was already `true`).
+
+**Fix pattern:** Add a `refresh` counter to socket assigns. Increment on every action that changes DB state. The changing counter value forces LiveView to re-render the entire template.
+
+```elixir
+# In mount:
+assign(socket, refresh: 0)
+
+# In every handler that modifies DB state:
+refresh = socket.assigns.refresh + 1
+{:noreply, assign(socket, refresh: refresh, ...)}
+```
+
+**Do NOT use `push_patch` or `push_navigate` to self — that restarts the LiveView, loses state, and adds latency. The counter pattern is zero-cost.
+
+**CRITICAL: Put the refresh attribute on an always-present element** — never inside a conditional block (`if`, `for`, `else`). If the conditional removes the element from the DOM, the refresh reference is lost and LiveView stops re-rendering that section. Always put `data-refresh={@counter}` on the outermost wrapper div that always exists (even if hidden with `display:none`).

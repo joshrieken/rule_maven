@@ -1,17 +1,92 @@
 defmodule RuleMaven.CheatSheet do
   @moduledoc """
-  Generates a cheat-sheet PDF from rulebook text using the LLM
-  for content and Puppeteer for PDF rendering.
+  Generates cheat sheet content from rulebook text using the LLM.
+  Serves as HTML via browser.
   """
 
-  alias RuleMaven.{Games, Settings}
+  alias RuleMaven.{Games, Repo, Settings}
+  import Ecto.Query
+
+  # ── Cheatsheet version management ──
+
+  @doc """
+  Saves a cheatsheet version for a document. Sets it active if first.
+  """
+  def save_version(document_id, content, level \\ "compact") do
+    # If this is the first version, mark it active
+    active =
+      Repo.aggregate(
+        from(v in RuleMaven.CheatSheet.CheatSheetVersion,
+          where: v.document_id == ^document_id
+        ),
+        :count
+      ) == 0
+
+    %RuleMaven.CheatSheet.CheatSheetVersion{}
+    |> RuleMaven.CheatSheet.CheatSheetVersion.changeset(%{
+      document_id: document_id,
+      content: content,
+      level: level,
+      active: active
+    })
+    |> Repo.insert()
+  end
+
+  @doc """
+  Returns all versions for a document, newest first.
+  """
+  def list_versions(document_id) do
+    Repo.all(
+      from v in RuleMaven.CheatSheet.CheatSheetVersion,
+        where: v.document_id == ^document_id,
+        order_by: [desc: v.inserted_at]
+    )
+  end
+
+  @doc """
+  Gets the active version for a document, or nil.
+  """
+  def active_version(document_id) do
+    Repo.one(
+      from v in RuleMaven.CheatSheet.CheatSheetVersion,
+        where: v.document_id == ^document_id and v.active == true
+    )
+  end
+
+  @doc """
+  Gets a specific version by ID.
+  """
+  def get_version!(id) do
+    Repo.get!(RuleMaven.CheatSheet.CheatSheetVersion, id)
+  end
+
+  @doc """
+  Sets one version as active, deactivates all others for this document.
+  """
+  def set_active(%RuleMaven.CheatSheet.CheatSheetVersion{} = version) do
+    Repo.update_all(
+      from(v in RuleMaven.CheatSheet.CheatSheetVersion,
+        where: v.document_id == ^version.document_id
+      ),
+      set: [active: false]
+    )
+
+    Repo.update(RuleMaven.CheatSheet.CheatSheetVersion.changeset(version, %{active: true}))
+  end
+
+  @doc """
+  Deletes a version.
+  """
+  def delete_version(%RuleMaven.CheatSheet.CheatSheetVersion{} = version) do
+    Repo.delete(version)
+  end
 
   @doc """
   Starts async cheat sheet generation in a background Task.
   Stores progress in Settings so it survives page refresh.
   Sends {:cheat_done, game_id} to caller when complete.
   """
-  def generate_async(game, caller_pid) do
+  def generate_async(game, caller_pid, level \\ "compact") do
     game_id = game.id
     started = System.system_time(:second)
 
@@ -22,11 +97,12 @@ defmodule RuleMaven.CheatSheet do
     Settings.put("cheat_cancelled_#{game_id}", "false")
     Settings.put("cheat_provider_#{game_id}", RuleMaven.LLM.provider())
     Settings.put("cheat_model_#{game_id}", RuleMaven.LLM.model())
+    Settings.put("cheat_level_#{game_id}", level)
 
     Task.start(fn ->
       result =
         try do
-          generate_content(game)
+          generate_content(game, level)
         rescue
           e ->
             {:error, "Unexpected error: #{Exception.message(e)}"}
@@ -95,11 +171,20 @@ defmodule RuleMaven.CheatSheet do
   end
 
   @doc """
+  Returns stored cheat level, or nil.
+  """
+  def stored_level(game_id) do
+    Settings.get("cheat_level_#{game_id}")
+  end
+
+  @doc """
   Returns stored elapsed seconds, or nil.
   """
   def stored_elapsed(game_id) do
     case Settings.get("cheat_elapsed_#{game_id}") do
-      nil -> nil
+      nil ->
+        nil
+
       val ->
         case Integer.parse(val) do
           {n, _} -> n
@@ -113,7 +198,9 @@ defmodule RuleMaven.CheatSheet do
   """
   def stored_started(game_id) do
     case Settings.get("cheat_started_#{game_id}") do
-      nil -> nil
+      nil ->
+        nil
+
       val ->
         case Integer.parse(val) do
           {n, _} -> n
@@ -137,6 +224,7 @@ defmodule RuleMaven.CheatSheet do
     Settings.put("cheat_content_#{game_id}", nil)
     Settings.put("cheat_error_#{game_id}", nil)
     Settings.put("cheat_started_#{game_id}", nil)
+    Settings.put("cheat_level_#{game_id}", nil)
     Settings.put("cheat_cancelled_#{game_id}", "true")
   end
 
@@ -144,7 +232,7 @@ defmodule RuleMaven.CheatSheet do
   Generates cheat sheet markdown content from rulebook text.
   Returns `{:ok, markdown}` or `{:error, reason}`.
   """
-  def generate_content(game) do
+  def generate_content(game, level \\ "compact") do
     full_text = Games.rulebook_text(game)
 
     if String.trim(full_text) == "" do
@@ -153,7 +241,7 @@ defmodule RuleMaven.CheatSheet do
       annotated = annotate_pages(full_text)
 
       with {:ok, compressed} <- compress_text(game.name, annotated),
-           {:ok, content} <- generate_cheat_sheet_content(game.name, compressed) do
+           {:ok, content} <- generate_cheat_sheet_content(game.name, compressed, level) do
         {:ok, content}
       end
     end
@@ -176,25 +264,10 @@ defmodule RuleMaven.CheatSheet do
   end
 
   @doc """
-  Renders markdown content to a PDF and saves it to the game record.
-  Returns `{:ok, pdf_path}` or `{:error, reason}`.
+  Wraps cheatsheet markdown in HTML for browser viewing.
   """
-  def generate_pdf(game, markdown) do
-    with {:ok, html} <- wrap_html(game.name, markdown),
-         {:ok, pdf_path} <- html_to_pdf(game, html) do
-      Games.update_game(game, %{cheat_pdf_path: pdf_path})
-      {:ok, pdf_path}
-    end
-  end
-
-  @doc """
-  Full pipeline: generate content + render PDF. Convenience.
-  """
-  def generate(game) do
-    with {:ok, content} <- generate_content(game),
-         {:ok, pdf_path} <- generate_pdf(game, content) do
-      {:ok, pdf_path}
-    end
+  def wrap_html_for_serve(game_name, markdown) do
+    {:ok, wrap_html(game_name, markdown)}
   end
 
   # If text is under ~12k chars, no compression needed.
@@ -203,90 +276,356 @@ defmodule RuleMaven.CheatSheet do
     if String.length(full_text) < 12_000 do
       {:ok, full_text}
     else
-      system = "You are a rulebook editor. Extract ALL mechanical rules completely. Strip only flavor text and examples. Preserve [Page N] markers. Do not omit any rule."
+      system =
+        "You are a rulebook compressor. Extract only mechanical rules. Strip ALL flavor, examples, setup narrative, component descriptions. Keep only the rules themselves."
 
       prompt = """
-      Extract ALL mechanical rules from this rulebook. Keep every rule, number, and procedure. Remove ONLY: flavor text, lore, narrative examples, component flavor descriptions, and credits. Keep: setup steps, turn order, all phases, every rule, scoring details, win conditions, card counts, component counts, and numeric values. Preserve [Page N] markers.
+      Compress this rulebook. Remove: flavor text, lore, examples, component flavor, setup narrative, credits, table of contents, index. Keep: every mechanical rule, number, procedure, turn order, phase structure, scoring, win condition. Output raw rules only, no commentary.
 
       RULEBOOK:
       #{full_text}
       """
 
-      case RuleMaven.LLM.chat(prompt, game_name, system: system, max_tokens: 8192) do
+      case RuleMaven.LLM.chat(prompt, game_name, system: system, max_tokens: 2048) do
         {:ok, compressed} -> {:ok, compressed}
         {:error, _} -> {:ok, String.slice(full_text, 0, 40_000)}
       end
     end
   end
 
-  defp generate_cheat_sheet_content(game_name, full_text) do
-    system = "You are a board game rules expert. Create complete, accurate cheat sheets from rulebook text. Include EVERY rule. Use markdown. Cite [p.N] for each rule. Be thorough."
+  defp generate_cheat_sheet_content(game_name, full_text, level) do
+    prompt = prompt_for_level(game_name, full_text, level)
+    system = "You are a board game reference writer. Follow the instructions exactly."
 
-    prompt = """
-    Create a complete printable cheat sheet for "#{game_name}" using ALL rules below.
-
-    Include EVERY rule. Nothing omitted. Format as markdown:
-    # {game_name}
-    ## Setup
-    - EVERY setup step: player count, components distributed, starting positions, initial state, first player selection [p.N]
-    ## Turn Structure
-    - EVERY phase in exact order, complete details of each [p.N]
-    ## Key Rules
-    - ALL important rules, restrictions, special cases, edge cases [p.N]
-    ## Scoring / Win Conditions
-    - Complete scoring rules, end-game triggers, tiebreakers [p.N]
-    ## Quick Reference
-    - Table of ALL important numbers: costs, limits, hand size, player counts, durations [p.N]
-
-    Include [p.N] page citations on every bullet. Be COMPLETE, not concise. No introductions.
-
-    RULEBOOK:
-    #{full_text}
-    """
-
-    case RuleMaven.LLM.chat(prompt, game_name, system: system, max_tokens: 8192) do
+    case RuleMaven.LLM.chat(prompt, game_name, system: system, max_tokens: 2048) do
       {:ok, content} -> {:ok, content}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp wrap_html(_game_name, content) do
+  defp prompt_for_level(game_name, full_text, "ultra") do
+    """
+    Create an ultra-compact cheat sheet for "#{game_name}".
+    Max 800 characters. This must fit on one phone screen.
+
+    ## One section: Essentials
+    - Every critical number in **bold** (players, hand size, round count, points)
+    - Turn flow as one compact line: e.g. "1) Draw 2) Play 3) Discard down to 7"
+    - 3-5 easily-forgotten rules and edge cases
+    - Setup: one line. Scoring: one line.
+    - No section headers. No page citations. No fluff.
+    - Use `> ` blockquote for the one most-forgotten rule.
+
+    RULEBOOK:
+    #{full_text}
+    """
+  end
+
+  defp prompt_for_level(game_name, full_text, "full") do
+    """
+    Create a complete cheat sheet for "#{game_name}".
+    Output clean markdown with ## and ### headers. Use `> ` blockquote for
+    critical rules and easily-forgotten edge cases.
+
+    ## Sections:
+    ### Essentials & Easy to Forget
+    Rules players most often miss. One line each. Numbers in **bold**. [p.N]
+
+    ### Numbers at a Glance
+    Table: every number in the game. [p.N]
+
+    ### Turn Structure
+    Each phase in order. [p.N]
+
+    ### Setup
+    Components, starting state, first player. [p.N]
+
+    ### Key Rules
+    All remaining important rules. [p.N]
+
+    ### Scoring
+    Win condition, triggers, tiebreakers. [p.N]
+
+    **Rules:**
+    - Every line gets [p.N] citation.
+    - Be thorough. Include everything.
+
+    RULEBOOK:
+    #{full_text}
+    """
+  end
+
+  defp prompt_for_level(game_name, full_text, "detailed") do
+    """
+    Create a detailed cheat sheet for "#{game_name}".
+    Aim for ~4000 characters. Output clean markdown with ## and ### headers.
+    Use `> ` blockquote for standout rules and important edge cases.
+
+    ## Sections:
+    ### Essentials
+    Rules players most often miss. One line each. Bold numbers.
+
+    ### Numbers
+    Table: key numbers in the game.
+
+    ### Turn Structure
+    Each phase in order. Brief detail per phase.
+
+    ### Setup
+    Components, starting state, first player.
+
+    ### Key Rules
+    Important rules with brief explanations.
+
+    ### Scoring
+    Win condition, triggers, tiebreakers.
+
+    **Rules:**
+    - Include explanations where helpful, not just one-liners.
+    - Use [p.N] for important rules.
+
+    RULEBOOK:
+    #{full_text}
+    """
+  end
+
+  defp prompt_for_level(game_name, full_text, "standard") do
+    """
+    Create a standard cheat sheet for "#{game_name}".
+    Aim for ~2500 characters. Output clean markdown with ## and ### headers.
+    Use `> ` blockquote for the most easily-forgotten or critical rules.
+
+    ## Sections:
+    ### Essentials
+    Rules players most often miss. Brief. Bold numbers.
+
+    ### Numbers
+    Table: key numbers.
+
+    ### Turn Structure
+    Each phase in order.
+
+    ### Setup + Scoring
+    Combined: starting state, first player, win condition.
+
+    ### Key Rules
+    Remaining important rules, concise.
+
+    **Rules:**
+    - More detail than compact, less than full.
+    - Use [p.N] where helpful.
+
+    RULEBOOK:
+    #{full_text}
+    """
+  end
+
+  defp prompt_for_level(game_name, full_text, _level) do
+    """
+    Create a dense, single-column cheat sheet for "#{game_name}".
+    Aim for ~1500 characters max. This is a phone-sized reference card.
+    Output clean markdown with proper ## and ### headers.
+
+    ## Section order:
+
+    ### Essentials
+    Every critical number, limit, and easily-forgotten rule. Combine related
+    rules into single bullets. Group by topic (setup, turns, scoring) rather
+    than separate sections. Bold numbers. No page citations unless the rule
+    is non-obvious. Use `> ` blockquote for standout forgotten rules.
+
+    ### Numbers
+    Compact table: player count, hand size, round count, point thresholds,
+    costs — only the numbers players actually need to reference.
+
+    ### Turn Flow
+    One line per phase. No fluff.
+
+    **Rules:**
+    - Be as dense as you can without losing clarity.
+    - Combine related rules. Don't give each rule its own bullet.
+    - Omit obvious rules.
+    - No introductions, no flavor, no examples.
+
+    RULEBOOK:
+    #{full_text}
+    """
+  end
+
+  defp wrap_html(game_name, content) do
     html = """
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
     <head>
-      <meta charset="utf-8">
-      <style>
-        body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; line-height: 1.4; color: #222; padding: 0.5in; }
-        h1 { font-size: 16pt; margin-bottom: 4pt; border-bottom: 2px solid #333; padding-bottom: 4pt; }
-        h2 { font-size: 12pt; margin-top: 10pt; margin-bottom: 4pt; color: #444; }
-        h3 { font-size: 10pt; margin-top: 8pt; margin-bottom: 2pt; font-weight: bold; }
-        ul { margin: 2pt 0; padding-left: 16pt; }
-        li { margin-bottom: 1pt; }
-        table { border-collapse: collapse; width: 100%; margin: 6pt 0; font-size: 9pt; }
-        th, td { border: 1px solid #999; padding: 3pt 5pt; text-align: left; }
-        th { background: #eee; font-weight: bold; }
-        strong { color: #111; }
-        p { margin: 3pt 0; }
-      </style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>#{escape_html(game_name)} — Cheat Sheet</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+        color: #1a1a2e;
+        background: #f8f9fb;
+        padding: 24px 20px 60px;
+        max-width: 780px;
+        margin: 0 auto;
+      }
+      .sheet {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+        padding: 32px 36px;
+      }
+      .sheet-header {
+        border-bottom: 3px solid #2563eb;
+        padding-bottom: 12px;
+        margin-bottom: 24px;
+      }
+      .sheet-header h1 {
+        font-size: 22px;
+        font-weight: 700;
+        color: #111827;
+        letter-spacing: -0.3px;
+      }
+      .sheet-header .subtitle {
+        font-size: 12px;
+        color: #6b7280;
+        margin-top: 4px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      h2 {
+        font-size: 16px;
+        font-weight: 700;
+        color: #1e40af;
+        margin: 28px 0 10px 0;
+        padding: 6px 0 6px 12px;
+        border-left: 4px solid #2563eb;
+        background: #eff6ff;
+        border-radius: 0 6px 6px 0;
+      }
+      h2:first-of-type { margin-top: 0; }
+      h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #374151;
+        margin: 18px 0 6px 0;
+        padding-left: 8px;
+        border-left: 3px solid #93c5fd;
+      }
+      p { margin: 6px 0; color: #374151; }
+      strong { color: #111827; }
+      ul, ol { margin: 6px 0 6px 20px; }
+      li { margin-bottom: 3px; color: #374151; }
+      li:last-child { margin-bottom: 0; }
+      blockquote {
+        margin: 12px 0;
+        padding: 10px 14px;
+        background: #fffbeb;
+        border-left: 4px solid #f59e0b;
+        border-radius: 0 6px 6px 0;
+        font-size: 13px;
+        color: #92400e;
+      }
+      blockquote p { color: inherit; margin: 0; }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 12px 0;
+        font-size: 13px;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 0 0 1px #e5e7eb;
+      }
+      thead { background: #f3f4f6; }
+      th {
+        padding: 9px 12px;
+        text-align: left;
+        font-weight: 600;
+        color: #374151;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 2px solid #d1d5db;
+      }
+      td {
+        padding: 8px 12px;
+        border-bottom: 1px solid #f3f4f6;
+        color: #4b5563;
+      }
+      tr:last-child td { border-bottom: none; }
+      tbody tr:nth-child(even) { background: #f9fafb; }
+      code {
+        background: #f3f4f6;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 12px;
+        font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+        color: #d97706;
+      }
+      .footer {
+        margin-top: 32px;
+        padding-top: 12px;
+        border-top: 1px solid #e5e7eb;
+        font-size: 11px;
+        color: #9ca3af;
+        text-align: center;
+      }
+
+      @media (max-width: 600px) {
+        body { padding: 12px 8px 40px; }
+        .sheet { padding: 20px 16px; border-radius: 8px; }
+        h2 { font-size: 15px; }
+        table { font-size: 11px; }
+        th, td { padding: 6px 8px; }
+      }
+      @media print {
+        body { background: #fff; padding: 0; font-size: 11px; }
+        .sheet { box-shadow: none; border-radius: 0; padding: 16px 0; }
+        h2 { font-size: 13px; background: none; border-left: 2px solid #333; padding-left: 8px; }
+        table { font-size: 10px; box-shadow: none; border: 1px solid #ccc; }
+        th, td { padding: 4px 6px; }
+      }
+    </style>
     </head>
     <body>
+    <div class="sheet">
+      <div class="sheet-header">
+        <h1>#{escape_html(game_name)}</h1>
+        <div class="subtitle">Rules Reference</div>
+      </div>
       #{markdown_to_html(content)}
+    </div>
     </body>
     </html>
     """
 
-    {:ok, html}
+    html
+  end
+
+  defp escape_html(str) do
+    str
+    |> String.replace("&", "&amp;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
+    |> String.replace("\"", "&quot;")
   end
 
   defp markdown_to_html(md) do
     md
+    |> convert_tables()
     |> String.replace(~r/^### (.+)$/m, "<h3>\\1</h3>")
     |> String.replace(~r/^## (.+)$/m, "<h2>\\1</h2>")
     |> String.replace(~r/^# (.+)$/m, "<h1>\\1</h1>")
     |> String.replace(~r/\*\*(.+?)\*\*/, "<strong>\\1</strong>")
     |> String.replace(~r/\*(.+?)\*/, "<em>\\1</em>")
+    |> String.replace(~r/`([^`]+)`/, "<code>\\1</code>")
+    |> String.replace(~r/^> (.+)$/m, "<blockquote><p>\\1</p></blockquote>")
     |> String.replace(~r/^- (.+)$/m, "<li>\\1</li>")
+    |> String.replace(~r/^\d+\.\s+(.+)$/m, "<li>\\1</li>")
     |> wrap_lists()
     |> String.replace(~r/\n{2,}/, "</p>\n<p>")
     |> then(&"<p>#{&1}</p>")
@@ -295,45 +634,73 @@ defmodule RuleMaven.CheatSheet do
     |> String.replace(~r{<br>\s*<br>}, "<br>")
   end
 
+  defp convert_tables(md) do
+    lines = String.split(md, "\n")
+
+    {result, _state} =
+      Enum.reduce(lines, {[], :none}, fn line, {acc, state} ->
+        trimmed = String.trim(line)
+
+        cond do
+          String.match?(trimmed, ~r/^\|[-:\s|]+\|$/) ->
+            {["</thead><tbody>" | acc], :tbody}
+
+          String.match?(trimmed, ~r/^\|.+\|$/) ->
+            case state do
+              :none ->
+                cells = parse_table_row(trimmed)
+
+                row =
+                  "<thead><tr>#{Enum.map_join(cells, "", &"<th>#{&1}</th>")}</tr></thead>"
+
+                {[row | acc], :thead}
+
+              _ ->
+                cells = parse_table_row(trimmed)
+                row = "<tr>#{Enum.map_join(cells, "", &"<td>#{&1}</td>")}</tr>"
+                {[row | acc], :tbody}
+            end
+
+          state in [:thead, :tbody] ->
+            {["</tbody></table>", line | acc], :none}
+
+          true ->
+            {[line | acc], :none}
+        end
+      end)
+
+    # Close trailing table if last line was a table row
+    {result, _} =
+      case List.first(result) do
+        nil ->
+          {result, :none}
+
+        line ->
+          if String.contains?(line, "<tr>") and
+               not String.contains?(line, "</table>") do
+            {[line <> "</tbody></table>" | tl(result)], :none}
+          else
+            {result, :none}
+          end
+      end
+
+    result
+    |> Enum.reverse()
+    |> Enum.map_join("\n", fn
+      "<thead>" <> _ = line -> "<table>\n#{line}"
+      line -> line
+    end)
+  end
+
+  defp parse_table_row(line) do
+    line
+    |> String.trim("|")
+    |> String.split("|")
+    |> Enum.map(&String.trim/1)
+  end
+
   defp wrap_lists(html) do
     html
     |> String.replace(~r/((?:^<li>.*<\/li>\n?)+)/m, "<ul>\n\\1</ul>\n")
-  end
-
-  defp html_to_pdf(game, html) do
-    tmp_dir = Application.app_dir(:rule_maven, "tmp")
-    File.mkdir_p!(tmp_dir)
-
-    html_path = Path.join(tmp_dir, "#{System.system_time(:millisecond)}_cheat.html")
-    File.write!(html_path, html)
-
-    upload_dir = Application.app_dir(:rule_maven, "priv/static/uploads/rulebooks")
-    File.mkdir_p!(upload_dir)
-
-    filename = "#{System.system_time(:millisecond)}_cheatsheet_#{slug(game.name)}.pdf"
-    pdf_path = Path.join("uploads/rulebooks", filename)
-    dest = Application.app_dir(:rule_maven, "priv/static/#{pdf_path}")
-
-    script = Application.app_dir(:rule_maven, "priv/scripts/html2pdf.js")
-
-    case System.cmd("node", [script, html_path, dest], stderr_to_stdout: true) do
-      {_output, 0} ->
-        File.rm(html_path)
-        {:ok, pdf_path}
-
-      {output, exit_code} ->
-        File.rm(html_path)
-        {:error, "Puppeteer failed (exit #{exit_code}): #{String.slice(output, 0, 200)}"}
-    end
-  rescue
-    e ->
-      {:error, "PDF generation error: #{Exception.message(e)}"}
-  end
-
-  defp slug(name) do
-    name
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/, "-")
-    |> String.trim("-")
   end
 end

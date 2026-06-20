@@ -5,7 +5,13 @@ defmodule RuleMavenWeb.GameLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    games = Games.list_games() |> Enum.sort_by(&String.downcase(&1.name))
+    games =
+      if RuleMaven.Users.game_master?(socket.assigns.current_user) do
+        Games.list_games()
+      else
+        Games.list_games_with_documents()
+      end
+      |> Enum.sort_by(&String.downcase(&1.name))
 
     {:ok,
      assign(socket,
@@ -18,7 +24,9 @@ defmodule RuleMavenWeb.GameLive.Index do
        refresh_log: [],
        delete_id: nil,
        page: 1,
-       per_page: 20
+       per_page: 20,
+       selected_idx: -1,
+       display_count: 20
      )}
   end
 
@@ -80,7 +88,7 @@ defmodule RuleMavenWeb.GameLive.Index do
 
     case Games.delete_game(game) do
       {:ok, _} ->
-        games = Games.list_games() |> Enum.sort_by(&String.downcase(&1.name))
+        games = load_games(socket)
 
         {:noreply,
          socket
@@ -95,25 +103,77 @@ defmodule RuleMavenWeb.GameLive.Index do
   end
 
   @impl true
+  def handle_event("go_to_game", %{"id" => id}, socket) do
+    {:noreply, push_navigate(socket, to: ~p"/games/#{id}")}
+  end
+
+  @impl true
+  def handle_event("key_nav", %{"key" => key}, socket) do
+    visible = visible_games(socket.assigns)
+
+    case key do
+      "ArrowDown" ->
+        next = min(socket.assigns.selected_idx + 1, length(visible) - 1)
+
+        {:noreply,
+         assign(socket, selected_idx: next) |> push_event("scroll_to_game", %{idx: next})}
+
+      "ArrowUp" ->
+        prev = max(socket.assigns.selected_idx - 1, 0)
+
+        {:noreply,
+         assign(socket, selected_idx: prev) |> push_event("scroll_to_game", %{idx: prev})}
+
+      "unselect" ->
+        {:noreply, assign(socket, selected_idx: -1)}
+
+      "Enter" ->
+        idx = socket.assigns.selected_idx
+
+        if idx >= 0 && idx < length(visible) do
+          game = Enum.at(visible, idx)
+          {:noreply, push_navigate(socket, to: ~p"/games/#{game.id}")}
+        else
+          {:noreply, socket}
+        end
+
+      "e" ->
+        if RuleMaven.Users.game_master?(socket.assigns.current_user) do
+          idx = socket.assigns.selected_idx
+
+          if idx >= 0 && idx < length(visible) do
+            game = Enum.at(visible, idx)
+            {:noreply, push_navigate(socket, to: ~p"/games/#{game.id}/edit")}
+          else
+            {:noreply, socket}
+          end
+        else
+          {:noreply, socket}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("key_nav", _params, socket), do: {:noreply, socket}
+
+  @impl true
   def handle_event("search", %{"search" => text}, socket) do
-    {:noreply, assign(socket, search: text, page: 1)}
+    {:noreply, assign(socket, search: text, display_count: 20, selected_idx: -1)}
   end
 
   @impl true
   def handle_event("clear_search", _, socket) do
-    {:noreply, socket |> assign(search: "", page: 1) |> push_event("refocus", %{})}
+    {:noreply,
+     socket
+     |> assign(search: "", display_count: 20, selected_idx: -1)
+     |> push_event("refocus", %{})}
   end
 
   @impl true
-  def handle_event("page", %{"n" => n_str}, socket) do
-    {n, _} = Integer.parse(n_str)
-    {:noreply, assign(socket, page: n)}
-  end
-
-  @impl true
-  def handle_event("per_page", %{"n" => n_str}, socket) do
-    {n, _} = Integer.parse(n_str)
-    {:noreply, assign(socket, per_page: n, page: 1)}
+  def handle_event("load_more", _params, socket) do
+    {:noreply, assign(socket, display_count: socket.assigns.display_count + 20)}
   end
 
   @impl true
@@ -124,6 +184,20 @@ defmodule RuleMavenWeb.GameLive.Index do
      socket
      |> assign(games: [], confirm_clear: false, confirm_text: "", search: "")
      |> put_flash(:info, "Cleared #{count} game(s).")}
+  end
+
+  defp visible_games(assigns) do
+    filtered = filtered_games(assigns.games, assigns.search)
+    Enum.take(filtered, assigns.display_count)
+  end
+
+  defp load_games(socket) do
+    if RuleMaven.Users.game_master?(socket.assigns.current_user) do
+      Games.list_games()
+    else
+      Games.list_games_with_documents()
+    end
+    |> Enum.sort_by(&String.downcase(&1.name))
   end
 
   @impl true
@@ -141,7 +215,7 @@ defmodule RuleMavenWeb.GameLive.Index do
 
   @impl true
   def handle_info({:refresh_complete}, socket) do
-    games = Games.list_games() |> Enum.sort_by(&String.downcase(&1.name))
+    games = load_games(socket)
 
     {:noreply,
      socket
@@ -157,24 +231,6 @@ defmodule RuleMavenWeb.GameLive.Index do
     Enum.filter(games, fn g ->
       String.contains?(String.downcase(g.name), search)
     end)
-  end
-
-  defp page_numbers(current, total) do
-    # Show: first, last, current ± 2, with ellipses
-    range = (current - 2)..(current + 2)
-
-    pages =
-      1..total
-      |> Enum.filter(fn p -> p == 1 or p == total or p in range end)
-
-    pages
-    |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.flat_map(fn
-      [a, b] when b - a > 1 -> [a, :ellipsis]
-      [a] -> [a]
-      [a, _] -> [a]
-    end)
-    |> Enum.uniq()
   end
 
   @impl true
@@ -271,24 +327,25 @@ defmodule RuleMavenWeb.GameLive.Index do
       <% end %>
 
       <% filtered = filtered_games(@games, @search) %>
-      <% total_pages = max(1, ceil(length(filtered) / @per_page)) %>
-      <% page_games = filtered |> Enum.drop((@page - 1) * @per_page) |> Enum.take(@per_page) %>
+      <% display_games = visible_games(assigns) %>
 
-      {pagination_bar(
-        Map.merge(assigns, %{total_pages: total_pages, pages: page_numbers(@page, total_pages)})
-      )}
-
-      <div class="space-y-3">
-        <%= for game <- page_games do %>
-          <div class="border rounded-lg p-4 flex items-center gap-4 game-card">
+      <div class="space-y-3" id="game-list" phx-hook="GameListScroll">
+        <%= for {game, idx} <- Enum.with_index(display_games) do %>
+          <div
+            id={"game-card-#{idx}"}
+            class="border rounded-lg p-4 flex items-center gap-4 game-card"
+            phx-click="go_to_game"
+            phx-value-id={game.id}
+            style={"cursor:pointer;#{if @selected_idx == idx, do: "outline:2px solid var(--accent);outline-offset:-2px;background:var(--bg-subtle)", else: ""}"}
+          >
             <%= if game.image_url do %>
               <img
                 src={game.image_url}
                 alt={game.name}
-                style="width:60px;height:60px;object-fit:cover;border-radius:0.375rem;flex-shrink:0"
+                style="width:60px;height:60px;object-fit:cover;border-radius:0.375rem;flex-shrink:0;pointer-events:none"
               />
             <% end %>
-            <div class="flex-1 min-w-0">
+            <div class="flex-1 min-w-0" style="pointer-events:none">
               <h2 class="text-lg font-semibold">{game.name}</h2>
               <p class="text-sm text-gray-500">
                 {length(Games.list_rulebook_sources(game))} source(s)
@@ -347,9 +404,18 @@ defmodule RuleMavenWeb.GameLive.Index do
         <% end %>
       </div>
 
-      {pagination_bar(
-        Map.merge(assigns, %{total_pages: total_pages, pages: page_numbers(@page, total_pages)})
-      )}
+      <%!-- Infinite scroll sentinel --%>
+      <div
+        :if={length(display_games) < length(filtered)}
+        id="load-more-sentinel"
+        phx-hook="InfiniteScroll"
+        style="height:1px"
+      >
+      </div>
+
+      <p :if={length(display_games) < length(filtered)} class="text-center text-xs text-gray-400 py-2">
+        Showing {length(display_games)} of {length(filtered)}
+      </p>
 
       <%= if @games == [] do %>
         <div class="text-center py-12 text-gray-500">
@@ -364,83 +430,6 @@ defmodule RuleMavenWeb.GameLive.Index do
         </div>
       <% end %>
     </div>
-    """
-  end
-
-  defp pagination_bar(assigns) do
-    ~H"""
-    <%= if @total_pages > 1 do %>
-      <div class="flex items-center justify-between text-sm mb-3">
-        <span class="text-xs text-gray-400">
-          Showing {(@page - 1) * @per_page + 1}–{min(
-            @page * @per_page,
-            length(filtered_games(@games, @search))
-          )} of {length(filtered_games(@games, @search))}
-          <span class="mx-1">|</span>
-          <select
-            name="per_page"
-            phx-change="per_page"
-            class="border rounded px-1 py-0.5 text-xs bg-white inline"
-            style="width:3rem"
-          >
-            <option value="10" selected={@per_page == 10}>10</option>
-            <option value="20" selected={@per_page == 20}>20</option>
-            <option value="50" selected={@per_page == 50}>50</option>
-            <option value="100" selected={@per_page == 100}>100</option>
-          </select>
-          per page
-        </span>
-        <div class="flex items-center gap-1">
-          <button
-            :if={@page > 1}
-            type="button"
-            phx-click="page"
-            phx-value-n={1}
-            class="px-2 py-1 rounded hover:bg-gray-100 text-gray-500"
-            title="First"
-          >&laquo;</button>
-          <button
-            :if={@page > 1}
-            type="button"
-            phx-click="page"
-            phx-value-n={@page - 1}
-            class="px-2 py-1 rounded hover:bg-gray-100 text-gray-500"
-          >&lsaquo;</button>
-
-          <%= for p <- @pages do %>
-            <%= if p == :ellipsis do %>
-              <span class="px-1 text-gray-300">&hellip;</span>
-            <% else %>
-              <button
-                type="button"
-                phx-click="page"
-                phx-value-n={p}
-                class={"px-2 py-1 rounded text-sm #{if p == @page, do: "bg-accent text-white font-semibold", else: "hover:bg-gray-100 text-gray-600"}"}
-                style={if p == @page, do: "background:var(--accent);color:white;border:none"}
-              >
-                {p}
-              </button>
-            <% end %>
-          <% end %>
-
-          <button
-            :if={@page < @total_pages}
-            type="button"
-            phx-click="page"
-            phx-value-n={@page + 1}
-            class="px-2 py-1 rounded hover:bg-gray-100 text-gray-500"
-          >&rsaquo;</button>
-          <button
-            :if={@page < @total_pages}
-            type="button"
-            phx-click="page"
-            phx-value-n={@total_pages}
-            class="px-2 py-1 rounded hover:bg-gray-100 text-gray-500"
-            title="Last"
-          >&raquo;</button>
-        </div>
-      </div>
-    <% end %>
     """
   end
 end

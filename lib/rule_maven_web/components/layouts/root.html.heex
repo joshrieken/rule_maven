@@ -52,14 +52,26 @@
 
             <%= cond do %>
               <% me && RuleMaven.Users.game_master?(me) -> %>
-                <span class="header-user">{me.username}</span>
-                <span class="header-role-badge header-role-badge-gm">GM</span>
-                <.link href={~p"/settings"} class="header-auth-link">Settings</.link>
-                <.link href={~p"/logout"} class="header-auth-link">Log out</.link>
+                <details id="user-dropdown-gm" class="user-dropdown">
+                  <summary class="user-dropdown-toggle">
+                    <span class="header-user">{me.username}</span>
+                    <span class="header-role-badge header-role-badge-gm">GM</span>
+                  </summary>
+                  <div class="user-dropdown-menu">
+                    <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>
+                    <.link href={~p"/logout"} class="user-dropdown-link">Log out</.link>
+                  </div>
+                </details>
               <% me -> %>
-                <span class="header-user">{me.username}</span>
-                <span class="header-role-badge header-role-badge-player">Player</span>
-                <.link href={~p"/logout"} class="header-auth-link">Log out</.link>
+                <details id="user-dropdown-player" class="user-dropdown">
+                  <summary class="user-dropdown-toggle">
+                    <span class="header-user">{me.username}</span>
+                    <span class="header-role-badge header-role-badge-player">Player</span>
+                  </summary>
+                  <div class="user-dropdown-menu">
+                    <.link href={~p"/logout"} class="user-dropdown-link">Log out</.link>
+                  </div>
+                </details>
               <% true -> %>
                 <.link href={~p"/login"} class="header-auth-link">Log in</.link>
             <% end %>

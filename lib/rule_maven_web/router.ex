@@ -21,6 +21,8 @@ defmodule RuleMavenWeb.Router do
     get "/login", SessionController, :new
     post "/login", SessionController, :create
     get "/logout", AuthController, :logout
+    get "/games/:id/cheatsheet", CheatSheetController, :show
+    get "/games/:id/cheatsheet/:version_id", CheatSheetController, :show_version
 
     live_session :default, session: {RuleMavenWeb.UserLiveAuth, :get_session, []} do
       live "/", GameLive.Index, :index
@@ -28,7 +30,9 @@ defmodule RuleMavenWeb.Router do
       live "/games/import", GameLive.Import, :index
       live "/games/:id", GameLive.Show, :show
       live "/games/:id/edit", GameLive.Form, :edit
+      live "/games/:id/review", GameLive.Review, :index
       live "/settings", SettingsLive, :index
+      live "/settings/usage", SettingsLive, :usage
     end
   end
 end

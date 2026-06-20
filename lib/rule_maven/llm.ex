@@ -5,10 +5,14 @@ defmodule RuleMaven.LLM do
   Configure via Settings page or env vars.
   """
 
-  @default_url "https://api.groq.com/openai/v1/chat/completions"
-  @default_model "llama3-70b-8192"
+  @default_url "https://openrouter.ai/api/v1/chat/completions"
+  @default_model "google/gemini-2.5-flash"
 
   @providers %{
+    "openrouter" => %{
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      model: "google/gemini-2.5-flash"
+    },
     "groq" => %{
       url: "https://api.groq.com/openai/v1/chat/completions",
       model: "llama-3.3-70b-versatile"
@@ -25,32 +29,89 @@ defmodule RuleMaven.LLM do
 
   @doc """
   Asks a rules question about a game and returns the answer with cited passage.
+  Checks FAQ cache first, falls back to retrieval + LLM on miss.
   """
   def ask(game, question) do
-    # RAG: retrieve only relevant chunks instead of full rulebook
-    chunks = RuleMaven.Games.retrieve_chunks(game, question)
-    context = Enum.map_join(chunks, "\n\n---\n\n", fn {_, text} -> text end)
-    system_prompt = build_system_prompt(game.name, context)
-    provider_name = provider()
-    model_name = model()
+    # Step 0: embed the question (used for FAQ check + logging)
+    question_embedding =
+      case RuleMaven.Embed.embed(question) do
+        {:ok, vec} -> vec
+        {:error, _} -> nil
+      end
 
-    body = %{
-      model: model_name,
-      max_tokens: 1024,
-      messages: [
-        %{role: "system", content: system_prompt},
-        %{role: "user", content: question}
-      ]
-    }
+    # Step 1: check FAQ cache
+    faq_hit =
+      if question_embedding do
+        check_faq_cache(game.id, question_embedding)
+      end
 
-    case do_request(body, 1, operation: "ask", game_id: game.id) do
-      {:ok, %{answer: answer, cited_passage: passage}} ->
-        {:ok,
-         %{answer: answer, cited_passage: passage, provider: provider_name, model: model_name}}
+    if faq_hit do
+      # Instant FAQ answer — no LLM call
+      {:ok,
+       %{
+         answer: faq_hit.canonical_answer,
+         cited_passage: faq_hit.canonical_answer,
+         provider: "faq",
+         model: "cached",
+         faq_hit: true
+       }}
+    else
+      # Step 2: retrieve chunks + call LLM
+      chunks = RuleMaven.Games.retrieve_chunks(game, question)
+      context = Enum.map_join(chunks, "\n\n---\n\n", fn {_, text} -> text end)
+      system_prompt = build_system_prompt(game.name, context)
+      provider_name = provider()
+      model_name = model()
 
-      {:error, reason} ->
-        {:error, reason}
+      body = %{
+        model: model_name,
+        max_tokens: 1024,
+        messages: [
+          %{role: "system", content: system_prompt},
+          %{role: "user", content: question}
+        ]
+      }
+
+      case do_request(body, 1, operation: "ask", game_id: game.id) do
+        {:ok, %{answer: answer, cited_passage: passage}} ->
+          {:ok,
+           %{
+             answer: answer,
+             cited_passage: passage,
+             provider: provider_name,
+             model: model_name,
+             question_embedding: question_embedding,
+             faq_hit: false
+           }}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
+  end
+
+  defp check_faq_cache(game_id, question_embedding) do
+    import Ecto.Query
+
+    threshold =
+      case RuleMaven.Settings.get("faq_similarity_threshold") do
+        nil -> 0.08
+        val -> 1.0 - String.to_float(val)
+      end
+
+    RuleMaven.Repo.one(
+      from f in RuleMaven.Faq.FaqEntry,
+        where:
+          f.game_id == ^game_id and f.status == "published" and
+            not is_nil(f.question_embedding),
+        where:
+          fragment(
+            "cosine_distance(?, ?::vector)",
+            f.question_embedding,
+            ^Pgvector.new(question_embedding)
+          ) <= ^threshold,
+        limit: 1
+    )
   end
 
   @doc """
@@ -89,7 +150,10 @@ defmodule RuleMaven.LLM do
     start = System.monotonic_time(:millisecond)
 
     require Logger
-    Logger.debug("LLM request: url=#{url} model=#{model_name} has_key=#{key != ""} attempt=#{attempt}")
+
+    Logger.debug(
+      "LLM request: url=#{url} model=#{model_name} has_key=#{key != ""} attempt=#{attempt}"
+    )
 
     headers =
       [{"Content-Type", "application/json"}] ++
@@ -133,6 +197,7 @@ defmodule RuleMaven.LLM do
     case body do
       %{"usage" => %{"prompt_tokens" => p, "completion_tokens" => c, "total_tokens" => t}} ->
         %{prompt: p, completion: c, total: t}
+
       _ ->
         nil
     end
@@ -209,7 +274,7 @@ defmodule RuleMaven.LLM do
   end
 
   def provider do
-    RuleMaven.Settings.get("llm_provider") || "groq"
+    RuleMaven.Settings.get("llm_provider") || "openrouter"
   end
 
   def model do
@@ -284,7 +349,7 @@ defmodule RuleMaven.LLM do
   end
 
   defp api_key do
-    provider = RuleMaven.Settings.get("llm_provider") || "groq"
+    provider = RuleMaven.Settings.get("llm_provider") || "openrouter"
 
     RuleMaven.Settings.get("llm_api_key_#{provider}") || RuleMaven.Settings.get("llm_api_key") ||
       ""

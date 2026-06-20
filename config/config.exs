@@ -11,6 +11,8 @@ config :rule_maven,
   ecto_repos: [RuleMaven.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+config :rule_maven, RuleMaven.Repo, types: RuleMaven.PostgresTypes
+
 # Configure the endpoint
 config :rule_maven, RuleMavenWeb.Endpoint,
   url: [host: "localhost"],
@@ -29,6 +31,20 @@ config :logger, :default_formatter,
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
+
+# Configure Oban
+config :rule_maven, Oban,
+  engine: Oban.Engines.Basic,
+  repo: RuleMaven.Repo,
+  plugins: [
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"0 3 * * *", RuleMaven.Workers.FaqClusterWorker},
+       {"0 4 * * *", RuleMaven.Workers.DirectPromotionWorker}
+     ]}
+  ],
+  queues: [default: 5, cheatsheet: 2, clustering: 1]
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

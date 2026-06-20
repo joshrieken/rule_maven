@@ -57,7 +57,9 @@ defmodule RuleMaven.MixProject do
       {:bandit, "~> 1.5"},
       {:req, "~> 0.5"},
       {:bcrypt_elixir, "~> 3.0"},
-      {:sweet_xml, "~> 0.7"}
+      {:sweet_xml, "~> 0.7"},
+      {:pgvector, "~> 0.3"},
+      {:oban, "~> 2.18"}
     ]
   end
 

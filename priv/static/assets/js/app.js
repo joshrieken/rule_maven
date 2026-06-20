@@ -47,8 +47,93 @@ Hooks.ChatScroll = {
 Hooks.Refocus = {
   mounted() {
     this.handleEvent("refocus", () => {
+      this.el.value = "";
       requestAnimationFrame(() => this.el.focus());
     });
+    this.handleEvent("clear_and_refocus", () => {
+      this.el.value = "";
+      requestAnimationFrame(() => this.el.focus());
+    });
+  }
+};
+
+Hooks.GameListScroll = {
+  mounted() {
+    this.handleEvent("scroll_to_game", ({idx}) => {
+      const card = document.getElementById("game-card-" + idx);
+      if (card) {
+        card.scrollIntoView({behavior: "smooth", block: "nearest"});
+      }
+    });
+
+    this._keyHandler = (e) => {
+      // Escape in search input: clear and refocus
+      if (e.key === "Escape") {
+        const searchInput = document.getElementById("game-search");
+        if (searchInput && document.activeElement === searchInput) {
+          searchInput.value = "";
+          searchInput.focus();
+          this.pushEvent("clear_search", {});
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // Down arrow from search input: select first game
+      if (e.key === "ArrowDown") {
+        const searchInput = document.getElementById("game-search");
+        if (searchInput && document.activeElement === searchInput) {
+          searchInput.blur();
+          this.pushEvent("key_nav", {key: "ArrowDown"});
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // Up arrow on first game: refocus search with text selected
+      if (e.key === "ArrowUp") {
+        const firstCard = document.getElementById("game-card-0");
+        if (firstCard && firstCard.style.outline) {
+          const searchInput = document.getElementById("game-search");
+          if (searchInput) {
+            searchInput.focus();
+            searchInput.select();
+            this.pushEvent("key_nav", {key: "unselect"});
+            e.preventDefault();
+            return;
+          }
+        }
+      }
+
+      // Don't intercept when typing in an input
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) {
+        return;
+      }
+
+      const keys = ["ArrowDown", "ArrowUp", "Enter", "e", "E"];
+      if (keys.includes(e.key)) {
+        e.preventDefault();
+        this.pushEvent("key_nav", {key: e.key});
+      }
+    };
+    window.addEventListener("keydown", this._keyHandler);
+  },
+  destroyed() {
+    window.removeEventListener("keydown", this._keyHandler);
+  }
+};
+
+Hooks.InfiniteScroll = {
+  mounted() {
+    this.observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        this.pushEvent("load_more", {});
+      }
+    });
+    this.observer.observe(this.el);
+  },
+  destroyed() {
+    this.observer.disconnect();
   }
 };
 
@@ -78,5 +163,16 @@ if ("serviceWorker" in navigator) {
     if (refreshing) return;
     refreshing = true;
     window.location.reload();
+  });
+
+  // Close all <details> dropdowns on LiveView page transition
+  window.addEventListener("phx:page-loading-stop", () => {
+    document.querySelectorAll("details[open]").forEach(el => el.removeAttribute("open"));
+  });
+  // Also close on back-forward cache restore
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) {
+      document.querySelectorAll("details[open]").forEach(el => el.removeAttribute("open"));
+    }
   });
 }

@@ -32,6 +32,9 @@ defmodule RuleMavenWeb.GameLive.Form do
         cheat_model: nil,
         cheat_elapsed: nil,
         cheat_started_at: nil,
+        cheat_level: "compact",
+        cheat_refresh: 0,
+        tab: "rulebook",
         bgg_search: "",
         bgg_searching: false,
         bgg_search_results: [],
@@ -88,6 +91,7 @@ defmodule RuleMavenWeb.GameLive.Form do
           cheat_model = CheatSheet.stored_model(game.id)
           cheat_elapsed = CheatSheet.stored_elapsed(game.id)
           cheat_started_at = CheatSheet.stored_started(game.id)
+          cheat_level = CheatSheet.stored_level(game.id) || "compact"
           cancelled = CheatSheet.cancelled?(game.id)
 
           {cheat_status, cheat_content, cheat_error} =
@@ -110,13 +114,16 @@ defmodule RuleMavenWeb.GameLive.Form do
               cheat_provider: cheat_provider,
               cheat_model: cheat_model,
               cheat_elapsed: cheat_elapsed,
-              cheat_started_at: cheat_started_at
+              cheat_started_at: cheat_started_at,
+              cheat_level: cheat_level
             )
 
           if cheat_status in ["compressing", "generating"] do
             Process.send_after(self(), :poll_cheat_status, 2000)
           end
 
+          tab = Map.get(params, "tab", "rulebook")
+          socket = assign(socket, tab: tab)
           socket
 
         _ ->
@@ -192,16 +199,32 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   @impl true
-  def handle_event("generate_cheat", _params, socket) do
+  def handle_event("switch_tab", %{"tab" => tab}, socket) do
+    if socket.assigns.game do
+      {:noreply, push_patch(socket, to: ~p"/games/#{socket.assigns.game}/edit?tab=#{tab}")}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("generate_cheat", %{"level" => level}, socket) do
     game = socket.assigns.game
-    CheatSheet.generate_async(game, self())
+    CheatSheet.generate_async(game, self(), level)
     now = System.system_time(:second)
 
     {:noreply,
      socket
-     |> assign(cheat_status: "compressing", cheat_error: nil, cheat_content: nil,
-               cheat_provider: RuleMaven.LLM.provider(), cheat_model: RuleMaven.LLM.model(),
-               cheat_elapsed: 0, cheat_started_at: now)
+     |> assign(
+       cheat_status: "compressing",
+       cheat_error: nil,
+       cheat_content: nil,
+       cheat_provider: RuleMaven.LLM.provider(),
+       cheat_model: RuleMaven.LLM.model(),
+       cheat_elapsed: 0,
+       cheat_started_at: now,
+       cheat_level: level
+     )
      |> then(fn s ->
        Process.send_after(self(), :poll_cheat_status, 2000)
        s
@@ -210,25 +233,38 @@ defmodule RuleMavenWeb.GameLive.Form do
 
   @impl true
   def handle_event("delete_cheat", _params, socket) do
-    {:noreply, assign(socket, confirm_delete_cheat: true)}
+    game = socket.assigns.game
+    docs = Games.list_documents(game)
+
+    if docs != [] do
+      doc_id = hd(docs).id
+      CheatSheet.list_versions(doc_id) |> Enum.each(&CheatSheet.delete_version/1)
+    end
+
+    CheatSheet.clear(game.id)
+
+    {:noreply,
+     socket
+     |> assign(cheat_content: nil, cheat_error: nil, cheat_status: nil, cheat_started_at: nil)
+     |> put_flash(:info, "All cheat sheet versions deleted.")}
   end
 
   @impl true
   def handle_event("confirm_delete_cheat", _params, socket) do
     game = socket.assigns.game
+    docs = Games.list_documents(game)
 
-    if game.cheat_pdf_path do
-      dest = Application.app_dir(:rule_maven, "priv/static/#{game.cheat_pdf_path}")
-      File.rm(dest)
+    if docs != [] do
+      doc_id = hd(docs).id
+      CheatSheet.list_versions(doc_id) |> Enum.each(&CheatSheet.delete_version/1)
     end
 
-    {:ok, game} = Games.update_game(game, %{cheat_pdf_path: nil})
     CheatSheet.clear(game.id)
 
     {:noreply,
      socket
-      |> assign(game: game, confirm_delete_cheat: false, cheat_content: nil)
-     |> put_flash(:info, "Cheat sheet deleted.")}
+     |> assign(confirm_delete_cheat: false, cheat_content: nil)
+     |> put_flash(:info, "All cheat sheet versions deleted.")}
   end
 
   @impl true
@@ -239,26 +275,98 @@ defmodule RuleMavenWeb.GameLive.Form do
   @impl true
   def handle_event("cancel_cheat_content", _params, socket) do
     if socket.assigns.game, do: CheatSheet.clear(socket.assigns.game.id)
-    {:noreply, assign(socket, cheat_content: nil, cheat_error: nil, cheat_status: nil, cheat_started_at: nil)}
+
+    {:noreply,
+     assign(socket,
+       cheat_content: nil,
+       cheat_error: nil,
+       cheat_status: nil,
+       cheat_started_at: nil
+     )}
   end
 
   @impl true
-  def handle_event("render_cheat_pdf", %{"content" => content}, socket) do
+  def handle_event("save_cheat", %{"content" => content}, socket) do
     game = socket.assigns.game
-    socket = assign(socket, cheat_status: "rendering", cheat_error: nil)
+    level = socket.assigns.cheat_level || "compact"
+    refresh = socket.assigns.cheat_refresh + 1
+    docs = Games.list_documents(game)
 
-    case CheatSheet.generate_pdf(game, content) do
-      {:ok, _pdf_path} ->
-        game = Games.get_game!(game.id)
-        CheatSheet.clear(game.id)
+    if docs != [] do
+      doc_id = hd(docs).id
 
-        {:noreply,
-         socket
-         |> assign(cheat_status: nil, cheat_content: nil, game: game)
-         |> put_flash(:info, "Cheat sheet PDF generated!")}
+      case CheatSheet.save_version(doc_id, content, level) do
+        {:ok, _version} ->
+          {:noreply,
+           socket
+           |> assign(
+             cheat_content: nil,
+             cheat_error: nil,
+             cheat_status: nil,
+             cheat_started_at: nil,
+             cheat_refresh: refresh
+           )
+           |> put_flash(:info, "Cheat sheet saved!")}
 
-      {:error, reason} ->
-        {:noreply, assign(socket, cheat_status: nil, cheat_error: reason)}
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> assign(cheat_refresh: refresh)
+           |> put_flash(:error, "Failed to save: #{inspect(reason)}")}
+      end
+    else
+      {:noreply,
+       socket
+       |> assign(cheat_refresh: refresh)
+       |> put_flash(:error, "No rulebook document found.")}
+    end
+  end
+
+  @impl true
+  def handle_event("delete_version", %{"id" => id}, socket) do
+    _game = socket.assigns.game
+    refresh = socket.assigns.cheat_refresh + 1
+
+    case Integer.parse(id) do
+      {version_id, _} ->
+        case CheatSheet.get_version!(version_id) do
+          nil ->
+            {:noreply, socket |> put_flash(:error, "Version not found.")}
+
+          version ->
+            CheatSheet.delete_version(version)
+
+            {:noreply,
+             socket |> assign(cheat_refresh: refresh) |> put_flash(:info, "Version deleted.")}
+        end
+
+      :error ->
+        {:noreply, socket |> put_flash(:error, "Invalid version ID.")}
+    end
+  end
+
+  @impl true
+  def handle_event("set_active_version", %{"id" => id}, socket) do
+    _game = socket.assigns.game
+    refresh = socket.assigns.cheat_refresh + 1
+
+    case Integer.parse(id) do
+      {version_id, _} ->
+        case CheatSheet.get_version!(version_id) do
+          nil ->
+            {:noreply, socket |> put_flash(:error, "Version not found.")}
+
+          version ->
+            CheatSheet.set_active(version)
+
+            {:noreply,
+             socket
+             |> assign(cheat_refresh: refresh)
+             |> put_flash(:info, "Version set as active.")}
+        end
+
+      :error ->
+        {:noreply, socket |> put_flash(:error, "Invalid version ID.")}
     end
   end
 
@@ -516,10 +624,19 @@ defmodule RuleMavenWeb.GameLive.Form do
 
           {:noreply,
            socket
-           |> assign(cheat_status: nil, cheat_content: content, cheat_error: nil,
-                     cheat_provider: provider, cheat_model: model, cheat_elapsed: elapsed,
-                     cheat_started_at: nil)
-           |> put_flash(:info, "Content generated! Review and edit below, then click Generate PDF.")}
+           |> assign(
+             cheat_status: nil,
+             cheat_content: content,
+             cheat_error: nil,
+             cheat_provider: provider,
+             cheat_model: model,
+             cheat_elapsed: elapsed,
+             cheat_started_at: nil
+           )
+           |> put_flash(
+             :info,
+             "Content generated! Review and edit below, then click Save Cheat Sheet."
+           )}
 
         "error" ->
           error = CheatSheet.stored_error(game.id)
@@ -535,10 +652,22 @@ defmodule RuleMavenWeb.GameLive.Form do
 
           if stuck? do
             CheatSheet.clear(game.id)
-            {:noreply, assign(socket, cheat_status: nil, cheat_error: "Generation timed out after 10 minutes. Try again.")}
+
+            {:noreply,
+             assign(socket,
+               cheat_status: nil,
+               cheat_error: "Generation timed out after 10 minutes. Try again."
+             )}
           else
             Process.send_after(self(), :poll_cheat_status, 2000)
-            {:noreply, assign(socket, cheat_status: status, cheat_provider: provider, cheat_model: model, cheat_elapsed: elapsed)}
+
+            {:noreply,
+             assign(socket,
+               cheat_status: status,
+               cheat_provider: provider,
+               cheat_model: model,
+               cheat_elapsed: elapsed
+             )}
           end
 
         _ ->
@@ -631,8 +760,8 @@ defmodule RuleMavenWeb.GameLive.Form do
          |> put_flash(:info, "Info pulled from BGG!")}
 
       {:error, _} ->
-    {:noreply, socket}
-  end
+        {:noreply, socket}
+    end
   end
 
   defp resolve_bgg_cookies do
@@ -887,444 +1016,591 @@ defmodule RuleMavenWeb.GameLive.Form do
         <% end %>
       </h1>
 
-      <div class="edit-layout" style="display:flex;gap:2rem;align-items:flex-start">
-        <div style="flex:1;min-width:0">
-          <!-- BGG Search Results Preview -->
-          <%= if @game_changeset && @game_changeset.data.bgg_id do %>
-            <div class="flex gap-3 items-center mb-4 p-3 border rounded-lg bg-gray-50">
-              <%= if @game_changeset.data.image_url do %>
-                <img
-                  src={@game_changeset.data.image_url}
-                  alt=""
-                  style="width:80px;height:80px;object-fit:cover;border-radius:0.375rem;flex-shrink:0"
-                />
-              <% end %>
-              <div>
-                <p class="font-semibold">{@game_changeset.data.name}</p>
-                <p class="text-xs text-gray-500">
-                  <%= if @game_changeset.data.year_published do %>
-                    {@game_changeset.data.year_published}
-                  <% end %>
-                  <%= if @game_changeset.data.min_players do %>
-                    &middot; {@game_changeset.data.min_players}-{@game_changeset.data.max_players}p
-                  <% end %>
-                  <%= if @game_changeset.data.playing_time do %>
-                    &middot; ~{@game_changeset.data.playing_time}m
-                  <% end %>
-                </p>
-                <p class="text-xs text-gray-400 mt-0.5">BGG ID: {@game_changeset.data.bgg_id}</p>
-              </div>
-            </div>
-          <% end %>
+      <!-- Tabs -->
+      <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:1rem">
+        <button
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="rulebook"
+          style={"cursor:pointer;padding:0.35rem 0.75rem;font-size:0.8rem;font-weight:600;border:none;border-bottom:2px solid #{if @tab == "rulebook", do: "var(--blue)", else: "transparent"};color:#{if @tab == "rulebook", do: "var(--blue)", else: "var(--text-muted)"};background:#{if @tab == "rulebook", do: "var(--bg-subtle)", else: "transparent"};border-radius:0.25rem 0.25rem 0 0"}
+        >
+          Rulebook
+        </button>
+        <button
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="cheatsheet"
+          style={"cursor:pointer;padding:0.35rem 0.75rem;font-size:0.8rem;font-weight:600;border:none;border-bottom:2px solid #{if @tab == "cheatsheet", do: "var(--blue)", else: "transparent"};color:#{if @tab == "cheatsheet", do: "var(--blue)", else: "var(--text-muted)"};background:#{if @tab == "cheatsheet", do: "var(--bg-subtle)", else: "transparent"};border-radius:0.25rem 0.25rem 0 0"}
+        >
+          Cheatsheet
+        </button>
+      </div>
 
-          <!-- Search BGG to auto-fill -->
-          <div class="border rounded-lg p-3 mb-4">
-            <label class="block text-xs font-medium mb-1 text-gray-500">
-              Find on BGG to auto-fill
-            </label>
-            <form phx-submit="bgg_search" class="flex gap-2">
-              <input
-                type="text"
-                name="search"
-                value={@bgg_search}
-                placeholder="Search BGG by game name..."
-                class="flex-1 border rounded px-3 py-2 text-sm"
-                autocomplete="off"
-              />
-              <button
-                type="submit"
-                disabled={@bgg_searching}
-                style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer;white-space:nowrap"
-              >
-                Search
-              </button>
-            </form>
-
-            <%= if @bgg_searching do %>
-              <p class="text-xs text-gray-400 mt-1">Searching...</p>
-            <% end %>
-
-            <%= if @bgg_search_error do %>
-              <p class="text-xs text-red-500 mt-1">{@bgg_search_error}</p>
-            <% end %>
-
-            <%= if @bgg_search_results != [] do %>
-              <div class="mt-2 border rounded max-h-40 overflow-y-auto">
-                <%= for result <- @bgg_search_results |> Enum.take(10) do %>
-                  <button
-                    type="button"
-                    phx-click="bgg_select"
-                    phx-value-id={result.bgg_id}
-                    phx-value-name={result.name}
-                    class="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 border-b last:border-b-0"
-                  >
-                    <span class="font-medium">{result.name}</span>
-                    <span :if={result.year} class="text-gray-400 ml-2">({result.year})</span>
-                  </button>
+      <!-- Rulebook panel -->
+      <div
+        style={"display:#{if @tab == "rulebook", do: "block", else: "none"}"}
+        data-refresh={@cheat_refresh}
+      >
+        <div class="edit-layout" style="display:flex;gap:2rem;align-items:flex-start">
+          <div style="flex:1;min-width:0">
+            <!-- BGG Search Results Preview -->
+            <%= if @game_changeset && @game_changeset.data.bgg_id do %>
+              <div class="flex gap-3 items-center mb-4 p-3 border rounded-lg bg-gray-50">
+                <%= if @game_changeset.data.image_url do %>
+                  <img
+                    src={@game_changeset.data.image_url}
+                    alt=""
+                    style="width:80px;height:80px;object-fit:cover;border-radius:0.375rem;flex-shrink:0"
+                  />
                 <% end %>
+                <div>
+                  <p class="font-semibold">{@game_changeset.data.name}</p>
+                  <p class="text-xs text-gray-500">
+                    <%= if @game_changeset.data.year_published do %>
+                      {@game_changeset.data.year_published}
+                    <% end %>
+                    <%= if @game_changeset.data.min_players do %>
+                      &middot; {@game_changeset.data.min_players}-{@game_changeset.data.max_players}p
+                    <% end %>
+                    <%= if @game_changeset.data.playing_time do %>
+                      &middot; ~{@game_changeset.data.playing_time}m
+                    <% end %>
+                  </p>
+                  <p class="text-xs text-gray-400 mt-0.5">BGG ID: {@game_changeset.data.bgg_id}</p>
+                </div>
               </div>
             <% end %>
-          </div>
 
-          <.form
-            for={@game_changeset}
-            id="game-form"
-            phx-change="validate"
-            phx-submit="save"
-            class="space-y-6"
-          >
-            <div>
-              <label for="game_name" class="block text-sm font-medium mb-1">Game Name</label>
-              <input
-                type="text"
-                name="game[name]"
-                id="game_name"
-                value={@game_changeset.data.name}
-                class="w-full border rounded px-3 py-2"
-                required
-              />
-            </div>
-
-            <div>
-              <label for="game_bgg_id" class="block text-sm font-medium mb-1">
-                BGG ID <span class="text-gray-400">(optional)</span>
+            <!-- Search BGG to auto-fill -->
+            <div class="border rounded-lg p-3 mb-4">
+              <label class="block text-xs font-medium mb-1 text-gray-500">
+                Find on BGG to auto-fill
               </label>
-              <input
-                type="number"
-                name="game[bgg_id]"
-                id="game_bgg_id"
-                value={@game_changeset.data.bgg_id}
-                class="w-full border rounded px-3 py-2"
-              />
-            </div>
+              <form phx-submit="bgg_search" class="flex gap-2">
+                <input
+                  type="text"
+                  name="search"
+                  value={@bgg_search}
+                  placeholder="Search BGG by game name..."
+                  class="flex-1 border rounded px-3 py-2 text-sm"
+                  autocomplete="off"
+                />
+                <button
+                  type="submit"
+                  disabled={@bgg_searching}
+                  style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer;white-space:nowrap"
+                >
+                  Search
+                </button>
+              </form>
 
-            <div class="space-y-4">
-              <h2 class="text-lg font-semibold">Rulebook Sources</h2>
+              <%= if @bgg_searching do %>
+                <p class="text-xs text-gray-400 mt-1">Searching...</p>
+              <% end %>
 
-              <%= for entry <- @source_entries do %>
-                <div class="border rounded p-4">
-                  <div class="flex gap-2 items-start">
-                    <div class="flex-1">
-                      <label class="block text-sm font-medium mb-1">Label</label>
-                      <input
-                        type="text"
-                        name={"label_#{entry.id}"}
-                        value={entry.label}
-                        placeholder="e.g. Core Rulebook"
-                        class="w-full border rounded px-3 py-2"
-                      />
-                    </div>
-                    <div class="flex-1">
-                      <label class="block text-sm font-medium mb-1">Text</label>
-                      <textarea
-                        name={"text_#{entry.id}"}
-                        rows="8"
-                        class="w-full border rounded px-3 py-2 font-mono text-xs"
-                        placeholder="Paste rulebook text here..."
-                      ><%= entry.text %></textarea>
-                    </div>
-                    <div class="flex flex-col gap-1">
-                      <button
-                        :if={length(@source_entries) > 1}
-                        type="button"
-                        phx-click="remove_source"
-                        phx-value-id={entry.id}
-                        class="btn-remove-source"
-                      >
-                        ✕
-                      </button>
-                      <button
-                        :if={entry[:source_id]}
-                        type="button"
-                        phx-click="delete_source"
-                        phx-value-source_id={entry.source_id}
-                        style="color:#dc2626;background:none;border:none;font-size:0.75rem;cursor:pointer;white-space:nowrap;margin-top:0.25rem"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                  <%= if entry[:pdf_path] do %>
-                    <div class="mt-2 flex gap-3">
-                      <.link
-                        href={"/#{entry.pdf_path}"}
-                        target="_blank"
-                        class="text-blue-600 hover:underline text-xs"
-                      >
-                        View PDF
-                      </.link>
-                      <%= if entry[:html_path] do %>
-                        <.link
-                          href={"/#{entry.html_path}"}
-                          target="_blank"
-                          class="text-green-600 hover:underline text-xs"
-                        >
-                          View as HTML
-                        </.link>
-                      <% end %>
-                    </div>
+              <%= if @bgg_search_error do %>
+                <p class="text-xs text-red-500 mt-1">{@bgg_search_error}</p>
+              <% end %>
+
+              <%= if @bgg_search_results != [] do %>
+                <div class="mt-2 border rounded max-h-40 overflow-y-auto">
+                  <%= for result <- @bgg_search_results |> Enum.take(10) do %>
+                    <button
+                      type="button"
+                      phx-click="bgg_select"
+                      phx-value-id={result.bgg_id}
+                      phx-value-name={result.name}
+                      class="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 border-b last:border-b-0"
+                    >
+                      <span class="font-medium">{result.name}</span>
+                      <span :if={result.year} class="text-gray-400 ml-2">({result.year})</span>
+                    </button>
                   <% end %>
                 </div>
               <% end %>
-
-              <button
-                type="button"
-                phx-click="add_source"
-                class="btn-add-source"
-              >
-                + Add manual rules entry
-              </button>
             </div>
 
-            <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-              <label class="block text-sm font-medium mb-2">Or upload PDF rulebooks</label>
-              <.live_file_input upload={@uploads.rulebook_pdfs} class="block mx-auto text-sm" />
-              <%= for entry <- @uploads.rulebook_pdfs.entries do %>
-                <p class="text-xs text-gray-500 mt-1">{entry.client_name} ({entry.progress}%)</p>
-              <% end %>
-            </div>
-
-            <div class="flex gap-3">
-              <.button variant="primary" type="submit">Save</.button>
-              <.button variant="secondary" navigate={~p"/"}>Cancel</.button>
-            </div>
-          </.form>
-        </div>
-
-        <!-- Right column: side panels -->
-        <div style="width:340px;flex-shrink:0">
-          <!-- Download rulebook from URL (edit mode only) -->
-          <%= if @game do %>
-            <div class="border rounded-lg p-4 mb-4">
-              <h2 class="text-lg font-semibold mb-3">Download rulebook from URL</h2>
-
-              <div class="flex gap-2 mb-3">
-                <button
-                  type="button"
-                  phx-click="find_download"
-                  disabled={@downloading}
-                  style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
-                >
-                  Find &amp; Download
-                </button>
-
-                <%= if @game.bgg_id do %>
-                  <button
-                    type="button"
-                    phx-click="search_bgg"
-                    disabled={@searching}
-                    style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
-                  >
-                    {if @searching, do: "Searching BGG...", else: "Find on BGG"}
-                  </button>
-                <% end %>
+            <.form
+              for={@game_changeset}
+              id="game-form"
+              phx-change="validate"
+              phx-submit="save"
+              class="space-y-6"
+            >
+              <div>
+                <label for="game_name" class="block text-sm font-medium mb-1">Game Name</label>
+                <input
+                  type="text"
+                  name="game[name]"
+                  id="game_name"
+                  value={@game_changeset.data.name}
+                  class="w-full border rounded px-3 py-2"
+                  required
+                />
               </div>
 
-              <%= if @game.bgg_id do %>
-                <%= if @search_error do %>
-                  <p class="text-sm text-red-500 mb-2">{@search_error}</p>
-                  <p class="text-xs text-gray-400 mb-2">
-                    Try the{" "}
-                    <.link
-                      href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}/files"}
-                      target="_blank"
-                      rel="noopener"
-                      class="text-blue-500 hover:underline"
-                    >
-                      BGG files page
-                    </.link>
-                    {" "}to find rulebooks manually.
-                  </p>
-                <% end %>
+              <div>
+                <label for="game_bgg_id" class="block text-sm font-medium mb-1">
+                  BGG ID <span class="text-gray-400">(optional)</span>
+                </label>
+                <input
+                  type="number"
+                  name="game[bgg_id]"
+                  id="game_bgg_id"
+                  value={@game_changeset.data.bgg_id}
+                  class="w-full border rounded px-3 py-2"
+                />
+              </div>
 
-                <%= if @bgg_results != [] do %>
-                  <div class="border rounded p-2 mb-3 max-h-48 overflow-y-auto space-y-1">
-                    <%= for result <- @bgg_results do %>
-                      <div class="flex items-center justify-between text-xs p-1 hover:bg-gray-50 rounded">
-                        <span class="truncate">{result.label}</span>
+              <div class="space-y-4">
+                <h2 class="text-lg font-semibold">Rulebook Sources</h2>
+
+                <%= for entry <- @source_entries do %>
+                  <div class="border rounded p-4">
+                    <div class="flex gap-2 items-start">
+                      <div class="flex-1">
+                        <label class="block text-sm font-medium mb-1">Label</label>
+                        <input
+                          type="text"
+                          name={"label_#{entry.id}"}
+                          value={entry.label}
+                          placeholder="e.g. Core Rulebook"
+                          class="w-full border rounded px-3 py-2"
+                        />
+                      </div>
+                      <div class="flex-1">
+                        <label class="block text-sm font-medium mb-1">Text</label>
+                        <textarea
+                          name={"text_#{entry.id}"}
+                          rows="8"
+                          class="w-full border rounded px-3 py-2 font-mono text-xs"
+                          placeholder="Paste rulebook text here..."
+                        ><%= entry.text %></textarea>
+                      </div>
+                      <div class="flex flex-col gap-1">
                         <button
+                          :if={length(@source_entries) > 1}
                           type="button"
-                          phx-click="search_download"
-                          phx-value-url={result.url}
-                          phx-value-label={result.label}
-                          disabled={@downloading}
-                          style="color:var(--accent);border:none;background:none;font-size:0.75rem;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:0.5rem"
+                          phx-click="remove_source"
+                          phx-value-id={entry.id}
+                          class="btn-remove-source"
                         >
-                          Download
+                          ✕
                         </button>
+                        <button
+                          :if={entry[:source_id]}
+                          type="button"
+                          phx-click="delete_source"
+                          phx-value-source_id={entry.source_id}
+                          style="color:#dc2626;background:none;border:none;font-size:0.75rem;cursor:pointer;white-space:nowrap;margin-top:0.25rem"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    <%= if entry[:pdf_path] do %>
+                      <div class="mt-2 flex gap-3">
+                        <.link
+                          href={"/#{entry.pdf_path}"}
+                          target="_blank"
+                          class="text-blue-600 hover:underline text-xs"
+                        >
+                          View PDF
+                        </.link>
+                        <%= if entry[:html_path] do %>
+                          <.link
+                            href={"/#{entry.html_path}"}
+                            target="_blank"
+                            class="text-green-600 hover:underline text-xs"
+                          >
+                            View as HTML
+                          </.link>
+                        <% end %>
                       </div>
                     <% end %>
                   </div>
                 <% end %>
-              <% end %>
-
-              <form phx-submit="download" class="space-y-2">
-                <div>
-                  <label class="block text-xs font-medium mb-1 text-gray-500">PDF URL</label>
-                  <input
-                    type="text"
-                    name="url"
-                    value={@download_url}
-                    placeholder="https://example.com/rulebook.pdf"
-                    class="w-full border rounded px-3 py-2 text-sm"
-                    disabled={@downloading}
-                  />
-                </div>
-                <div>
-                  <label class="block text-xs font-medium mb-1 text-gray-500">Label (optional)</label>
-                  <input
-                    type="text"
-                    name="label"
-                    value={@download_label}
-                    placeholder="e.g. Core Rulebook"
-                    class="w-full border rounded px-3 py-2 text-sm"
-                    disabled={@downloading}
-                  />
-                </div>
 
                 <button
-                  type="submit"
-                  disabled={@downloading}
-                  style="background:var(--accent);color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
+                  type="button"
+                  phx-click="add_source"
+                  class="btn-add-source"
                 >
-                  {if @downloading, do: "Downloading...", else: "Download & Extract"}
+                  + Add manual rules entry
                 </button>
-              </form>
+              </div>
 
-              <%= if @download_ok do %>
-                <p class="text-sm mt-2" style="color:#166534">
-                  Downloaded!{" "}
-                  <.link href={"/#{@download_ok}"} target="_blank" class="underline font-semibold">
-                    View PDF
-                  </.link>
-                  {" "}or go to the{" "}
-                  <.link navigate={~p"/games/#{@game.id}"} class="underline font-semibold">
+              <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                <label class="block text-sm font-medium mb-2">Or upload PDF rulebooks</label>
+                <.live_file_input upload={@uploads.rulebook_pdfs} class="block mx-auto text-sm" />
+                <%= for entry <- @uploads.rulebook_pdfs.entries do %>
+                  <p class="text-xs text-gray-500 mt-1">{entry.client_name} ({entry.progress}%)</p>
+                <% end %>
+              </div>
+
+              <div class="flex gap-3">
+                <.button variant="primary" type="submit">Save</.button>
+                <.button variant="secondary" navigate={~p"/"}>Cancel</.button>
+              </div>
+            </.form>
+          </div>
+
+          <!-- Right column: side panels -->
+          <div style="width:340px;flex-shrink:0">
+            <!-- Download rulebook from URL (edit mode only) -->
+            <%= if @game do %>
+              <div class="border rounded-lg p-4 mb-4">
+                <h2 class="text-lg font-semibold mb-3">Download rulebook from URL</h2>
+
+                <div class="flex gap-2 mb-3">
+                  <button
+                    type="button"
+                    phx-click="find_download"
+                    disabled={@downloading}
+                    style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                  >
+                    Find &amp; Download
+                  </button>
+
+                  <%= if @game.bgg_id do %>
+                    <button
+                      type="button"
+                      phx-click="search_bgg"
+                      disabled={@searching}
+                      style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                    >
+                      {if @searching, do: "Searching BGG...", else: "Find on BGG"}
+                    </button>
+                  <% end %>
+                </div>
+
+                <%= if @game.bgg_id do %>
+                  <%= if @search_error do %>
+                    <p class="text-sm text-red-500 mb-2">{@search_error}</p>
+                    <p class="text-xs text-gray-400 mb-2">
+                      Try the{" "}
+                      <.link
+                        href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}/files"}
+                        target="_blank"
+                        rel="noopener"
+                        class="text-blue-500 hover:underline"
+                      >
+                        BGG files page
+                      </.link>
+                      {" "}to find rulebooks manually.
+                    </p>
+                  <% end %>
+
+                  <%= if @bgg_results != [] do %>
+                    <div class="border rounded p-2 mb-3 max-h-48 overflow-y-auto space-y-1">
+                      <%= for result <- @bgg_results do %>
+                        <div class="flex items-center justify-between text-xs p-1 hover:bg-gray-50 rounded">
+                          <span class="truncate">{result.label}</span>
+                          <button
+                            type="button"
+                            phx-click="search_download"
+                            phx-value-url={result.url}
+                            phx-value-label={result.label}
+                            disabled={@downloading}
+                            style="color:var(--accent);border:none;background:none;font-size:0.75rem;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:0.5rem"
+                          >
+                            Download
+                          </button>
+                        </div>
+                      <% end %>
+                    </div>
+                  <% end %>
+                <% end %>
+
+                <form phx-submit="download" class="space-y-2">
+                  <div>
+                    <label class="block text-xs font-medium mb-1 text-gray-500">PDF URL</label>
+                    <input
+                      type="text"
+                      name="url"
+                      value={@download_url}
+                      placeholder="https://example.com/rulebook.pdf"
+                      class="w-full border rounded px-3 py-2 text-sm"
+                      disabled={@downloading}
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium mb-1 text-gray-500">Label (optional)</label>
+                    <input
+                      type="text"
+                      name="label"
+                      value={@download_label}
+                      placeholder="e.g. Core Rulebook"
+                      class="w-full border rounded px-3 py-2 text-sm"
+                      disabled={@downloading}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={@downloading}
+                    style="background:var(--accent);color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
+                  >
+                    {if @downloading, do: "Downloading...", else: "Download & Extract"}
+                  </button>
+                </form>
+
+                <%= if @download_ok do %>
+                  <p class="text-sm mt-2" style="color:#166534">
+                    Downloaded!{" "}
+                    <.link href={"/#{@download_ok}"} target="_blank" class="underline font-semibold">
+                      View PDF
+                    </.link>
+                    {" "}or go to the{" "}
+                    <.link navigate={~p"/games/#{@game.id}"} class="underline font-semibold">
                 Ask page
               </.link>.
-                </p>
-              <% end %>
-
-              <%= if @download_error do %>
-                <p class="text-sm text-red-500 mt-2">{@download_error}</p>
-              <% end %>
-            </div>
-          <% end %>
-
-          <!-- Cheat Sheet (edit mode only) -->
-          <%= if @game do %>
-            <div class="mt-6 border rounded-lg p-4">
-              <h2 class="text-sm font-semibold mb-2">Cheat Sheet</h2>
-
-              <%= if @cheat_status do %>
-                <div class="flex items-center gap-3 mb-1">
-                  <p class="text-xs text-gray-500">
-                    {if @cheat_status == "compressing", do: "Compressing rulebook text...", else: "Generating cheat sheet content..."}
                   </p>
-                  <button type="button" phx-click="cancel_cheat_content" style="color:#dc2626;background:none;border:none;font-size:0.7rem;font-weight:600;cursor:pointer">Cancel</button>
-                </div>
-                <p class="text-xs text-gray-400 mb-2">
-                  {@cheat_provider} &middot; {@cheat_model}
-                  <%= if @cheat_elapsed do %> &middot; {format_elapsed(@cheat_elapsed)}<% end %>
-                </p>
-                <div class="w-full rounded-full mb-2" style="height:6px;background:var(--border)">
-                  <div class="rounded-full animate-pulse" style="width:100%;height:6px;background:var(--accent)"></div>
-                </div>
-              <% end %>
+                <% end %>
 
-              <%= if @cheat_content do %>
-                <p class="text-xs text-gray-400 mb-1">
-                  Generated with {@cheat_provider} &middot; {@cheat_model}
-                  <%= if @cheat_elapsed, do: "in #{format_elapsed(@cheat_elapsed)}" %>
-                </p>
-                <p class="text-xs text-gray-500 mb-2">Review and edit the generated markdown, then create the PDF.</p>
-                <form id="cheat-pdf-form" phx-submit="render_cheat_pdf">
-                  <textarea name="content" rows="16" class="w-full border rounded px-3 py-2 font-mono text-xs mb-2"><%= @cheat_content %></textarea>
+                <%= if @download_error do %>
+                  <p class="text-sm text-red-500 mt-2">{@download_error}</p>
+                <% end %>
+              </div>
+            <% end %>
+
+            <!-- Clear Questions (edit mode only) -->
+            <%= if @game && @question_count > 0 do %>
+              <div class="mt-6 border border-red-200 rounded-lg p-4">
+                <h2 class="text-sm font-semibold mb-2" style="color:#dc2626">Danger Zone</h2>
+
+                <%= if not @confirm_clear do %>
+                  <p class="text-xs text-gray-500 mb-2">
+                    Clear all questions and answers logged for this game.
+                  </p>
+                  <button
+                    type="button"
+                    phx-click="confirm_clear"
+                    style="background:#dc2626;color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                  >
+                    Clear All Questions
+                  </button>
+                <% else %>
+                  <p class="text-sm font-medium mb-2" style="color:#dc2626">
+                    Are you sure? This cannot be undone.
+                  </p>
                   <div class="flex gap-2">
-                    <button type="submit" disabled={@cheat_status != nil} style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">
-                      {if @cheat_status, do: "Rendering...", else: "Generate PDF"}
+                    <button
+                      type="button"
+                      phx-click="clear_questions"
+                      style="background:#dc2626;color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                    >
+                      Yes, clear all
                     </button>
-                    <button type="button" phx-click="cancel_cheat_content" style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">
+                    <button
+                      type="button"
+                      phx-click="cancel_clear"
+                      style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                    >
                       Cancel
                     </button>
                   </div>
-                </form>
-              <% else %>
-                <%= if @game.cheat_pdf_path do %>
-                  <div class="flex items-center gap-3">
-                    <.link href={"/#{@game.cheat_pdf_path}"} target="_blank" class="text-blue-600 hover:underline text-sm font-semibold">
-                      Download current cheat sheet
-                    </.link>
-                    <span class="text-xs text-gray-400">|</span>
-                    <button type="button" phx-click="generate_cheat" disabled={@cheat_status != nil} style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">
-                      {if @cheat_status, do: "Generating...", else: "Regenerate"}
-                    </button>
-                    <span class="text-xs text-gray-400">|</span>
-                    <%= if @confirm_delete_cheat do %>
-                      <span class="text-xs" style="color:#dc2626">Delete?</span>
-                      <button type="button" phx-click="confirm_delete_cheat" style="color:#dc2626;background:none;border:none;font-size:0.75rem;font-weight:600;cursor:pointer">Yes</button>
-                      <button type="button" phx-click="cancel_delete_cheat" style="color:var(--text-secondary);background:none;border:none;font-size:0.75rem;cursor:pointer">No</button>
-                    <% else %>
-                      <button type="button" phx-click="delete_cheat" style="color:#dc2626;background:none;border:none;font-size:0.75rem;font-weight:600;cursor:pointer">Delete</button>
-                    <% end %>
-                  </div>
-                <% else %>
-                  <%= if Enum.any?(@source_entries, &(&1[:source_id] || String.trim(&1.text || "") != "")) do %>
-                    <p class="text-xs text-gray-500 mb-2">Generate cheat sheet content from your rulebook text. Review and edit before creating the PDF.</p>
-                    <button type="button" phx-click="generate_cheat" disabled={@cheat_status != nil} style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">
-                      {if @cheat_status, do: "Generating...", else: "Generate Cheat Sheet"}
-                    </button>
-                  <% else %>
-                    <p class="text-xs text-gray-400">Add rulebook text or upload a PDF first, then generate a cheat sheet.</p>
-                  <% end %>
                 <% end %>
-              <% end %>
+              </div>
+            <% end %>
+          </div>
+        </div>
+      </div>
 
-              <%= if @cheat_error do %>
-                <p class="text-sm text-red-500 mt-2">{@cheat_error}</p>
-              <% end %>
-            </div>
-          <% end %>
+      <!-- Cheatsheet panel -->
+      <div
+        style={"display:#{if @tab == "cheatsheet", do: "block", else: "none"}"}
+        data-refresh={@cheat_refresh}
+      >
+        <!-- Cheat Sheet -->
+        <%= if @game do %>
+          <% doc_id = Games.list_documents(@game) |> Enum.map(& &1.id) |> Enum.at(0) %>
+          <div class="mt-6 border rounded-lg p-4" data-refresh={@cheat_refresh}>
+            <h2 class="text-sm font-semibold mb-2">Cheat Sheet</h2>
 
-          <!-- Clear Questions (edit mode only) -->
-          <%= if @game && @question_count > 0 do %>
-            <div class="mt-6 border border-red-200 rounded-lg p-4">
-              <h2 class="text-sm font-semibold mb-2" style="color:#dc2626">Danger Zone</h2>
-
-              <%= if not @confirm_clear do %>
-                <p class="text-xs text-gray-500 mb-2">
-                  Clear all questions and answers logged for this game.
-                </p>
-                <button
-                  type="button"
-                  phx-click="confirm_clear"
-                  style="background:#dc2626;color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+            <%= if @cheat_status && !@cheat_content do %>
+              <p class="text-xs text-gray-500 mb-1">
+                Generating <strong>{@cheat_level || "compact"}</strong> cheatsheet...
+              </p>
+              <p class="text-xs text-gray-400 mb-2">
+                {@cheat_provider} &middot; {@cheat_model}
+                <%= if @cheat_elapsed && @cheat_elapsed > 0 do %>
+                  &middot; {format_elapsed(@cheat_elapsed)}
+                <% end %>
+              </p>
+              <div class="w-full rounded-full mb-2" style="height:6px;background:var(--border)">
+                <div
+                  class="rounded-full animate-pulse"
+                  style="width:100%;height:6px;background:var(--accent)"
                 >
-                  Clear All Questions
-                </button>
-              <% else %>
-                <p class="text-sm font-medium mb-2" style="color:#dc2626">
-                  Are you sure? This cannot be undone.
-                </p>
-                <div class="flex gap-2">
+                </div>
+              </div>
+              <button
+                type="button"
+                phx-click="cancel_cheat_content"
+                class="text-red-500 text-xs font-semibold bg-transparent border-none cursor-pointer"
+              >Cancel</button>
+            <% end %>
+
+            <%= if @cheat_content do %>
+              <p class="text-xs text-gray-400 mb-1">
+                Generated <strong>{@cheat_level || "compact"}</strong>
+                with {@cheat_provider} &middot; {@cheat_model}
+                {if @cheat_elapsed, do: "in #{format_elapsed(@cheat_elapsed)}"}
+              </p>
+              <p class="text-xs text-gray-500 mb-2">Review and edit below, then save.</p>
+              <form id="cheat-save-form" phx-submit="save_cheat">
+                <textarea
+                  name="content"
+                  rows="16"
+                  class="w-full border rounded px-3 py-2 font-mono text-xs mb-2"
+                ><%= @cheat_content %></textarea>
+                <div class="flex gap-2 mb-3">
                   <button
-                    type="button"
-                    phx-click="clear_questions"
-                    style="background:#dc2626;color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                    type="submit"
+                    style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
                   >
-                    Yes, clear all
+                    Save Cheat Sheet
                   </button>
                   <button
                     type="button"
-                    phx-click="cancel_clear"
+                    phx-click="cancel_cheat_content"
                     style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
                   >
                     Cancel
                   </button>
                 </div>
+              </form>
+            <% else %>
+              <%= if !@cheat_status do %>
+                <%= if Enum.any?(@source_entries, &(&1[:source_id] || String.trim(&1.text || "") != "")) do %>
+                  <p class="text-xs text-gray-500 mb-2">
+                    Choose a density level and generate a cheat sheet from your rulebook text.
+                  </p>
+                  <form phx-submit="generate_cheat" class="flex items-center gap-3 mb-3">
+                    <select name="level" class="border rounded px-2 py-1.5 text-xs">
+                      <option value="ultra" selected={@cheat_level == "ultra"}>
+                        Ultra - just the facts
+                      </option>
+                      <option value="compact" selected={@cheat_level == "compact"}>
+                        Compact - key rules
+                      </option>
+                      <option value="standard" selected={@cheat_level == "standard"}>
+                        Standard - balanced
+                      </option>
+                      <option value="detailed" selected={@cheat_level == "detailed"}>
+                        Detailed - thorough
+                      </option>
+                      <option value="full" selected={@cheat_level == "full"}>
+                        Full - everything
+                      </option>
+                    </select>
+                    <button
+                      type="submit"
+                      disabled={@cheat_status != nil}
+                      style="background:var(--accent);color:white;border:none;padding:0.4rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                    >
+                      Generate
+                    </button>
+                  </form>
+                <% else %>
+                  <p class="text-xs text-gray-400 mb-3">
+                    Add rulebook text or upload a PDF first, then generate a cheat sheet.
+                  </p>
+                <% end %>
               <% end %>
-            </div>
-          <% end %>
-        </div>
+            <% end %>
+
+            <% active = doc_id && CheatSheet.active_version(doc_id) %>
+            <%= if active do %>
+              <div class="flex items-center gap-3 mb-3">
+                <.link
+                  href={"/games/#{@game.id}/cheatsheet"}
+                  target="_blank"
+                  class="text-blue-600 hover:underline text-sm font-semibold"
+                >
+                  View active cheat sheet
+                </.link>
+                <span class="text-xs text-gray-400">|</span>
+                <%= if @confirm_delete_cheat do %>
+                  <span class="text-xs text-red-600">Delete all versions?</span>
+                  <button
+                    type="button"
+                    phx-click="confirm_delete_cheat"
+                    class="text-red-600 text-xs font-semibold bg-transparent border-none cursor-pointer"
+                  >Yes</button>
+                  <button
+                    type="button"
+                    phx-click="cancel_delete_cheat"
+                    class="text-gray-500 text-xs bg-transparent border-none cursor-pointer"
+                  >No</button>
+                <% else %>
+                  <button
+                    type="button"
+                    phx-click="delete_cheat"
+                    class="text-red-600 text-xs font-semibold bg-transparent border-none cursor-pointer"
+                  >Delete All</button>
+                <% end %>
+              </div>
+            <% end %>
+
+            <% versions = CheatSheet.list_versions(doc_id) %>
+            <%= if length(versions) > 0 do %>
+              <div class="pt-3 border-t">
+                <p class="text-xs font-semibold text-gray-500 mb-2">
+                  History ({length(versions)})
+                </p>
+                <div style="display:flex;flex-direction:column;gap:2px">
+                  <%= for v <- versions do %>
+                    <% badge = level_badge_style(v.level) %>
+                    <div style={"display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;#{if v.active, do: "background:var(--bg-subtle);border:1px solid var(--accent)", else: "background:var(--bg)"}"}>
+                      <span style="width:110px;color:var(--text-muted);flex-shrink:0;font-family:monospace">
+                        {v.inserted_at
+                        |> NaiveDateTime.truncate(:second)
+                        |> to_string()
+                        |> String.slice(0, 16)}
+                      </span>
+                      <span style={"padding:0.1rem 0.35rem;border-radius:0.2rem;font-weight:600;text-transform:uppercase;font-size:0.6rem;#{badge}"}>
+                        {v.level}
+                      </span>
+                      <span style="display:flex;align-items:center;gap:0;flex-shrink:0;margin-left:auto">
+                        <.link
+                          href={"/games/#{@game.id}/cheatsheet/#{v.id}"}
+                          target="_blank"
+                          style="color:var(--blue);font-weight:600;text-decoration:none;font-size:0.7rem"
+                        >view</.link>
+                        <span style="color:var(--border-strong);margin:0 0.35rem">|</span>
+                        <span style="width:60px;text-align:center;display:inline-block">
+                          <%= if v.active do %>
+                            <span style="color:var(--accent);font-weight:600;font-size:0.65rem">active</span>
+                          <% else %>
+                            <button
+                              type="button"
+                              phx-click="set_active_version"
+                              phx-value-id={v.id}
+                              style="color:var(--blue);background:none;border:none;font-size:0.65rem;cursor:pointer;font-weight:500"
+                            >set active</button>
+                          <% end %>
+                        </span>
+                        <span style="color:var(--border-strong);margin:0 0.35rem">|</span>
+                        <button
+                          type="button"
+                          phx-click="delete_version"
+                          phx-value-id={v.id}
+                          style="color:#dc2626;background:none;border:none;font-size:0.65rem;cursor:pointer;font-weight:500"
+                        >del</button>
+                      </span>
+                    </div>
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+
+            <%= if @cheat_error do %>
+              <p class="text-sm text-red-500 mt-2">{@cheat_error}</p>
+            <% end %>
+          </div>
+        <% end %>
       </div>
     </div>
     """
@@ -1337,6 +1613,17 @@ defmodule RuleMavenWeb.GameLive.Form do
       mins = div(seconds, 60)
       secs = rem(seconds, 60)
       "#{mins}m #{secs}s"
+    end
+  end
+
+  defp level_badge_style(level) do
+    case level do
+      "ultra" -> "background:#f3f4f6;color:#6b7280"
+      "compact" -> "background:#dbeafe;color:#2563eb"
+      "standard" -> "background:#d1fae5;color:#059669"
+      "detailed" -> "background:#fef3c7;color:#d97706"
+      "full" -> "background:#f3f4f6;color:#9ca3af"
+      _ -> "background:#f3f4f6;color:#6b7280"
     end
   end
 end
