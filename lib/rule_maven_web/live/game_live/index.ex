@@ -34,7 +34,8 @@ defmodule RuleMavenWeb.GameLive.Index do
        per_page: 20,
        selected_idx: -1,
        display_count: 20,
-       expanded_games: %{}
+       expanded_games: %{},
+       refresh_version: 0
      )}
   end
 
@@ -74,7 +75,13 @@ defmodule RuleMavenWeb.GameLive.Index do
       send(pid, {:refresh_complete})
     end)
 
-    {:noreply, assign(socket, refreshing: 0, refresh_total: length(games), refresh_log: [])}
+    {:noreply,
+     assign(socket,
+       refreshing: 0,
+       refresh_total: length(games),
+       refresh_log: [],
+       refresh_version: socket.assigns.refresh_version + 1
+     )}
   end
 
   @impl true
@@ -226,14 +233,23 @@ defmodule RuleMavenWeb.GameLive.Index do
   @impl true
   def handle_info({:refresh_progress, name, current, total}, socket) do
     log = ["Fetching #{name} (#{current}/#{total})..." | socket.assigns.refresh_log]
-    {:noreply, assign(socket, refreshing: current, refresh_total: total, refresh_log: log)}
+    ver = socket.assigns.refresh_version + 1
+
+    {:noreply,
+     assign(socket,
+       refreshing: current,
+       refresh_total: total,
+       refresh_log: log,
+       refresh_version: ver
+     )}
   end
 
   @impl true
   def handle_info({:refresh_done, name, status}, socket) do
     icon = if status == :ok, do: "✓", else: "✗"
     log = [icon <> " " <> name | tl(socket.assigns.refresh_log)]
-    {:noreply, assign(socket, refresh_log: log)}
+    ver = socket.assigns.refresh_version + 1
+    {:noreply, assign(socket, refresh_log: log, refresh_version: ver)}
   end
 
   @impl true
@@ -342,7 +358,7 @@ defmodule RuleMavenWeb.GameLive.Index do
       </div>
 
       <%= if @refresh_total > 0 do %>
-        <div class="mb-4 border rounded-lg p-3">
+        <div class="mb-4 border rounded-lg p-3" data-refresh={@refresh_version}>
           <div style="width:100%;height:4px;background:var(--border);border-radius:2px;margin-bottom:0.5rem">
             <div style={"width:#{trunc(@refreshing / @refresh_total * 100)}%;height:100%;background:var(--accent);border-radius:2px;transition:width 0.3s"}>
             </div>
