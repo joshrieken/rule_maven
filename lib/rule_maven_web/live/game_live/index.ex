@@ -7,15 +7,22 @@ defmodule RuleMavenWeb.GameLive.Index do
   def mount(_params, _session, socket) do
     games =
       if RuleMaven.Users.game_master?(socket.assigns.current_user) do
-        Games.list_games()
+        Games.list_base_games()
       else
         Games.list_games_with_documents()
       end
-      |> Enum.sort_by(&String.downcase(&1.name))
+
+    # Preload expansion counts for rendering
+    expansion_counts =
+      Enum.reduce(games, %{}, fn game, acc ->
+        count = length(Games.expansions_with_documents(game))
+        Map.put(acc, game.id, count)
+      end)
 
     {:ok,
      assign(socket,
        games: games,
+       expansion_counts: expansion_counts,
        confirm_clear: false,
        confirm_text: "",
        search: "",
@@ -26,8 +33,24 @@ defmodule RuleMavenWeb.GameLive.Index do
        page: 1,
        per_page: 20,
        selected_idx: -1,
-       display_count: 20
+       display_count: 20,
+       expanded_games: %{}
      )}
+  end
+
+  @impl true
+  def handle_event("toggle_expansions", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    expanded = socket.assigns.expanded_games
+
+    expanded =
+      if expanded[id] do
+        Map.delete(expanded, id)
+      else
+        Map.put(expanded, id, true)
+      end
+
+    {:noreply, assign(socket, expanded_games: expanded)}
   end
 
   @impl true
@@ -331,6 +354,8 @@ defmodule RuleMavenWeb.GameLive.Index do
 
       <div class="space-y-3" id="game-list" phx-hook="GameListScroll">
         <%= for {game, idx} <- Enum.with_index(display_games) do %>
+          <% expansion_count = Map.get(@expansion_counts, game.id, 0) %>
+          <% expanded = Map.get(@expanded_games, game.id) %>
           <div
             id={"game-card-#{idx}"}
             class="border rounded-lg p-4 flex items-center gap-4 game-card"
@@ -358,9 +383,20 @@ defmodule RuleMavenWeb.GameLive.Index do
                 <%= if game.playing_time do %>
                   &middot; ~{game.playing_time}m
                 <% end %>
+                <%= if expansion_count > 0 do %>
+                  &middot; <span style="color:var(--accent);font-weight:600">{expansion_count} expansion(s)</span>
+                <% end %>
               </p>
             </div>
             <div class="flex gap-2 flex-shrink-0 game-actions items-center">
+              <%= if expansion_count > 0 do %>
+                <button
+                  type="button"
+                  phx-click="toggle_expansions"
+                  phx-value-id={game.id}
+                  style="color:var(--blue);background:none;border:none;font-size:0.8rem;font-weight:600;cursor:pointer;padding:0.1rem 0.3rem"
+                >{if expanded, do: "▲", else: "▼"}</button>
+              <% end %>
               <a
                 :if={game.bgg_id}
                 id={"bgg-link-#{game.id}"}
@@ -410,6 +446,51 @@ defmodule RuleMavenWeb.GameLive.Index do
               </div>
             <% end %>
           </div>
+
+          <%= if expanded && expansion_count > 0 do %>
+            <% expansions = Games.expansions_with_documents(game) %>
+            <%= for exp <- expansions do %>
+              <div
+                id={"exp-card-#{game.id}-#{exp.id}"}
+                class="border rounded-lg p-4 flex items-center gap-4 game-card"
+                phx-click="go_to_game"
+                phx-value-id={exp.id}
+                style={"cursor:pointer;margin-left:2rem;border-left:3px solid var(--accent);#{if @selected_idx == idx, do: "background:var(--bg-subtle)", else: ""}"}
+              >
+                <%= if exp.image_url do %>
+                  <img
+                    src={exp.image_url}
+                    alt={exp.name}
+                    style="width:40px;height:40px;object-fit:cover;border-radius:0.25rem;flex-shrink:0;pointer-events:none"
+                  />
+                <% end %>
+                <div class="flex-1 min-w-0" style="pointer-events:none">
+                  <h2 class="text-base font-semibold">{exp.name}</h2>
+                  <p class="text-xs text-gray-500">
+                    Expansion
+                    <%= if exp.year_published do %>
+                      &middot; {exp.year_published}
+                    <% end %>
+                  </p>
+                </div>
+                <div class="flex gap-2 flex-shrink-0 game-actions items-center">
+                  <a
+                    :if={exp.bgg_id}
+                    id={"bgg-link-exp-#{exp.id}"}
+                    href={"https://boardgamegeek.com/boardgame/#{exp.bgg_id}"}
+                    target="_blank"
+                    rel="noopener"
+                    phx-hook="ExternalLink"
+                    style="color:#ea580c;text-decoration:none;font-size:0.75rem;font-weight:600;cursor:pointer"
+                  >BGG</a>
+                  <.link
+                    navigate={~p"/games/#{exp.id}"}
+                    class="text-blue-600 hover:underline text-sm font-medium"
+                  >Ask</.link>
+                </div>
+              </div>
+            <% end %>
+          <% end %>
         <% end %>
       </div>
 

@@ -17,15 +17,50 @@ defmodule RuleMaven.Games do
   def list_games, do: Repo.all(Game)
 
   def list_games_with_documents do
+    # Base games + expansions that have published documents.
+    # Returns base games sorted by name.
+    base_ids =
+      Repo.all(
+        from g in Game,
+          join: d in Document,
+          on: d.game_id == g.id,
+          where: d.status == "published",
+          where: is_nil(g.parent_game_id),
+          distinct: true,
+          select: g.id
+      )
+
+    Repo.all(from g in Game, where: g.id in ^base_ids)
+    |> Enum.sort_by(&String.downcase(&1.name))
+  end
+
+  def list_base_games do
+    Repo.all(from g in Game, where: is_nil(g.parent_game_id))
+    |> Enum.sort_by(&String.downcase(&1.name))
+  end
+
+  def expansions_for(%Game{} = game) do
+    Repo.all(from g in Game, where: g.parent_game_id == ^game.id)
+    |> Enum.sort_by(&String.downcase(&1.name))
+  end
+
+  def expansions_with_documents(%Game{} = base_game) do
     Repo.all(
       from g in Game,
         join: d in Document,
         on: d.game_id == g.id,
+        where: g.parent_game_id == ^base_game.id,
         where: d.status == "published",
         distinct: true,
         select: g
     )
     |> Enum.sort_by(&String.downcase(&1.name))
+  end
+
+  def base_game_for(%Game{} = game) do
+    if game.parent_game_id do
+      Repo.get(Game, game.parent_game_id)
+    end
   end
 
   def get_game!(id), do: Repo.get!(Game, id)

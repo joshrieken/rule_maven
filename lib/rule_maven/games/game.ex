@@ -11,6 +11,9 @@ defmodule RuleMaven.Games.Game do
     field :playing_time, :integer
     field :image_url, :string
 
+    belongs_to :parent_game, RuleMaven.Games.Game, foreign_key: :parent_game_id
+    has_many :expansions, RuleMaven.Games.Game, foreign_key: :parent_game_id
+
     timestamps(type: :utc_datetime)
   end
 
@@ -24,7 +27,8 @@ defmodule RuleMaven.Games.Game do
       :min_players,
       :max_players,
       :playing_time,
-      :image_url
+      :image_url,
+      :parent_game_id
     ])
     |> validate_required([:name])
   end

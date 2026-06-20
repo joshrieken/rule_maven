@@ -1152,6 +1152,27 @@ defmodule RuleMavenWeb.GameLive.Form do
                 />
               </div>
 
+              <%= if @game do %>
+                <% base_games = Games.list_base_games() |> Enum.reject(& &1.id == @game.id) %>
+                <div>
+                  <label for="game_parent_game_id" class="block text-sm font-medium mb-1">
+                    Base Game <span class="text-gray-400">(optional — set if this is an expansion)</span>
+                  </label>
+                  <select
+                    name="game[parent_game_id]"
+                    id="game_parent_game_id"
+                    class="w-full border rounded px-3 py-2 text-sm"
+                  >
+                    <option value="">None (standalone game)</option>
+                    <%= for base <- base_games do %>
+                      <option value={base.id} selected={@game_changeset.data.parent_game_id == base.id}>
+                        {base.name}
+                      </option>
+                    <% end %>
+                  </select>
+                </div>
+              <% end %>
+
               <div class="space-y-4">
                 <h2 class="text-lg font-semibold">Rulebook Sources</h2>
 
