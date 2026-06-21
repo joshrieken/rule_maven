@@ -474,6 +474,10 @@ defmodule RuleMavenWeb.GameLive.Index do
                 navigate={~p"/games/#{game.id}"}
                 style="background:var(--accent);color:#fff;text-decoration:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2"
               >Ask</.link>
+              <span
+                :if={Map.get(@source_counts, game.id, 0) == 0}
+                style="display:inline-block;visibility:hidden;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;line-height:1.2"
+              >Ask</span>
               <.link
                 :if={RuleMaven.Users.game_master?(@current_user)}
                 navigate={~p"/games/#{game.id}/edit"}
@@ -552,6 +556,10 @@ defmodule RuleMavenWeb.GameLive.Index do
                     navigate={~p"/games/#{exp.id}"}
                     style="background:var(--accent);color:#fff;text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.45rem;border-radius:0.3rem;line-height:1.2"
                   >Ask</.link>
+                  <span
+                    :if={Map.get(@source_counts, exp.id, 0) == 0}
+                    style="display:inline-block;visibility:hidden;font-size:0.7rem;font-weight:600;padding:0.15rem 0.45rem;line-height:1.2"
+                  >Ask</span>
                 </div>
               </div>
             <% end %>
