@@ -1182,6 +1182,15 @@ defmodule RuleMavenWeb.GameLive.Form do
               </div>
 
               <%= if @game do %>
+                <%= if @game.parent_game_id do %>
+                  <% parent = Games.get_game!(@game.parent_game_id) %>
+                  <div style="margin-bottom:0.5rem">
+                    <span style="font-size:0.75rem;color:var(--text-muted)">Expansion of</span>
+                    <.link navigate={~p"/games/#{parent.id}/edit"} style="font-size:0.8rem;color:var(--blue);font-weight:600;margin-left:0.25rem">
+                      {parent.name} →
+                    </.link>
+                  </div>
+                <% end %>
                 <% base_games = Games.list_base_games() |> Enum.reject(&(&1.id == @game.id)) %>
                 <div>
                   <label for="game_parent_game_id" class="block text-sm font-medium mb-1">
@@ -1212,7 +1221,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                   <div class="space-y-1">
                     <%= for exp <- @expansions do %>
                       <div class="flex items-center justify-between border rounded px-3 py-1.5 text-sm">
-                        <span>{exp.name}</span>
+                        <.link navigate={~p"/games/#{exp.id}/edit"} class="text-blue-600 hover:underline">{exp.name}</.link>
                         <button
                           type="button"
                           phx-click="unlink_expansion"
