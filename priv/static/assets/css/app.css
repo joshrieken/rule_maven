@@ -376,6 +376,306 @@
   --focus-ring: rgba(208, 96, 160, 0.2);
 }
 
+/* Frost — icy winter tundra */
+[data-theme="frost"] {
+  color-scheme: light;
+  --bg: #f0f4f8;
+  --bg-surface: #ffffff;
+  --bg-subtle: #e8f0f8;
+  --bg-danger: #f8f0f4;
+  --text: #1a2838;
+  --text-secondary: #507090;
+  --text-muted: #8098b0;
+  --text-heading: #102030;
+  --border: #d0dce8;
+  --border-strong: #a0b8d0;
+  --accent: #4088c8;
+  --accent-dark: #2868a0;
+  --accent-light: #80b8e8;
+  --accent-subtle: #e8f0f8;
+  --yellow: #c0a020;
+  --red: #c85050;
+  --red-bg: #f8f0f4;
+  --green: #489860;
+  --blue: #4088c8;
+  --shadow: rgba(0, 0, 0, 0.06);
+  --shadow-hover: rgba(64, 136, 200, 0.12);
+  --header-bg-start: #2868a0;
+  --header-bg-end: #104070;
+  --header-border: #80b8e8;
+  --focus-ring: rgba(64, 136, 200, 0.2);
+}
+
+/* Ember — volcanic forge heat */
+[data-theme="ember"] {
+  color-scheme: dark;
+  --bg: #1a1008;
+  --bg-surface: #241810;
+  --bg-subtle: #2a1c10;
+  --bg-danger: #241410;
+  --text: #e0c8a8;
+  --text-secondary: #b09070;
+  --text-muted: #806050;
+  --text-heading: #f0d8b8;
+  --border: #3a2a18;
+  --border-strong: #5a3a20;
+  --accent: #e87030;
+  --accent-dark: #c05020;
+  --accent-light: #f09050;
+  --accent-subtle: #2a1c10;
+  --yellow: #e8a030;
+  --red: #e04830;
+  --red-bg: #241410;
+  --green: #509050;
+  --blue: #5080b0;
+  --shadow: rgba(0, 0, 0, 0.5);
+  --shadow-hover: rgba(232, 112, 48, 0.2);
+  --header-bg-start: #381808;
+  --header-bg-end: #1a0800;
+  --header-border: #e87030;
+  --focus-ring: rgba(232, 112, 48, 0.25);
+}
+
+/* Meadow — spring wildflower bloom */
+[data-theme="meadow"] {
+  color-scheme: light;
+  --bg: #f5faf2;
+  --bg-surface: #ffffff;
+  --bg-subtle: #edf6e8;
+  --bg-danger: #faf2f0;
+  --text: #1a2a18;
+  --text-secondary: #507040;
+  --text-muted: #80a070;
+  --text-heading: #102010;
+  --border: #d8e8d0;
+  --border-strong: #a8c8a0;
+  --accent: #609838;
+  --accent-dark: #407820;
+  --accent-light: #90c870;
+  --accent-subtle: #edf6e8;
+  --yellow: #c8b030;
+  --red: #c85050;
+  --red-bg: #faf2f0;
+  --green: #609838;
+  --blue: #4078b8;
+  --shadow: rgba(0, 0, 0, 0.06);
+  --shadow-hover: rgba(96, 152, 56, 0.12);
+  --header-bg-start: #407820;
+  --header-bg-end: #204810;
+  --header-border: #c8d830;
+  --focus-ring: rgba(96, 152, 56, 0.2);
+}
+
+/* Twilight — dreamy purple dusk */
+[data-theme="twilight"] {
+  color-scheme: dark;
+  --bg: #14101e;
+  --bg-surface: #1c1830;
+  --bg-subtle: #221c38;
+  --bg-danger: #201828;
+  --text: #c8b8e8;
+  --text-secondary: #9080c0;
+  --text-muted: #605898;
+  --text-heading: #d8d0f8;
+  --border: #2a2040;
+  --border-strong: #403068;
+  --accent: #9060d8;
+  --accent-dark: #7040b8;
+  --accent-light: #b890f0;
+  --accent-subtle: #221c38;
+  --yellow: #d8b840;
+  --red: #c85870;
+  --red-bg: #201828;
+  --green: #50a870;
+  --blue: #6080d0;
+  --shadow: rgba(0, 0, 0, 0.5);
+  --shadow-hover: rgba(144, 96, 216, 0.15);
+  --header-bg-start: #281848;
+  --header-bg-end: #100c28;
+  --header-border: #9060d8;
+  --focus-ring: rgba(144, 96, 216, 0.2);
+}
+
+/* Arcade — 90s cabinet neon */
+[data-theme="arcade"] {
+  color-scheme: dark;
+  --bg: #080810;
+  --bg-surface: #10101c;
+  --bg-subtle: #181828;
+  --bg-danger: #1c1418;
+  --text: #c0c0e0;
+  --text-secondary: #8080b0;
+  --text-muted: #585888;
+  --text-heading: #e0e0f8;
+  --border: #202040;
+  --border-strong: #383868;
+  --accent: #f060e0;
+  --accent-dark: #c040b0;
+  --accent-light: #f8a0f0;
+  --accent-subtle: #181828;
+  --yellow: #f8e040;
+  --red: #f04040;
+  --red-bg: #1c1418;
+  --green: #40f060;
+  --blue: #4080f8;
+  --shadow: rgba(0, 0, 0, 0.6);
+  --shadow-hover: rgba(240, 96, 224, 0.2);
+  --header-bg-start: #281030;
+  --header-bg-end: #100820;
+  --header-border: #f8e040;
+  --focus-ring: rgba(240, 96, 224, 0.25);
+}
+
+/* Marble — classical stone statuary */
+[data-theme="marble"] {
+  color-scheme: light;
+  --bg: #f0ede8;
+  --bg-surface: #faf8f5;
+  --bg-subtle: #e8e4de;
+  --bg-danger: #f8f0ee;
+  --text: #282420;
+  --text-secondary: #605850;
+  --text-muted: #908880;
+  --text-heading: #181410;
+  --border: #d4d0c8;
+  --border-strong: #a8a098;
+  --accent: #706050;
+  --accent-dark: #504030;
+  --accent-light: #a09080;
+  --accent-subtle: #e8e4de;
+  --yellow: #a08830;
+  --red: #a04840;
+  --red-bg: #f8f0ee;
+  --green: #507850;
+  --blue: #486890;
+  --shadow: rgba(0, 0, 0, 0.06);
+  --shadow-hover: rgba(112, 96, 80, 0.1);
+  --header-bg-start: #504030;
+  --header-bg-end: #302418;
+  --header-border: #a09080;
+  --focus-ring: rgba(112, 96, 80, 0.15);
+}
+
+/* Honey — warm golden sweetness */
+[data-theme="honey"] {
+  color-scheme: light;
+  --bg: #fef8e8;
+  --bg-surface: #fffdf5;
+  --bg-subtle: #fef0d0;
+  --bg-danger: #fef0e8;
+  --text: #3a2a08;
+  --text-secondary: #705020;
+  --text-muted: #a08040;
+  --text-heading: #2a1a00;
+  --border: #f0d898;
+  --border-strong: #d8b860;
+  --accent: #d89020;
+  --accent-dark: #b87010;
+  --accent-light: #f0b840;
+  --accent-subtle: #fef0d0;
+  --yellow: #e0a820;
+  --red: #c85040;
+  --red-bg: #fef0e8;
+  --green: #509050;
+  --blue: #4078b0;
+  --shadow: rgba(0, 0, 0, 0.05);
+  --shadow-hover: rgba(216, 144, 32, 0.12);
+  --header-bg-start: #d89020;
+  --header-bg-end: #a86010;
+  --header-border: #f0c860;
+  --focus-ring: rgba(216, 144, 32, 0.2);
+}
+
+/* Void — absolute black minimalism */
+[data-theme="void"] {
+  color-scheme: dark;
+  --bg: #000000;
+  --bg-surface: #0a0a0a;
+  --bg-subtle: #141414;
+  --bg-danger: #140a0a;
+  --text: #a0a0a0;
+  --text-secondary: #686868;
+  --text-muted: #404040;
+  --text-heading: #c0c0c0;
+  --border: #1c1c1c;
+  --border-strong: #303030;
+  --accent: #808080;
+  --accent-dark: #585858;
+  --accent-light: #b0b0b0;
+  --accent-subtle: #141414;
+  --yellow: #909090;
+  --red: #804040;
+  --red-bg: #140a0a;
+  --green: #408060;
+  --blue: #406090;
+  --shadow: rgba(0, 0, 0, 0.8);
+  --shadow-hover: rgba(128, 128, 128, 0.1);
+  --header-bg-start: #0a0a0a;
+  --header-bg-end: #000000;
+  --header-border: #404040;
+  --focus-ring: rgba(128, 128, 128, 0.15);
+}
+
+/* Coral — tropical reef vibrant */
+[data-theme="coral"] {
+  color-scheme: light;
+  --bg: #fef6f4;
+  --bg-surface: #ffffff;
+  --bg-subtle: #fef0ec;
+  --bg-danger: #fef2f0;
+  --text: #2a1a18;
+  --text-secondary: #705048;
+  --text-muted: #a08078;
+  --text-heading: #1a0c0a;
+  --border: #f0d8d0;
+  --border-strong: #d8b0a8;
+  --accent: #e06850;
+  --accent-dark: #c04830;
+  --accent-light: #f09080;
+  --accent-subtle: #fef0ec;
+  --yellow: #d8a030;
+  --red: #d04840;
+  --red-bg: #fef2f0;
+  --green: #409870;
+  --blue: #4088c8;
+  --shadow: rgba(0, 0, 0, 0.06);
+  --shadow-hover: rgba(224, 104, 80, 0.12);
+  --header-bg-start: #e06850;
+  --header-bg-end: #a03828;
+  --header-border: #f8c0b0;
+  --focus-ring: rgba(224, 104, 80, 0.2);
+}
+
+/* Brass — industrial steampunk copper */
+[data-theme="brass"] {
+  color-scheme: dark;
+  --bg: #1a1810;
+  --bg-surface: #242018;
+  --bg-subtle: #2a2418;
+  --bg-danger: #241a18;
+  --text: #d8d0b8;
+  --text-secondary: #a09870;
+  --text-muted: #706840;
+  --text-heading: #e8e0c8;
+  --border: #3a3428;
+  --border-strong: #5a4a30;
+  --accent: #c0a048;
+  --accent-dark: #a08030;
+  --accent-light: #d8c870;
+  --accent-subtle: #2a2418;
+  --yellow: #d8b848;
+  --red: #c05848;
+  --red-bg: #241a18;
+  --green: #608048;
+  --blue: #507898;
+  --shadow: rgba(0, 0, 0, 0.5);
+  --shadow-hover: rgba(192, 160, 72, 0.15);
+  --header-bg-start: #382810;
+  --header-bg-end: #1a1008;
+  --header-border: #c0a048;
+  --focus-ring: rgba(192, 160, 72, 0.2);
+}
+
 /* Cassette — 80s synthwave neon */
 [data-theme="retro"] {
   color-scheme: dark;
