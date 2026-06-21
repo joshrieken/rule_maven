@@ -105,7 +105,7 @@ defmodule RuleMavenWeb.GameLive.Refresh do
               </div>
             </div>
             <div style="max-height:32rem;overflow-y:auto;font-size:0.7rem;font-family:monospace;color:var(--text)">
-              <%= for entry <- Enum.reverse(@log) do %>
+              <%= for entry <- @log do %>
                 <div style="padding:0.15rem 0">{entry}</div>
               <% end %>
             </div>
