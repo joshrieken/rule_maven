@@ -1282,11 +1282,12 @@ textarea {
 /* ===== Connection Status Overlay ===== */
 /* Only show overlay if we were connected before and now we're not.
    Prevents flash on initial page load before WebSocket connects. */
-body.phx-was-connected:not(.phx-connected) > .app-shell {
+[data-phx-main].phx-was-connected:not(.phx-connected) ~ .app-shell,
+[data-phx-main].phx-was-connected:not(.phx-connected) > .app-shell {
   visibility: hidden;
 }
 
-body.phx-was-connected:not(.phx-connected)::before {
+body:has([data-phx-main].phx-was-connected:not(.phx-connected))::before {
   content: "";
   position: fixed;
   inset: 0;
@@ -1294,7 +1295,7 @@ body.phx-was-connected:not(.phx-connected)::before {
   background: rgba(0, 0, 0, 0.85);
 }
 
-body.phx-was-connected:not(.phx-connected)::after {
+body:has([data-phx-main].phx-was-connected:not(.phx-connected))::after {
   content: "";
   position: fixed;
   top: 50%;
@@ -1310,7 +1311,7 @@ body.phx-was-connected:not(.phx-connected)::after {
 }
 
 /* Status text below spinner */
-body.phx-was-connected:not(.phx-connected) .phx-disconnected-text {
+body:has([data-phx-main].phx-was-connected:not(.phx-connected)) .phx-disconnected-text {
   display: block;
   position: fixed;
   top: calc(50% + 40px);
@@ -1333,14 +1334,16 @@ body.phx-was-connected:not(.phx-connected) .phx-disconnected-text {
 }
 
 /* Restore on connect */
-body.phx-connected::before,
-body.phx-connected::after {
-  display: none !important;
-}
-body.phx-connected > .app-shell {
+[data-phx-main].phx-connected ~ .app-shell,
+[data-phx-main].phx-connected > .app-shell {
   visibility: visible !important;
 }
-body.phx-connected .phx-disconnected-text {
+[data-phx-main].phx-connected ~ .phx-disconnected-text,
+[data-phx-main].phx-connected .phx-disconnected-text {
+  display: none !important;
+}
+body:has([data-phx-main].phx-connected)::before,
+body:has([data-phx-main].phx-connected)::after {
   display: none !important;
 }
 
