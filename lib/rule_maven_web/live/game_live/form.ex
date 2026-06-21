@@ -112,6 +112,7 @@ defmodule RuleMavenWeb.GameLive.Form do
               game: game,
               source_entries: entries,
               expansions: Games.expansions_for(game),
+              cheat_expansions: Games.expansions_with_documents(game),
               game_changeset: Games.change_game(game),
               question_count: Games.question_count(game),
               cheat_status: cheat_status,
@@ -139,6 +140,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             game: nil,
             source_entries: [],
             expansions: [],
+            cheat_expansions: [],
             game_changeset: changeset
           )
       end
@@ -272,7 +274,7 @@ defmodule RuleMavenWeb.GameLive.Form do
     Games.update_game(exp, %{parent_game_id: nil})
 
     game = Games.get_game!(socket.assigns.game.id)
-    {:noreply, assign(socket, game: game, expansions: Games.expansions_for(game))}
+    {:noreply, assign(socket, game: game, expansions: Games.expansions_for(game), cheat_expansions: Games.expansions_with_documents(game))}
   end
 
   @impl true
@@ -1412,10 +1414,10 @@ defmodule RuleMavenWeb.GameLive.Form do
                   <p class="text-xs text-gray-500 mb-2">
                     Choose a density level and generate a cheat sheet from your rulebook text.
                   </p>
-                  <%= if length(@expansions) > 0 do %>
+                  <%= if length(@cheat_expansions) > 0 do %>
                     <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.75rem">
                       <span style="font-size:0.65rem;color:var(--text-muted);font-weight:600;align-self:center">Include expansions:</span>
-                      <%= for exp <- @expansions do %>
+                      <%= for exp <- @cheat_expansions do %>
                         <label
                           phx-click="toggle_cheat_expansion"
                           phx-value-id={exp.id}
