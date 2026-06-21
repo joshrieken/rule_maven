@@ -1261,7 +1261,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             <% end %>
           </div>
 
-          <div class="flex gap-3">
+          <div class="flex gap-3" style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">
             <.button variant="primary" type="submit">Save</.button>
             <.button variant="secondary" navigate={~p"/"}>Cancel</.button>
           </div>
