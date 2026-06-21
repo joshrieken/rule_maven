@@ -1206,6 +1206,28 @@ defmodule RuleMavenWeb.GameLive.Form do
                 </div>
               <% end %>
 
+              <%= if @game && length(@expansions) > 0 do %>
+                <div>
+                  <h3 class="text-sm font-semibold mb-1">Expansions of this game</h3>
+                  <div class="space-y-1">
+                    <%= for exp <- @expansions do %>
+                      <div class="flex items-center justify-between border rounded px-3 py-1.5 text-sm">
+                        <span>{exp.name}</span>
+                        <button
+                          type="button"
+                          phx-click="unlink_expansion"
+                          phx-value-id={exp.id}
+                          class="text-xs"
+                          style="color:#dc2626;background:none;border:none;cursor:pointer;font-weight:600"
+                        >
+                          Unlink
+                        </button>
+                      </div>
+                    <% end %>
+                  </div>
+                </div>
+              <% end %>
+
               <div class="space-y-4">
                 <h2 class="text-lg font-semibold">Rulebook Sources</h2>
 
@@ -1655,28 +1677,6 @@ defmodule RuleMavenWeb.GameLive.Form do
                               phx-value-id={v.id}
                               style="color:var(--blue);background:none;border:none;font-size:0.65rem;cursor:pointer;font-weight:500"
                             >set active</button>
-              <% end %>
-
-              <%= if assigns[:game] && length(@expansions) > 0 do %>
-                <div>
-                  <h3 class="text-sm font-semibold mb-1">Expansions of this game</h3>
-                  <div class="space-y-1">
-                    <%= for exp <- @expansions do %>
-                      <div class="flex items-center justify-between border rounded px-3 py-1.5 text-sm">
-                        <span>{exp.name}</span>
-                        <button
-                          type="button"
-                          phx-click="unlink_expansion"
-                          phx-value-id={exp.id}
-                          class="text-xs"
-                          style="color:#dc2626;background:none;border:none;cursor:pointer;font-weight:600"
-                        >
-                          Unlink
-                        </button>
-                      </div>
-                    <% end %>
-                  </div>
-                </div>
               <% end %>
                         </span>
                         <span style="color:var(--border-strong);margin:0 0.35rem">|</span>
