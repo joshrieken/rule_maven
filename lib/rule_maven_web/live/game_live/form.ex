@@ -25,6 +25,7 @@ defmodule RuleMavenWeb.GameLive.Form do
         search_error: nil,
         confirm_clear: false,
         confirm_clear_sources: false,
+        confirm_delete_game: false,
         confirm_delete_cheat: false,
         question_count: 0,
         generating: false,
@@ -203,6 +204,24 @@ defmodule RuleMavenWeb.GameLive.Form do
 
   def handle_event("cancel_clear_sources", _params, socket) do
     {:noreply, assign(socket, confirm_clear_sources: false)}
+  end
+
+  def handle_event("confirm_delete_game", _params, socket) do
+    {:noreply, assign(socket, confirm_delete_game: true)}
+  end
+
+  def handle_event("cancel_delete_game", _params, socket) do
+    {:noreply, assign(socket, confirm_delete_game: false)}
+  end
+
+  def handle_event("delete_game", _params, socket) do
+    game = socket.assigns.game
+    Games.delete_game(game)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Deleted #{game.name} and all associated data.")
+     |> push_navigate(to: ~p"/")}
   end
 
   def handle_event("clear_sources", _params, socket) do
@@ -1092,7 +1111,7 @@ defmodule RuleMavenWeb.GameLive.Form do
       <%= if is_nil(@game) do %>
         <div>
           <%= if @game_changeset && @game_changeset.data.bgg_id do %>
-            <div class="flex gap-3 items-center mb-4 p-3 border rounded-lg bg-gray-50">
+          <div class="flex gap-3 items-center mb-6 p-3 border rounded-lg bg-gray-50">
               <%= if @game_changeset.data.image_url do %>
                 <img src={@game_changeset.data.image_url} alt="" style="width:80px;height:80px;object-fit:cover;border-radius:0.375rem;flex-shrink:0" />
               <% end %>
@@ -1144,7 +1163,7 @@ defmodule RuleMavenWeb.GameLive.Form do
           </div>
         <% end %>
 
-        <.form for={@game_changeset} id="game-form" phx-change="validate" phx-submit="save" class="space-y-6" style="max-width:56rem">
+        <.form for={@game_changeset} id="game-form" phx-change="validate" phx-submit="save" class="space-y-6 mt-6" style="max-width:56rem">
           <%!-- Details tab --%>
           <div style={if @tab == "details", do: "display:block", else: "display:none"}>
             <div>
@@ -1286,7 +1305,7 @@ defmodule RuleMavenWeb.GameLive.Form do
 
               <%!-- Clear rulebook sources --%>
               <%= if length(@source_entries) > 0 do %>
-                <div>
+                <div style="padding-bottom:0.75rem;border-bottom:1px solid var(--border-subtle)">
                   <p class="text-xs text-gray-500 mb-2">Remove all {length(@source_entries)} rulebook source(s) for this game.</p>
                   <%= if not @confirm_clear_sources do %>
                     <button type="button" phx-click="confirm_clear_sources" style="background:#dc2626;color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">Clear All Rulebook Sources</button>
@@ -1299,6 +1318,20 @@ defmodule RuleMavenWeb.GameLive.Form do
                   <% end %>
                 </div>
               <% end %>
+
+              <%!-- Delete game --%>
+              <div>
+                <p class="text-xs text-gray-500 mb-2">Permanently delete this game and all associated data (sources, questions, faq).</p>
+                <%= if not @confirm_delete_game do %>
+                  <button type="button" phx-click="confirm_delete_game" style="background:#dc2626;color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">Delete Game</button>
+                <% else %>
+                  <p class="text-xs font-medium mb-2" style="color:#dc2626">Are you sure? This permanently deletes <strong>{@game.name}</strong> and all its data.</p>
+                  <div class="flex gap-2">
+                    <button type="button" phx-click="delete_game" style="background:#dc2626;color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">Yes, delete forever</button>
+                    <button type="button" phx-click="cancel_delete_game" style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">Cancel</button>
+                  </div>
+                <% end %>
+              </div>
 
               <%= if @question_count == 0 and length(@source_entries) == 0 do %>
                 <p class="text-xs text-gray-400">Nothing to clear — no questions or rulebook sources yet.</p>
