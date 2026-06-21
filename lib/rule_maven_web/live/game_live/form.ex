@@ -107,7 +107,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             assign(socket,
               game: game,
               source_entries: entries,
-              expansions: Games.expansions_with_documents(game),
+              expansions: Games.expansions_for(game),
               game_changeset: Games.change_game(game),
               question_count: Games.question_count(game),
               cheat_status: cheat_status,
@@ -223,6 +223,16 @@ defmodule RuleMavenWeb.GameLive.Form do
       end
 
     {:noreply, assign(socket, included_expansions: included)}
+  end
+
+  @impl true
+  def handle_event("unlink_expansion", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    exp = Games.get_game!(id)
+    Games.update_game(exp, %{parent_game_id: nil})
+
+    game = Games.get_game!(socket.assigns.game.id)
+    {:noreply, assign(socket, game: game, expansions: Games.expansions_for(game))}
   end
 
   @impl true
@@ -1645,7 +1655,29 @@ defmodule RuleMavenWeb.GameLive.Form do
                               phx-value-id={v.id}
                               style="color:var(--blue);background:none;border:none;font-size:0.65rem;cursor:pointer;font-weight:500"
                             >set active</button>
-                          <% end %>
+              <% end %>
+
+              <%= if assigns[:game] && length(@expansions) > 0 do %>
+                <div>
+                  <h3 class="text-sm font-semibold mb-1">Expansions of this game</h3>
+                  <div class="space-y-1">
+                    <%= for exp <- @expansions do %>
+                      <div class="flex items-center justify-between border rounded px-3 py-1.5 text-sm">
+                        <span>{exp.name}</span>
+                        <button
+                          type="button"
+                          phx-click="unlink_expansion"
+                          phx-value-id={exp.id}
+                          class="text-xs"
+                          style="color:#dc2626;background:none;border:none;cursor:pointer;font-weight:600"
+                        >
+                          Unlink
+                        </button>
+                      </div>
+                    <% end %>
+                  </div>
+                </div>
+              <% end %>
                         </span>
                         <span style="color:var(--border-strong);margin:0 0.35rem">|</span>
                         <button
