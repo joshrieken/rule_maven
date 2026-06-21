@@ -25,7 +25,7 @@ defmodule RuleMavenWeb.GameLive.Refresh do
       if running do
         case BggRefresher.state() do
           nil -> {0, ["⟳ Reconnecting..."], false, 0}
-          s -> {s.current, s.log |> Enum.take(20), s.complete, s.error_count}
+          s -> {s.current, s.log, s.complete, s.error_count}
         end
       else
         {0, [], false, 0}
@@ -104,8 +104,8 @@ defmodule RuleMavenWeb.GameLive.Refresh do
               <div style={"width:#{if @total > 0, do: trunc(@current / @total * 100), else: 0}%;height:100%;background:var(--accent);border-radius:3px;transition:width 0.3s"}>
               </div>
             </div>
-            <div style="max-height:16rem;overflow-y:auto;font-size:0.7rem;font-family:monospace;color:var(--text)">
-              <%= for entry <- Enum.reverse(@log) |> Enum.take(20) do %>
+            <div style="max-height:32rem;overflow-y:auto;font-size:0.7rem;font-family:monospace;color:var(--text)">
+              <%= for entry <- Enum.reverse(@log) do %>
                 <div style="padding:0.15rem 0">{entry}</div>
               <% end %>
             </div>
