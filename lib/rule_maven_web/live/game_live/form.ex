@@ -1067,442 +1067,209 @@ defmodule RuleMavenWeb.GameLive.Form do
       </div>
       <% end %>
 
-      <!-- Rulebook panel -->
-      <div
-        style={"display:#{if @tab in ["details", "rulebook", "danger"], do: "block", else: "none"}"}
-        data-refresh={@cheat_refresh}
-      >
-        <div class="edit-layout" style="display:flex;gap:2rem;align-items:flex-start">
-          <div style="flex:1;min-width:0">
-            <!-- BGG Search Results Preview -->
-            <%= if @game_changeset && @game_changeset.data.bgg_id do %>
-              <div class="flex gap-3 items-center mb-4 p-3 border rounded-lg bg-gray-50">
-                <%= if @game_changeset.data.image_url do %>
-                  <img
-                    src={@game_changeset.data.image_url}
-                    alt=""
-                    style="width:80px;height:80px;object-fit:cover;border-radius:0.375rem;flex-shrink:0"
-                  />
-                <% end %>
-                <div>
-                  <p class="font-semibold">{@game_changeset.data.name}</p>
-                  <p class="text-xs text-gray-500">
-                    <%= if @game_changeset.data.year_published do %>
-                      {@game_changeset.data.year_published}
-                    <% end %>
-                    <%= if @game_changeset.data.min_players do %>
-                      &middot; {@game_changeset.data.min_players}-{@game_changeset.data.max_players}p
-                    <% end %>
-                    <%= if @game_changeset.data.playing_time do %>
-                      &middot; ~{@game_changeset.data.playing_time}m
-                    <% end %>
-                  </p>
-                  <p class="text-xs text-gray-400 mt-0.5">BGG ID: {@game_changeset.data.bgg_id}</p>
-                </div>
+      <%!-- New game: simple form, no tabs --%>
+      <%= if is_nil(@game) do %>
+        <div>
+          <%= if @game_changeset && @game_changeset.data.bgg_id do %>
+            <div class="flex gap-3 items-center mb-4 p-3 border rounded-lg bg-gray-50">
+              <%= if @game_changeset.data.image_url do %>
+                <img src={@game_changeset.data.image_url} alt="" style="width:80px;height:80px;object-fit:cover;border-radius:0.375rem;flex-shrink:0" />
+              <% end %>
+              <div>
+                <p class="font-semibold">{@game_changeset.data.name}</p>
+                <p class="text-xs text-gray-400 mt-0.5">BGG ID: {@game_changeset.data.bgg_id}</p>
               </div>
-            <% end %>
-
-            <!-- Search BGG to auto-fill -->
-            <%= if is_nil(@game) do %>
-            <div class="border rounded-lg p-3 mb-4">
-              <label class="block text-xs font-medium mb-1 text-gray-500">
-                Find on BGG to auto-fill
-              </label>
-              <form phx-submit="bgg_search" class="flex gap-2">
-                <input
-                  type="text"
-                  name="search"
-                  value={@bgg_search}
-                  placeholder="Search BGG by game name..."
-                  class="flex-1 border rounded px-3 py-2 text-sm"
-                  autocomplete="off"
-                />
-                <button
-                  type="submit"
-                  disabled={@bgg_searching}
-                  style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer;white-space:nowrap"
-                >
-                  Search
-                </button>
-              </form>
-
-              <%= if @bgg_searching do %>
-                <p class="text-xs text-gray-400 mt-1">Searching...</p>
-              <% end %>
-
-              <%= if @bgg_search_error do %>
-                <p class="text-xs text-red-500 mt-1">{@bgg_search_error}</p>
-              <% end %>
-
-              <%= if @bgg_search_results != [] do %>
-                <div class="mt-2 border rounded max-h-40 overflow-y-auto">
-                  <%= for result <- @bgg_search_results |> Enum.take(10) do %>
-                    <button
-                      type="button"
-                      phx-click="bgg_select"
-                      phx-value-id={result.bgg_id}
-                      phx-value-name={result.name}
-                      class="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 border-b last:border-b-0"
-                    >
-                      <span class="font-medium">{result.name}</span>
-                      <span :if={result.year} class="text-gray-400 ml-2">({result.year})</span>
-                    </button>
-                  <% end %>
-                </div>
-              <% end %>
             </div>
-            <% end %>
+          <% end %>
 
-            <.form
-              for={@game_changeset}
-              id="game-form"
-              phx-change="validate"
-              phx-submit="save"
-              class="space-y-6"
-            >
-              <div>
-                <label for="game_name" class="block text-sm font-medium mb-1">Game Name</label>
-                <input
-                  type="text"
-                  name="game[name]"
-                  id="game_name"
-                  value={@game_changeset.data.name}
-                  class="w-full border rounded px-3 py-2"
-                  required
-                />
-              </div>
-
-              <div>
-                <label for="game_bgg_id" class="block text-sm font-medium mb-1">
-                  BGG ID <span class="text-gray-400">(optional)</span>
-                </label>
-                <input
-                  type="number"
-                  name="game[bgg_id]"
-                  id="game_bgg_id"
-                  value={@game_changeset.data.bgg_id}
-                  class="w-full border rounded px-3 py-2"
-                />
-              </div>
-
-              <%= if @game do %>
-                <% parent_id = @game_changeset.data.parent_game_id || @game.parent_game_id %>
-                <%= if parent_id do %>
-                  <% parent = Games.get_game!(parent_id) %>
-                  <div style="margin-bottom:0.5rem">
-                    <span style="font-size:0.75rem;color:var(--text-muted)">Expansion of</span>
-                    <.link navigate={~p"/games/#{parent.id}/edit"} style="font-size:0.8rem;color:var(--blue);font-weight:600;margin-left:0.25rem">
-                      {parent.name} →
-                    </.link>
-                  </div>
-                <% end %>
-                <% base_games = Games.list_base_games() |> Enum.reject(&(&1.id == @game.id)) %>
-                <div>
-                  <label for="game_parent_game_id" class="block text-sm font-medium mb-1">
-                    Base Game
-                    <span class="text-gray-400">(optional — set if this is an expansion)</span>
-                  </label>
-                  <select
-                    name="game[parent_game_id]"
-                    id="game_parent_game_id"
-                    class="w-full border rounded px-3 py-2 text-sm"
-                  >
-                    <option value="">None (standalone game)</option>
-                    <%= for base <- base_games do %>
-                      <option
-                        value={base.id}
-                        selected={@game_changeset.data.parent_game_id == base.id}
-                      >
-                        {base.name}
-                      </option>
-                    <% end %>
-                  </select>
-                </div>
-              <% end %>
-
-              <%= if @game && length(@expansions) > 0 do %>
-                <div>
-                  <h3 class="text-sm font-semibold mb-1">Expansions of this game</h3>
-                  <div class="space-y-1">
-                    <%= for exp <- @expansions do %>
-                      <div class="flex items-center justify-between border rounded px-3 py-1.5 text-sm">
-                        <.link navigate={~p"/games/#{exp.id}/edit"} class="text-blue-600 hover:underline">{exp.name}</.link>
-                        <button
-                          type="button"
-                          phx-click="unlink_expansion"
-                          phx-value-id={exp.id}
-                          class="text-xs"
-                          style="color:#dc2626;background:none;border:none;cursor:pointer;font-weight:600"
-                        >
-                          Unlink
-                        </button>
-                      </div>
-                    <% end %>
-                  </div>
-                </div>
-              <% end %>
-
-              <div class="space-y-4">
-                <h2 class="text-lg font-semibold">Rulebook Sources</h2>
-
-                <%= for entry <- @source_entries do %>
-                  <div class="border rounded p-4">
-                    <div class="flex gap-2 items-start">
-                      <div class="flex-1">
-                        <label class="block text-sm font-medium mb-1">Label</label>
-                        <input
-                          type="text"
-                          name={"label_#{entry.id}"}
-                          value={entry.label}
-                          placeholder="e.g. Core Rulebook"
-                          class="w-full border rounded px-3 py-2"
-                        />
-                      </div>
-                      <div class="flex-1">
-                        <label class="block text-sm font-medium mb-1">Text</label>
-                        <textarea
-                          name={"text_#{entry.id}"}
-                          rows="8"
-                          class="w-full border rounded px-3 py-2 font-mono text-xs"
-                          placeholder="Paste rulebook text here..."
-                        ><%= entry.text %></textarea>
-                      </div>
-                      <div class="flex flex-col gap-1">
-                        <button
-                          :if={length(@source_entries) > 1}
-                          type="button"
-                          phx-click="remove_source"
-                          phx-value-id={entry.id}
-                          class="btn-remove-source"
-                        >
-                          ✕
-                        </button>
-                        <button
-                          :if={entry[:source_id]}
-                          type="button"
-                          phx-click="delete_source"
-                          phx-value-source_id={entry.source_id}
-                          style="color:#dc2626;background:none;border:none;font-size:0.75rem;cursor:pointer;white-space:nowrap;margin-top:0.25rem"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                    <%= if entry[:pdf_path] do %>
-                      <div class="mt-2 flex gap-3">
-                        <.link
-                          href={"/#{entry.pdf_path}"}
-                          target="_blank"
-                          class="text-blue-600 hover:underline text-xs"
-                        >
-                          View PDF
-                        </.link>
-                        <%= if entry[:html_path] do %>
-                          <.link
-                            href={"/#{entry.html_path}"}
-                            target="_blank"
-                            class="text-green-600 hover:underline text-xs"
-                          >
-                            View as HTML
-                          </.link>
-                        <% end %>
-                      </div>
-                    <% end %>
-                  </div>
-                <% end %>
-
-                <button
-                  type="button"
-                  phx-click="add_source"
-                  class="btn-add-source"
-                >
-                  + Add manual rules entry
-                </button>
-              </div>
-
-              <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                <label class="block text-sm font-medium mb-2">Or upload PDF rulebooks</label>
-                <.live_file_input upload={@uploads.rulebook_pdfs} class="block mx-auto text-sm" />
-                <%= for entry <- @uploads.rulebook_pdfs.entries do %>
-                  <p class="text-xs text-gray-500 mt-1">{entry.client_name} ({entry.progress}%)</p>
-                <% end %>
-              </div>
-
-              <div class="flex gap-3">
-                <.button variant="primary" type="submit">Save</.button>
-                <.button variant="secondary" navigate={~p"/"}>Cancel</.button>
-              </div>
-            </.form>
-          </div>
-
-          <!-- Right column: side panels -->
-          <div style="width:340px;flex-shrink:0">
-            <!-- Download rulebook from URL (edit mode only) -->
-            <%= if @game do %>
-              <div class="border rounded-lg p-4 mb-4">
-                <h2 class="text-lg font-semibold mb-3">Download rulebook from URL</h2>
-
-                <div class="flex gap-2 mb-3">
-                  <button
-                    type="button"
-                    phx-click="find_download"
-                    disabled={@downloading}
-                    style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
-                  >
-                    Find &amp; Download
+          <div class="border rounded-lg p-3 mb-4">
+            <label class="block text-xs font-medium mb-1 text-gray-500">Find on BGG to auto-fill</label>
+            <form phx-submit="bgg_search" class="flex gap-2">
+              <input type="text" name="search" value={@bgg_search} placeholder="Search BGG by game name..." class="flex-1 border rounded px-3 py-2 text-sm" autocomplete="off" />
+              <button type="submit" disabled={@bgg_searching} style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer;white-space:nowrap">Search</button>
+            </form>
+            <%= if @bgg_searching do %><p class="text-xs text-gray-400 mt-1">Searching...</p><% end %>
+            <%= if @bgg_search_error do %><p class="text-xs text-red-500 mt-1">{@bgg_search_error}</p><% end %>
+            <%= if @bgg_search_results != [] do %>
+              <div class="mt-2 border rounded max-h-40 overflow-y-auto">
+                <%= for result <- @bgg_search_results |> Enum.take(10) do %>
+                  <button type="button" phx-click="bgg_select" phx-value-id={result.bgg_id} phx-value-name={result.name} class="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 border-b last:border-b-0">
+                    <span class="font-medium">{result.name}</span>
+                    <span :if={result.year} class="text-gray-400 ml-2">({result.year})</span>
                   </button>
-
-                  <%= if @game.bgg_id do %>
-                    <button
-                      type="button"
-                      phx-click="search_bgg"
-                      disabled={@searching}
-                      style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
-                    >
-                      {if @searching, do: "Searching BGG...", else: "Find on BGG"}
-                    </button>
-                  <% end %>
-                </div>
-
-                <%= if @game.bgg_id do %>
-                  <%= if @search_error do %>
-                    <p class="text-sm text-red-500 mb-2">{@search_error}</p>
-                    <p class="text-xs text-gray-400 mb-2">
-                      Try the{" "}
-                      <.link
-                        href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}/files"}
-                        target="_blank"
-                        rel="noopener"
-                        class="text-blue-500 hover:underline"
-                      >
-                        BGG files page
-                      </.link>
-                      {" "}to find rulebooks manually.
-                    </p>
-                  <% end %>
-
-                  <%= if @bgg_results != [] do %>
-                    <div class="border rounded p-2 mb-3 max-h-48 overflow-y-auto space-y-1">
-                      <%= for result <- @bgg_results do %>
-                        <div class="flex items-center justify-between text-xs p-1 hover:bg-gray-50 rounded">
-                          <span class="truncate">{result.label}</span>
-                          <button
-                            type="button"
-                            phx-click="search_download"
-                            phx-value-url={result.url}
-                            phx-value-label={result.label}
-                            disabled={@downloading}
-                            style="color:var(--accent);border:none;background:none;font-size:0.75rem;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:0.5rem"
-                          >
-                            Download
-                          </button>
-                        </div>
-                      <% end %>
-                    </div>
-                  <% end %>
-                <% end %>
-
-                <form phx-submit="download" class="space-y-2">
-                  <div>
-                    <label class="block text-xs font-medium mb-1 text-gray-500">PDF URL</label>
-                    <input
-                      type="text"
-                      name="url"
-                      value={@download_url}
-                      placeholder="https://example.com/rulebook.pdf"
-                      class="w-full border rounded px-3 py-2 text-sm"
-                      disabled={@downloading}
-                    />
-                  </div>
-                  <div>
-                    <label class="block text-xs font-medium mb-1 text-gray-500">Label (optional)</label>
-                    <input
-                      type="text"
-                      name="label"
-                      value={@download_label}
-                      placeholder="e.g. Core Rulebook"
-                      class="w-full border rounded px-3 py-2 text-sm"
-                      disabled={@downloading}
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={@downloading}
-                    style="background:var(--accent);color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
-                  >
-                    {if @downloading, do: "Downloading...", else: "Download & Extract"}
-                  </button>
-                </form>
-
-                <%= if @download_ok do %>
-                  <p class="text-sm mt-2" style="color:#166534">
-                    Downloaded!{" "}
-                    <.link href={"/#{@download_ok}"} target="_blank" class="underline font-semibold">
-                      View PDF
-                    </.link>
-                    {" "}or go to the{" "}
-                    <.link navigate={~p"/games/#{@game.id}"} class="underline font-semibold">
-                Ask page
-              </.link>.
-                  </p>
-                <% end %>
-
-                <%= if @download_error do %>
-                  <p class="text-sm text-red-500 mt-2">{@download_error}</p>
-                <% end %>
-              </div>
-            <% end %>
-
-            <!-- Clear Questions (edit mode only) -->
-            <%= if @game && @question_count > 0 do %>
-              <div class="mt-6 border border-red-200 rounded-lg p-4">
-                <h2 class="text-sm font-semibold mb-2" style="color:#dc2626">Danger Zone</h2>
-
-                <%= if not @confirm_clear do %>
-                  <p class="text-xs text-gray-500 mb-2">
-                    Clear all questions and answers logged for this game.
-                  </p>
-                  <button
-                    type="button"
-                    phx-click="confirm_clear"
-                    style="background:#dc2626;color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
-                  >
-                    Clear All Questions
-                  </button>
-                <% else %>
-                  <p class="text-sm font-medium mb-2" style="color:#dc2626">
-                    Are you sure? This cannot be undone.
-                  </p>
-                  <div class="flex gap-2">
-                    <button
-                      type="button"
-                      phx-click="clear_questions"
-                      style="background:#dc2626;color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
-                    >
-                      Yes, clear all
-                    </button>
-                    <button
-                      type="button"
-                      phx-click="cancel_clear"
-                      style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
-                    >
-                      Cancel
-                    </button>
-                  </div>
                 <% end %>
               </div>
             <% end %>
           </div>
         </div>
+      <% end %>
+
+      <div style={"display:#{if @game, do: "block", else: "none"}"}>
+        <!-- BGG info bar (edit mode) -->
+        <%= if @game_changeset && @game_changeset.data.bgg_id do %>
+          <div class="flex gap-3 items-center mb-4 p-3 border rounded-lg bg-gray-50">
+            <%= if @game_changeset.data.image_url do %>
+              <img src={@game_changeset.data.image_url} alt="" style="width:80px;height:80px;object-fit:cover;border-radius:0.375rem;flex-shrink:0" />
+            <% end %>
+            <div>
+              <p class="font-semibold">{@game_changeset.data.name}</p>
+              <p class="text-xs text-gray-500">
+                <%= if @game_changeset.data.year_published do %><%= @game_changeset.data.year_published %><% end %>
+                <%= if @game_changeset.data.min_players do %> &middot; <%= @game_changeset.data.min_players %>-<%= @game_changeset.data.max_players %>p<% end %>
+                <%= if @game_changeset.data.playing_time do %> &middot; ~<%= @game_changeset.data.playing_time %>m<% end %>
+              </p>
+              <p class="text-xs text-gray-400 mt-0.5">BGG ID: <%= @game_changeset.data.bgg_id %></p>
+            </div>
+          </div>
+        <% end %>
+
+        <.form for={@game_changeset} id="game-form" phx-change="validate" phx-submit="save" class="space-y-6" style="max-width:56rem">
+          <%!-- Details tab --%>
+          <div style={if @tab == "details", do: "display:block", else: "display:none"}>
+            <div>
+              <label for="game_name" class="block text-sm font-medium mb-1">Game Name</label>
+              <input type="text" name="game[name]" id="game_name" value={@game_changeset.data.name} class="w-full border rounded px-3 py-2" required />
+            </div>
+            <div>
+              <label for="game_bgg_id" class="block text-sm font-medium mb-1">BGG ID <span class="text-gray-400">(optional)</span></label>
+              <input type="number" name="game[bgg_id]" id="game_bgg_id" value={@game_changeset.data.bgg_id} class="w-full border rounded px-3 py-2" />
+            </div>
+
+            <%= if @game do %>
+              <% parent_id = @game_changeset.data.parent_game_id || @game.parent_game_id %>
+              <%= if parent_id do %>
+                <% parent = Games.get_game!(parent_id) %>
+                <div style="margin-bottom:0.5rem">
+                  <span style="font-size:0.75rem;color:var(--text-muted)">Expansion of</span>
+                  <.link navigate={~p"/games/#{parent.id}/edit"} style="font-size:0.8rem;color:var(--blue);font-weight:600;margin-left:0.25rem">{parent.name} →</.link>
+                </div>
+              <% end %>
+              <% base_games = Games.list_base_games() |> Enum.reject(&(&1.id == @game.id)) %>
+              <div>
+                <label for="game_parent_game_id" class="block text-sm font-medium mb-1">Base Game <span class="text-gray-400">(optional — set if this is an expansion)</span></label>
+                <select name="game[parent_game_id]" id="game_parent_game_id" class="w-full border rounded px-3 py-2 text-sm">
+                  <option value="">None (standalone game)</option>
+                  <%= for base <- base_games do %>
+                    <option value={base.id} selected={@game_changeset.data.parent_game_id == base.id}><%= base.name %></option>
+                  <% end %>
+                </select>
+              </div>
+            <% end %>
+
+            <%= if @game && length(@expansions) > 0 do %>
+              <div>
+                <h3 class="text-sm font-semibold mb-1">Expansions of this game</h3>
+                <div class="space-y-1">
+                  <%= for exp <- @expansions do %>
+                    <div class="flex items-center justify-between border rounded px-3 py-1.5 text-sm">
+                      <.link navigate={~p"/games/#{exp.id}/edit"} class="text-blue-600 hover:underline"><%= exp.name %></.link>
+                      <button type="button" phx-click="unlink_expansion" phx-value-id={exp.id} class="text-xs" style="color:#dc2626;background:none;border:none;cursor:pointer;font-weight:600">Unlink</button>
+                    </div>
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+          </div>
+
+          <%!-- Rulebooks tab --%>
+          <div style={if @tab == "rulebook", do: "display:block", else: "display:none"}>
+            <div class="space-y-4">
+              <h2 class="text-lg font-semibold">Rulebook Sources</h2>
+              <%= for entry <- @source_entries do %>
+                <div class="border rounded p-4">
+                  <div class="flex gap-2 items-start">
+                    <div class="flex-1">
+                      <label class="block text-sm font-medium mb-1">Label</label>
+                      <input type="text" name={"label_#{entry.id}"} value={entry.label} placeholder="e.g. Core Rulebook" class="w-full border rounded px-3 py-2" />
+                    </div>
+                    <div class="flex-1">
+                      <label class="block text-sm font-medium mb-1">Text</label>
+                      <textarea name={"text_#{entry.id}"} rows="8" class="w-full border rounded px-3 py-2 font-mono text-xs" placeholder="Paste rulebook text here..."><%= entry.text %></textarea>
+                    </div>
+                    <div class="flex flex-col gap-1">
+                      <button :if={length(@source_entries) > 1} type="button" phx-click="remove_source" phx-value-id={entry.id} class="btn-remove-source">✕</button>
+                      <button :if={entry[:source_id]} type="button" phx-click="delete_source" phx-value-source_id={entry.source_id} style="color:#dc2626;background:none;border:none;font-size:0.75rem;cursor:pointer;white-space:nowrap;margin-top:0.25rem">Delete</button>
+                    </div>
+                  </div>
+                  <%= if entry[:pdf_path] do %>
+                    <div class="mt-2 flex gap-3">
+                      <.link href={"/#{entry.pdf_path}"} target="_blank" class="text-blue-600 hover:underline text-xs">View PDF</.link>
+                      <%= if entry[:html_path] do %><.link href={"/#{entry.html_path}"} target="_blank" class="text-green-600 hover:underline text-xs">View as HTML</.link><% end %>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+              <button type="button" phx-click="add_source" class="btn-add-source">+ Add manual rules entry</button>
+            </div>
+
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+              <label class="block text-sm font-medium mb-2">Or upload PDF rulebooks</label>
+              <.live_file_input upload={@uploads.rulebook_pdfs} class="block mx-auto text-sm" />
+              <%= for entry <- @uploads.rulebook_pdfs.entries do %><p class="text-xs text-gray-500 mt-1"><%= entry.client_name %> (<%= entry.progress %>%)</p><% end %>
+            </div>
+
+            <%!-- Download rulebook from URL --%>
+            <div class="border rounded-lg p-4">
+              <h2 class="text-lg font-semibold mb-3">Download rulebook from URL</h2>
+              <div class="flex gap-2 mb-3">
+                <button type="button" phx-click="find_download" disabled={@downloading} style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">Find &amp; Download</button>
+                <%= if @game.bgg_id do %>
+                  <button type="button" phx-click="search_bgg" disabled={@searching} style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"><%= if @searching, do: "Searching BGG...", else: "Find on BGG" %></button>
+                <% end %>
+              </div>
+              <%= if @game.bgg_id do %>
+                <%= if @search_error do %>
+                  <p class="text-sm text-red-500 mb-2"><%= @search_error %></p>
+                <% end %>
+                <%= if @bgg_results != [] do %>
+                  <div class="border rounded p-2 mb-3 max-h-48 overflow-y-auto space-y-1">
+                    <%= for result <- @bgg_results do %>
+                      <div class="flex items-center justify-between text-xs p-1 hover:bg-gray-50 rounded">
+                        <span class="truncate"><%= result.label %></span>
+                        <button type="button" phx-click="search_download" phx-value-url={result.url} phx-value-label={result.label} disabled={@downloading} style="color:var(--accent);border:none;background:none;font-size:0.75rem;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:0.5rem">Download</button>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+              <% end %>
+              <form phx-submit="download" class="space-y-2">
+                <div><label class="block text-xs font-medium mb-1 text-gray-500">PDF URL</label><input type="text" name="url" value={@download_url} placeholder="https://example.com/rulebook.pdf" class="w-full border rounded px-3 py-2 text-sm" disabled={@downloading} /></div>
+                <div><label class="block text-xs font-medium mb-1 text-gray-500">Label (optional)</label><input type="text" name="label" value={@download_label} placeholder="e.g. Core Rulebook" class="w-full border rounded px-3 py-2 text-sm" disabled={@downloading} /></div>
+                <button type="submit" disabled={@downloading} style="background:var(--accent);color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"><%= if @downloading, do: "Downloading...", else: "Download & Extract" %></button>
+              </form>
+              <%= if @download_ok do %><p class="text-sm mt-2" style="color:#166534">Downloaded! <.link href={"/#{@download_ok}"} target="_blank" class="underline font-semibold">View PDF</.link> or go to the <.link navigate={~p"/games/#{@game.id}"} class="underline font-semibold">Ask page</.link>.</p><% end %>
+              <%= if @download_error do %><p class="text-sm text-red-500 mt-2"><%= @download_error %></p><% end %>
+            </div>
+          </div>
+
+          <%!-- Danger tab --%>
+          <div style={if @tab == "danger", do: "display:block", else: "display:none"}>
+            <%= if @question_count > 0 do %>
+              <div class="border border-red-200 rounded-lg p-4">
+                <h2 class="text-sm font-semibold mb-2" style="color:#dc2626">Danger Zone</h2>
+                <%= if not @confirm_clear do %>
+                  <p class="text-xs text-gray-500 mb-2">Clear all questions and answers logged for this game.</p>
+                  <button type="button" phx-click="confirm_clear" style="background:#dc2626;color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">Clear All Questions</button>
+                <% else %>
+                  <p class="text-sm font-medium mb-2" style="color:#dc2626">Are you sure? This cannot be undone.</p>
+                  <div class="flex gap-2">
+                    <button type="button" phx-click="clear_questions" style="background:#dc2626;color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">Yes, clear all</button>
+                    <button type="button" phx-click="cancel_clear" style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer">Cancel</button>
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
+          </div>
+
+          <div class="flex gap-3">
+            <.button variant="primary" type="submit">Save</.button>
+            <.button variant="secondary" navigate={~p"/"}>Cancel</.button>
+          </div>
+        </.form>
       </div>
 
       <!-- Cheatsheet panel -->
-      <div
-        style={"display:#{if @tab == "cheatsheet", do: "block", else: "none"}"}
-        data-refresh={@cheat_refresh}
-      >
-        <!-- Cheat Sheet -->
+      <div style={"display:#{if @tab == "cheatsheet", do: "block", else: "none"}"} data-refresh={@cheat_refresh}>
         <%= if @game do %>
           <% doc_id = Games.list_documents(@game) |> Enum.map(& &1.id) |> Enum.at(0) %>
           <div class="mt-6 border rounded-lg p-4" data-refresh={@cheat_refresh}>
