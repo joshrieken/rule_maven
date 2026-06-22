@@ -40,8 +40,15 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     suggestions =
       case RuleMaven.Settings.get("suggestions_#{game.id}") do
-        nil -> []
-        json -> Jason.decode!(json)
+        nil ->
+          []
+
+        json ->
+          json
+          |> Jason.decode!()
+          |> Enum.map(fn %{"category" => c, "questions" => qs} ->
+            %{category: c, questions: qs}
+          end)
       end
 
     {:noreply, assign(socket, suggestions: suggestions)}
