@@ -22,7 +22,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        search_query: "",
        community_questions: [],
        faq_count: 0,
-       refresh: 0
+       refresh: 0,
+       show_onboarding: false
      )}
   end
 
@@ -52,7 +53,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         question: "",
         loading: false,
         community_questions: community,
-        faq_count: faq_count
+        faq_count: faq_count,
+        show_onboarding: conversation == [] && sources != []
       )
 
     suggestions =
@@ -239,6 +241,11 @@ defmodule RuleMavenWeb.GameLive.Show do
        conversation: conversation,
        confirm_delete_id: nil
      )}
+  end
+
+  @impl true
+  def handle_event("dismiss_onboarding", _params, socket) do
+    {:noreply, assign(socket, show_onboarding: false)}
   end
 
   @impl true
@@ -689,7 +696,84 @@ defmodule RuleMavenWeb.GameLive.Show do
           <% end %>
 
           <%= if @conversation == [] && @source_count > 0 do %>
-            <div style="text-align:center;padding:2rem 1rem;color:var(--text-secondary);font-size:0.85rem;line-height:1.6">
+            <!-- Onboarding card (first visit) -->
+            <div
+              :if={@show_onboarding}
+              style="text-align:center;padding:1.5rem 1rem;color:var(--text);max-width:32rem;margin:0 auto"
+            >
+              <div style="font-size:1.5rem;margin-bottom:0.75rem">🎲</div>
+              <h2 style="font-size:1.15rem;font-weight:700;margin:0 0 0.5rem;color:var(--text)">
+                Welcome to {@game.name} Rules
+              </h2>
+              <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1.25rem;line-height:1.5">
+                Ask any rules question in plain English. Answers are grounded in the actual rulebook text with exact citations.
+              </p>
+              <div style="display:flex;flex-direction:column;gap:0.75rem;text-align:left;margin-bottom:1.25rem">
+                <div style="display:flex;gap:0.75rem;align-items:flex-start">
+                  <span style="font-size:1.1rem;flex-shrink:0">1.</span>
+                  <div>
+                    <div style="font-weight:600;font-size:0.82rem;color:var(--text)">
+                      Ask a question
+                    </div>
+                    <div style="font-size:0.72rem;color:var(--text-muted)">
+                      Type below. Plain English works — "Can I play a card out of turn?"
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:0.75rem;align-items:flex-start">
+                  <span style="font-size:1.1rem;flex-shrink:0">2.</span>
+                  <div>
+                    <div style="font-weight:600;font-size:0.82rem;color:var(--text)">
+                      Get a cited answer
+                    </div>
+                    <div style="font-size:0.72rem;color:var(--text-muted)">
+                      Answers quote the rulebook. Tap the citation to see exactly where it came from.
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:0.75rem;align-items:flex-start">
+                  <span style="font-size:1.1rem;flex-shrink:0">3.</span>
+                  <div>
+                    <div style="font-weight:600;font-size:0.82rem;color:var(--text)">
+                      Upvote or follow up
+                    </div>
+                    <div style="font-size:0.72rem;color:var(--text-muted)">
+                      👍 helpful answers. Ask follow-up questions — they'll be grouped together.
+                    </div>
+                  </div>
+                </div>
+                <%= if @faq_count > 0 do %>
+                  <div style="display:flex;gap:0.75rem;align-items:flex-start">
+                    <span style="font-size:1.1rem;flex-shrink:0">★</span>
+                    <div>
+                      <div style="font-weight:600;font-size:0.82rem;color:var(--text)">
+                        Browse the FAQ ({@faq_count} entries)
+                      </div>
+                      <div style="font-size:0.72rem;color:var(--text-muted)">
+                        <.link
+                          navigate={~p"/games/#{@game.id}/faq"}
+                          style="color:var(--accent);font-weight:600"
+                        >View official FAQ</.link>
+                        for curated answers to common questions.
+                      </div>
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+              <div style="display:flex;gap:0.5rem;justify-content:center">
+                <button
+                  type="button"
+                  phx-click="dismiss_onboarding"
+                  style="background:var(--accent);color:#fff;border:none;padding:0.4rem 1.5rem;border-radius:0.4rem;font-size:0.8rem;font-weight:600;cursor:pointer"
+                >Ask a question</button>
+              </div>
+            </div>
+
+            <!-- Simple empty state (after onboarding dismissed) -->
+            <div
+              :if={!@show_onboarding}
+              style="text-align:center;padding:2rem 1rem;color:var(--text-secondary);font-size:0.85rem;line-height:1.6"
+            >
               <p style="font-size:1.1rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">
                 Ask a rules question
               </p>

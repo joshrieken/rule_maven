@@ -601,9 +601,27 @@ defmodule RuleMavenWeb.GameLive.Index do
         </p>
 
         <%= if @games == [] do %>
-          <div class="text-center py-12 text-gray-500">
-            <p class="text-lg">No games yet.</p>
-            <p>Add a game to get started!</p>
+          <div class="text-center py-12 text-gray-500" style="max-width:24rem;margin:0 auto">
+            <div style="font-size:2rem;margin-bottom:0.75rem">📚</div>
+            <p style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">
+              Welcome to Rules Buddy
+            </p>
+            <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.25rem;line-height:1.5">
+              Ask rulebook questions in plain English and get answers with exact citations.
+            </p>
+            <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:1rem;line-height:1.5">
+              Add a board game below to get started.
+            </p>
+            <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap">
+              <.link
+                navigate={~p"/games/new"}
+                style="background:var(--accent);color:#fff;text-decoration:none;font-size:0.8rem;font-weight:600;padding:0.4rem 1rem;border-radius:0.4rem"
+              >+ Add manually</.link>
+              <.link
+                navigate={~p"/games/import"}
+                style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);text-decoration:none;font-size:0.8rem;font-weight:600;padding:0.4rem 1rem;border-radius:0.4rem"
+              >🔍 Import from BGG</.link>
+            </div>
           </div>
         <% end %>
 
