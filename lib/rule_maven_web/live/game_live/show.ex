@@ -392,34 +392,34 @@ defmodule RuleMavenWeb.GameLive.Show do
       <!-- Header -->
       <div
         class="chat-header"
-        style="flex-shrink:0;padding:0.5rem 1rem;border-bottom:1px solid var(--border);background:var(--bg-surface)"
+        style="flex-shrink:0;padding:0.35rem 0.75rem;border-bottom:1px solid var(--border);background:var(--bg-surface)"
       >
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <.link navigate={~p"/"} class="text-blue-600 hover:underline text-sm font-semibold">
-              &larr; Games
+        <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:0.35rem">
+          <div class="flex items-center gap-1" style="min-width:0;flex-wrap:wrap">
+            <.link navigate={~p"/"} class="text-blue-600 hover:underline text-sm font-semibold" style="flex-shrink:0">
+              &larr;
             </.link>
-            <h1 class="text-base font-bold truncate">{@game.name}</h1>
+            <h1 class="text-sm font-bold truncate" style="max-width:140px">{@game.name}</h1>
             <%= if @game.bgg_id do %>
               <.link
                 href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
                 target="_blank"
                 rel="noopener"
-                style="color:#ea580c;text-decoration:none;font-size:0.7rem;font-weight:600;flex-shrink:0"
+                style="color:#ea580c;text-decoration:none;font-size:0.65rem;font-weight:600;flex-shrink:0"
               >BGG</.link>
             <% end %>
             <%= if @game.image_url do %>
               <img
                 src={@game.image_url}
                 alt=""
-                style="width:28px;height:28px;border-radius:4px;object-fit:cover"
+                style="width:22px;height:22px;border-radius:4px;object-fit:cover;flex-shrink:0"
               />
             <% end %>
             <%!-- Rulebook sources dropdown --%>
-            <div :if={@sources != []} style="position:relative">
-              <details style="font-size:0.7rem">
+            <div :if={@sources != []} style="position:relative;flex-shrink:0">
+              <details style="font-size:0.65rem">
                 <summary style="cursor:pointer;color:var(--text-muted);font-weight:600;user-select:none">
-                  Rulebooks ({length(@sources)})
+                  ({length(@sources)})
                 </summary>
                 <div style="position:absolute;top:100%;left:0;margin-top:0.25rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.5rem;min-width:180px;z-index:20;box-shadow:0 4px 12px rgba(0,0,0,0.15)">
                   <%= for src <- @sources do %>
@@ -449,7 +449,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               </details>
             </div>
           </div>
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-1" style="flex-wrap:wrap">
             <button
               type="button"
               phx-click="toggle_sidebar"
@@ -469,14 +469,16 @@ defmodule RuleMavenWeb.GameLive.Show do
             <.link
               :if={RuleMaven.Users.game_master?(@current_user)}
               navigate={~p"/games/#{@game.id}/edit"}
-              class="text-blue-600 hover:underline text-sm"
+              class="text-blue-600 hover:underline text-xs font-semibold"
+              style="flex-shrink:0"
             >
               Edit
             </.link>
             <.link
               :if={RuleMaven.Users.game_master?(@current_user)}
               navigate={~p"/games/#{@game.id}/review"}
-              class="text-blue-600 hover:underline text-sm"
+              class="text-blue-600 hover:underline text-xs font-semibold"
+              style="flex-shrink:0"
             >
               Review
             </.link>
