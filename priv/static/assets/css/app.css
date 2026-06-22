@@ -983,6 +983,22 @@ a:not([class]):hover {
   color: var(--accent);
 }
 
+.user-dropdown-section {
+  padding: 0.3rem 0.75rem 0.15rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 0.15rem;
+}
+
+.user-dropdown-section:first-child {
+  border-top: none;
+  margin-top: 0;
+}
+
 /* ===== Theme Selector ===== */
 .header-controls {
   display: flex;

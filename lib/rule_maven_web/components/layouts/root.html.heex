@@ -60,9 +60,16 @@
                     <span class="header-role-badge header-role-badge-gm">GM</span>
                   </summary>
                   <div class="user-dropdown-menu">
-                    <.link href={~p"/admin"} class="user-dropdown-link">Admin</.link>
-                    <.link href={~p"/oban"} class="user-dropdown-link">Oban</.link>
+                    <div class="user-dropdown-section">Admin</div>
+                    <.link href={~p"/admin"} class="user-dropdown-link">Dashboard</.link>
+                    <.link href={~p"/admin/db"} class="user-dropdown-link">DB Admin</.link>
+                    <.link href={~p"/admin/threads"} class="user-dropdown-link">Review Threads</.link>
+                    <.link href={~p"/admin/users"} class="user-dropdown-link">Manage Users</.link>
+                    <.link href={~p"/admin/invites"} class="user-dropdown-link">Invite Codes</.link>
+                    <div class="user-dropdown-section">Tools</div>
+                    <.link href={~p"/oban"} class="user-dropdown-link">Oban Dashboard ↗</.link>
                     <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>
+                    <div class="user-dropdown-section"></div>
                     <.link href={~p"/logout"} class="user-dropdown-link">Log out</.link>
                   </div>
                 </details>
