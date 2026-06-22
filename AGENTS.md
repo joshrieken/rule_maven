@@ -24,6 +24,16 @@ Ask questions in plain English, get answers grounded in rulebook text.
 3. Load only those files. Do NOT scan the entire tree.
 4. Use the data flows doc to understand how things connect.
 
+## Continual Self-Improvement (meta)
+
+Your own context is your scarcest resource. Actively protect it:
+
+- **Load minimal context.** Use the codebase map to identify the 1-3 files you need. Never scan the whole tree. Never read a file you don't need.
+- **If a task forced you to explore broadly**, add a "Quick Reference" row to `.agents/codebase-map.md` so future you doesn't repeat the search.
+- **If docs grow stale**, update them immediately. Stale docs are worse than no docs — they misdirect.
+- **If a doc is too verbose**, compress it. Remove filler, keep substance. The `.agents/` files are for agents, not humans.
+- **After every task**, ask: could I have done this with less context? If yes, improve the map so next time you can.
+
 ## Self-Maintenance (mandatory)
 
 After every code change, update the relevant doc. At minimum:
