@@ -554,7 +554,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                           type="button"
                           phx-click="ask_suggestion"
                           phx-value-q={q}
-                          style="display:block;width:100%;text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.3rem 0.6rem;margin-bottom:0.2rem;font-size:0.82rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word"
+                          style="display:block;width:100%;text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.3rem 0.6rem;margin-bottom:0.2rem;font-size:0.82rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word;line-height:1.45"
                         >{q}</button>
                       <% end %>
                     </div>
@@ -759,7 +759,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         type="button"
                         phx-click="ask_suggestion"
                         phx-value-q={q}
-                        style="text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.25rem 0.6rem;font-size:0.78rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word"
+                        style="text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.25rem 0.6rem;font-size:0.78rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word;line-height:1.4"
                       >{q}</button>
                     <% end %>
                   </div>
