@@ -2,9 +2,12 @@ defmodule RuleMavenWeb.GameLive.Show do
   use RuleMavenWeb, :live_view
 
   alias RuleMaven.{Games, CheatSheet}
+  alias Oban
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:all")
+
     {:ok,
      assign(socket,
        game: nil,
@@ -52,7 +55,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           end)
       end
 
-    {:noreply, assign(socket, suggestions: suggestions, suggestions_open: suggestions != [])}
+    {:noreply, assign(socket, suggestions: suggestions, suggestions_open: false)}
   end
 
   # Build flat conversation list from grouped questions
@@ -301,87 +304,82 @@ defmodule RuleMavenWeb.GameLive.Show do
     %{game: game, conversation: convo, included_expansions: included} = socket.assigns
     expansion_ids = Map.keys(included)
 
-    result =
-      try do
-        # Collect recent Q&A pairs for followup context
-        recent =
+    # Collect recent Q&A pairs for followup context
+    recent =
+      convo
+      |> Enum.take(-4)
+      |> Enum.chunk_every(2)
+      |> Enum.filter(&(length(&1) == 2))
+      |> Enum.map(fn [user, asst] -> {user.content, asst.content} end)
+
+    %{
+      game_id: game.id,
+      question: question,
+      expansion_ids: expansion_ids,
+      recent_context: recent,
+      user_id: socket.assigns.current_user.id
+    }
+    |> RuleMaven.Workers.AskWorker.new()
+    |> Oban.insert()
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:ask_complete, data}, socket) do
+    %{game: game, conversation: convo} = socket.assigns
+    question_log_id = data.question_log_id
+
+    # Read the logged question from DB
+    q =
+      game
+      |> Games.recent_questions(100)
+      |> Enum.find(&(&1.id == question_log_id))
+
+    if q do
+      citation = find_citation_link(game, q.cited_passage)
+
+      assistant_msg = %{
+        id: q.id,
+        role: :assistant,
+        content: q.answer,
+        cited_passage: q.cited_passage,
+        cited_page: citation[:page],
+        llm_provider: q.llm_provider,
+        llm_model: q.llm_model,
+        cited_html_link: citation[:link],
+        faq_hit: data.faq_hit || false,
+        followups: data.followups || [],
+        timestamp: q.inserted_at
+      }
+
+      convo =
+        if data.followup do
+          List.update_at(convo, -1, fn msg -> Map.put(msg, :followup, true) end)
+        else
           convo
-          |> Enum.take(-4)
-          |> Enum.chunk_every(2)
-          |> Enum.filter(&(length(&1) == 2))
-          |> Enum.map(fn [user, asst] -> {user.content, asst.content} end)
-
-        case RuleMaven.LLM.ask(game, question, expansion_ids, recent) do
-          {:ok, %{answer: answer} = llm_result} ->
-            passage = llm_result[:cited_passage]
-            citation = find_citation_link(game, passage)
-
-            Games.log_question(%{
-              game_id: game.id,
-              question: question,
-              answer: answer,
-              cited_passage: passage,
-              llm_provider: llm_result[:provider],
-              llm_model: llm_result[:model],
-              user_id: socket.assigns.current_user.id,
-              cited_page: citation[:page],
-              question_embedding: llm_result[:question_embedding]
-            })
-
-            {:ok, answer, passage, llm_result, citation}
-
-          {:error, reason} ->
-            {:error, reason}
         end
-      rescue
-        e ->
-          require Logger
-          Logger.error("Chat error: #{Exception.format(:error, e, __STACKTRACE__)}")
-          {:error, "Something went wrong: #{Exception.message(e)}"}
-      end
 
-    case result do
-      {:ok, answer, passage, llm_result, citation} ->
-        assistant_msg = %{
-          id: nil,
-          role: :assistant,
-          content: answer,
-          cited_passage: passage,
-          cited_page: citation[:page],
-          llm_provider: llm_result[:provider],
-          llm_model: llm_result[:model],
-          cited_html_link: citation[:link],
-          faq_hit: llm_result[:faq_hit] || false,
-          followups: llm_result[:followups] || [],
-          timestamp: DateTime.utc_now()
-        }
-
-        # Tag the preceding user message as followup if LLM says so
-        convo =
-          if llm_result[:followup] do
-            List.update_at(convo, -1, fn msg -> Map.put(msg, :followup, true) end)
-          else
-            convo
-          end
-
-        {:noreply,
-         socket
-         |> assign(conversation: convo ++ [assistant_msg], loading: false)
-         |> push_event("scroll_bottom", %{})}
-
-      {:error, reason} ->
-        error_msg = %{
-          id: nil,
-          role: :assistant,
-          content: "⚠️ #{reason}",
-          timestamp: DateTime.utc_now()
-        }
-
-        {:noreply,
-         socket
-         |> assign(conversation: convo ++ [error_msg], loading: false)
-         |> push_event("scroll_bottom", %{})}
+      {:noreply,
+       socket
+       |> assign(conversation: convo ++ [assistant_msg], loading: false)
+       |> push_event("scroll_bottom", %{})}
+    else
+      {:noreply, assign(socket, loading: false)}
     end
+  end
+
+  def handle_info({:ask_error, %{question: _question, error: reason}}, socket) do
+    error_msg = %{
+      id: nil,
+      role: :assistant,
+      content: "⚠️ #{reason}",
+      timestamp: DateTime.utc_now()
+    }
+
+    {:noreply,
+     socket
+     |> assign(conversation: socket.assigns.conversation ++ [error_msg], loading: false)
+     |> push_event("scroll_bottom", %{})}
   end
 
   @impl true

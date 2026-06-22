@@ -42,7 +42,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | Module | File | Lines | Route | Responsibility |
 |--------|------|-------|-------|----------------|
 | `GameLive.Index` | `game_live/index.ex` | 609 | `/` | Game list, search, delete |
-| `GameLive.Show` | `game_live/show.ex` | 944 | `/games/:id` | Ask questions, view answers, conversation UI, suggested questions |
+| `GameLive.Show` | `game_live/show.ex` | 947 | `/games/:id` | Ask questions, view answers, conversation UI, suggested questions |
 | `GameLive.Form` | `game_live/form.ex` | 1965 | `/games/new`, `/games/:id/edit` | Create/edit game, add rulebook (text/PDF/upload), suggested questions |
 | `GameLive.Review` | `game_live/review.ex` | 243 | `/games/:id/review` | Review document chunks, approve/reject |
 | `GameLive.Import` | `game_live/import.ex` | 328 | `/games/import` | Import games via BGG search |
@@ -75,6 +75,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `EmbedChunksWorker` | `embed_chunks_worker.ex` | Embed document chunks (called after chunk creation) |
 | `FaqClusterWorker` | `faq_cluster_worker.ex` | Cluster similar questions into FAQ candidates |
 | `DirectPromotionWorker` | `direct_promotion_worker.ex` | Auto-promote exact-match Q&A to FAQ |
+| `AskWorker` | `ask_worker.ex` | 70 | Background LLM ask via Oban, PubSub result broadcast |
 | `FaqClusterJob` | `faq_cluster_job.ex` | Oban job struct for FAQ clustering |
 
 ## Test Files
