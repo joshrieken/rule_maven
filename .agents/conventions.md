@@ -115,3 +115,9 @@ outermost wrapper div that always exists (even if hidden with `display:none`).
 - **Never start your own dev server.** If one isn't running and you need it, ask the user.
 - **Server logs are in `tmp/`**, not `log/`. Check `tmp/` for runtime output, crash dumps, or Erlang error logs.
 - The user's dev server runs in their terminal; yours would port-conflict and cause confusion.
+
+## Running Tests
+
+- **Don't run the full test suite every time.** Run only tests relevant to what you're working on: `mix test test/path/to/file_test.exs` or `mix test test/path/file_test.exs:LINE`.
+- If changes span multiple files (e.g. renaming a function), use a glob: `mix test test/rule_maven_web/live/game_live/*_test.exs`.
+- **Run the full suite (`mix test`) occasionally** — at least once per session before finishing, and always before committing.

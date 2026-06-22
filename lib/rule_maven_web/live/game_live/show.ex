@@ -540,10 +540,13 @@ defmodule RuleMavenWeb.GameLive.Show do
               </p>
               <p>Type your question below. Answers cite the exact rulebook passage.</p>
               <%= if @suggestions != [] do %>
-                <div style="margin-top:1rem;text-align:left;max-width:24rem;margin-left:auto;margin-right:auto">
+                <div style="margin-top:1.5rem;text-align:left;max-width:28rem;margin-left:auto;margin-right:auto">
+                  <div style="font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:0.75rem">
+                    Suggested questions
+                  </div>
                   <%= for cat <- @suggestions do %>
-                    <div style="margin-bottom:0.5rem">
-                      <div style="font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:0.2rem">
+                    <div style="margin-bottom:1rem">
+                      <div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:0.3rem">
                         {cat.category}
                       </div>
                       <%= for q <- cat.questions do %>
@@ -551,7 +554,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                           type="button"
                           phx-click="ask_suggestion"
                           phx-value-q={q}
-                          style="display:block;width:100%;text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.25rem 0.5rem;margin-bottom:0.15rem;font-size:0.72rem;color:var(--text-secondary);cursor:pointer"
+                          style="display:block;width:100%;text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.3rem 0.6rem;margin-bottom:0.2rem;font-size:0.82rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word"
                         >{q}</button>
                       <% end %>
                     </div>
@@ -738,25 +741,25 @@ defmodule RuleMavenWeb.GameLive.Show do
       <div style="flex-shrink:0;padding:0.5rem 1rem 0.75rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface)">
         <%= if @suggestions != [] do %>
           <details
-            style="margin-bottom:0.5rem;max-width:48rem;margin-left:auto;margin-right:auto;font-size:0.7rem"
+            style="margin-bottom:0.75rem;max-width:48rem;margin-left:auto;margin-right:auto;font-size:0.8rem"
             open
           >
-            <summary style="cursor:pointer;color:var(--text-secondary);font-weight:600;font-size:0.65rem;user-select:none">
+            <summary style="cursor:pointer;color:var(--text);font-weight:600;font-size:0.8rem;user-select:none">
               Suggested questions
             </summary>
-            <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.3rem">
+            <div style="display:flex;flex-direction:column;gap:0.75rem;margin-top:0.5rem">
               <%= for cat <- @suggestions do %>
                 <div>
-                  <div style="font-size:0.6rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:0.15rem">
+                  <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:0.25rem">
                     {cat.category}
                   </div>
-                  <div style="display:flex;flex-direction:column;gap:0.15rem">
+                  <div style="display:flex;flex-direction:column;gap:0.2rem">
                     <%= for q <- cat.questions do %>
                       <button
                         type="button"
                         phx-click="ask_suggestion"
                         phx-value-q={q}
-                        style="text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.2rem 0.5rem;font-size:0.68rem;color:var(--text-secondary);cursor:pointer"
+                        style="text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.25rem 0.6rem;font-size:0.78rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word"
                       >{q}</button>
                     <% end %>
                   </div>
