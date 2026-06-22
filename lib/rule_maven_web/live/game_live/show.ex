@@ -399,12 +399,6 @@ defmodule RuleMavenWeb.GameLive.Show do
             <.link navigate={~p"/"} class="text-blue-600 hover:underline text-sm font-semibold">
               &larr; Games
             </.link>
-            <button
-              type="button"
-              phx-click="toggle_sidebar"
-              class="sidebar-toggle"
-              style="background:none;border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.4rem;font-size:0.8rem;cursor:pointer;color:var(--text);display:none"
-            >☰</button>
             <h1 class="text-base font-bold truncate">{@game.name}</h1>
             <%= if @game.bgg_id do %>
               <.link
@@ -456,6 +450,12 @@ defmodule RuleMavenWeb.GameLive.Show do
             </div>
           </div>
           <div class="flex items-center gap-3">
+            <button
+              type="button"
+              phx-click="toggle_sidebar"
+              class="sidebar-toggle"
+              style="background:none;border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.4rem;font-size:0.8rem;cursor:pointer;color:var(--text);display:none"
+            >☰</button>
             <%!-- Cheat Sheet --%>
             <%= if Enum.any?(@sources, &(CheatSheet.active_version(&1.id) != nil)) do %>
               <.link
