@@ -6,8 +6,6 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:all")
-
     {:ok,
      assign(socket,
        game: nil,
@@ -25,6 +23,11 @@ defmodule RuleMavenWeb.GameLive.Show do
   @impl true
   def handle_params(%{"id" => id}, _uri, socket) do
     game = Games.get_game!(id)
+
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")
+    end
+
     grouped = Games.grouped_questions(game)
     conversation = build_conversation(grouped)
     sources = Games.list_documents(game)
