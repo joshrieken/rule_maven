@@ -212,6 +212,11 @@ defmodule RuleMavenWeb.GameLive.Index do
   end
 
   @impl true
+  def handle_event("restore_search", %{"value" => text}, socket) do
+    {:noreply, assign(socket, search: text, display_count: 20, selected_idx: -1)}
+  end
+
+  @impl true
   def handle_event("load_more", _params, socket) do
     {:noreply, assign(socket, display_count: socket.assigns.display_count + 20)}
   end
@@ -324,8 +329,7 @@ defmodule RuleMavenWeb.GameLive.Index do
     <div class="game-list">
 
       <form phx-change="search" phx-submit="search" class="mb-4">
-        <label class="block text-xs text-gray-400 mb-1">Search</label>
-        <div style="position:relative">
+        <div style="position:relative;display:flex;align-items:center">
           <input
             type="text"
             id="game-search"
@@ -334,13 +338,14 @@ defmodule RuleMavenWeb.GameLive.Index do
             placeholder="Filter by name..."
             class="w-full border rounded px-3 py-2 pr-8 text-sm"
             autocomplete="off"
+            autofocus
             phx-hook="Refocus"
           />
           <button
             :if={@search != ""}
             type="button"
             phx-click="clear_search"
-            style="position:absolute;right:0.5rem;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);font-size:0.85rem;cursor:pointer;padding:0.25rem;line-height:1"
+            style="position:absolute;right:0.5rem;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);font-size:0.85rem;cursor:pointer;padding:0;line-height:1;height:1.2rem;display:flex;align-items:center"
           >✕</button>
         </div>
       </form>

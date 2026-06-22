@@ -56,14 +56,31 @@ Hooks.ChatScroll = {
 
 Hooks.Refocus = {
   mounted() {
+    // Restore saved search from localStorage
+    const saved = localStorage.getItem("game-search");
+    if (saved && saved !== this.el.value) {
+      this.el.value = saved;
+      this.pushEvent("restore_search", { value: saved });
+    }
+    this.el.focus();
+    // Save on each input change
+    this._saveHandler = () => {
+      localStorage.setItem("game-search", this.el.value);
+    };
+    this.el.addEventListener("input", this._saveHandler);
     this.handleEvent("refocus", () => {
       this.el.value = "";
+      localStorage.removeItem("game-search");
       requestAnimationFrame(() => this.el.focus());
     });
     this.handleEvent("clear_and_refocus", () => {
       this.el.value = "";
+      localStorage.removeItem("game-search");
       requestAnimationFrame(() => this.el.focus());
     });
+  },
+  destroyed() {
+    this.el.removeEventListener("input", this._saveHandler);
   }
 };
 
