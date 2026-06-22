@@ -133,6 +133,21 @@ defmodule RuleMavenWeb.GameLive.Form do
 
           tab = Map.get(params, "tab", "rulebook")
           socket = assign(socket, tab: tab)
+
+          suggestions =
+            case RuleMaven.Settings.get("suggestions_#{game.id}") do
+              nil ->
+                []
+
+              json ->
+                json
+                |> Jason.decode!()
+                |> Enum.map(fn %{"category" => c, "questions" => qs} ->
+                  %{category: c, questions: qs}
+                end)
+            end
+
+          socket = assign(socket, suggestions: suggestions)
           socket
 
         _ ->
