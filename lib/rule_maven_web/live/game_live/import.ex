@@ -306,7 +306,7 @@ defmodule RuleMavenWeb.GameLive.Import do
                       Already imported
                     </span>
                   <% game.bgg_id in @imported -> %>
-                    <span class="text-xs px-2 py-1 rounded" style="background:#DCFCE7;color:#166534">
+                    <span class="text-xs px-2 py-1 rounded badge-green">
                       Imported
                     </span>
                   <% true -> %>

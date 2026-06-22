@@ -446,12 +446,12 @@ defmodule RuleMavenWeb.AdminLive do
                           style="color:var(--text-secondary);background:none;border:none;font-size:0.72rem;cursor:pointer"
                         >Edit</button>
                         <%= if @delete_id == row_id do %>
-                          <span style="color:#dc2626;font-size:0.72rem">Delete?</span>
+                          <span style="color:var(--red);font-size:0.72rem">Delete?</span>
                           <button
                             type="button"
                             phx-click="delete_row"
                             phx-value-id={row_id}
-                            style="color:#dc2626;background:none;border:none;font-size:0.72rem;font-weight:600;cursor:pointer"
+                            style="color:var(--red);background:none;border:none;font-size:0.72rem;font-weight:600;cursor:pointer"
                           >Yes</button>
                           <button
                             type="button"
@@ -504,12 +504,12 @@ defmodule RuleMavenWeb.AdminLive do
                     style="color:var(--blue);background:none;border:none;font-size:0.75rem;cursor:pointer;font-weight:600"
                   >Edit</button>
                   <%= if @delete_id == row_id do %>
-                    <span style="color:#dc2626;font-size:0.75rem">Delete?</span>
+                    <span style="color:var(--red);font-size:0.75rem">Delete?</span>
                     <button
                       type="button"
                       phx-click="delete_row"
                       phx-value-id={row_id}
-                      style="color:#dc2626;background:none;border:none;font-size:0.75rem;font-weight:600;cursor:pointer"
+                      style="color:var(--red);background:none;border:none;font-size:0.75rem;font-weight:600;cursor:pointer"
                     >Yes</button>
                     <button
                       type="button"

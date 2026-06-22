@@ -162,7 +162,7 @@ defmodule RuleMavenWeb.GameLive.Review do
                   :if={faq.status == "draft"}
                   phx-click="discard_faq"
                   phx-value-id={faq.id}
-                  style="background:#ef4444;color:white;border:none;padding:0.2rem 0.5rem;border-radius:0.25rem;font-size:0.75rem;cursor:pointer"
+                  style="background:var(--red);color:white;border:none;padding:0.2rem 0.5rem;border-radius:0.25rem;font-size:0.75rem;cursor:pointer"
                 >
                   Discard
                 </button>
@@ -198,7 +198,7 @@ defmodule RuleMavenWeb.GameLive.Review do
             <% end %>
             <div class="flex items-center justify-between" style="margin-top:0.5rem">
               <div style="font-size:0.7rem;color:var(--text-muted)">
-                <span style="color:#ef4444">👎 {candidate.thumbs_down_count}</span>
+                <span style="color:var(--red)">👎 {candidate.thumbs_down_count}</span>
                 <span style="margin-left:0.5rem">asked {candidate.total_asked_count}x</span>
               </div>
               <div class="flex gap-1" style="flex-shrink:0">
@@ -212,7 +212,7 @@ defmodule RuleMavenWeb.GameLive.Review do
                 <button
                   phx-click="reject_candidate"
                   phx-value-id={candidate.id}
-                  style="background:#ef4444;color:white;border:none;padding:0.2rem 0.5rem;border-radius:0.25rem;font-size:0.75rem;cursor:pointer"
+                  style="background:var(--red);color:white;border:none;padding:0.2rem 0.5rem;border-radius:0.25rem;font-size:0.75rem;cursor:pointer"
                 >
                   Reject
                 </button>
@@ -228,9 +228,16 @@ defmodule RuleMavenWeb.GameLive.Review do
     """
   end
 
-  defp status_color("published"), do: "background:#dcfce7;color:#166534"
-  defp status_color("pending_review"), do: "background:#fef3c7;color:#92400e"
-  defp status_color("draft"), do: "background:#dbeafe;color:#1e40af"
-  defp status_color("discarded"), do: "background:#f3f4f6;color:#6b7280"
-  defp status_color(_), do: "background:#f3f4f6;color:#6b7280"
+  defp status_color("published"),
+    do: "background: color-mix(in srgb, var(--green) 20%, var(--bg-surface)); color: var(--green)"
+
+  defp status_color("pending_review"),
+    do:
+      "background: color-mix(in srgb, var(--yellow) 20%, var(--bg-surface)); color: var(--yellow)"
+
+  defp status_color("draft"),
+    do: "background: color-mix(in srgb, var(--blue) 20%, var(--bg-surface)); color: var(--blue)"
+
+  defp status_color("discarded"), do: "background: var(--bg-subtle); color: var(--text-secondary)"
+  defp status_color(_), do: "background: var(--bg-subtle); color: var(--text-secondary)"
 end

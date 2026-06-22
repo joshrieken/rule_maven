@@ -16,12 +16,14 @@ import Config
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
-if System.get_env("PHX_SERVER") do
+if config_env() != :test and System.get_env("PHX_SERVER") do
   config :rule_maven, RuleMavenWeb.Endpoint, server: true
 end
 
-config :rule_maven, RuleMavenWeb.Endpoint,
-  http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+if config_env() != :test do
+  config :rule_maven, RuleMavenWeb.Endpoint,
+    http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+end
 
 if config_env() == :prod do
   database_url =

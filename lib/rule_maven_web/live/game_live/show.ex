@@ -13,7 +13,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        loading: false,
        source_count: 0,
        retry_cooldowns: %{},
-       confirm_delete_id: nil
+       confirm_delete_id: nil,
+       suggestions: []
      )}
   end
 
@@ -25,17 +26,19 @@ defmodule RuleMavenWeb.GameLive.Show do
     sources = Games.list_documents(game)
     expansions = Games.expansions_with_documents(game)
 
-    {:noreply,
-     assign(socket,
-       game: game,
-       conversation: conversation,
-       sources: sources,
-       expansions: expansions,
-       included_expansions: %{},
-       source_count: length(sources),
-       question: "",
-       loading: false
-     )}
+    socket =
+      assign(socket,
+        game: game,
+        conversation: conversation,
+        sources: sources,
+        expansions: expansions,
+        included_expansions: %{},
+        source_count: length(sources),
+        question: "",
+        loading: false
+      )
+
+    {:noreply, socket}
   end
 
   # Build flat conversation list from grouped questions
@@ -123,7 +126,12 @@ defmodule RuleMavenWeb.GameLive.Show do
 
             {:noreply,
              socket
-             |> assign(question: "", conversation: convo ++ [user_msg], loading: true)
+             |> assign(
+               question: "",
+               conversation: convo ++ [user_msg],
+               loading: true,
+               confirm_delete_id: nil
+             )
              |> push_event("scroll_bottom", %{})
              |> then(fn s ->
                send(self(), {:ask_question, question})
@@ -174,6 +182,11 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
+  def handle_event("ask_suggestion", %{"q" => q}, socket) do
+    handle_event("ask", %{"question" => q}, socket)
+  end
+
+  @impl true
   def handle_event("pin_question", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
     game = socket.assigns.game
@@ -214,6 +227,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               assign(socket,
                 question: "",
                 loading: true,
+                confirm_delete_id: nil,
                 retry_cooldowns: Map.put(cooldowns, id, now)
               )
 
@@ -274,7 +288,15 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     result =
       try do
-        case RuleMaven.LLM.ask(game, question, expansion_ids) do
+        # Collect recent Q&A pairs for followup context
+        recent =
+          convo
+          |> Enum.take(-4)
+          |> Enum.chunk_every(2)
+          |> Enum.filter(&(length(&1) == 2))
+          |> Enum.map(fn [user, asst] -> {user.content, asst.content} end)
+
+        case RuleMaven.LLM.ask(game, question, expansion_ids, recent) do
           {:ok, %{answer: answer} = llm_result} ->
             passage = llm_result[:cited_passage]
             citation = find_citation_link(game, passage)
@@ -315,8 +337,17 @@ defmodule RuleMavenWeb.GameLive.Show do
           llm_model: llm_result[:model],
           cited_html_link: citation[:link],
           faq_hit: llm_result[:faq_hit] || false,
+          followups: llm_result[:followups] || [],
           timestamp: DateTime.utc_now()
         }
+
+        # Tag the preceding user message as followup if LLM says so
+        convo =
+          if llm_result[:followup] do
+            List.update_at(convo, -1, fn msg -> Map.put(msg, :followup, true) end)
+          else
+            convo
+          end
 
         {:noreply,
          socket
@@ -336,6 +367,19 @@ defmodule RuleMavenWeb.GameLive.Show do
          |> assign(conversation: convo ++ [error_msg], loading: false)
          |> push_event("scroll_bottom", %{})}
     end
+  end
+
+  @impl true
+  def handle_info({:refresh_suggestions, game, sources, already_asked}, socket) do
+    text = sources |> Enum.map(& &1.full_text) |> Enum.join("\n\n")
+
+    suggestions =
+      case RuleMaven.LLM.suggest_questions(game.name, text, already_asked) do
+        {:ok, qs} -> qs
+        {:error, _} -> socket.assigns.suggestions
+      end
+
+    {:noreply, assign(socket, suggestions: suggestions)}
   end
 
   @impl true
@@ -453,189 +497,274 @@ defmodule RuleMavenWeb.GameLive.Show do
               onmouseover="this.style.background='var(--bg-subtle)'"
               onmouseout="this.style.background='none'"
             >
-              <%= if msg[:feedback] == "down" do %><span style="color:#ef4444;margin-right:0.15rem">👎</span><% end %>
+              <%= if msg[:feedback] == "down" do %>
+                <span style="color:var(--red);margin-right:0.15rem">👎</span>
+              <% end %>
               <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">
-                {String.slice(msg.content, 0, 55)}<%= if String.length(msg.content) > 55, do: "…" %>
+                {String.slice(msg.content, 0, 55)}{if String.length(msg.content) > 55, do: "…"}
               </span>
             </button>
           <% end %>
-          <div :if={@conversation == []} style="padding:0.5rem 0.75rem;color:var(--text-muted);font-size:0.65rem">
+          <div
+            :if={@conversation == []}
+            style="padding:0.5rem 0.75rem;color:var(--text-muted);font-size:0.65rem"
+          >
             No questions yet
           </div>
         </div>
 
         <!-- Messages -->
-      <div
-        id="chat-messages"
-        class="chat-messages"
-        style="flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:1rem;background:var(--bg);max-width:48rem;margin:0 auto;width:100%;min-width:0"
-        phx-hook="ChatScroll"
-      >
-        <%= if @source_count == 0 do %>
-          <div class="text-center text-gray-400 py-8">
-            <p class="text-sm">No rulebook sources yet.</p>
-            <.link
-              :if={RuleMaven.Users.game_master?(@current_user)}
-              navigate={~p"/games/#{@game.id}/edit"}
-              class="text-blue-600 hover:underline text-sm"
-            >
-              Add rulebook text or PDF
-            </.link>
-          </div>
-        <% end %>
+        <div
+          id="chat-messages"
+          class="chat-messages"
+          style="flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:1rem;background:var(--bg);max-width:48rem;margin:0 auto;width:100%;min-width:0"
+          phx-hook="ChatScroll"
+        >
+          <%= if @source_count == 0 do %>
+            <div class="text-center text-gray-400 py-8">
+              <p class="text-sm">No rulebook sources yet.</p>
+              <.link
+                :if={RuleMaven.Users.game_master?(@current_user)}
+                navigate={~p"/games/#{@game.id}/edit"}
+                class="text-blue-600 hover:underline text-sm"
+              >
+                Add rulebook text or PDF
+              </.link>
+            </div>
+          <% end %>
 
-        <%= for {msg, idx} <- Enum.with_index(@conversation) do %>
-          <div
-            id={"chat-msg-#{idx}"}
-            class={["chat-msg", msg.role == :user && "chat-msg-user"]}
-            style={"display:flex;flex-direction:column;align-items:#{if msg.role == :user, do: "flex-end", else: "flex-start"}"}
-          >
-            <div style={"max-width:85%;padding:0.75rem 1rem;border-radius:0.85rem;font-size:0.875rem;line-height:1.4;box-shadow:0 1px 3px rgba(0,0,0,0.08);#{if msg.role == :user, do: "background:var(--accent);color:#fff;border-bottom-right-radius:0.25rem;margin-left:auto", else: "background:var(--bg-surface);color:var(--text);border-bottom-left-radius:0.25rem"}"}>
-              <div>{render_markdown(msg.content)}</div>
-
-              <%= if msg[:cited_passage] do %>
-                <div style={"margin-top:0.75rem;padding:0.5rem 0 0 0;border-top:1px solid #{if msg.role == :user, do: "rgba(255,255,255,0.3)", else: "var(--border-strong)"};font-size:0.78rem;line-height:1.45;#{if msg.role == :user, do: "color:rgba(255,255,255,0.9)", else: "color:var(--text)"}"}>
-                  <%= if msg[:cited_page] do %>
-                    <span style="font-weight:700">p.{msg.cited_page}</span> &mdash;
-                  <% end %>
-                  <span class="italic">{msg.cited_passage}</span>
-                  <%= if msg[:cited_html_link] do %>
-                    <div style="margin-top:0.35rem">
-                      <.link
-                        href={msg.cited_html_link}
-                        target="_blank"
-                        style={"font-size:0.72rem;font-weight:600;#{if msg.role == :user, do: "color:#fff", else: "color:var(--blue)"}"}
-                      >
-                        View in rulebook &rarr;
-                      </.link>
+          <%= if @conversation == [] && @source_count > 0 do %>
+            <div style="text-align:center;padding:2rem 1rem;color:var(--text-secondary);font-size:0.85rem;line-height:1.6">
+              <p style="font-size:1.1rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">
+                Ask a rules question
+              </p>
+              <p>Type your question below. Answers cite the exact rulebook passage.</p>
+              <%= if @suggestions != [] do %>
+                <div style="margin-top:1rem;text-align:left;max-width:24rem;margin-left:auto;margin-right:auto">
+                  <%= for cat <- @suggestions do %>
+                    <div style="margin-bottom:0.5rem">
+                      <div style="font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:0.2rem">
+                        {cat.category}
+                      </div>
+                      <%= for q <- cat.questions do %>
+                        <button
+                          type="button"
+                          phx-click="ask_suggestion"
+                          phx-value-q={q}
+                          style="display:block;width:100%;text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.25rem 0.5rem;margin-bottom:0.15rem;font-size:0.72rem;color:var(--text-secondary);cursor:pointer"
+                        >{q}</button>
+                      <% end %>
                     </div>
                   <% end %>
                 </div>
               <% end %>
-
-              <!-- FAQ badge -->
-              <div
-                :if={msg[:faq_hit]}
-                style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:#16a34a"
-              >
-                ✅ FAQ &mdash; instant answer
-              </div>
-
-              <!-- Thumbs up/down (LLM answers only, not FAQ) -->
-              <div
-                :if={msg.role == :assistant && !msg[:faq_hit]}
-                style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center"
-              >
-                <% q_text = find_question_for_answer(@conversation, msg) %>
-                <% plain_text = strip_markdown(msg.content) %>
-                <button
-                  type="button"
-                  id={"copy-btn-#{idx}"}
-                  phx-hook="ClipboardCopy"
-                  data-clipboard-text={"Q: #{q_text}\n\nA: #{plain_text}"}
-                  style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
-                  title="Copy as plain text"
-                >Text</button>
-                <button
-                  type="button"
-                  id={"copy-md-btn-#{idx}"}
-                  phx-hook="ClipboardCopy"
-                  data-clipboard-text={msg.content}
-                  style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
-                  title="Copy as markdown"
-                >MD</button>
-                <button
-                  :if={msg[:feedback] != "down"}
-                  type="button"
-                  phx-click="thumbs_up"
-                  phx-value-id={msg.id}
-                  disabled={msg[:feedback] != nil}
-                  style="background:none;border:none;font-size:1rem;cursor:pointer;opacity:0.5"
-                  title="Helpful"
-                >👍</button>
-                <button
-                  :if={msg[:feedback] != "up"}
-                  type="button"
-                  phx-click="thumbs_down"
-                  phx-value-id={msg.id}
-                  disabled={msg[:feedback] != nil}
-                  style="background:none;border:none;font-size:1rem;cursor:pointer;opacity:0.5"
-                  title="Not helpful"
-                >👎</button>
-                <%= if msg[:feedback] do %>
-                  <span style="font-size:0.65rem;color:var(--text-muted)">Thanks!</span>
-                <% end %>
-              </div>
             </div>
+          <% end %>
 
-            <!-- Message actions (admin only) -->
+          <%= for {msg, idx} <- Enum.with_index(@conversation) do %>
+            <% is_followup = msg.role == :user && msg[:followup] %>
             <div
-              :if={RuleMaven.Users.game_master?(@current_user) && msg.role == :assistant}
-              class="flex items-center gap-1 mt-0.5"
-              style="padding-left:0.25rem"
+              id={"chat-msg-#{idx}"}
+              class={[
+                "chat-msg",
+                msg.role == :user && "chat-msg-user",
+                is_followup && "chat-msg-followup"
+              ]}
+              style={"display:flex;flex-direction:column;align-items:#{if msg.role == :user, do: "flex-end", else: "flex-start"}"}
             >
-              <button
-                type="button"
-                phx-click="retry_question"
-                phx-value-id={msg.id}
-                disabled={@loading}
-                style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                title="Re-ask"
-              >↻</button>
-              <button
-                :if={!msg[:history]}
-                type="button"
-                phx-click="pin_question"
-                phx-value-id={msg.id}
-                style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:pinned], do: "color:var(--accent)", else: "color:var(--text-muted)"}"}
-                title={if msg[:pinned], do: "Pinned", else: "Pin"}
-              >★</button>
-              <%= if @confirm_delete_id == msg.id do %>
-                <span class="text-xs" style="color:#dc2626">Delete?</span>
+              <div style={"max-width:85%;padding:0.75rem 1rem;border-radius:0.85rem;font-size:0.95rem;line-height:1.4;box-shadow:0 1px 3px rgba(0,0,0,0.08);#{if msg.role == :user, do: "background:var(--accent);color:#fff;border-bottom-right-radius:0.25rem;margin-left:auto", else: "background:var(--bg-surface);color:var(--text);border-bottom-left-radius:0.25rem"}#{if is_followup, do: ";margin-left:2rem;font-size:0.85rem;opacity:0.92", else: ""}"}>
+                <%= if is_followup do %>
+                  <div style="font-size:0.6rem;opacity:0.6;margin-bottom:0.15rem">↳ followup</div>
+                <% end %>
+                <div>{render_markdown(msg.content)}</div>
+
+                <%= if msg[:cited_passage] do %>
+                  <div style={"margin-top:0.75rem;padding:0.5rem 0 0 0;border-top:1px solid #{if msg.role == :user, do: "rgba(255,255,255,0.3)", else: "var(--border-strong)"};font-size:0.78rem;line-height:1.45;#{if msg.role == :user, do: "color:rgba(255,255,255,0.9)", else: "color:var(--text)"}"}>
+                    <%= if msg[:cited_page] do %>
+                      <span style="font-weight:700">p.{msg.cited_page}</span> &mdash;
+                    <% end %>
+                    <span class="italic">{msg.cited_passage}</span>
+                    <%= if msg[:cited_html_link] do %>
+                      <div style="margin-top:0.35rem">
+                        <.link
+                          href={msg.cited_html_link}
+                          target="_blank"
+                          style={"font-size:0.72rem;font-weight:600;#{if msg.role == :user, do: "color:#fff", else: "color:var(--blue)"}"}
+                        >
+                          View in rulebook &rarr;
+                        </.link>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+
+                <!-- Followup suggestions -->
+                <%= if msg.role == :assistant && msg[:followups] != nil && msg[:followups] != [] do %>
+                  <div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.3rem">
+                    <span style="font-size:0.6rem;color:var(--text-muted);align-self:center">Related:</span>
+                    <%= for q <- msg[:followups] do %>
+                      <button
+                        type="button"
+                        phx-click="ask_suggestion"
+                        phx-value-q={q}
+                        style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.35rem;font-size:0.6rem;color:var(--text-secondary);cursor:pointer"
+                      >{q}</button>
+                    <% end %>
+                  </div>
+                <% end %>
+
+                <!-- FAQ badge -->
+                <div
+                  :if={msg[:faq_hit]}
+                  style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:var(--green)"
+                >
+                  ✅ FAQ &mdash; instant answer
+                </div>
+
+                <!-- Thumbs up/down (LLM answers only, not FAQ) -->
+                <div
+                  :if={msg.role == :assistant && !msg[:faq_hit]}
+                  style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center"
+                >
+                  <% q_text = find_question_for_answer(@conversation, msg) %>
+                  <% plain_text = strip_markdown(msg.content) %>
+                  <button
+                    type="button"
+                    id={"copy-btn-#{idx}"}
+                    phx-hook="ClipboardCopy"
+                    data-clipboard-text={"Q: #{q_text}\n\nA: #{plain_text}"}
+                    style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
+                    title="Copy as plain text"
+                  >Text</button>
+                  <button
+                    type="button"
+                    id={"copy-md-btn-#{idx}"}
+                    phx-hook="ClipboardCopy"
+                    data-clipboard-text={msg.content}
+                    style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
+                    title="Copy as markdown"
+                  >MD</button>
+                  <button
+                    :if={msg[:feedback] != "down"}
+                    type="button"
+                    phx-click="thumbs_up"
+                    phx-value-id={msg.id}
+                    disabled={msg[:feedback] != nil}
+                    style="background:none;border:none;font-size:1rem;cursor:pointer;opacity:0.5"
+                    title="Helpful"
+                  >👍</button>
+                  <button
+                    :if={msg[:feedback] != "up"}
+                    type="button"
+                    phx-click="thumbs_down"
+                    phx-value-id={msg.id}
+                    disabled={msg[:feedback] != nil}
+                    style="background:none;border:none;font-size:1rem;cursor:pointer;opacity:0.5"
+                    title="Not helpful"
+                  >👎</button>
+                  <%= if msg[:feedback] do %>
+                    <span style="font-size:0.65rem;color:var(--text-muted)">Thanks!</span>
+                  <% end %>
+                </div>
+              </div>
+
+              <!-- Message actions (admin only) -->
+              <div
+                :if={RuleMaven.Users.game_master?(@current_user) && msg.role == :assistant}
+                class="flex items-center gap-1 mt-0.5"
+                style="padding-left:0.25rem"
+              >
                 <button
                   type="button"
-                  phx-click="confirm_delete_question"
+                  phx-click="retry_question"
                   phx-value-id={msg.id}
-                  style="color:#dc2626;background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
-                >Yes</button>
-                <button
-                  type="button"
-                  phx-click="cancel_delete_question"
+                  disabled={@loading}
                   style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                >No</button>
-              <% else %>
+                  title="Re-ask"
+                >↻</button>
                 <button
                   :if={!msg[:history]}
                   type="button"
-                  phx-click="delete_question"
+                  phx-click="pin_question"
                   phx-value-id={msg.id}
-                  style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                  title="Delete"
-                >✕</button>
-              <% end %>
-              <%= if RuleMaven.Users.game_master?(@current_user) && (msg[:llm_provider] || msg[:llm_model]) do %>
-                <span class="text-xs" style="color:var(--text-muted);margin-left:0.5rem">{msg[
-                  :llm_provider
-                ]} &middot; {msg[:llm_model]}</span>
-              <% end %>
+                  style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:pinned], do: "color:var(--accent)", else: "color:var(--text-muted)"}"}
+                  title={if msg[:pinned], do: "Pinned", else: "Pin"}
+                >★</button>
+                <%= if @confirm_delete_id == msg.id do %>
+                  <span class="text-xs" style="color:var(--red)">Delete?</span>
+                  <button
+                    type="button"
+                    phx-click="confirm_delete_question"
+                    phx-value-id={msg.id}
+                    style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
+                  >Yes</button>
+                  <button
+                    type="button"
+                    phx-click="cancel_delete_question"
+                    style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                  >No</button>
+                <% else %>
+                  <button
+                    :if={!msg[:history]}
+                    type="button"
+                    phx-click="delete_question"
+                    phx-value-id={msg.id}
+                    style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                    title="Delete"
+                  >✕</button>
+                <% end %>
+                <%= if RuleMaven.Users.game_master?(@current_user) && (msg[:llm_provider] || msg[:llm_model]) do %>
+                  <span class="text-xs" style="color:var(--text-muted);margin-left:0.5rem">{msg[
+                    :llm_provider
+                  ]} &middot; {msg[:llm_model]}</span>
+                <% end %>
+              </div>
             </div>
-          </div>
-        <% end %>
+          <% end %>
 
-        <!-- Loading indicator -->
-        <div :if={@loading} class="chat-msg" style="display:flex;align-items:flex-start">
-          <div
-            class="animate-pulse"
-            style="background:var(--bg-surface);color:var(--text-secondary);padding:0.6rem 0.85rem;border-radius:0.85rem;border-bottom-left-radius:0.25rem;font-size:0.875rem;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
-          >
-            Thinking...
+          <!-- Loading indicator -->
+          <div :if={@loading} class="chat-msg" style="display:flex;align-items:flex-start">
+            <div
+              class="animate-pulse"
+              style="background:var(--bg-surface);color:var(--text-secondary);padding:0.6rem 0.85rem;border-radius:0.85rem;border-bottom-left-radius:0.25rem;font-size:0.875rem;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
+            >
+              Thinking...
+            </div>
           </div>
         </div>
       </div>
-      </div>
 
       <!-- Input -->
-      <div style="flex-shrink:0;padding:0.75rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface)">
+      <div style="flex-shrink:0;padding:0.5rem 1rem 0.75rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface)">
+        <%= if @suggestions != [] do %>
+          <details
+            style="margin-bottom:0.5rem;max-width:48rem;margin-left:auto;margin-right:auto;font-size:0.7rem"
+            open
+          >
+            <summary style="cursor:pointer;color:var(--text-secondary);font-weight:600;font-size:0.65rem;user-select:none">
+              Suggested questions
+            </summary>
+            <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.3rem">
+              <%= for cat <- @suggestions do %>
+                <div>
+                  <div style="font-size:0.6rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:0.15rem">
+                    {cat.category}
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:0.15rem">
+                    <%= for q <- cat.questions do %>
+                      <button
+                        type="button"
+                        phx-click="ask_suggestion"
+                        phx-value-q={q}
+                        style="text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.2rem 0.5rem;font-size:0.68rem;color:var(--text-secondary);cursor:pointer"
+                      >{q}</button>
+                    <% end %>
+                  </div>
+                </div>
+              <% end %>
+            </div>
+          </details>
+        <% end %>
         <div style="max-width:48rem;margin:0 auto;width:100%">
           <%= if length(@expansions) > 0 do %>
             <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.5rem">
@@ -669,6 +798,8 @@ defmodule RuleMavenWeb.GameLive.Show do
               disabled={@loading || @source_count == 0}
               autocomplete="off"
               autofocus
+              id="ask-input"
+              phx-hook="FocusInput"
             />
             <button
               type="submit"
@@ -700,23 +831,23 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp find_in_text(full_text, search, html_path) do
     pages = String.split(full_text, "\f")
 
-    Enum.find_value(pages |> Enum.with_index(1), fn {page_text, page_num} ->
-      paragraphs = String.split(page_text, ~r{\n\s*\n})
+    # Try exact match first, then fragment match (first ~60 chars)
+    fragments =
+      search
+      |> String.split(~r{[.;]\s+})
+      |> Enum.reject(&(String.length(&1) < 10))
+      |> Enum.map(&String.slice(&1, 0, 60))
 
-      para_idx =
-        paragraphs
-        |> Enum.with_index(1)
-        |> Enum.find_value(fn {para, idx} ->
-          if String.contains?(para, search) or
-               String.contains?(search, String.slice(para, 0, 40)) do
-            idx
-          end
+    Enum.find_value(pages |> Enum.with_index(1), fn {page_text, page_num} ->
+      found? =
+        Enum.any?(fragments, fn frag ->
+          String.contains?(page_text, frag)
         end)
 
-      if para_idx do
-        %{link: "/#{html_path}#p#{para_idx}", page: page_num}
+      if found? do
+        {:ok, %{page: page_num, link: "/#{html_path}##{page_num}"}}
       end
-    end) || nil
+    end)
   end
 
   defp check_rate_limit(socket) do

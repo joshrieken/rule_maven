@@ -1170,6 +1170,24 @@ h1 span.subtitle {
 .bg-gray-400 { background: var(--border); }
 .bg-blue-600 { background: var(--accent); }
 
+/* Status badge pills — themed text + tinted background */
+.badge-green { background: color-mix(in srgb, var(--green) 20%, var(--bg-surface)); color: var(--green); }
+.badge-yellow { background: color-mix(in srgb, var(--yellow) 20%, var(--bg-surface)); color: var(--yellow); }
+.badge-blue { background: color-mix(in srgb, var(--blue) 20%, var(--bg-surface)); color: var(--blue); }
+.badge-gray { background: var(--bg-subtle); color: var(--text-secondary); }
+.badge-red { background: var(--red-bg); color: var(--red); }
+.badge-danger { color: var(--red); }
+
+/* Themed text color extensions */
+.text-green-600 { color: var(--green); }
+.text-red-600 { color: var(--red); }
+.text-yellow-600 { color: var(--yellow); }
+
+/* Danger zone helpers */
+.danger-text { color: var(--red); }
+.danger-bg { background: var(--red-bg); }
+.danger-border { border: 1px solid var(--red); }
+
 /* ===== Flex ===== */
 .flex { display: flex; }
 .flex-1 { flex: 1; }

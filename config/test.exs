@@ -14,12 +14,16 @@ config :rule_maven, RuleMaven.Repo,
   pool_size: System.schedulers_online() * 2,
   types: RuleMaven.PostgresTypes
 
-# We don't run a server during test. If one is required,
-# you can enable the server option below.
+# Run server on dedicated port for Wallaby E2E tests.
+# Does not conflict with ConnTest (which bypasses HTTP).
 config :rule_maven, RuleMavenWeb.Endpoint,
-  http: [ip: {127, 0, 0, 1}, port: 4002],
+  http: [ip: {127, 0, 0, 1}, port: 4003],
   secret_key_base: "b7nFAn8+dA6MI2uj33v6K6k+vIyQlk7dWyh8J12BgfmiJrfGvF7OtK1rvwlGKsbr",
-  server: false
+  server: true
+
+# Wallaby E2E tests need the server on a different port.
+# feature_case.ex starts the endpoint on this port explicitly.
+config :rule_maven, :wallaby, endpoint_port: 4003
 
 # Print only warnings and errors during test
 config :logger, level: :warning
@@ -37,3 +41,11 @@ config :phoenix,
 
 # Disable Oban in test — conflicts with Ecto Sandbox
 config :rule_maven, Oban, testing: :manual
+
+# Wallaby E2E tests — run on port 4003 to avoid conflict with ConnTest (port 4002)
+# Chrome/chromedriver paths set in test_helper.exs (platform-dependent)
+config :wallaby,
+  driver: Wallaby.Chrome,
+  screenshot_on_failure: true,
+  js_errors: true,
+  base_url: "http://localhost:4003"

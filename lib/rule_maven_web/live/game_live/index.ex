@@ -327,7 +327,6 @@ defmodule RuleMavenWeb.GameLive.Index do
   def render(assigns) do
     ~H"""
     <div class="game-list">
-
       <form phx-change="search" phx-submit="search" class="mb-4">
         <div style="position:relative;display:flex;align-items:center">
           <input
@@ -370,26 +369,26 @@ defmodule RuleMavenWeb.GameLive.Index do
             <button
               type="button"
               phx-click="confirm_clear"
-              style="background:#dc2626;color:white;border:none;padding:0.375rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.8rem;cursor:pointer"
+              style="background:var(--red);color:white;border:none;padding:0.375rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.8rem;cursor:pointer"
             >
               Clear All Games
             </button>
           <% else %>
             <form phx-change="confirm_input" style="display:inline">
-              <span class="text-sm font-medium" style="color:#dc2626">Type DELETE to confirm:</span>
+              <span class="text-sm font-medium" style="color:var(--red)">Type DELETE to confirm:</span>
               <input
                 type="text"
                 name="confirm_text"
                 value={@confirm_text}
                 placeholder="DELETE"
-                style="border:1px solid #dc2626;border-radius:0.375rem;padding:0.25rem 0.5rem;font-size:0.8rem;width:6rem"
+                style="border:1px solid var(--red);border-radius:0.375rem;padding:0.25rem 0.5rem;font-size:0.8rem;width:6rem"
               />
             </form>
             <button
               type="button"
               phx-click="clear_all_games"
               disabled={@confirm_text != "DELETE"}
-              style="background:#dc2626;color:white;border:none;padding:0.375rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.8rem;cursor:pointer"
+              style="background:var(--red);color:white;border:none;padding:0.375rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.8rem;cursor:pointer"
             >
               Delete All
             </button>
@@ -407,14 +406,14 @@ defmodule RuleMavenWeb.GameLive.Index do
       <%!-- BGG refresh progress bar --%>
       <%= if @refresh_total > 0 and not @refresh_complete do %>
         <div
-          style={"margin-bottom:0.75rem;padding:0.6rem 0.75rem;background:var(--bg);border:1px solid #{if @refresh_errored, do: "#dc2626", else: "var(--accent)"};border-radius:0.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap"}
+          style={"margin-bottom:0.75rem;padding:0.6rem 0.75rem;background:var(--bg);border:1px solid #{if @refresh_errored, do: "var(--red)", else: "var(--accent)"};border-radius:0.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap"}
           data-refresh={@version}
         >
-          <span style={"font-size:0.75rem;font-weight:600;color:#{if @refresh_errored, do: "#dc2626", else: "var(--accent)"};white-space:nowrap"}>
+          <span style={"font-size:0.75rem;font-weight:600;color:#{if @refresh_errored, do: "var(--red)", else: "var(--accent)"};white-space:nowrap"}>
             {if @refresh_errored, do: "BGG Refresh Failed", else: "BGG Refresh"}
           </span>
           <div style="flex:1;min-width:100px;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
-            <div style={"width:#{if @refresh_total > 0, do: trunc(@refresh_current / @refresh_total * 100), else: 0}%;height:100%;background:#{if @refresh_errored, do: "#dc2626", else: "var(--accent)"};transition:width 0.3s"}>
+            <div style={"width:#{if @refresh_total > 0, do: trunc(@refresh_current / @refresh_total * 100), else: 0}%;height:100%;background:#{if @refresh_errored, do: "var(--red)", else: "var(--accent)"};transition:width 0.3s"}>
             </div>
           </div>
           <span style="font-size:0.7rem;color:var(--text-muted);white-space:nowrap">{@refresh_current}/{@refresh_total}</span>
@@ -499,12 +498,12 @@ defmodule RuleMavenWeb.GameLive.Index do
               >Edit</.link>
               <%= if RuleMaven.Users.game_master?(@current_user) do %>
                 <%= if @delete_id == game.id do %>
-                  <span class="text-xs" style="color:#dc2626;padding:0.2rem 0">Delete?</span>
+                  <span class="text-xs" style="color:var(--red);padding:0.2rem 0">Delete?</span>
                   <button
                     type="button"
                     phx-click="confirm_delete"
                     phx-value-id={game.id}
-                    style="background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;font-size:0.7rem;font-weight:600;cursor:pointer;padding:0.2rem 0.4rem;border-radius:0.3rem"
+                    style="background:var(--red-bg);color:var(--red);border:1px solid var(--red);font-size:0.7rem;font-weight:600;cursor:pointer;padding:0.2rem 0.4rem;border-radius:0.3rem"
                   >Yes</button>
                   <button
                     type="button"

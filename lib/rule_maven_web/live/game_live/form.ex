@@ -20,6 +20,7 @@ defmodule RuleMavenWeb.GameLive.Form do
         downloading: false,
         download_error: nil,
         download_ok: false,
+        confirm_delete_source_id: nil,
         searching: false,
         bgg_results: [],
         search_error: nil,
@@ -164,6 +165,10 @@ defmodule RuleMavenWeb.GameLive.Form do
 
   @impl true
   def handle_event("delete_source", %{"source_id" => source_id}, socket) do
+    {:noreply, assign(socket, confirm_delete_source_id: String.to_integer(source_id))}
+  end
+
+  def handle_event("confirm_delete_source", %{"source_id" => source_id}, socket) do
     source_id = String.to_integer(source_id)
 
     source =
@@ -176,7 +181,11 @@ defmodule RuleMavenWeb.GameLive.Form do
     end
 
     entries = Enum.reject(socket.assigns.source_entries, &(&1[:source_id] == source_id))
-    {:noreply, assign(socket, source_entries: entries)}
+    {:noreply, assign(socket, source_entries: entries, confirm_delete_source_id: nil)}
+  end
+
+  def handle_event("cancel_delete_source", _params, socket) do
+    {:noreply, assign(socket, confirm_delete_source_id: nil)}
   end
 
   @impl true
@@ -1321,7 +1330,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                         phx-click="unlink_expansion"
                         phx-value-id={exp.id}
                         class="text-xs"
-                        style="color:#dc2626;background:none;border:none;cursor:pointer;font-weight:600"
+                        style="color:var(--red);background:none;border:none;cursor:pointer;font-weight:600"
                       >Unlink</button>
                     </div>
                   <% end %>
@@ -1365,12 +1374,26 @@ defmodule RuleMavenWeb.GameLive.Form do
                         class="btn-remove-source"
                       >✕</button>
                       <button
-                        :if={entry[:source_id]}
+                        :if={entry[:source_id] && @confirm_delete_source_id != entry.source_id}
                         type="button"
                         phx-click="delete_source"
                         phx-value-source_id={entry.source_id}
-                        style="color:#dc2626;background:none;border:none;font-size:0.75rem;cursor:pointer;white-space:nowrap;margin-top:0.25rem"
+                        style="color:var(--red);background:none;border:none;font-size:0.75rem;cursor:pointer;white-space:nowrap;margin-top:0.25rem"
                       >Delete</button>
+                      <%= if entry[:source_id] && @confirm_delete_source_id == entry.source_id do %>
+                        <span style="font-size:0.65rem;color:var(--red);margin-top:0.25rem">Sure?</span>
+                        <button
+                          type="button"
+                          phx-click="confirm_delete_source"
+                          phx-value-source_id={entry.source_id}
+                          style="color:#fff;background:var(--red);border:none;font-size:0.6rem;cursor:pointer;padding:0.1rem 0.3rem;border-radius:0.2rem;margin-top:0.25rem"
+                        >Yes</button>
+                        <button
+                          type="button"
+                          phx-click="cancel_delete_source"
+                          style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer;margin-top:0.25rem"
+                        >No</button>
+                      <% end %>
                     </div>
                   </div>
                   <%= if entry[:pdf_path] do %>
@@ -1409,7 +1432,7 @@ defmodule RuleMavenWeb.GameLive.Form do
               class="border border-red-200 rounded-lg p-4"
               style="display:flex;flex-direction:column;gap:1rem"
             >
-              <h2 class="text-sm font-semibold mb-1" style="color:#dc2626">Danger Zone</h2>
+              <h2 class="text-sm font-semibold mb-1" style="color:var(--red)">Danger Zone</h2>
 
               <%!-- Clear questions --%>
               <%= if @question_count > 0 do %>
@@ -1421,17 +1444,17 @@ defmodule RuleMavenWeb.GameLive.Form do
                     <button
                       type="button"
                       phx-click="confirm_clear"
-                      style="background:#dc2626;color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                      style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
                     >Clear All Questions</button>
                   <% else %>
-                    <p class="text-xs font-medium mb-2" style="color:#dc2626">
+                    <p class="text-xs font-medium mb-2" style="color:var(--red)">
                       Are you sure? This cannot be undone.
                     </p>
                     <div class="flex gap-2">
                       <button
                         type="button"
                         phx-click="clear_questions"
-                        style="background:#dc2626;color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                        style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
                       >Yes, clear all</button>
                       <button
                         type="button"
@@ -1453,17 +1476,17 @@ defmodule RuleMavenWeb.GameLive.Form do
                     <button
                       type="button"
                       phx-click="confirm_clear_sources"
-                      style="background:#dc2626;color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                      style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
                     >Clear All Rulebook Sources</button>
                   <% else %>
-                    <p class="text-xs font-medium mb-2" style="color:#dc2626">
+                    <p class="text-xs font-medium mb-2" style="color:var(--red)">
                       Are you sure? This cannot be undone.
                     </p>
                     <div class="flex gap-2">
                       <button
                         type="button"
                         phx-click="clear_sources"
-                        style="background:#dc2626;color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                        style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
                       >Yes, clear all</button>
                       <button
                         type="button"
@@ -1484,10 +1507,10 @@ defmodule RuleMavenWeb.GameLive.Form do
                   <button
                     type="button"
                     phx-click="confirm_delete_game"
-                    style="background:#dc2626;color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                    style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
                   >Delete Game</button>
                 <% else %>
-                  <p class="text-xs font-medium mb-2" style="color:#dc2626">
+                  <p class="text-xs font-medium mb-2" style="color:var(--red)">
                     Are you sure? This permanently deletes <strong>{@game.name}</strong>
                     and all its data.
                   </p>
@@ -1495,7 +1518,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                     <button
                       type="button"
                       phx-click="delete_game"
-                      style="background:#dc2626;color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                      style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
                     >Yes, delete forever</button>
                     <button
                       type="button"
@@ -1528,7 +1551,7 @@ defmodule RuleMavenWeb.GameLive.Form do
       <%!-- Download rulebook from URL (outside save form, inside rulebook tab) --%>
       <div
         :if={@tab == "rulebook"}
-        style="max-width:56rem;margin:0 auto;padding:0 0 1.5rem 0"
+        style="max-width:56rem;margin:2rem auto 0 auto;padding:0 0 1.5rem 0"
       >
         <div class="border rounded-lg p-4">
           <h2 class="text-lg font-semibold mb-3">Download rulebook from URL</h2>
@@ -1600,7 +1623,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             >{if @downloading, do: "Downloading...", else: "Download & Extract"}</button>
           </form>
           <%= if @download_ok do %>
-            <p class="text-sm mt-2" style="color:#166534">
+            <p class="text-sm mt-2" style="color:var(--green)">
               Downloaded!
               <.link href={"/#{@download_ok}"} target="_blank" class="underline font-semibold">View PDF</.link>
               or go to the <.link
@@ -1815,7 +1838,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                           type="button"
                           phx-click="delete_version"
                           phx-value-id={v.id}
-                          style="color:#dc2626;background:none;border:none;font-size:0.65rem;cursor:pointer;font-weight:500"
+                          style="color:var(--red);background:none;border:none;font-size:0.65rem;cursor:pointer;font-weight:500"
                         >del</button>
                       </span>
                     </div>
@@ -1863,7 +1886,7 @@ defmodule RuleMavenWeb.GameLive.Form do
         "background:var(--bg-surface);color:var(--accent-dark);border:1px solid var(--accent);font-weight:700"
 
       "detailed" ->
-        "background:rgba(180,136,32,0.1);color:#d4a030;border:1px solid rgba(180,136,32,0.3)"
+        "background:var(--accent-subtle);color:var(--accent);border:1px solid var(--accent-light)"
 
       "full" ->
         "background:var(--bg);color:var(--text-secondary);border:1px solid var(--border-strong)"

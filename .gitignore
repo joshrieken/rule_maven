@@ -28,6 +28,13 @@ boardgame-*.tar
 # User-uploaded files
 /priv/static/uploads/
 
+# Browser binaries for E2E tests (Wallaby)
+/priv/browser/chrome-*
+/priv/browser/chromedriver-*
+
+# Wallaby test screenshots
+/screenshots/
+
 # Local envrc with secrets
 .envrc.local
 
