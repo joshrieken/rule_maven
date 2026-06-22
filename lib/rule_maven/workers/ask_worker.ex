@@ -12,7 +12,9 @@ defmodule RuleMaven.Workers.AskWorker do
     game_id = args["game_id"]
     question = args["question"]
     expansion_ids = args["expansion_ids"] || []
-    recent_context = args["recent_context"] || []
+    recent_context =
+      (args["recent_context"] || [])
+      |> Enum.map(fn %{"q" => q, "a" => a} -> {q, a} end)
     user_id = args["user_id"]
 
     game = Games.get_game!(game_id)

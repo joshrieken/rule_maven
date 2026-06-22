@@ -313,7 +313,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       |> Enum.take(-4)
       |> Enum.chunk_every(2)
       |> Enum.filter(&(length(&1) == 2))
-      |> Enum.map(fn [user, asst] -> {user.content, asst.content} end)
+      |> Enum.map(fn [user, asst] -> %{q: user.content, a: asst.content} end)
 
     %{
       game_id: game.id,
