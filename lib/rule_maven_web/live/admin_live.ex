@@ -1,13 +1,14 @@
 defmodule RuleMavenWeb.AdminLive do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Repo, Users}
+  alias RuleMaven.{Repo, Users, Games, Faq}
   alias Ecto.Adapters.SQL
 
   @impl true
   def mount(_params, _session, socket) do
     if Users.game_master?(socket.assigns.current_user) do
       tables = fetch_tables()
+      threads = Games.all_question_threads()
 
       {:ok,
        assign(socket,
@@ -23,7 +24,12 @@ defmodule RuleMavenWeb.AdminLive do
          mode: nil,
          view_mode: :table,
          page: 1,
-         per_page: 50
+         per_page: 50,
+         threads: threads,
+         section: nil,
+         merge_question: "",
+         merge_answer: "",
+         merge_thread_root: nil
        )}
     else
       {:ok,
@@ -127,6 +133,84 @@ defmodule RuleMavenWeb.AdminLive do
   def handle_event("form_change", %{"field" => field, "value" => value}, socket) do
     data = Map.put(socket.assigns.form_data, field, value)
     {:noreply, assign(socket, form_data: data)}
+  end
+
+  # Thread consolidation
+  def handle_event("show_section", %{"section" => section}, socket) do
+    threads =
+      if section == "threads", do: Games.all_question_threads(), else: socket.assigns.threads
+
+    {:noreply,
+     assign(socket,
+       section: section,
+       threads: threads,
+       merge_thread_root: nil,
+       merge_question: "",
+       merge_answer: ""
+     )}
+  end
+
+  def handle_event("prepare_merge", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    thread = Enum.find(socket.assigns.threads, &(&1.root.id == id))
+
+    if thread do
+      followups = thread.followups
+      answer = Faq.build_consolidated_answer(thread.root, followups)
+
+      {:noreply,
+       assign(socket,
+         merge_thread_root: thread,
+         merge_question: thread.root.question,
+         merge_answer: answer
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("cancel_merge", _params, socket) do
+    {:noreply, assign(socket, merge_thread_root: nil, merge_question: "", merge_answer: "")}
+  end
+
+  def handle_event("merge_form_change", params, socket) do
+    socket =
+      cond do
+        Map.has_key?(params, "merge_question") ->
+          assign(socket, merge_question: params["merge_question"])
+
+        Map.has_key?(params, "merge_answer") ->
+          assign(socket, merge_answer: params["merge_answer"])
+
+        true ->
+          socket
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("merge_thread", _params, socket) do
+    thread = socket.assigns.merge_thread_root
+
+    case Faq.consolidate_thread(thread.root, thread.followups, %{
+           question: socket.assigns.merge_question,
+           answer: socket.assigns.merge_answer
+         }) do
+      {:ok, _faq} ->
+        threads = Games.all_question_threads()
+
+        {:noreply,
+         assign(socket,
+           threads: threads,
+           merge_thread_root: nil,
+           merge_question: "",
+           merge_answer: ""
+         )
+         |> put_flash(:info, "Thread consolidated into FAQ!")}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Failed to create FAQ entry.")}
+    end
   end
 
   # Save
@@ -327,6 +411,18 @@ defmodule RuleMavenWeb.AdminLive do
           href="/settings/usage"
           style="color:var(--blue);font-size:0.75rem;text-decoration:none"
         >LLM Usage</.link>
+        <button
+          type="button"
+          phx-click="show_section"
+          phx-value-section="threads"
+          style={"background:none;border:1px solid var(--border);border-radius:0.3rem;padding:0.2rem 0.5rem;font-size:0.65rem;font-weight:600;cursor:pointer;#{if @section == "threads", do: "background:var(--accent);color:#fff;border-color:var(--accent)", else: "color:var(--text-muted)"}"}
+        >Review Threads</button>
+        <button
+          type="button"
+          phx-click="show_section"
+          phx-value-section=""
+          style={"background:none;border:1px solid var(--border);border-radius:0.3rem;padding:0.2rem 0.5rem;font-size:0.65rem;font-weight:600;cursor:pointer;#{if @section == nil, do: "background:var(--accent);color:#fff;border-color:var(--accent)", else: "color:var(--text-muted)"}"}
+        >DB Tables</button>
       </div>
 
       <div style="display:flex;gap:0.25rem;margin-bottom:0.5rem;flex-wrap:wrap">
@@ -549,6 +645,107 @@ defmodule RuleMavenWeb.AdminLive do
         <p style="color:var(--text-muted);font-size:0.85rem">
           Select a table above to browse, create, edit, or delete rows.
         </p>
+      <% end %>
+
+      <%!-- Thread consolidation --%>
+      <%= if @section == "threads" do %>
+        <div style="margin-top:1rem">
+          <h2 style="font-size:1rem;font-weight:700;margin:0 0 0.5rem">
+            Question Threads ({length(@threads)})
+          </h2>
+          <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">
+            Review root questions with their followups. Merge into FAQ entries.
+          </p>
+
+          <!-- Merge form -->
+          <%= if @merge_thread_root do %>
+            <div style="background:var(--bg);border:2px solid var(--accent);border-radius:0.5rem;padding:1rem;margin-bottom:1rem">
+              <h3 style="font-size:0.85rem;font-weight:600;margin:0 0 0.75rem">
+                Merge Thread into FAQ
+              </h3>
+              <div style="display:flex;flex-direction:column;gap:0.5rem">
+                <div>
+                  <label style="display:block;font-size:0.75rem;font-weight:600;color:var(--text-muted);margin-bottom:0.15rem">Question</label>
+                  <textarea
+                    name="merge_question"
+                    phx-change="merge_form_change"
+                    rows="2"
+                    style="width:100%;border:1px solid var(--border);border-radius:0.25rem;padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--bg);color:var(--text);resize:vertical"
+                  ><%= @merge_question %></textarea>
+                </div>
+                <div>
+                  <label style="display:block;font-size:0.75rem;font-weight:600;color:var(--text-muted);margin-bottom:0.15rem">Answer (markdown)</label>
+                  <textarea
+                    name="merge_answer"
+                    phx-change="merge_form_change"
+                    rows="6"
+                    style="width:100%;border:1px solid var(--border);border-radius:0.25rem;padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--bg);color:var(--text);resize:vertical"
+                  ><%= @merge_answer %></textarea>
+                </div>
+              </div>
+              <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+                <button
+                  type="button"
+                  phx-click="merge_thread"
+                  style="background:var(--accent);color:#fff;border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
+                >Publish to FAQ</button>
+                <button
+                  type="button"
+                  phx-click="cancel_merge"
+                  style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;cursor:pointer"
+                >Cancel</button>
+              </div>
+            </div>
+          <% end %>
+
+          <div style="display:flex;flex-direction:column;gap:0.5rem">
+            <%= for thread <- @threads do %>
+              <% root = thread.root %>
+              <div style="background:var(--bg);border:1px solid var(--border);border-radius:0.375rem;padding:0.6rem 0.75rem">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem">
+                  <div style="flex:1;min-width:0">
+                    <div style="font-weight:600;font-size:0.8rem;color:var(--text);margin-bottom:0.25rem">
+                      <span style="color:var(--text-muted);font-weight:400">[{root.game &&
+                        root.game.name}]</span> {String.slice(root.question, 0, 100)}
+                    </div>
+                    <div style="font-size:0.72rem;color:var(--text-muted);line-height:1.4">
+                      {String.slice(root.answer || "", 0, 150)}{if String.length(root.answer || "") >
+                                                                     150, do: "…"}
+                    </div>
+                    <%= if thread.followups != [] do %>
+                      <div style="margin-top:0.35rem;padding-left:0.5rem;border-left:2px solid var(--border-subtle)">
+                        <div style="font-size:0.65rem;font-weight:600;color:var(--text-muted);margin-bottom:0.15rem">
+                          {length(thread.followups)} followup(s)
+                        </div>
+                        <%= for f <- thread.followups do %>
+                          <div style="font-size:0.65rem;color:var(--text-muted);margin-bottom:0.1rem">
+                            ↳ {String.slice(f.question, 0, 80)} &rarr; {String.slice(
+                              f.answer || "",
+                              0,
+                              60
+                            )}
+                          </div>
+                        <% end %>
+                      </div>
+                    <% end %>
+                  </div>
+                  <button
+                    type="button"
+                    phx-click="prepare_merge"
+                    phx-value-id={root.id}
+                    style="background:var(--accent);color:#fff;border:none;padding:0.25rem 0.6rem;border-radius:0.3rem;font-size:0.65rem;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0"
+                  >Merge → FAQ</button>
+                </div>
+              </div>
+            <% end %>
+          </div>
+
+          <%= if @threads == [] do %>
+            <p style="color:var(--text-muted);font-size:0.8rem;text-align:center;padding:1.5rem 0">
+              No question threads with followups yet.
+            </p>
+          <% end %>
+        </div>
       <% end %>
     </div>
     """

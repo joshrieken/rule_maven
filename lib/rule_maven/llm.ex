@@ -32,68 +32,83 @@ defmodule RuleMaven.LLM do
   Checks FAQ cache first, falls back to retrieval + LLM on miss.
   """
   def ask(game, question, expansion_ids \\ [], recent_context \\ []) do
-    # Step 0: embed the question (used for FAQ check + logging)
+    # Step 0: embed the question (used for pool check + FAQ check + logging)
     question_embedding =
       case RuleMaven.Embed.embed(question) do
         {:ok, vec} -> vec
         {:error, _} -> nil
       end
 
-    # Step 1: check FAQ cache
-    faq_hit =
-      if question_embedding do
-        check_faq_cache(game.id, question_embedding)
-      end
+    pool_hit =
+      question_embedding &&
+        RuleMaven.Games.find_similar_question_in_pool(game.id, question_embedding)
 
-    if faq_hit do
-      # Instant FAQ answer — no LLM call
-      {:ok,
-       %{
-         answer: faq_hit.canonical_answer,
-         cited_passage: faq_hit.canonical_answer,
-         provider: "faq",
-         model: "cached",
-         faq_hit: true
-       }}
-    else
-      # Step 2: retrieve chunks from base game + selected expansions
-      game_ids = [game.id | expansion_ids]
-      chunks = RuleMaven.Games.retrieve_chunks_for_games(game_ids, question)
-      context = Enum.map_join(chunks, "\n\n---\n\n", fn {_, text} -> text end)
-      system_prompt = build_system_prompt(game.name, context, recent_context)
-      provider_name = provider()
-      model_name = model()
+    faq_hit = question_embedding && check_faq_cache(game.id, expansion_ids, question_embedding)
 
-      body = %{
-        model: model_name,
-        max_tokens: 1024,
-        messages: [
-          %{role: "system", content: system_prompt},
-          %{role: "user", content: question}
-        ]
-      }
+    cond do
+      pool_hit ->
+        {:ok,
+         %{
+           answer: pool_hit.answer,
+           cited_passage: pool_hit.cited_passage,
+           provider: "pool",
+           model: "cached",
+           faq_hit: false,
+           pool_hit: true
+         }}
 
-      case do_request(body, 1, operation: "ask", game_id: game.id) do
-        {:ok, %{answer: answer, cited_passage: passage} = llm_result} ->
-          {:ok,
-           %{
-             answer: answer,
-             cited_passage: passage,
-             provider: provider_name,
-             model: model_name,
-             question_embedding: question_embedding,
-             faq_hit: false,
-             followup: llm_result[:followup] || false,
-             followups: llm_result[:followups] || []
-           }}
+      faq_hit ->
+        {:ok,
+         %{
+           answer: faq_hit.canonical_answer,
+           cited_passage: faq_hit.canonical_answer,
+           provider: "faq",
+           model: "cached",
+           faq_hit: true
+         }}
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+      true ->
+        call_llm(game, question, expansion_ids, recent_context, question_embedding)
     end
   end
 
-  defp check_faq_cache(game_id, question_embedding) do
+  defp call_llm(game, question, expansion_ids, recent_context, question_embedding) do
+    game_ids = [game.id | expansion_ids]
+    chunks = RuleMaven.Games.retrieve_chunks_for_games(game_ids, question)
+    context = Enum.map_join(chunks, "\n\n---\n\n", fn {_, text} -> text end)
+    system_prompt = build_system_prompt(game.name, context, recent_context)
+    provider_name = provider()
+    model_name = model()
+
+    body = %{
+      model: model_name,
+      max_tokens: 1024,
+      messages: [
+        %{role: "system", content: system_prompt},
+        %{role: "user", content: question}
+      ]
+    }
+
+    case do_request(body, 1, operation: "ask", game_id: game.id) do
+      {:ok, %{answer: answer, cited_passage: passage} = llm_result} ->
+        {:ok,
+         %{
+           answer: answer,
+           cited_passage: passage,
+           provider: provider_name,
+           model: model_name,
+           question_embedding: question_embedding,
+           faq_hit: false,
+           followup: llm_result[:followup] || false,
+           followups: llm_result[:followups] || []
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp check_faq_cache(game_id, expansion_ids, question_embedding) do
     import Ecto.Query
 
     threshold =
@@ -102,10 +117,12 @@ defmodule RuleMaven.LLM do
         val -> 1.0 - String.to_float(val)
       end
 
+    game_ids = [game_id | expansion_ids]
+
     RuleMaven.Repo.one(
       from f in RuleMaven.Faq.FaqEntry,
         where:
-          f.game_id == ^game_id and f.status == "published" and
+          f.game_id in ^game_ids and f.status == "published" and
             not is_nil(f.question_embedding),
         where:
           fragment(
@@ -113,6 +130,12 @@ defmodule RuleMaven.LLM do
             f.question_embedding,
             ^Pgvector.new(question_embedding)
           ) <= ^threshold,
+        order_by:
+          fragment(
+            "cosine_distance(?, ?::vector)",
+            f.question_embedding,
+            ^Pgvector.new(question_embedding)
+          ),
         limit: 1
     )
   end

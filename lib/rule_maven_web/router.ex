@@ -34,6 +34,7 @@ defmodule RuleMavenWeb.Router do
       live "/games/:id", GameLive.Show, :show
       live "/games/:id/edit", GameLive.Form, :edit
       live "/games/:id/review", GameLive.Review, :index
+      live "/games/:id/faq", GameLive.Faq, :index
       live "/admin", AdminLive, :index
       live "/settings", SettingsLive, :index
       live "/settings/usage", SettingsLive, :usage
@@ -43,6 +44,6 @@ defmodule RuleMavenWeb.Router do
   scope "/", RuleMavenWeb do
     pipe_through [:browser]
 
-    oban_dashboard "/oban", on_mount: [RuleMavenWeb.ObanAuthHook]
+    oban_dashboard("/oban", on_mount: [RuleMavenWeb.ObanAuthHook])
   end
 end

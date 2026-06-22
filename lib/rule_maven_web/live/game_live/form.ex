@@ -1136,7 +1136,10 @@ defmodule RuleMavenWeb.GameLive.Form do
     ~H"""
     <div class="game-form">
       <div class="mb-4 flex items-center justify-between">
-        <.link navigate={~p"/"} style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.4rem;border-radius:0.3rem">
+        <.link
+          navigate={~p"/"}
+          style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.4rem;border-radius:0.3rem"
+        >
           &larr; Back to games
         </.link>
         <.link

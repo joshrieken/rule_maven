@@ -14,9 +14,11 @@ defmodule RuleMaven.Games.QuestionLog do
     field :source_chunk_ids, {:array, :integer}
     field :feedback, :string
     field :cluster_id, :integer
+    field :visibility, :string, default: "community"
     belongs_to :game, RuleMaven.Games.Game
     belongs_to :user, RuleMaven.Users.User
     belongs_to :document, RuleMaven.Games.Document
+    belongs_to :parent_question, RuleMaven.Games.QuestionLog
 
     timestamps(type: :utc_datetime)
   end
@@ -38,7 +40,9 @@ defmodule RuleMaven.Games.QuestionLog do
       :source_chunk_ids,
       :feedback,
       :cluster_id,
-      :document_id
+      :document_id,
+      :visibility,
+      :parent_question_id
     ])
     |> validate_required([:question, :answer, :game_id])
   end

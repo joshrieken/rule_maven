@@ -224,4 +224,47 @@ defmodule RuleMaven.Faq do
     |> FaqCandidate.changeset(%{status: "rejected"})
     |> Repo.update()
   end
+
+  @doc """
+  Consolidates a question thread (root + followups) into a single FAQ entry.
+  Takes a root QuestionLog, list of followup QuestionLogs, and optional overrides.
+  """
+  def consolidate_thread(root_question, followups, attrs \\ %{}) do
+    canonical_question = attrs[:question] || root_question.question
+    canonical_answer = attrs[:answer] || build_consolidated_answer(root_question, followups)
+    source_ids = [root_question.id | Enum.map(followups, & &1.id)]
+
+    question_embedding =
+      case RuleMaven.Embed.embed(canonical_question) do
+        {:ok, vec} -> vec
+        {:error, _} -> nil
+      end
+
+    create_faq(%{
+      game_id: root_question.game_id,
+      canonical_question: canonical_question,
+      canonical_answer: canonical_answer,
+      question_embedding: question_embedding,
+      source_qa_ids: source_ids,
+      status: "published",
+      auto_approved: false
+    })
+  end
+
+  def build_consolidated_answer(root, followups) do
+    parts = ["**Original:** #{root.answer}"]
+
+    parts =
+      if followups != [] do
+        fu_text =
+          followups
+          |> Enum.map_join("\n\n", fn f -> "**Q: #{f.question}**\nA: #{f.answer}" end)
+
+        parts ++ ["**Follow-ups:**\n#{fu_text}"]
+      else
+        parts
+      end
+
+    Enum.join(parts, "\n\n---\n\n")
+  end
 end

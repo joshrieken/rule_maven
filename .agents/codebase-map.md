@@ -9,12 +9,12 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 
 | Module | File | Lines | Responsibility | Key Functions |
 |--------|------|-------|----------------|---------------|
-| `Games` | `games.ex` | 560 | Game/Document CRUD, questions, chunk retrieval | `get_game!/1`, `create_game/1`, `create_document/1`, `grouped_questions/1`, `retrieve_chunks/3`, `chunk_document/1` |
-| `LLM` | `llm.ex` | 476 | LLM API calls (multi-provider), chat, question generation | `ask/4`, `chat/3`, `suggest_questions/3`, `provider/0`, `model/0`, `stats/1` |
+| `Games` | `games.ex` | 660 | Game/Document CRUD, questions, followup chains, chunk retrieval, community pool | `get_game!/1`, `create_game/1`, `create_document/1`, `grouped_questions/1`, `find_parent_question_id/3`, `community_questions/2`, `find_similar_question_in_pool/2`, `question_threads/1`, `retrieve_chunks/3`, `chunk_document/1` |
+| `LLM` | `llm.ex` | 503 | LLM API calls (multi-provider), chat, question generation, pool/FAQ cache | `ask/4`, `chat/3`, `suggest_questions/3`, `provider/0`, `model/0`, `stats/1` |
 | `LLM.Log` | `llm/log.ex` | — | LLM request/response logging | `log_llm/4` |
 | `CheatSheet` | `cheat_sheet.ex` | 711 | Cheatsheet generation (async Oban), versions, HTML wrapping | `save_version/3`, `generate_async/5`, `generate_content/3`, `status/1`, `wrap_html_for_serve/2` |
 | `CheatSheet.CheatSheetVersion` | `cheat_sheet/cheat_sheet_version.ex` | — | Schema for stored cheatsheet versions | — |
-| `Faq` | `faq.ex` | 227 | FAQ CRUD, candidate clustering, auto-approval | `create_faq/1`, `approve_faq/2`, `upsert_candidate/1`, `approve_candidate/2` |
+| `Faq` | `faq.ex` | 269 | FAQ CRUD, candidate clustering, auto-approval, thread consolidation | `create_faq/1`, `approve_faq/2`, `upsert_candidate/1`, `approve_candidate/2`, `consolidate_thread/3`, `build_consolidated_answer/2` |
 | `Faq.FaqEntry` | `faq/faq_entry.ex` | — | Schema for published FAQ entries | — |
 | `Faq.FaqCandidate` | `faq/faq_candidate.ex` | — | Schema for pending FAQ candidates | — |
 | `BGG` | `bgg.ex` | 368 | BoardGameGeek API integration, game search/enrich | `search/1`, `fetch_and_enrich/2` |
@@ -42,12 +42,13 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | Module | File | Lines | Route | Responsibility |
 |--------|------|-------|-------|----------------|
 | `GameLive.Index` | `game_live/index.ex` | 609 | `/` | Game list, search, delete |
-| `GameLive.Show` | `game_live/show.ex` | 947 | `/games/:id` | Ask questions, view answers, conversation UI, suggested questions |
+| `GameLive.Show` | `game_live/show.ex` | 1038 | `/games/:id` | Ask questions, view answers, conversation UI, followup chains, community pool, search |
 | `GameLive.Form` | `game_live/form.ex` | 1965 | `/games/new`, `/games/:id/edit` | Create/edit game, add rulebook (text/PDF/upload), suggested questions |
 | `GameLive.Review` | `game_live/review.ex` | 243 | `/games/:id/review` | Review document chunks, approve/reject |
 | `GameLive.Import` | `game_live/import.ex` | 328 | `/games/import` | Import games via BGG search |
 | `GameLive.Refresh` | `game_live/refresh.ex` | 134 | `/games/refresh` | Refresh game metadata from BGG |
-| `AdminLive` | `admin_live.ex` | 540 | `/admin` | Admin panel: documents, FAQ review, LLM stats |
+| `GameLive.Faq` | `game_live/faq.ex` | 106 | `/games/:id/faq` | Browse published FAQ entries per game, search |
+| `AdminLive` | `admin_live.ex` | 718 | `/admin` | Admin panel: DB tables, question thread review & consolidation to FAQ |
 | `SettingsLive` | `settings_live.ex` | 605 | `/settings` | App settings: LLM keys, provider, models |
 | `UserLiveAuth` | `user_live_auth.ex` | — | (session helper) | LiveView session auth, assigns `current_user` |
 
@@ -107,5 +108,9 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | Add new background job | `workers/` (new file), `application.ex` (maybe), config |
 | Change page layout | `components/layouts/` (root shell), `components/core_components.ex` (shared UI) |
 | Add new LiveView page | `live/` (new file), `router.ex` (route), test |
-| Debug FAQ cache | `llm.ex` (`ask/4`), `faq.ex` (`check_faq_cache/2`) |
+| Debug FAQ cache | `llm.ex` (`ask/4`), `faq.ex` (`check_faq_cache/3`) |
+| Debug question pool | `llm.ex` (`ask/4`), `games.ex` (`find_similar_question_in_pool/2`) |
+| Debug followup chains | `games/question_log.ex` (schema), `games.ex` (`grouped_questions/1`, `find_parent_question_id/3`), `workers/ask_worker.ex` |
+| Admin thread review | `admin_live.ex`, `games.ex` (`question_threads/1`, `all_question_threads/0`), `faq.ex` (`consolidate_thread/3`) |
+| FAQ page | `game_live/faq.ex`, `faq.ex` |
 | Fix BGG import | `bgg.ex`, `game_live/import.ex` |

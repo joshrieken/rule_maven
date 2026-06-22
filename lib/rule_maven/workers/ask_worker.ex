@@ -14,6 +14,7 @@ defmodule RuleMaven.Workers.AskWorker do
     question_log_id = args["question_log_id"]
     question = args["question"]
     expansion_ids = args["expansion_ids"] || []
+    user_id = args["user_id"]
 
     recent_context =
       (args["recent_context"] || [])
@@ -24,14 +25,25 @@ defmodule RuleMaven.Workers.AskWorker do
     case RuleMaven.LLM.ask(game, question, expansion_ids, recent_context) do
       {:ok, %{answer: answer} = llm_result} ->
         passage = llm_result[:cited_passage]
+        followup? = llm_result[:followup] || false
 
-        Games.log_question_update(get_question_log!(question_log_id), %{
+        update_attrs = %{
           answer: answer,
           cited_passage: passage,
           llm_provider: llm_result[:provider],
           llm_model: llm_result[:model],
           question_embedding: llm_result[:question_embedding]
-        })
+        }
+
+        update_attrs =
+          if followup? && user_id do
+            parent_id = Games.find_parent_question_id(game_id, user_id, question_log_id)
+            Map.put(update_attrs, :parent_question_id, parent_id)
+          else
+            update_attrs
+          end
+
+        Games.log_question_update(get_question_log!(question_log_id), update_attrs)
 
         Phoenix.PubSub.broadcast(
           RuleMaven.PubSub,
@@ -40,7 +52,7 @@ defmodule RuleMaven.Workers.AskWorker do
            %{
              question_log_id: question_log_id,
              faq_hit: llm_result[:faq_hit] || false,
-             followup: llm_result[:followup] || false,
+             followup: followup?,
              followups: llm_result[:followups] || []
            }}
         )

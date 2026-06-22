@@ -82,7 +82,10 @@ defmodule RuleMavenWeb.GameLive.Review do
   def render(assigns) do
     ~H"""
     <div style="max-width:48rem;margin:0 auto;padding:1.5rem 1rem">
-      <.link navigate={~p"/games/#{@game.id}"} style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.4rem;border-radius:0.3rem">
+      <.link
+        navigate={~p"/games/#{@game.id}"}
+        style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.4rem;border-radius:0.3rem"
+      >
         &larr; Back to {String.slice(@game.name, 0, 20)}
       </.link>
 

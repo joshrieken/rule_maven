@@ -3,24 +3,26 @@
 ## Ask a Question
 
 ```
-GameLive.Show (form submit)
-  → Games.log_question/1 (insert QuestionLog)
+GameLive.Show (form submit with visibility)
+  → Games.log_question/1 (insert QuestionLog with visibility + parent_question_id=null)
   → Games.retrieve_chunks/3 (vector search on embeddings)
   → LLM.ask/4 (build prompt with chunks + game sources)
-    → Faq.check_faq_cache/2 (embedding similarity check first)
-      → HIT: return cached answer (no LLM call)
-      → MISS: LLM.chat/3 → parse response → return cited answer
-  → Games.log_question_update/2 (save answer, citation, provider)
-  → LiveView: prepend to conversation, scroll bottom
+    → Games.find_similar_question_in_pool/2 (embedding check against community question pool)
+      → HIT: return cached answer ("pool" provider)
+    → Faq.check_faq_cache/3 (embedding check against FAQ entries, expansion-aware)
+      → HIT: return cached answer ("faq" provider)
+    → MISS: LLM.chat/3 → parse response → return cited answer with followup detection
+  → Games.log_question_update/2 (save answer, citation, provider, parent_question_id if followup)
+  → LiveView: prepend to conversation (with followup nesting), scroll bottom
   → Oban.insert(DirectPromotionWorker) (auto-promote exact-match to FAQ)
 ```
 
 Key files:
 - `lib/rule_maven_web/live/game_live/show.ex` — LiveView handler: `handle_event("ask", ...)`
-- `lib/rule_maven/games.ex` — `log_question/1`, `retrieve_chunks/3`, `log_question_update/2`
-- `lib/rule_maven/llm.ex` — `ask/4` (FAQ check + retrieval + LLM call)
-- `lib/rule_maven/faq.ex` — `check_faq_cache/2` (private, embedding similarity)
-- `lib/rule_maven/workers/direct_promotion_worker.ex` — auto-promotion
+- `lib/rule_maven/games.ex` — `log_question/1`, `retrieve_chunks/3`, `log_question_update/2`, `find_similar_question_in_pool/2`
+- `lib/rule_maven/llm.ex` — `ask/4` (pool check → FAQ check → retrieval + LLM call)
+- `lib/rule_maven/faq.ex` — `check_faq_cache/3` (private, embedding similarity, expansion-aware)
+- `lib/rule_maven/workers/ask_worker.ex` — background ask, sets parent_question_id on followups
 
 ## Save Rulebook
 
@@ -78,3 +80,37 @@ DirectPromotionWorker.perform/1
 Key files:
 - `lib/rule_maven/workers/direct_promotion_worker.ex` — promotion logic
 - `lib/rule_maven/faq.ex` — `upsert_candidate/1`
+
+## Followup Chain Persistence
+
+```
+LLM.ask/4 returns followup: true (LLM detected followup based on recent context)
+  → AskWorker.perform/1
+    → Games.find_parent_question_id/3 (find most recent root question by same user)
+    → Games.log_question_update/2 (set parent_question_id on followup question)
+  → GameLive.Show.handle_info(:ask_complete)
+    → Games.grouped_questions/1 (build tree: roots → history + followups)
+    → build_conversation/1 (flat list with followup flags for indentation)
+    → assign conversation, re-render
+```
+
+Key files:
+- `lib/rule_maven/games.ex` — `find_parent_question_id/3`, `grouped_questions/1`
+- `lib/rule_maven/workers/ask_worker.ex` — sets parent_question_id
+- `lib/rule_maven_web/live/game_live/show.ex` — `build_conversation/1`, followup indentation
+
+## Thread Consolidation (Admin)
+
+```
+AdminLive ("Review Threads" section)
+  → Games.all_question_threads/0 (list all root questions with followups)
+  → Admin selects thread → "Merge → FAQ"
+    → Faq.build_consolidated_answer/2 (combine root + followup answers)
+    → Admin edits Q&A, clicks "Publish to FAQ"
+    → Faq.consolidate_thread/3 (create FaqEntry, publish)
+```
+
+Key files:
+- `lib/rule_maven/games.ex` — `question_threads/1`, `all_question_threads/0`
+- `lib/rule_maven/faq.ex` — `consolidate_thread/3`, `build_consolidated_answer/2`
+- `lib/rule_maven_web/live/admin_live.ex` — thread UI, merge form

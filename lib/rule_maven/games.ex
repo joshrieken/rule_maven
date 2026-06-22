@@ -229,10 +229,39 @@ defmodule RuleMaven.Games do
     )
   end
 
+  @doc """
+  Finds the most recent root question (no parent) from the given user in the game.
+  Excludes the current question_log_id. Returns the parent question's ID, or nil.
+  """
+  def find_parent_question_id(game_id, user_id, exclude_id) do
+    query =
+      from q in QuestionLog,
+        where: q.game_id == ^game_id,
+        where: q.user_id == ^user_id,
+        where: is_nil(q.parent_question_id),
+        where: q.id != ^exclude_id,
+        order_by: [desc: q.inserted_at],
+        limit: 1
+
+    case Repo.one(query) do
+      %QuestionLog{id: id} -> id
+      nil -> nil
+    end
+  end
+
   def grouped_questions(%Game{} = game) do
-    game
-    |> recent_questions(100)
-    |> Enum.group_by(&String.downcase(String.trim(&1.question)))
+    all = recent_questions(game, 200)
+
+    # Separate roots (no parent) from followups
+    {roots, followups} = Enum.split_with(all, &is_nil(&1.parent_question_id))
+
+    # Group roots by exact question text (same question asked again = history)
+    roots_by_text = Enum.group_by(roots, &String.downcase(String.trim(&1.question)))
+
+    # Group followups by parent_question_id
+    followups_by_parent = Enum.group_by(followups, & &1.parent_question_id)
+
+    roots_by_text
     |> Enum.map(fn {_key, entries} ->
       sorted =
         entries
@@ -246,7 +275,17 @@ defmodule RuleMaven.Games do
 
       primary = List.first(sorted)
       history = if length(sorted) > 1, do: tl(sorted), else: []
-      %{primary: primary, history: history}
+
+      # Collect followups for this root (and its history entries)
+      all_ids = Enum.map(entries, & &1.id)
+
+      followups =
+        all_ids |> Enum.flat_map(&Map.get(followups_by_parent, &1, [])) |> Enum.uniq_by(& &1.id)
+
+      # Sort followups by insertion time
+      followups = Enum.sort_by(followups, & &1.inserted_at, NaiveDateTime)
+
+      %{primary: primary, history: history, followups: followups}
     end)
     |> Enum.sort_by(& &1.primary.inserted_at, {:desc, DateTime})
   end
@@ -281,6 +320,114 @@ defmodule RuleMaven.Games do
       Repo.delete_all(from q in QuestionLog, where: q.game_id == ^game.id)
 
     {count, nil}
+  end
+
+  @doc """
+  Returns community-visible questions (visibility = "community") for a game.
+  Excludes questions by the given user_id when specified.
+  """
+  def community_questions(%Game{} = game, exclude_user_id \\ nil) do
+    query =
+      from q in QuestionLog,
+        where: q.game_id == ^game.id,
+        where: q.visibility == "community",
+        where: is_nil(q.parent_question_id),
+        order_by: [desc: q.inserted_at],
+        limit: 50
+
+    query =
+      if exclude_user_id do
+        from q in query, where: q.user_id != ^exclude_user_id
+      else
+        query
+      end
+
+    Repo.all(query)
+  end
+
+  @doc """
+  Searches questions by text match for a game.
+  """
+  def search_questions(%Game{} = game, query_text) do
+    search_term = "%#{query_text}%"
+
+    Repo.all(
+      from q in QuestionLog,
+        where: q.game_id == ^game.id,
+        where: ilike(q.question, ^search_term),
+        order_by: [desc: q.inserted_at],
+        limit: 50
+    )
+  end
+
+  @doc """
+  Finds a similar question in the question pool using embedding similarity.
+  Returns the matching QuestionLog or nil.
+  """
+  def find_similar_question_in_pool(game_id, question_embedding, threshold \\ 0.08) do
+    Repo.one(
+      from q in QuestionLog,
+        where: q.game_id == ^game_id,
+        where: not is_nil(q.question_embedding),
+        where: q.visibility == "community",
+        where:
+          fragment(
+            "cosine_distance(?, ?::vector)",
+            q.question_embedding,
+            ^Pgvector.new(question_embedding)
+          ) <= ^threshold,
+        order_by:
+          fragment(
+            "cosine_distance(?, ?::vector)",
+            q.question_embedding,
+            ^Pgvector.new(question_embedding)
+          ),
+        limit: 1
+    )
+  end
+
+  @doc """
+  Returns question threads (root questions with their followups) grouped by game,
+  suitable for admin review and consolidation.
+  """
+  def question_threads(%Game{} = game) do
+    all = recent_questions(game, 200)
+
+    # Roots and their followups
+    {roots, followups} = Enum.split_with(all, &is_nil(&1.parent_question_id))
+    followups_by_parent = Enum.group_by(followups, & &1.parent_question_id)
+
+    roots
+    |> Enum.map(fn root ->
+      children = Map.get(followups_by_parent, root.id, [])
+      %{root: root, followups: children}
+    end)
+    |> Enum.reject(fn %{root: r} -> String.contains?(r.answer || "", "Thinking...") end)
+    |> Enum.sort_by(& &1.root.inserted_at, {:desc, DateTime})
+  end
+
+  @doc """
+  Returns all question threads across all games.
+  """
+  def all_question_threads do
+    Repo.all(
+      from q in QuestionLog,
+        where: is_nil(q.parent_question_id),
+        where: q.answer != "Thinking...",
+        order_by: [desc: q.inserted_at],
+        limit: 200,
+        preload: [:game]
+    )
+    |> Enum.map(fn root ->
+      followups =
+        Repo.all(
+          from q in QuestionLog,
+            where: q.parent_question_id == ^root.id,
+            order_by: [asc: q.inserted_at]
+        )
+
+      %{root: root, followups: followups}
+    end)
   end
 
   # ── Chunking (RAG) ──

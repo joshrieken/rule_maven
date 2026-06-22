@@ -14,11 +14,16 @@ defmodule RuleMavenWeb.GameLive.Show do
        loading: false,
        source_count: 0,
        retry_cooldowns: %{},
-        confirm_delete_id: nil,
-        suggestions: [],
-        suggestions_open: true,
-        sidebar_open: false
-      )}
+       confirm_delete_id: nil,
+       suggestions: [],
+       suggestions_open: true,
+       sidebar_open: false,
+       visibility: "community",
+       search_query: "",
+       community_questions: [],
+       faq_count: 0,
+       refresh: 0
+     )}
   end
 
   @impl true
@@ -33,6 +38,8 @@ defmodule RuleMavenWeb.GameLive.Show do
     conversation = build_conversation(grouped)
     sources = Games.list_documents(game)
     expansions = Games.expansions_with_documents(game)
+    community = Games.community_questions(game, socket.assigns.current_user.id)
+    faq_count = RuleMaven.Faq.faq_count(game)
 
     socket =
       assign(socket,
@@ -43,7 +50,9 @@ defmodule RuleMavenWeb.GameLive.Show do
         included_expansions: %{},
         source_count: length(sources),
         question: "",
-        loading: false
+        loading: false,
+        community_questions: community,
+        faq_count: faq_count
       )
 
     suggestions =
@@ -62,7 +71,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:noreply, assign(socket, suggestions: suggestions, suggestions_open: false)}
   end
 
-  # Build flat conversation list from grouped questions
+  # Build flat conversation list from grouped questions including followup chains
   defp build_conversation(grouped) do
     grouped
     |> Enum.flat_map(fn g ->
@@ -82,6 +91,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         llm_provider: g.primary.llm_provider,
         llm_model: g.primary.llm_model,
         pinned: g.primary.pinned,
+        faq_hit: g.primary.llm_provider == "faq",
+        pool_hit: g.primary.llm_provider == "pool",
         timestamp: g.primary.inserted_at
       }
 
@@ -102,7 +113,33 @@ defmodule RuleMavenWeb.GameLive.Show do
           }
         end)
 
-      [user_msg, assistant_msg | history_msgs]
+      # Include followup Q&A pairs
+      followup_msgs =
+        Enum.flat_map(g.followups, fn f ->
+          f_user = %{
+            id: f.id,
+            role: :user,
+            content: f.question,
+            followup: true,
+            timestamp: f.inserted_at
+          }
+
+          f_asst = %{
+            id: f.id,
+            role: :assistant,
+            content: f.answer,
+            cited_passage: f.cited_passage,
+            cited_page: f.cited_page,
+            llm_provider: f.llm_provider,
+            llm_model: f.llm_model,
+            pinned: f.pinned,
+            timestamp: f.inserted_at
+          }
+
+          [f_user, f_asst]
+        end)
+
+      [user_msg, assistant_msg | history_msgs] ++ followup_msgs
     end)
     |> Enum.sort_by(& &1.timestamp, {:asc, DateTime})
   end
@@ -128,8 +165,9 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
-  def handle_event("ask", %{"question" => question}, socket) do
+  def handle_event("ask", %{"question" => question} = params, socket) do
     question = String.trim(question)
+    visibility = params["visibility"] || socket.assigns.visibility
 
     if question != "" do
       convo = socket.assigns.conversation
@@ -160,7 +198,7 @@ defmodule RuleMavenWeb.GameLive.Show do
              )
              |> push_event("scroll_bottom", %{})
              |> then(fn s ->
-               send(self(), {:ask_question, question})
+               send(self(), {:ask_question, question, visibility})
                s
              end)}
 
@@ -205,6 +243,17 @@ defmodule RuleMavenWeb.GameLive.Show do
   @impl true
   def handle_event("cancel_delete_question", _params, socket) do
     {:noreply, assign(socket, confirm_delete_id: nil)}
+  end
+
+  @impl true
+  def handle_event("toggle_visibility", _params, socket) do
+    next = if socket.assigns.visibility == "community", do: "private", else: "community"
+    {:noreply, assign(socket, visibility: next)}
+  end
+
+  @impl true
+  def handle_event("search", %{"query" => query}, socket) do
+    {:noreply, assign(socket, search_query: query)}
   end
 
   @impl true
@@ -309,7 +358,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
-  def handle_info({:ask_question, question}, socket) do
+  def handle_info({:ask_question, question, visibility}, socket) do
     %{game: game, conversation: convo, included_expansions: included} = socket.assigns
     expansion_ids = Map.keys(included)
 
@@ -327,7 +376,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         game_id: game.id,
         question: question,
         answer: "Thinking...",
-        user_id: socket.assigns.current_user.id
+        user_id: socket.assigns.current_user.id,
+        visibility: visibility
       })
 
     %{
@@ -344,27 +394,29 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:noreply, socket}
   end
 
-  def handle_info({:ask_complete, data}, socket) do
+  def handle_info({:ask_question, question}, socket) do
+    handle_info({:ask_question, question, "community"}, socket)
+  end
+
+  def handle_info({:ask_complete, _data}, socket) do
     %{game: game} = socket.assigns
 
     # Rebuild conversation from DB so answer updates survive refresh
     grouped = Games.grouped_questions(game)
     conversation = build_conversation(grouped)
+    community = Games.community_questions(game, socket.assigns.current_user.id)
 
     # Keep loading state only if we also have a pending broadcast
     loading = conversation |> Enum.any?(&(&1.role == :assistant && &1.content == "Thinking..."))
 
-    # Tag the preceding user message as followup if LLM says so
-    conversation =
-      if data.followup do
-        List.update_at(conversation, -2, fn msg -> Map.put(msg, :followup, true) end)
-      else
-        conversation
-      end
-
     {:noreply,
      socket
-     |> assign(conversation: conversation, loading: loading)
+     |> assign(
+       conversation: conversation,
+       loading: loading,
+       community_questions: community,
+       refresh: socket.assigns.refresh + 1
+     )
      |> push_event("scroll_bottom", %{})}
   end
 
@@ -387,6 +439,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     ~H"""
     <div
       class="chat-layout"
+      data-refresh={@refresh}
       style="display:flex;flex-direction:column;height:calc(100dvh - 3.5rem);position:fixed;top:3.5rem;left:0;right:0;bottom:0;z-index:10;background:var(--bg)"
     >
       <!-- Header -->
@@ -396,7 +449,10 @@ defmodule RuleMavenWeb.GameLive.Show do
       >
         <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:0.35rem">
           <div class="flex items-center gap-1" style="min-width:0;flex-wrap:wrap">
-            <.link navigate={~p"/"} style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.4rem;border-radius:0.3rem;flex-shrink:0">
+            <.link
+              navigate={~p"/"}
+              style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.4rem;border-radius:0.3rem;flex-shrink:0"
+            >
               &larr;
             </.link>
             <h1 class="text-sm font-bold truncate" style="max-width:140px">{@game.name}</h1>
@@ -456,6 +512,15 @@ defmodule RuleMavenWeb.GameLive.Show do
               class="sidebar-toggle"
               style="background:none;border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.4rem;font-size:0.8rem;cursor:pointer;color:var(--text);display:none"
             >☰</button>
+            <%!-- FAQ --%>
+            <%= if @faq_count > 0 do %>
+              <.link
+                navigate={~p"/games/#{@game.id}/faq"}
+                style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.4rem;border-radius:0.3rem;flex-shrink:0"
+              >
+                FAQ ({@faq_count})
+              </.link>
+            <% end %>
             <%!-- Cheat Sheet --%>
             <%= if Enum.any?(@sources, &(CheatSheet.active_version(&1.id) != nil)) do %>
               <.link
@@ -509,7 +574,43 @@ defmodule RuleMavenWeb.GameLive.Show do
               style="display:none;background:none;border:none;font-size:1rem;cursor:pointer;color:var(--text);padding:0;line-height:1"
             >✕</button>
           </div>
-          <%= for {msg, idx} <- @conversation |> Enum.with_index() |> Enum.reverse() |> Enum.filter(fn {msg, _} -> msg.role == :user end) do %>
+
+          <!-- Search -->
+          <div style="padding:0.25rem 0.75rem 0.5rem">
+            <input
+              type="text"
+              name="query"
+              value={@search_query}
+              placeholder="Search questions..."
+              phx-change="search"
+              style="width:100%;border:1px solid var(--border);border-radius:0.4rem;padding:0.3rem 0.5rem;font-size:0.72rem;background:var(--bg);color:var(--text)"
+              autocomplete="off"
+            />
+          </div>
+
+          <!-- Community questions -->
+          <%= if @community_questions != [] do %>
+            <div style="padding:0.35rem 0.75rem 0.15rem;font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase">
+              Community
+            </div>
+            <%= for q <- @community_questions do %>
+              <button
+                type="button"
+                phx-click="ask_suggestion"
+                phx-value-q={q.question}
+                style="text-align:left;background:none;border:none;cursor:pointer;padding:0.35rem 0.75rem;color:var(--text-secondary);font-size:0.78rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%"
+                onmouseover="this.style.background='var(--bg-subtle)'"
+                onmouseout="this.style.background='none'"
+              >
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">
+                  {String.slice(q.question, 0, 55)}{if String.length(q.question) > 55, do: "…"}
+                </span>
+              </button>
+            <% end %>
+            <div style="padding:0.25rem 0.75rem 0.5rem;border-bottom:1px solid var(--border-subtle);margin-bottom:0.25rem">
+            </div>
+          <% end %>
+          <%= for {msg, idx} <- @conversation |> Enum.with_index() |> Enum.reverse() |> Enum.filter(fn {msg, _} -> msg.role == :user end) |> Enum.filter(fn {msg, _} -> @search_query == "" || String.contains?(String.downcase(msg.content), String.downcase(@search_query)) end) do %>
             <button
               type="button"
               id={"sidebar-q-#{idx}"}
@@ -647,9 +748,17 @@ defmodule RuleMavenWeb.GameLive.Show do
                   ✅ FAQ &mdash; instant answer
                 </div>
 
-                <!-- Thumbs up/down (LLM answers only, not FAQ) -->
+                <!-- Pool hit badge -->
                 <div
-                  :if={msg.role == :assistant && !msg[:faq_hit]}
+                  :if={msg[:pool_hit]}
+                  style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:var(--blue)"
+                >
+                  💬 Community answer &mdash; from question pool
+                </div>
+
+                <!-- Thumbs up/down (LLM answers only, not FAQ/pool) -->
+                <div
+                  :if={msg.role == :assistant && !msg[:faq_hit] && !msg[:pool_hit]}
                   style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center"
                 >
                   <% q_text = find_question_for_answer(@conversation, msg) %>
@@ -826,6 +935,21 @@ defmodule RuleMavenWeb.GameLive.Show do
               id="ask-input"
               phx-hook="FocusInput"
             />
+            <input type="hidden" name="visibility" value={@visibility} />
+            <button
+              type="button"
+              phx-click="toggle_visibility"
+              title={
+                if @visibility == "community",
+                  do: "Visible to community (click to make private)",
+                  else: "Private (click to share with community)"
+              }
+              style={"background:none;border:1px solid var(--border);border-radius:2rem;padding:0.4rem 0.65rem;font-size:0.7rem;cursor:pointer;font-weight:600;flex-shrink:0;#{
+                if @visibility == "community", do: "color:var(--accent);border-color:var(--accent);", else: "color:var(--text-muted);"
+              }"}
+            >
+              {if @visibility == "community", do: "🌐", else: "🔒"}
+            </button>
             <button
               type="submit"
               disabled={@loading || @source_count == 0}
