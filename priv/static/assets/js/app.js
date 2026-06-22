@@ -74,11 +74,9 @@ Hooks.FocusInput = {
 Hooks.Refocus = {
   mounted() {
     // Restore saved search from localStorage
-    const saved = localStorage.getItem("game-search");
-    if (saved && saved !== this.el.value) {
-      this.el.value = saved;
-      this.pushEvent("restore_search", { value: saved });
-    }
+    const saved = localStorage.getItem("game-search") || "";
+    this.el.value = saved;
+    this.pushEvent("restore_search", { value: saved });
     this.el.focus();
     // Save on each input change
     this._saveHandler = () => {

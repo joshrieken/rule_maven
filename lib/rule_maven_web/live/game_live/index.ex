@@ -47,9 +47,10 @@ defmodule RuleMavenWeb.GameLive.Index do
        games: games,
        expansion_counts: expansion_counts,
        source_counts: source_counts,
-       confirm_clear: false,
-       confirm_text: "",
-       search: "",
+        confirm_clear: false,
+        confirm_text: "",
+        search: (if connected?(socket), do: nil, else: ""),
+        search_ready: false,
        delete_id: nil,
        page: 1,
        per_page: 20,
@@ -200,20 +201,20 @@ defmodule RuleMavenWeb.GameLive.Index do
 
   @impl true
   def handle_event("search", %{"search" => text}, socket) do
-    {:noreply, assign(socket, search: text, display_count: 20, selected_idx: -1)}
+    {:noreply, assign(socket, search: text, search_ready: true, display_count: 20, selected_idx: -1)}
   end
 
   @impl true
   def handle_event("clear_search", _, socket) do
     {:noreply,
      socket
-     |> assign(search: "", display_count: 20, selected_idx: -1)
+     |> assign(search: "", search_ready: true, display_count: 20, selected_idx: -1)
      |> push_event("refocus", %{})}
   end
 
   @impl true
   def handle_event("restore_search", %{"value" => text}, socket) do
-    {:noreply, assign(socket, search: text, display_count: 20, selected_idx: -1)}
+    {:noreply, assign(socket, search: text, search_ready: true, display_count: 20, selected_idx: -1)}
   end
 
   @impl true
@@ -292,6 +293,8 @@ defmodule RuleMavenWeb.GameLive.Index do
     end
     |> Enum.sort_by(&String.downcase(&1.name))
   end
+
+  defp filtered_games(_games, nil), do: []
 
   defp filtered_games(games, ""), do: games
 
@@ -427,6 +430,7 @@ defmodule RuleMavenWeb.GameLive.Index do
       <% filtered = filtered_games(@games, @search) %>
       <% display_games = visible_games(assigns) %>
 
+      <%= if @search != nil do %>
       <div class="space-y-3" id="game-list" phx-hook="GameListScroll">
         <%= for {game, idx} <- Enum.with_index(display_games) do %>
           <% expansion_count = Map.get(@expansion_counts, game.id, 0) %>
@@ -602,6 +606,7 @@ defmodule RuleMavenWeb.GameLive.Index do
         <div class="text-center py-12 text-gray-500">
           <p class="text-lg">No games match "{@search}"</p>
         </div>
+      <% end %>
       <% end %>
     </div>
     """
