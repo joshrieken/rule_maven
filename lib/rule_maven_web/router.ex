@@ -15,6 +15,11 @@ defmodule RuleMavenWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :admin do
+    plug RuleMavenWeb.AuthPlug
+    plug RuleMavenWeb.AuthPlug, :require_game_master
+  end
+
   scope "/", RuleMavenWeb do
     pipe_through :browser
 
@@ -36,5 +41,10 @@ defmodule RuleMavenWeb.Router do
       live "/settings", SettingsLive, :index
       live "/settings/usage", SettingsLive, :usage
     end
+  end
+
+  scope "/oban", Oban.Web do
+    pipe_through [:browser, :admin]
+    live "/", DashboardLive, :index
   end
 end

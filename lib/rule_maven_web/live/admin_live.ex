@@ -313,6 +313,22 @@ defmodule RuleMavenWeb.AdminLive do
 
       <h1 style="font-size:1.3rem;font-weight:700;margin:0.3rem 0">Admin — Database</h1>
 
+      <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem;align-items:center">
+        <.link
+          href="/oban"
+          target="_blank"
+          style="color:var(--accent);font-size:0.75rem;font-weight:600;text-decoration:none"
+        >Oban Dashboard ↗</.link>
+        <.link
+          href="/settings"
+          style="color:var(--blue);font-size:0.75rem;text-decoration:none"
+        >Settings</.link>
+        <.link
+          href="/settings/usage"
+          style="color:var(--blue);font-size:0.75rem;text-decoration:none"
+        >LLM Usage</.link>
+      </div>
+
       <div style="display:flex;gap:0.25rem;margin-bottom:0.5rem;flex-wrap:wrap">
         <%= for t <- @tables do %>
           <a

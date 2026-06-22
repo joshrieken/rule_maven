@@ -315,8 +315,18 @@ defmodule RuleMavenWeb.GameLive.Show do
       |> Enum.filter(&(length(&1) == 2))
       |> Enum.map(fn [user, asst] -> %{q: user.content, a: asst.content} end)
 
+    # Log the question immediately so it survives a refresh
+    {:ok, question_log} =
+      Games.log_question(%{
+        game_id: game.id,
+        question: question,
+        answer: "Thinking...",
+        user_id: socket.assigns.current_user.id
+      })
+
     %{
       game_id: game.id,
+      question_log_id: question_log.id,
       question: question,
       expansion_ids: expansion_ids,
       recent_context: recent,
@@ -329,46 +339,27 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_info({:ask_complete, data}, socket) do
-    %{game: game, conversation: convo} = socket.assigns
-    question_log_id = data.question_log_id
+    %{game: game} = socket.assigns
 
-    # Read the logged question from DB
-    q =
-      game
-      |> Games.recent_questions(100)
-      |> Enum.find(&(&1.id == question_log_id))
+    # Rebuild conversation from DB so answer updates survive refresh
+    grouped = Games.grouped_questions(game)
+    conversation = build_conversation(grouped)
 
-    if q do
-      citation = find_citation_link(game, q.cited_passage)
+    # Keep loading state only if we also have a pending broadcast
+    loading = conversation |> Enum.any?(&(&1.role == :assistant && &1.content == "Thinking..."))
 
-      assistant_msg = %{
-        id: q.id,
-        role: :assistant,
-        content: q.answer,
-        cited_passage: q.cited_passage,
-        cited_page: citation[:page],
-        llm_provider: q.llm_provider,
-        llm_model: q.llm_model,
-        cited_html_link: citation[:link],
-        faq_hit: data.faq_hit || false,
-        followups: data.followups || [],
-        timestamp: q.inserted_at
-      }
+    # Tag the preceding user message as followup if LLM says so
+    conversation =
+      if data.followup do
+        List.update_at(conversation, -2, fn msg -> Map.put(msg, :followup, true) end)
+      else
+        conversation
+      end
 
-      convo =
-        if data.followup do
-          List.update_at(convo, -1, fn msg -> Map.put(msg, :followup, true) end)
-        else
-          convo
-        end
-
-      {:noreply,
-       socket
-       |> assign(conversation: convo ++ [assistant_msg], loading: false)
-       |> push_event("scroll_bottom", %{})}
-    else
-      {:noreply, assign(socket, loading: false)}
-    end
+    {:noreply,
+     socket
+     |> assign(conversation: conversation, loading: loading)
+     |> push_event("scroll_bottom", %{})}
   end
 
   def handle_info({:ask_error, %{question: _question, error: reason}}, socket) do
@@ -818,47 +809,6 @@ defmodule RuleMavenWeb.GameLive.Show do
       </div>
     </div>
     """
-  end
-
-  defp find_citation_link(game, passage) do
-    if passage do
-      sources = Games.list_rulebook_sources(game)
-      search = String.trim(passage, ~s("' \n))
-
-      result =
-        sources
-        |> Enum.filter(& &1.html_path)
-        |> Enum.find_value(fn source ->
-          find_in_text(source.full_text, search, source.html_path)
-        end)
-
-      case result do
-        {:ok, citation} -> citation
-        _ -> nil
-      end
-    end
-  end
-
-  defp find_in_text(full_text, search, html_path) do
-    pages = String.split(full_text, "\f")
-
-    # Try exact match first, then fragment match (first ~60 chars)
-    fragments =
-      search
-      |> String.split(~r{[.;]\s+})
-      |> Enum.reject(&(String.length(&1) < 10))
-      |> Enum.map(&String.slice(&1, 0, 60))
-
-    Enum.find_value(pages |> Enum.with_index(1), fn {page_text, page_num} ->
-      found? =
-        Enum.any?(fragments, fn frag ->
-          String.contains?(page_text, frag)
-        end)
-
-      if found? do
-        {:ok, %{page: page_num, link: "/#{html_path}##{page_num}"}}
-      end
-    end)
   end
 
   defp check_rate_limit(socket) do

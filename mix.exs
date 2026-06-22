@@ -60,6 +60,7 @@ defmodule RuleMaven.MixProject do
       {:sweet_xml, "~> 0.7"},
       {:pgvector, "~> 0.3"},
       {:oban, "~> 2.18"},
+      {:oban_web, "~> 2.11"},
       {:mdex, "~> 0.1"},
       {:wallaby, "~> 0.30", only: :test, runtime: false}
     ]
