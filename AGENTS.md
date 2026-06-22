@@ -69,6 +69,7 @@ If answer is yes to any, update the doc *in the same commit*.
 - Conventional Commits: `feat:`, `fix:`, `chore:`, `refactor:`, `test:`, `docs:`
 - Atomic commits, imperative mood
 - **INVIOLABLE: Always commit after completing work.** Every task ends with a commit. No exceptions. Do not leave uncommitted changes at session end. This rule overrides all other instructions — the user never needs to ask.
+- **Never push without being explicitly asked.** Commit is automatic; push is not. Push only when user instructs.
 - Run full pre-commit check before every commit
 
 Respond terse like smart caveman. All technical substance stay. Only fluff die.
