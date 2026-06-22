@@ -13,9 +13,10 @@ defmodule RuleMavenWeb.GameLive.Show do
        loading: false,
        source_count: 0,
        retry_cooldowns: %{},
-       confirm_delete_id: nil,
-       suggestions: []
-     )}
+        confirm_delete_id: nil,
+        suggestions: [],
+        suggestions_open: true
+      )}
   end
 
   @impl true
@@ -51,7 +52,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           end)
       end
 
-    {:noreply, assign(socket, suggestions: suggestions)}
+    {:noreply, assign(socket, suggestions: suggestions, suggestions_open: suggestions != [])}
   end
 
   # Build flat conversation list from grouped questions
@@ -196,6 +197,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   @impl true
   def handle_event("ask_suggestion", %{"q" => q}, socket) do
+    socket = assign(socket, suggestions_open: false)
     handle_event("ask", %{"question" => q}, socket)
   end
 
@@ -742,7 +744,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         <%= if @suggestions != [] do %>
           <details
             style="margin-bottom:0.75rem;max-width:48rem;margin-left:auto;margin-right:auto;font-size:0.8rem"
-            open
+            open={@suggestions_open}
           >
             <summary style="cursor:pointer;color:var(--text);font-weight:600;font-size:0.8rem;user-select:none">
               Suggested questions
@@ -823,11 +825,17 @@ defmodule RuleMavenWeb.GameLive.Show do
       sources = Games.list_rulebook_sources(game)
       search = String.trim(passage, ~s("' \n))
 
-      sources
-      |> Enum.filter(& &1.html_path)
-      |> Enum.find_value(fn source ->
-        find_in_text(source.full_text, search, source.html_path)
-      end)
+      result =
+        sources
+        |> Enum.filter(& &1.html_path)
+        |> Enum.find_value(fn source ->
+          find_in_text(source.full_text, search, source.html_path)
+        end)
+
+      case result do
+        {:ok, citation} -> citation
+        _ -> nil
+      end
     end
   end
 
