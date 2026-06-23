@@ -4,6 +4,8 @@ defmodule RuleMavenWeb.GameLive.Show do
   alias RuleMaven.{Games, CheatSheet}
   alias Oban
 
+  @max_concurrent 5
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -11,7 +13,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        game: nil,
        question: "",
        conversation: [],
-       loading: false,
+       pending_count: 0,
+       pending: %{},
        source_count: 0,
        retry_cooldowns: %{},
        confirm_delete_id: nil,
@@ -37,32 +40,26 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
 
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-    conversation = build_current_conversation(grouped)
+    conversation = build_conversation(grouped)
 
-    # Only treat Thinking... as loading if it's recent (within 2 min)
+    # Mark recent Thinking... messages as pending (in-flight), stale ones stay as-is
     recent = NaiveDateTime.utc_now() |> NaiveDateTime.add(-120, :second)
 
-    thinking? =
-      Enum.any?(conversation, fn m ->
-        m.role == :assistant && m.content == "Thinking..." &&
-          (is_nil(m.timestamp) || NaiveDateTime.compare(m.timestamp, recent) == :gt)
+    {conversation, pending_count} =
+      Enum.reduce(conversation, {[], 0}, fn
+        %{role: :assistant, content: "Thinking...", timestamp: ts} = msg, {acc, count}
+        when not is_nil(ts) ->
+          if NaiveDateTime.compare(ts, recent) == :gt do
+            {[Map.put(msg, :pending, true) | acc], count + 1}
+          else
+            {[msg | acc], count}
+          end
+
+        msg, {acc, count} ->
+          {[msg | acc], count}
       end)
 
-    # Defensive: if no conversation but there are non-refused pending questions, show loading
-    {conversation, thinking?} =
-      if conversation == [] && Enum.any?(grouped, &(!&1.primary.refused)) do
-        {[
-           %{
-             id: nil,
-             role: :assistant,
-             content: "Thinking...",
-             thinking: true,
-             timestamp: DateTime.utc_now()
-           }
-         ], true}
-      else
-        {conversation, thinking?}
-      end
+    conversation = Enum.reverse(conversation)
 
     sources = Games.list_documents(game)
     expansions = Games.expansions_with_documents(game)
@@ -79,11 +76,12 @@ defmodule RuleMavenWeb.GameLive.Show do
         included_expansions: %{},
         source_count: length(sources),
         question: "",
-        loading: thinking?,
+        pending_count: pending_count,
+        pending: %{},
         community_questions: community,
         refused_questions: refused_qs,
         faq_count: faq_count,
-        show_onboarding: conversation == [] && sources != [] && !thinking?
+        show_onboarding: conversation == [] && sources != [] && pending_count == 0
       )
 
     suggestions =
@@ -102,18 +100,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:noreply, assign(socket, suggestions: suggestions, suggestions_open: false)}
   end
 
-  # Build flat conversation from the most recent non-refused root thread.
-  defp build_current_conversation(grouped) do
-    current =
-      Enum.find(grouped, &(!&1.primary.refused)) ||
-        List.first(grouped)
-
-    case current do
-      nil -> []
-      g -> build_conversation([g])
-    end
-  end
-
+  # Build flat conversation from ALL grouped threads (supports concurrent questions).
   defp build_conversation(grouped) do
     grouped
     |> Enum.flat_map(fn g ->
@@ -237,27 +224,32 @@ defmodule RuleMavenWeb.GameLive.Show do
          |> assign(question: "")
          |> put_flash(:info, "This question was already asked — scroll up to see the answer.")}
       else
-        case check_rate_limit(socket) do
-          :ok ->
-            user_msg = %{role: :user, content: question, timestamp: DateTime.utc_now()}
+        if socket.assigns.pending_count >= @max_concurrent do
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             "Maximum #{@max_concurrent} concurrent questions. Please wait for one to finish."
+           )}
+        else
+          case check_rate_limit(socket) do
+            :ok ->
+              send(self(), {:ask_question, question, visibility})
+              user_msg = %{role: :user, content: question, timestamp: DateTime.utc_now()}
 
-            {:noreply,
-             socket
-             |> assign(
-               question: "",
-               conversation: socket.assigns.conversation ++ [user_msg],
-               loading: true,
-               confirm_delete_id: nil
-             )
-             |> push_event("scroll_bottom", %{})
-             |> then(fn s ->
-               send(self(), {:ask_question, question, visibility})
-               Process.send_after(self(), :loading_timeout, 45_000)
-               s
-             end)}
+              {:noreply,
+               socket
+               |> assign(
+                 question: "",
+                 conversation: convo ++ [user_msg],
+                 pending_count: socket.assigns.pending_count + 1,
+                 confirm_delete_id: nil
+               )
+               |> push_event("scroll_bottom", %{})}
 
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, reason)}
+            {:error, reason} ->
+              {:noreply, put_flash(socket, :error, reason)}
+          end
         end
       end
     else
@@ -285,7 +277,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
 
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-    conversation = build_current_conversation(grouped)
+    conversation = build_conversation(grouped)
 
     {:noreply,
      assign(socket,
@@ -327,7 +319,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         Games.update_question_visibility(q, new_vis)
 
         grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-        conversation = build_current_conversation(grouped)
+        conversation = build_conversation(grouped)
         community = Games.community_questions(game, socket.assigns.current_user.id)
         refused_qs = Games.refused_questions(game, socket.assigns.current_user.id)
         refresh = socket.assigns.refresh + 1
@@ -367,7 +359,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
 
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-    conversation = build_current_conversation(grouped)
+    conversation = build_conversation(grouped)
 
     {:noreply, assign(socket, conversation: conversation)}
   end
@@ -390,7 +382,6 @@ defmodule RuleMavenWeb.GameLive.Show do
       if question != "" do
         case check_rate_limit(socket) do
           :ok ->
-            # Delete the old question before re-asking
             game = socket.assigns.game
 
             old_q =
@@ -402,7 +393,6 @@ defmodule RuleMavenWeb.GameLive.Show do
 
             visibility = if old_q, do: old_q.visibility, else: "private"
 
-            # Clear old conversation, show user question + thinking placeholder
             socket =
               assign(socket,
                 conversation: [
@@ -411,18 +401,18 @@ defmodule RuleMavenWeb.GameLive.Show do
                     id: nil,
                     role: :assistant,
                     content: "Thinking...",
-                    thinking: true,
+                    pending: true,
                     timestamp: DateTime.utc_now()
                   }
                 ],
                 question: "",
-                loading: true,
+                pending_count: 1,
+                pending: %{},
                 confirm_delete_id: nil,
                 retry_cooldowns: Map.put(cooldowns, id, now)
               )
 
             send(self(), {:ask_question, question, visibility})
-            Process.send_after(self(), :loading_timeout, 45_000)
             {:noreply, socket}
 
           {:error, reason} ->
@@ -480,12 +470,13 @@ defmodule RuleMavenWeb.GameLive.Show do
     # Collect recent Q&A pairs for followup context
     recent =
       convo
+      |> Enum.reject(& &1[:pending])
       |> Enum.take(-4)
       |> Enum.chunk_every(2)
       |> Enum.filter(&(length(&1) == 2))
       |> Enum.map(fn [user, asst] -> %{q: user.content, a: asst.content} end)
 
-    # Log the question immediately so it survives a refresh
+    # Log question to DB so it survives refresh
     {:ok, question_log} =
       Games.log_question(%{
         game_id: game.id,
@@ -494,6 +485,25 @@ defmodule RuleMavenWeb.GameLive.Show do
         user_id: socket.assigns.current_user.id,
         visibility: visibility
       })
+
+    # Update the placeholder user message with real DB id
+    updated_convo =
+      Enum.map(convo, fn
+        %{role: :user, content: ^question} = msg when msg.id == nil ->
+          %{msg | id: question_log.id}
+
+        msg ->
+          msg
+      end)
+
+    # Append thinking placeholder with real id
+    thinking_msg = %{
+      id: question_log.id,
+      role: :assistant,
+      content: "Thinking...",
+      pending: true,
+      timestamp: DateTime.utc_now()
+    }
 
     %{
       game_id: game.id,
@@ -506,7 +516,11 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> RuleMaven.Workers.AskWorker.new()
     |> Oban.insert()
 
-    {:noreply, socket}
+    {:noreply,
+     assign(socket,
+       conversation: updated_convo ++ [thinking_msg],
+       pending: Map.put(socket.assigns.pending, question_log.id, true)
+     )}
   end
 
   def handle_info({:ask_question, question}, socket) do
@@ -518,7 +532,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     # Rebuild conversation from DB so answer updates survive refresh
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-    conversation = build_current_conversation(grouped)
+    conversation = build_conversation(grouped)
     community = Games.community_questions(game, socket.assigns.current_user.id)
     refused_qs = Games.refused_questions(game, socket.assigns.current_user.id)
 
@@ -534,14 +548,30 @@ defmodule RuleMavenWeb.GameLive.Show do
           msg
       end)
 
-    # Keep loading state only if we also have a pending broadcast
-    loading = conversation |> Enum.any?(&(&1.role == :assistant && &1.content == "Thinking..."))
+    # Compute pending count: recent Thinking... messages still in-flight
+    recent = NaiveDateTime.utc_now() |> NaiveDateTime.add(-120, :second)
+
+    {conversation, pending_count} =
+      Enum.reduce(conversation, {[], 0}, fn
+        %{role: :assistant, content: "Thinking...", timestamp: ts} = msg, {acc, count}
+        when not is_nil(ts) ->
+          if NaiveDateTime.compare(ts, recent) == :gt do
+            {[Map.put(msg, :pending, true) | acc], count + 1}
+          else
+            {[msg | acc], count}
+          end
+
+        msg, {acc, count} ->
+          {[msg | acc], count}
+      end)
+
+    conversation = Enum.reverse(conversation)
 
     {:noreply,
      socket
      |> assign(
        conversation: conversation,
-       loading: loading,
+       pending_count: pending_count,
        community_questions: community,
        refused_questions: refused_qs,
        refresh: socket.assigns.refresh + 1
@@ -559,16 +589,11 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     {:noreply,
      socket
-     |> assign(conversation: socket.assigns.conversation ++ [error_msg], loading: false)
+     |> assign(
+       conversation: socket.assigns.conversation ++ [error_msg],
+       pending_count: max(0, socket.assigns.pending_count - 1)
+     )
      |> push_event("scroll_bottom", %{})}
-  end
-
-  def handle_info(:loading_timeout, socket) do
-    if socket.assigns.loading do
-      {:noreply, assign(socket, loading: false)}
-    else
-      {:noreply, socket}
-    end
   end
 
   @impl true
@@ -767,7 +792,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             <div style="padding:0.25rem 0.75rem 0.5rem;border-bottom:1px solid var(--border-subtle);margin-bottom:0.25rem">
             </div>
           <% end %>
-          <%= for {msg, idx} <- @conversation |> Enum.with_index() |> Enum.reverse() |> Enum.filter(fn {msg, _} -> msg.role == :user && !msg[:refused] end) |> Enum.filter(fn {msg, _} -> @search_query == "" || String.contains?(String.downcase(msg.content), String.downcase(@search_query)) end) do %>
+          <%= for {msg, idx} <- @conversation |> Enum.with_index() |> Enum.reverse() |> Enum.filter(fn {msg, _} -> msg.role == :user && !msg[:refused] && !msg[:pending] end) |> Enum.filter(fn {msg, _} -> @search_query == "" || String.contains?(String.downcase(msg.content), String.downcase(@search_query)) end) do %>
             <button
               type="button"
               id={"sidebar-q-#{idx}"}
@@ -940,7 +965,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             </div>
           <% end %>
 
-          <%= for {msg, idx} <- @conversation |> Enum.with_index() |> Enum.reject(fn {msg, _} -> msg[:thinking] end) |> Enum.reject(fn {msg, _} -> msg.content == "Thinking..." && msg.role == :assistant && @loading end) do %>
+          <%= for {msg, idx} <- @conversation |> Enum.with_index() do %>
             <% is_followup = msg.role == :user && msg[:followup] %>
             <div
               id={"chat-msg-#{idx}"}
@@ -961,15 +986,22 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </div>
                 <% end %>
                 <div>
-                  <%= if msg.role == :assistant && msg.content == "Thinking..." && !msg[:thinking] do %>
-                    <div style="font-size:0.6rem;opacity:0.5;margin-bottom:0.1rem;color:var(--text-muted)">
-                      No answer received
-                    </div>
+                  <%= if msg.role == :assistant && msg.content == "Thinking..." do %>
+                    <%= if msg[:pending] do %>
+                      <div class="animate-pulse" style="color:var(--text-secondary)">
+                        Thinking...
+                      </div>
+                    <% else %>
+                      <div style="font-size:0.6rem;opacity:0.5;margin-bottom:0.1rem;color:var(--text-muted)">
+                        No answer received
+                      </div>
+                    <% end %>
+                  <% else %>
+                    {render_markdown(msg.content)}
                   <% end %>
-                  {render_markdown(msg.content)}
                 </div>
 
-                <%= if msg[:cited_passage] do %>
+                <%= if msg[:cited_passage] && msg.content != "Thinking..." do %>
                   <div style={"margin-top:0.75rem;padding:0.5rem 0 0 0;border-top:1px solid #{if msg.role == :user, do: "rgba(255,255,255,0.3)", else: "var(--border-strong)"};font-size:0.78rem;line-height:1.45;#{if msg.role == :user, do: "color:rgba(255,255,255,0.9)", else: "color:var(--text)"}"}>
                     <%= if msg[:cited_page] do %>
                       <span style="font-weight:700">p.{msg.cited_page}</span> &mdash;
@@ -1039,7 +1071,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
                 <!-- FAQ badge -->
                 <div
-                  :if={msg[:faq_hit] && !msg[:thinking]}
+                  :if={msg[:faq_hit] && msg.content != "Thinking..."}
                   style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:var(--green)"
                 >
                   ✅ FAQ &mdash; instant answer
@@ -1053,11 +1085,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                   💬 Community answer &mdash; from question pool
                 </div>
 
-                <!-- Thumbs up/down (LLM answers only, not FAQ/pool/refused/thinking/loading) -->
+                <!-- Thumbs up/down (LLM answers only) -->
                 <div
                   :if={
                     msg.role == :assistant && !msg[:faq_hit] && !msg[:pool_hit] && !msg[:refused] &&
-                      !msg[:thinking] && msg.content != "Thinking..."
+                      msg.content != "Thinking..." && !msg[:pending]
                   }
                   style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center"
                 >
@@ -1107,7 +1139,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               <div
                 :if={
                   RuleMaven.Users.game_master?(@current_user) && msg.role == :assistant &&
-                    !msg[:thinking]
+                    msg.content != "Thinking..."
                 }
                 class="flex items-center gap-1 mt-0.5"
                 style="padding-left:0.25rem"
@@ -1117,7 +1149,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                     type="button"
                     phx-click="retry_question"
                     phx-value-id={msg.id}
-                    disabled={@loading}
+                    disabled={@pending_count >= @max_concurrent}
                     style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
                     title="Re-ask"
                   >↻</button>
@@ -1173,7 +1205,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       type="button"
                       phx-click="retry_question"
                       phx-value-id={msg.id}
-                      disabled={@loading}
+                      disabled={@pending_count >= @max_concurrent}
                       style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
                       title="Re-ask"
                     >↻</button>
@@ -1237,16 +1269,6 @@ defmodule RuleMavenWeb.GameLive.Show do
               <% end %>
             </div>
           <% end %>
-
-          <!-- Loading indicator -->
-          <div :if={@loading} class="chat-msg" style="display:flex;align-items:flex-start">
-            <div
-              class="animate-pulse"
-              style="background:var(--bg-surface);color:var(--text-secondary);padding:0.6rem 0.85rem;border-radius:0.85rem;border-bottom-left-radius:0.25rem;font-size:0.875rem;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
-            >
-              Thinking...
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1311,7 +1333,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               }
               class="flex-1 border rounded-full px-4 py-2.5 text-sm"
               style="background:var(--bg);color:var(--text);border-color:var(--border-strong)"
-              disabled={@loading || @source_count == 0}
+              disabled={@pending_count >= @max_concurrent || @source_count == 0}
               autocomplete="off"
               id="ask-input"
               phx-hook="FocusInput"
@@ -1319,10 +1341,10 @@ defmodule RuleMavenWeb.GameLive.Show do
             <input type="hidden" name="visibility" value={@visibility} />
             <button
               type="submit"
-              disabled={@loading || @source_count == 0}
+              disabled={@pending_count >= @max_concurrent || @source_count == 0}
               style="background:var(--accent);color:white;border:none;padding:0.5rem 1.25rem;border-radius:2rem;font-weight:600;font-size:0.85rem;cursor:pointer"
             >
-              {if @loading, do: "...", else: "Send"}
+              {if @pending_count >= @max_concurrent, do: "Wait...", else: "Send"}
             </button>
           </form>
         </div>
