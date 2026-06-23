@@ -732,16 +732,20 @@ defmodule RuleMavenWeb.GameLive.Show do
 
           <!-- Refused questions -->
           <%= if @refused_questions != [] do %>
-            <div style="padding:0.35rem 0.75rem 0.15rem;font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;opacity:0.6">
-              Not covered
-            </div>
-            <%= for q <- @refused_questions do %>
-              <div style="text-align:left;padding:0.35rem 0.75rem;color:var(--text-muted);font-size:0.75rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%;opacity:0.5">
-                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">
-                  ⚐ {String.slice(q.question, 0, 52)}{if String.length(q.question) > 52, do: "…"}
-                </span>
+            <details style="padding:0.25rem 0.75rem">
+              <summary style="font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;opacity:0.6;cursor:pointer;user-select:none">
+                Not covered ({length(@refused_questions)})
+              </summary>
+              <div style="margin-top:0.25rem">
+                <%= for q <- @refused_questions do %>
+                  <div style="text-align:left;padding:0.35rem 0.75rem;color:var(--text-muted);font-size:0.75rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%;opacity:0.5">
+                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">
+                      ⚐ {String.slice(q.question, 0, 52)}{if String.length(q.question) > 52, do: "…"}
+                    </span>
+                  </div>
+                <% end %>
               </div>
-            <% end %>
+            </details>
             <div style="padding:0.25rem 0.75rem 0.5rem;border-bottom:1px solid var(--border-subtle);margin-bottom:0.25rem">
             </div>
           <% end %>
