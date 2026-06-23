@@ -60,7 +60,8 @@ defmodule RuleMaven.Workers.AskWorker do
              followup: followup?,
              followups: if(refused?, do: [], else: llm_result[:followups] || []),
              cited_page: cited_page,
-             refused: refused?
+             refused: refused?,
+             raw_response: llm_result[:raw_response]
            }}
         )
 

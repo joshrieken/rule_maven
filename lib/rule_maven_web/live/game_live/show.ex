@@ -459,13 +459,14 @@ defmodule RuleMavenWeb.GameLive.Show do
     conversation = build_current_conversation(grouped)
     community = Games.community_questions(game, socket.assigns.current_user.id)
 
-    # Inject followups and cited_page from broadcast into matching message
+    # Inject followups, cited_page, and raw_response from broadcast into matching message
     conversation =
       Enum.map(conversation, fn
         %{id: id} = msg when id == data.question_log_id ->
           msg
           |> Map.put(:followups, data[:followups] || [])
           |> Map.put(:cited_page, data[:cited_page] || msg[:cited_page])
+          |> Map.put(:raw_response, data[:raw_response])
 
         msg ->
           msg
@@ -805,7 +806,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 Ask a rules question
               </p>
               <p>Type your question below. Answers cite the exact rulebook passage.</p>
-              <%= if @suggestions != [] do %>
+              <%= if @suggestions != [] && !Enum.any?(@conversation, & &1[:refused]) do %>
                 <div style="margin-top:1.5rem;text-align:left;max-width:28rem;margin-left:auto;margin-right:auto">
                   <div style="font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:0.75rem">
                     Suggested questions
@@ -1079,6 +1080,13 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <% end %>
                 <% end %>
               </div>
+              <!-- Admin debug: raw LLM response -->
+              <%= if RuleMaven.Users.game_master?(@current_user) && msg.role == :assistant && msg[:raw_response] do %>
+                <details style="margin-top:0.25rem;font-size:0.6rem;color:var(--text-muted);opacity:0.6">
+                  <summary style="cursor:pointer">raw</summary>
+                  <pre style="white-space:pre-wrap;word-break:break-word;margin-top:0.15rem;padding:0.25rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem;max-height:12rem;overflow-y:auto"><%= msg[:raw_response] %></pre>
+                </details>
+              <% end %>
             </div>
           <% end %>
 

@@ -105,7 +105,8 @@ defmodule RuleMaven.LLM do
            faq_hit: false,
            followup: llm_result[:followup] || false,
            followups: llm_result[:followups] || [],
-           cleaned_question: llm_result[:cleaned_question]
+           cleaned_question: llm_result[:cleaned_question],
+           raw_response: llm_result[:raw_response]
          }}
 
       {:error, reason} ->
@@ -318,7 +319,8 @@ defmodule RuleMaven.LLM do
            cited_passage: passage,
            followup: followup?,
            followups: followups,
-           cleaned_question: cleaned_question
+           cleaned_question: cleaned_question,
+           raw_response: text
          }}
 
       %{"error" => %{"message" => message}} ->
