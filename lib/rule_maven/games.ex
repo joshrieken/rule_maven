@@ -366,6 +366,7 @@ defmodule RuleMaven.Games do
         where: q.game_id == ^game.id,
         where: q.id in ^faq_ids,
         where: is_nil(q.parent_question_id),
+        where: q.refused == false,
         order_by: [desc: q.inserted_at],
         limit: 50
 

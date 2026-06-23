@@ -99,7 +99,13 @@
               <% me -> %>
                 <details class="user-dropdown">
                   <summary class="user-dropdown-toggle">
-                    <span class="header-user">{me.username}</span>
+                    <span class="header-user">
+                      {me.username}
+                      <span
+                        :if={RuleMaven.Users.game_master?(me)}
+                        style="font-size:0.6rem;background:var(--accent);color:#fff;padding:0.1rem 0.35rem;border-radius:0.25rem;margin-left:0.3rem;font-weight:700;vertical-align:middle"
+                      >GM</span>
+                    </span>
                   </summary>
                   <div class="user-dropdown-menu">
                     <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>

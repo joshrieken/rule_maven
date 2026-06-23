@@ -899,9 +899,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                   💬 Community answer &mdash; from question pool
                 </div>
 
-                <!-- Thumbs up/down (LLM answers only, not FAQ/pool) -->
+                <!-- Thumbs up/down (LLM answers only, not FAQ/pool/refused) -->
                 <div
-                  :if={msg.role == :assistant && !msg[:faq_hit] && !msg[:pool_hit]}
+                  :if={msg.role == :assistant && !msg[:faq_hit] && !msg[:pool_hit] && !msg[:refused]}
                   style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center"
                 >
                   <% q_text = find_question_for_answer(@conversation, msg) %>
