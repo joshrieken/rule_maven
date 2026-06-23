@@ -48,9 +48,9 @@ defmodule RuleMavenWeb.GameLive.Show do
           (is_nil(m.timestamp) || NaiveDateTime.compare(m.timestamp, recent) == :gt)
       end)
 
-    # Defensive: if no conversation but there are recent pending questions, show loading
+    # Defensive: if no conversation but there are non-refused pending questions, show loading
     {conversation, thinking?} =
-      if conversation == [] && grouped != [] do
+      if conversation == [] && Enum.any?(grouped, &(!&1.primary.refused)) do
         {[
            %{
              id: nil,
@@ -1233,21 +1233,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               id="ask-input"
               phx-hook="FocusInput"
             />
-            <input type="hidden" name="visibility" value={@visibility} />
-            <button
-              type="button"
-              phx-click="toggle_visibility"
-              title={
-                if @visibility == "community",
-                  do: "Visible to community (click to make private)",
-                  else: "Private (click to share with community)"
-              }
-              style={"background:none;border:1px solid var(--border);border-radius:2rem;padding:0.4rem 0.65rem;font-size:0.7rem;cursor:pointer;font-weight:600;flex-shrink:0;#{
-                if @visibility == "community", do: "color:var(--accent);border-color:var(--accent);", else: "color:var(--text-muted);"
-              }"}
-            >
-              {if @visibility == "community", do: "🌐", else: "🔒"}
-            </button>
+            <input type="hidden" name="visibility" value="private" />
             <button
               type="submit"
               disabled={@loading || @source_count == 0}
