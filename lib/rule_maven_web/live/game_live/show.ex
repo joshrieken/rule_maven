@@ -30,7 +30,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        refused_questions: [],
        faq_count: 0,
        refresh: 0,
-       show_onboarding: false
+       show_onboarding: false,
+       refused_open: false
      )}
   end
 
@@ -231,6 +232,12 @@ defmodule RuleMavenWeb.GameLive.Show do
       end
 
     {:noreply, assign(socket, included_expansions: included)}
+  end
+
+  @impl true
+  def handle_event("toggle_refused", %{"open" => open_str}, socket) do
+    open = open_str == "true"
+    {:noreply, assign(socket, refused_open: open)}
   end
 
   @impl true
@@ -958,18 +965,29 @@ defmodule RuleMavenWeb.GameLive.Show do
 
           <!-- Refused questions -->
           <%= if @refused_questions != [] do %>
-            <details style="padding:0.25rem 0.75rem">
-              <summary style="font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;opacity:0.6;cursor:pointer;user-select:none">
+            <details style="padding:0.25rem 0.75rem" open={@refused_open}>
+              <summary
+                style="font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;opacity:0.6;cursor:pointer;user-select:none"
+                phx-click="toggle_refused"
+                phx-value-open={!@refused_open}
+              >
                 Not covered ({length(@refused_questions)})
               </summary>
               <div style="margin-top:0.25rem">
                 <%= for q <- @refused_questions do %>
                   <%= if @search_query == "" || String.contains?(String.downcase(q.question), String.downcase(@search_query)) do %>
-                    <div style="text-align:left;padding:0.35rem 0.75rem;color:var(--text-muted);font-size:0.75rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%;opacity:0.5">
+                    <button
+                      type="button"
+                      phx-click="switch_thread"
+                      phx-value-id={q.id}
+                      style="display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.35rem 0.75rem;color:var(--text-muted);font-size:0.75rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%;opacity:0.5"
+                      onmouseover="this.style.background='var(--bg-subtle)';this.style.opacity='0.8'"
+                      onmouseout="this.style.background='none';this.style.opacity='0.5'"
+                    >
                       <span style="word-break:break-word;white-space:normal;display:block;line-height:1.3;text-align:left">
                         ⚐ {q.question}
                       </span>
-                    </div>
+                    </button>
                   <% end %>
                 <% end %>
               </div>
@@ -1313,10 +1331,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
               <!-- Message actions (admin only) -->
               <div
-                :if={
-                  RuleMaven.Users.game_master?(@current_user) && msg.role == :assistant &&
-                    msg.content != "Thinking..."
-                }
+                :if={RuleMaven.Users.game_master?(@current_user) && msg.role == :assistant}
                 class="flex items-center gap-1 mt-0.5"
                 style="padding-left:0.25rem"
               >
