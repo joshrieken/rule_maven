@@ -31,6 +31,7 @@ defmodule RuleMaven.Workers.AskWorker do
 
         update_attrs = %{
           answer: answer,
+          question: llm_result[:cleaned_question] || question,
           cited_passage: passage,
           cited_page: cited_page,
           refused: refused?,
@@ -47,6 +48,22 @@ defmodule RuleMaven.Workers.AskWorker do
             Map.put(update_attrs, :parent_question_id, parent_id)
           else
             update_attrs
+          end
+
+        # Re-embed if question was cleaned/changed
+        update_attrs =
+          case llm_result[:cleaned_question] do
+            nil ->
+              update_attrs
+
+            cq when cq != question ->
+              case RuleMaven.Embed.embed(cq) do
+                {:ok, vec} -> Map.put(update_attrs, :question_embedding, vec)
+                {:error, _} -> update_attrs
+              end
+
+            _ ->
+              update_attrs
           end
 
         Games.log_question_update(get_question_log!(question_log_id), update_attrs)

@@ -295,7 +295,7 @@ defmodule RuleMaven.LLM do
     7. If one section refers to another (e.g. "see Section 4.3"), use that referenced section to answer. Reference chains are valid.
 
     ANSWER FORMAT:
-    - Start with ---CLEANED--- followed by the user's question rephrased clearly and concisely. Fix pronouns, add missing context, make it a standalone question. Keep it under 15 words.
+    - Start with ---CLEANED--- followed by the user's question rephrased clearly and concisely. Fix pronouns, add missing context, make it a standalone question. Keep it under 15 words. Do NOT include the game name.
     - Use markdown for structure: **bold** for headings, bullet lists for steps.
     - Keep answers concise — 1-3 sentences of prose plus optional list.
     - Before the citation, add a FOLLOWUP tag: ---FOLLOWUP: yes--- if this question is a followup to the recent conversation (references prior exchange, uses pronouns like "it"/"that"/"they"), otherwise ---FOLLOWUP: no---.
@@ -334,8 +334,8 @@ defmodule RuleMaven.LLM do
   defp extract_passage(text) do
     # Extract CLEANED question
     {cleaned_question, text} =
-      case Regex.run(~r{---CLEANED---\s*\n(.*?)(?=\n?---)}s, text) do
-        [_, q] -> {String.trim(q), String.replace(text, ~r{---CLEANED---\s*\n.*?(?=\n?---)}s, "")}
+      case Regex.run(~r{---CLEANED---\s*(.*?)(?=\n?---)}s, text) do
+        [_, q] -> {String.trim(q), String.replace(text, ~r{---CLEANED---\s*.*?(?=\n?---)}s, "")}
         nil -> {nil, text}
       end
 
