@@ -548,6 +548,8 @@ defmodule RuleMavenWeb.GameLive.Show do
 
             visibility = if old_q, do: old_q.visibility, else: "private"
 
+            now_dt = DateTime.utc_now()
+
             # Collect recent Q&A for followup context (from current visible conversation)
             remaining_convo =
               Enum.reject(socket.assigns.conversation, fn
@@ -583,29 +585,36 @@ defmodule RuleMavenWeb.GameLive.Show do
             |> RuleMaven.Workers.AskWorker.new()
             |> Oban.insert()
 
+            # Build threads list — remove old thread, add new pending one
+            threads =
+              [
+                %{
+                  id: question_log.id,
+                  question: question,
+                  pending: true,
+                  refused: false,
+                  inserted_at: now_dt
+                }
+                | Enum.reject(socket.assigns.threads, &(&1.id == id))
+              ]
+
             {:noreply,
-             socket
-             |> assign(
+             assign(socket,
                conversation: [
-                 %{
-                   id: question_log.id,
-                   role: :user,
-                   content: question,
-                   timestamp: DateTime.utc_now()
-                 },
+                 %{id: question_log.id, role: :user, content: question, timestamp: now_dt},
                  %{
                    id: question_log.id,
                    role: :assistant,
                    content: "Thinking...",
                    pending: true,
-                   timestamp: DateTime.utc_now()
+                   timestamp: now_dt
                  }
                ],
+               threads: threads,
                active_thread_id: question_log.id,
                question: "",
                retry_cooldowns: Map.put(cooldowns, id, now)
-             )
-             |> push_patch(to: ~p"/games/#{game.id}?t=#{question_log.id}")}
+             )}
 
           {:error, reason} ->
             {:noreply, put_flash(socket, :error, reason)}
