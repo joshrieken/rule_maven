@@ -355,7 +355,25 @@ defmodule RuleMavenWeb.GameLive.Show do
 
               {:noreply,
                socket
-               |> assign(question: "", active_thread_id: question_log.id)
+               |> assign(
+                 question: "",
+                 active_thread_id: question_log.id,
+                 conversation: [
+                   %{
+                     id: question_log.id,
+                     role: :user,
+                     content: question,
+                     timestamp: DateTime.utc_now()
+                   },
+                   %{
+                     id: question_log.id,
+                     role: :assistant,
+                     content: "Thinking...",
+                     pending: true,
+                     timestamp: DateTime.utc_now()
+                   }
+                 ]
+               )
                |> push_patch(to: ~p"/games/#{game.id}?t=#{question_log.id}")
                |> push_event("scroll_bottom", %{})}
 
@@ -568,6 +586,21 @@ defmodule RuleMavenWeb.GameLive.Show do
             {:noreply,
              socket
              |> assign(
+               conversation: [
+                 %{
+                   id: question_log.id,
+                   role: :user,
+                   content: question,
+                   timestamp: DateTime.utc_now()
+                 },
+                 %{
+                   id: question_log.id,
+                   role: :assistant,
+                   content: "Thinking...",
+                   pending: true,
+                   timestamp: DateTime.utc_now()
+                 }
+               ],
                active_thread_id: question_log.id,
                question: "",
                retry_cooldowns: Map.put(cooldowns, id, now)
