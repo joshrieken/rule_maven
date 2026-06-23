@@ -975,7 +975,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 <% end %>
 
                 <!-- Refusal: suggest other questions -->
-                <%= if msg[:refused] do %>
+                <%= if msg.role == :assistant && msg[:refused] do %>
                   <div style="margin-top:0.5rem;padding:0.5rem;background:var(--bg-subtle);border-radius:0.4rem;font-size:0.7rem;color:var(--text-secondary);line-height:1.5">
                     Try asking about:
                     <div style="margin-top:0.3rem;display:flex;flex-wrap:wrap;gap:0.25rem">
