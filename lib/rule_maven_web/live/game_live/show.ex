@@ -393,20 +393,43 @@ defmodule RuleMavenWeb.GameLive.Show do
 
             visibility = if old_q, do: old_q.visibility, else: "private"
 
+            # Check if old message was pending (affects count)
+            old_was_pending? =
+              Enum.any?(socket.assigns.conversation, fn
+                %{id: ^id, pending: true} -> true
+                _ -> false
+              end)
+
+            # Remove only the retried question's messages, keep everything else
+            conversation =
+              Enum.reject(socket.assigns.conversation, fn
+                %{id: ^id} -> true
+                _ -> false
+              end)
+
+            new_msgs = [
+              %{id: nil, role: :user, content: question, timestamp: DateTime.utc_now()},
+              %{
+                id: nil,
+                role: :assistant,
+                content: "Thinking...",
+                pending: true,
+                timestamp: DateTime.utc_now()
+              }
+            ]
+
+            pending_count =
+              if old_was_pending? do
+                socket.assigns.pending_count
+              else
+                socket.assigns.pending_count + 1
+              end
+
             socket =
               assign(socket,
-                conversation: [
-                  %{id: nil, role: :user, content: question, timestamp: DateTime.utc_now()},
-                  %{
-                    id: nil,
-                    role: :assistant,
-                    content: "Thinking...",
-                    pending: true,
-                    timestamp: DateTime.utc_now()
-                  }
-                ],
+                conversation: conversation ++ new_msgs,
                 question: "",
-                pending_count: 1,
+                pending_count: pending_count,
                 pending: %{},
                 confirm_delete_id: nil,
                 retry_cooldowns: Map.put(cooldowns, id, now)
