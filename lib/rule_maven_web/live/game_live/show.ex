@@ -43,7 +43,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     # Defensive: if no conversation but there are pending questions in DB, show loading
     {conversation, thinking?} =
       if conversation == [] && grouped != [] do
-        {[%{role: :assistant, content: "Thinking...", timestamp: DateTime.utc_now()}], true}
+        {[%{id: nil, role: :assistant, content: "Thinking...", faq_hit: true, timestamp: DateTime.utc_now()}], true}
       else
         {conversation, thinking?}
       end
