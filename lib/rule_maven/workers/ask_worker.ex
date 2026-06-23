@@ -34,6 +34,7 @@ defmodule RuleMaven.Workers.AskWorker do
           cited_passage: passage,
           cited_page: cited_page,
           refused: refused?,
+          cleaned_question: llm_result[:cleaned_question],
           llm_provider: llm_result[:provider],
           llm_model: llm_result[:model],
           question_embedding: llm_result[:question_embedding]

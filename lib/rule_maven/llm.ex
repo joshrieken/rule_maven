@@ -104,7 +104,8 @@ defmodule RuleMaven.LLM do
            question_embedding: question_embedding,
            faq_hit: false,
            followup: llm_result[:followup] || false,
-           followups: llm_result[:followups] || []
+           followups: llm_result[:followups] || [],
+           cleaned_question: llm_result[:cleaned_question]
          }}
 
       {:error, reason} ->
@@ -293,6 +294,7 @@ defmodule RuleMaven.LLM do
     7. If one section refers to another (e.g. "see Section 4.3"), use that referenced section to answer. Reference chains are valid.
 
     ANSWER FORMAT:
+    - Start with ---CLEANED--- followed by the user's question rephrased clearly and concisely. Fix pronouns, add missing context, make it a standalone question. Keep it under 15 words.
     - Use markdown for structure: **bold** for headings, bullet lists for steps.
     - Keep answers concise — 1-3 sentences of prose plus optional list.
     - Before the citation, add a FOLLOWUP tag: ---FOLLOWUP: yes--- if this question is a followup to the recent conversation (references prior exchange, uses pronouns like "it"/"that"/"they"), otherwise ---FOLLOWUP: no---.
@@ -308,10 +310,16 @@ defmodule RuleMaven.LLM do
   defp parse_response(body) do
     case body do
       %{"choices" => [%{"message" => %{"content" => text}} | _]} ->
-        {answer, passage, followup?, followups} = extract_passage(text)
+        {answer, passage, followup?, followups, cleaned_question} = extract_passage(text)
 
         {:ok,
-         %{answer: answer, cited_passage: passage, followup: followup?, followups: followups}}
+         %{
+           answer: answer,
+           cited_passage: passage,
+           followup: followup?,
+           followups: followups,
+           cleaned_question: cleaned_question
+         }}
 
       %{"error" => %{"message" => message}} ->
         {:error, message}
@@ -322,6 +330,13 @@ defmodule RuleMaven.LLM do
   end
 
   defp extract_passage(text) do
+    # Extract CLEANED question
+    {cleaned_question, text} =
+      case Regex.run(~r{---CLEANED---\s*\n(.*?)(?=\n?---)}s, text) do
+        [_, q] -> {String.trim(q), String.replace(text, ~r{---CLEANED---\s*\n.*?(?=\n?---)}s, "")}
+        nil -> {nil, text}
+      end
+
     # Extract FOLLOWUP tag
     {followup?, cleaned} =
       case Regex.run(~r{---FOLLOWUP:\s*(yes|no)---}i, text) do
@@ -351,10 +366,10 @@ defmodule RuleMaven.LLM do
     case String.split(cleaned, ~r{---CITATION---|---PASSAGE---}, parts: 2) do
       [answer, passage] ->
         answer = answer |> String.trim() |> String.replace(~r/---FOLLOWUPS?.*/s, "")
-        {answer, String.trim(passage), followup?, followups}
+        {answer, String.trim(passage), followup?, followups, cleaned_question}
 
       _ ->
-        {strip_markers(cleaned), nil, followup?, followups}
+        {strip_markers(cleaned), nil, followup?, followups, cleaned_question}
     end
   end
 
