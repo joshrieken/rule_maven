@@ -387,9 +387,9 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Returns refused (not covered) root questions for a game.
+  Returns refused (not covered) root questions for a game, filtered by user.
   """
-  def refused_questions(%Game{} = game, exclude_user_id \\ nil) do
+  def refused_questions(%Game{} = game, user_id \\ nil) do
     query =
       from q in QuestionLog,
         where: q.game_id == ^game.id,
@@ -399,8 +399,8 @@ defmodule RuleMaven.Games do
         limit: 50
 
     query =
-      if exclude_user_id do
-        from q in query, where: q.user_id != ^exclude_user_id
+      if user_id do
+        from q in query, where: q.user_id == ^user_id
       else
         query
       end
