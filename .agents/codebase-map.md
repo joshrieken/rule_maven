@@ -43,7 +43,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | Module | File | Lines | Route | Responsibility |
 |--------|------|-------|-------|----------------|
 | `GameLive.Index` | `game_live/index.ex` | 609 | `/` | Game list, search, delete |
-| `GameLive.Show` | `game_live/show.ex` | 1442 | `/games/:id` | Ask questions, view answers, conversation UI (all threads, up to 5 concurrent), followup chains, community pool, search |
+| `GameLive.Show` | `game_live/show.ex` | 1459 | `/games/:id` | Ask questions, view answers, conversation UI (all threads, up to 5 concurrent), followup chains, community pool, search |
 | `GameLive.Form` | `game_live/form.ex` | 1965 | `/games/new`, `/games/:id/edit` | Create/edit game, add rulebook (text/PDF/upload), suggested questions |
 | `GameLive.Review` | `game_live/review.ex` | 243 | `/games/:id/review` | Review document chunks, approve/reject |
 | `GameLive.Import` | `game_live/import.ex` | 328 | `/games/import` | Import games via BGG search |
