@@ -384,8 +384,17 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   @impl true
   def handle_event("ask_suggestion", %{"q" => q}, socket) do
-    socket = assign(socket, suggestions_open: false)
-    handle_event("ask", %{"question" => q}, socket)
+    if socket.assigns.pending_count >= @max_concurrent do
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         "Maximum #{@max_concurrent} concurrent questions. Please wait for one to finish."
+       )}
+    else
+      socket = assign(socket, suggestions_open: false)
+      handle_event("ask", %{"question" => q}, socket)
+    end
   end
 
   @impl true
@@ -824,6 +833,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 type="button"
                 phx-click="ask_suggestion"
                 phx-value-q={q.question}
+                disabled={@pending_count >= @max_concurrent}
                 style="text-align:left;background:none;border:none;cursor:pointer;padding:0.35rem 0.75rem;color:var(--text-secondary);font-size:0.78rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%"
                 onmouseover="this.style.background='var(--bg-subtle)'"
                 onmouseout="this.style.background='none'"
@@ -1019,6 +1029,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                           type="button"
                           phx-click="ask_suggestion"
                           phx-value-q={q}
+                          disabled={@pending_count >= @max_concurrent}
                           style="display:block;width:100%;text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.3rem 0.6rem;margin-bottom:0.2rem;font-size:0.82rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word;line-height:1.45"
                         >{q}</button>
                       <% end %>
@@ -1094,6 +1105,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         type="button"
                         phx-click="ask_suggestion"
                         phx-value-q={q}
+                        disabled={@pending_count >= @max_concurrent}
                         style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.35rem;font-size:0.6rem;color:var(--text-secondary);cursor:pointer"
                       >{q}</button>
                     <% end %>
@@ -1109,24 +1121,28 @@ defmodule RuleMavenWeb.GameLive.Show do
                         type="button"
                         phx-click="ask_suggestion"
                         phx-value-q="What is the setup?"
+                        disabled={@pending_count >= @max_concurrent}
                         style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.25rem;padding:0.15rem 0.4rem;font-size:0.65rem;color:var(--text);cursor:pointer"
                       >Setup</button>
                       <button
                         type="button"
                         phx-click="ask_suggestion"
                         phx-value-q="How do turns work?"
+                        disabled={@pending_count >= @max_concurrent}
                         style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.25rem;padding:0.15rem 0.4rem;font-size:0.65rem;color:var(--text);cursor:pointer"
                       >Turn order</button>
                       <button
                         type="button"
                         phx-click="ask_suggestion"
                         phx-value-q="How does scoring work?"
+                        disabled={@pending_count >= @max_concurrent}
                         style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.25rem;padding:0.15rem 0.4rem;font-size:0.65rem;color:var(--text);cursor:pointer"
                       >Scoring</button>
                       <button
                         type="button"
                         phx-click="ask_suggestion"
                         phx-value-q="What are the win conditions?"
+                        disabled={@pending_count >= @max_concurrent}
                         style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.25rem;padding:0.15rem 0.4rem;font-size:0.65rem;color:var(--text);cursor:pointer"
                       >Win conditions</button>
                     </div>
@@ -1358,6 +1374,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         type="button"
                         phx-click="ask_suggestion"
                         phx-value-q={q}
+                        disabled={@pending_count >= @max_concurrent}
                         style="text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.25rem 0.6rem;font-size:0.78rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word;line-height:1.4"
                       >{q}</button>
                     <% end %>
