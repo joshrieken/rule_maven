@@ -24,53 +24,52 @@ defmodule RuleMaven.Workers.AskWorker do
 
     case RuleMaven.LLM.ask(game, question, expansion_ids, recent_context, user_id: user_id) do
       {:ok, %{answer: answer} = llm_result} ->
-        passage = llm_result[:cited_passage]
-        followup? = llm_result[:followup] || false
-        cited_page = parse_cited_page(passage)
-        refused? = refused?(answer)
-
-        cleaned = llm_result[:cleaned_question] |> to_string() |> String.trim()
-
-        update_attrs = %{
-          answer: answer,
-          question: if(cleaned != "", do: cleaned, else: question),
-          cited_passage: passage,
-          cited_page: cited_page,
-          refused: refused?,
-          cleaned_question: llm_result[:cleaned_question],
-          raw_response: llm_result[:raw_response],
-          llm_provider: llm_result[:provider],
-          llm_model: llm_result[:model],
-          question_embedding: llm_result[:question_embedding]
-        }
-
-        update_attrs =
-          if followup? && user_id do
-            parent_id = Games.find_parent_question_id(game_id, user_id, question_log_id)
-            Map.put(update_attrs, :parent_question_id, parent_id)
-          else
-            update_attrs
-          end
-
-        # Use embedding from LLM.ask (already computed, skip redundant re-embed)
         if ql = get_question_log!(question_log_id) do
-          Games.log_question_update(ql, update_attrs)
-        end
+          passage = llm_result[:cited_passage]
+          followup? = llm_result[:followup] || false
+          cited_page = parse_cited_page(passage)
+          refused? = refused?(answer)
 
-        Phoenix.PubSub.broadcast(
-          RuleMaven.PubSub,
-          "game:#{game_id}",
-          {:ask_complete,
-           %{
-             question_log_id: question_log_id,
-             faq_hit: llm_result[:faq_hit] || false,
-             followup: followup?,
-             followups: if(refused?, do: [], else: llm_result[:followups] || []),
-             cited_page: cited_page,
-             refused: refused?,
-             raw_response: llm_result[:raw_response]
-           }}
-        )
+          cleaned = llm_result[:cleaned_question] |> to_string() |> String.trim()
+
+          update_attrs = %{
+            answer: answer,
+            question: if(cleaned != "", do: cleaned, else: question),
+            cited_passage: passage,
+            cited_page: cited_page,
+            refused: refused?,
+            cleaned_question: llm_result[:cleaned_question],
+            raw_response: llm_result[:raw_response],
+            llm_provider: llm_result[:provider],
+            llm_model: llm_result[:model],
+            question_embedding: llm_result[:question_embedding]
+          }
+
+          update_attrs =
+            if followup? && user_id do
+              parent_id = Games.find_parent_question_id(game_id, user_id, question_log_id)
+              Map.put(update_attrs, :parent_question_id, parent_id)
+            else
+              update_attrs
+            end
+
+          Games.log_question_update(ql, update_attrs)
+
+          Phoenix.PubSub.broadcast(
+            RuleMaven.PubSub,
+            "game:#{game_id}",
+            {:ask_complete,
+             %{
+               question_log_id: question_log_id,
+               faq_hit: llm_result[:faq_hit] || false,
+               followup: followup?,
+               followups: if(refused?, do: [], else: llm_result[:followups] || []),
+               cited_page: cited_page,
+               refused: refused?,
+               raw_response: llm_result[:raw_response]
+             }}
+          )
+        end
 
         :ok
 
@@ -80,13 +79,13 @@ defmodule RuleMaven.Workers.AskWorker do
 
         if ql = get_question_log!(question_log_id) do
           Games.log_question_update(ql, %{answer: "⚠️ #{reason}"})
-        end
 
-        Phoenix.PubSub.broadcast(
-          RuleMaven.PubSub,
-          "game:#{game_id}",
-          {:ask_error, %{question_log_id: question_log_id, question: question, error: reason}}
-        )
+          Phoenix.PubSub.broadcast(
+            RuleMaven.PubSub,
+            "game:#{game_id}",
+            {:ask_error, %{question_log_id: question_log_id, question: question, error: reason}}
+          )
+        end
 
         :ok
     end

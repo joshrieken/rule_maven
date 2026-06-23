@@ -397,10 +397,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     {id, _} = Integer.parse(id_str)
     game = socket.assigns.game
 
-    game
-    |> Games.recent_questions(100)
-    |> Enum.find(&(&1.id == id))
-    |> case do
+    case find_question_log(game, id) do
       nil -> :ok
       q -> Games.delete_question(q)
     end
@@ -450,10 +447,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     {id, _} = Integer.parse(id_str)
     game = socket.assigns.game
 
-    game
-    |> Games.recent_questions(200)
-    |> Enum.find(&(&1.id == id))
-    |> case do
+    case find_question_log(game, id) do
       nil ->
         {:noreply, socket}
 
@@ -503,10 +497,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     {id, _} = Integer.parse(id_str)
     game = socket.assigns.game
 
-    game
-    |> Games.recent_questions(100)
-    |> Enum.find(&(&1.id == id))
-    |> case do
+    case find_question_log(game, id) do
       nil -> :ok
       q -> Games.pin_question(q)
     end
@@ -538,10 +529,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             %{game: game, included_expansions: included} = socket.assigns
             expansion_ids = Map.keys(included)
 
-            old_q =
-              game
-              |> Games.recent_questions(100)
-              |> Enum.find(&(&1.id == id))
+            old_q = find_question_log(game, id)
 
             if old_q, do: Games.delete_question(old_q)
 
@@ -752,7 +740,6 @@ defmodule RuleMavenWeb.GameLive.Show do
   def handle_info({:ask_error, data}, socket) do
     question_log_id = data[:question_log_id]
 
-    # Update thread status
     threads =
       if question_log_id do
         Enum.map(socket.assigns.threads, fn
@@ -778,12 +765,19 @@ defmodule RuleMavenWeb.GameLive.Show do
         socket.assigns.conversation
       end
 
+    updated? =
+      conversation != socket.assigns.conversation || threads != socket.assigns.threads
+
     {:noreply,
      socket
      |> assign(
        conversation: conversation,
        threads: threads,
-       pending_count: max(0, socket.assigns.pending_count - 1)
+       pending_count:
+         if(updated?,
+           do: max(0, socket.assigns.pending_count - 1),
+           else: socket.assigns.pending_count
+         )
      )
      |> push_event("scroll_bottom", %{})}
   end
