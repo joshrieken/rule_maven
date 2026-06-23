@@ -436,13 +436,25 @@ defmodule RuleMavenWeb.GameLive.Show do
     handle_info({:ask_question, question, "private"}, socket)
   end
 
-  def handle_info({:ask_complete, _data}, socket) do
+  def handle_info({:ask_complete, data}, socket) do
     %{game: game} = socket.assigns
 
     # Rebuild conversation from DB so answer updates survive refresh
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
     conversation = build_conversation(grouped)
     community = Games.community_questions(game, socket.assigns.current_user.id)
+
+    # Inject followups and cited_page from broadcast into matching message
+    conversation =
+      Enum.map(conversation, fn
+        %{id: id} = msg when id == data.question_log_id ->
+          msg
+          |> Map.put(:followups, data[:followups] || [])
+          |> Map.put(:cited_page, data[:cited_page] || msg[:cited_page])
+
+        msg ->
+          msg
+      end)
 
     # Keep loading state only if we also have a pending broadcast
     loading = conversation |> Enum.any?(&(&1.role == :assistant && &1.content == "Thinking..."))

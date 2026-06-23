@@ -26,10 +26,12 @@ defmodule RuleMaven.Workers.AskWorker do
       {:ok, %{answer: answer} = llm_result} ->
         passage = llm_result[:cited_passage]
         followup? = llm_result[:followup] || false
+        cited_page = parse_cited_page(passage)
 
         update_attrs = %{
           answer: answer,
           cited_passage: passage,
+          cited_page: cited_page,
           llm_provider: llm_result[:provider],
           llm_model: llm_result[:model],
           question_embedding: llm_result[:question_embedding]
@@ -53,7 +55,8 @@ defmodule RuleMaven.Workers.AskWorker do
              question_log_id: question_log_id,
              faq_hit: llm_result[:faq_hit] || false,
              followup: followup?,
-             followups: llm_result[:followups] || []
+             followups: llm_result[:followups] || [],
+             cited_page: cited_page
            }}
         )
 
@@ -82,5 +85,14 @@ defmodule RuleMaven.Workers.AskWorker do
     alias RuleMaven.Games.QuestionLog
 
     RuleMaven.Repo.one!(from q in QuestionLog, where: q.id == ^id)
+  end
+
+  defp parse_cited_page(nil), do: nil
+
+  defp parse_cited_page(passage) do
+    case Regex.run(~r/\[Page\s+(\d+)\]/, passage) do
+      [_, num] -> String.to_integer(num)
+      nil -> nil
+    end
   end
 end

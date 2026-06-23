@@ -481,29 +481,35 @@ defmodule RuleMaven.Games do
   def chunk_document(%Document{} = doc) do
     Repo.delete_all(from c in Chunk, where: c.document_id == ^doc.id)
 
-    chunks =
-      doc.full_text
-      |> split_into_chunks(500)
-      |> Enum.with_index()
+    pages = String.split(doc.full_text, "\f")
 
-    # Detect section labels and cross-references per chunk
     chunks_with_meta =
-      chunks
-      |> Enum.map(fn {text, idx} ->
+      pages
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {page_text, page_num} ->
+        page_text
+        |> split_into_chunks(500)
+        |> Enum.map(fn chunk_text ->
+          %{content: "[Page #{page_num}]\n#{String.trim(chunk_text)}", page_number: page_num}
+        end)
+      end)
+      |> Enum.with_index()
+      |> Enum.map(fn {%{content: text, page_number: pn}, idx} ->
         section = detect_section_label(text)
         refs = detect_cross_references(text)
-        {text, idx, section, refs}
+        {text, idx, section, refs, pn}
       end)
 
     # Insert all chunks with metadata
-    Enum.each(chunks_with_meta, fn {text, idx, section, refs} ->
+    Enum.each(chunks_with_meta, fn {text, idx, section, refs, pn} ->
       case %Chunk{}
            |> Chunk.changeset(%{
              document_id: doc.id,
              chunk_index: idx,
              content: text,
              section_label: section,
-             references_section: refs
+             references_section: refs,
+             page_number: pn
            })
            |> Repo.insert() do
         {:ok, _} ->

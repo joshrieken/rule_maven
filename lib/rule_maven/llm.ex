@@ -295,8 +295,8 @@ defmodule RuleMaven.LLM do
     - Use markdown for structure: **bold** for headings, bullet lists for steps.
     - Keep answers concise — 1-3 sentences of prose plus optional list.
     - Before the citation, add a FOLLOWUP tag: ---FOLLOWUP: yes--- if this question is a followup to the recent conversation (references prior exchange, uses pronouns like "it"/"that"/"they"), otherwise ---FOLLOWUP: no---.
-    - Then suggest 2-3 natural followup questions a player might ask next. Format: ---FOLLOWUPS--- each on its own line, no numbers.
-    - End with ---CITATION--- followed by the exact sentence(s) from the rulebook that support the answer.
+    - ALWAYS suggest 2-3 natural followup questions a player might ask next. Format: ---FOLLOWUPS--- each on its own line, no numbers. Do NOT skip this section.
+    - End with ---CITATION--- followed by the exact sentence(s) from the rulebook that support the answer. Include any [Page N] markers from the rulebook text — these indicate the page number.
     - Never fabricate a citation.
 
     RULEBOOK:
@@ -331,17 +331,17 @@ defmodule RuleMaven.LLM do
 
     # Extract FOLLOWUPS
     {followups, cleaned} =
-      case Regex.run(~r{---FOLLOWUPS---\s*\n(.*?)(?=\n---CITATION---|$)}s, cleaned) do
+      case Regex.run(~r{---FOLLOWUPS---\s*\n(.*?)(?=\n?---CITATION---|$)}s, cleaned) do
         [_, qs] ->
           q_list =
             qs
             |> String.split("\n")
             |> Enum.map(&String.trim/1)
             |> Enum.reject(&(&1 == ""))
-            |> Enum.map(&String.replace(&1, ~r/^[-*]\s*/, ""))
+            |> Enum.map(&String.replace(&1, ~r/^(\d+[\.\)]\s*|[-*]\s*)/, ""))
 
           {q_list,
-           String.replace(cleaned, ~r{---FOLLOWUPS---\s*\n.*?(?=\n---CITATION---|$)}s, "")}
+           String.replace(cleaned, ~r{---FOLLOWUPS---\s*\n.*?(?=\n?---CITATION---|$)}s, "")}
 
         nil ->
           {[], cleaned}

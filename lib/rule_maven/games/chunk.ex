@@ -8,6 +8,7 @@ defmodule RuleMaven.Games.Chunk do
     field :embedding, Pgvector.Ecto.Vector
     field :section_label, :string
     field :references_section, {:array, :string}, default: []
+    field :page_number, :integer
     belongs_to :document, RuleMaven.Games.Document, foreign_key: :document_id
 
     timestamps(type: :utc_datetime)
@@ -21,7 +22,8 @@ defmodule RuleMaven.Games.Chunk do
       :content,
       :embedding,
       :section_label,
-      :references_section
+      :references_section,
+      :page_number
     ])
     |> validate_required([:document_id, :chunk_index, :content])
   end
