@@ -118,6 +118,7 @@ outermost wrapper div that always exists (even if hidden with `display:none`).
 
 ## Running Tests
 
-- **Don't run the full test suite every time.** Run only tests relevant to what you're working on: `mix test test/path/to/file_test.exs` or `mix test test/path/file_test.exs:LINE`.
+- **HARD RULE: Never run the full test suite (`mix test`) unless:** (a) you are about to commit, or (b) changes span >3 files and targeted tests aren't practical. In all other cases, run only relevant tests.
+- Default: `mix test test/path/to/file_test.exs` or `mix test test/path/file_test.exs:LINE`.
 - If changes span multiple files (e.g. renaming a function), use a glob: `mix test test/rule_maven_web/live/game_live/*_test.exs`.
-- **Run the full suite (`mix test`) occasionally** — at least once per session before finishing, and always before committing.
+- Run full suite at session end, and always before committing.
