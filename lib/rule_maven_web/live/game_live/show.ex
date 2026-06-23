@@ -926,6 +926,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </div>
                 <% end %>
                 <div>
+                  <%= if msg.role == :assistant && msg.content == "Thinking..." && !msg[:thinking] do %>
+                    <div style="font-size:0.6rem;opacity:0.5;margin-bottom:0.1rem;color:var(--text-muted)">No answer received</div>
+                  <% end %>
                   {render_markdown(msg.content)}
                 </div>
 
@@ -1067,36 +1070,30 @@ defmodule RuleMavenWeb.GameLive.Show do
               <div
                 :if={
                   RuleMaven.Users.game_master?(@current_user) && msg.role == :assistant &&
-                    !msg[:thinking] && msg.content != "Thinking..."
+                    !msg[:thinking]
                 }
                 class="flex items-center gap-1 mt-0.5"
                 style="padding-left:0.25rem"
               >
-                <%= if msg[:refused] do %>
+                <%= if msg.content == "Thinking..." do %>
+                  <button type="button" phx-click="retry_question" phx-value-id={msg.id} disabled={@loading} style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer" title="Re-ask">↻</button>
                   <%= if @confirm_delete_id == msg.id do %>
                     <span class="text-xs" style="color:var(--red)">Delete?</span>
-                    <button
-                      type="button"
-                      phx-click="confirm_delete_question"
-                      phx-value-id={msg.id}
-                      style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
-                    >Yes</button>
-                    <button
-                      type="button"
-                      phx-click="cancel_delete_question"
-                      style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                    >No</button>
+                    <button type="button" phx-click="confirm_delete_question" phx-value-id={msg.id} style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer">Yes</button>
+                    <button type="button" phx-click="cancel_delete_question" style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer">No</button>
                   <% else %>
-                    <button
-                      :if={!msg[:history]}
-                      type="button"
-                      phx-click="delete_question"
-                      phx-value-id={msg.id}
-                      style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                      title="Delete"
-                    >✕</button>
+                    <button type="button" phx-click="delete_question" phx-value-id={msg.id} style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer" title="Delete">✕</button>
                   <% end %>
                 <% else %>
+                  <%= if msg[:refused] do %>
+                    <%= if @confirm_delete_id == msg.id do %>
+                      <span class="text-xs" style="color:var(--red)">Delete?</span>
+                      <button type="button" phx-click="confirm_delete_question" phx-value-id={msg.id} style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer">Yes</button>
+                      <button type="button" phx-click="cancel_delete_question" style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer">No</button>
+                    <% else %>
+                      <button :if={!msg[:history]} type="button" phx-click="delete_question" phx-value-id={msg.id} style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer" title="Delete">✕</button>
+                    <% end %>
+                  <% else %>
                   <button
                     type="button"
                     phx-click="retry_question"
@@ -1153,6 +1150,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       :llm_provider
                     ]} &middot; {msg[:llm_model]}</span>
                   <% end %>
+                <% end %>
                 <% end %>
               </div>
               <!-- Admin debug: raw LLM response -->
