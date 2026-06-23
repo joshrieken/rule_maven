@@ -261,9 +261,8 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
-  def handle_event("toggle_refused", %{"open" => open_str}, socket) do
-    open = open_str == "true"
-    {:noreply, assign(socket, refused_open: open)}
+  def handle_event("toggle_refused", _params, socket) do
+    {:noreply, assign(socket, refused_open: !socket.assigns.refused_open)}
   end
 
   @impl true
@@ -918,15 +917,15 @@ defmodule RuleMavenWeb.GameLive.Show do
 
           <!-- Refused questions -->
           <%= if @refused_questions != [] do %>
-            <details style="padding:0.25rem 0.75rem" open={@refused_open}>
-              <summary
-                style="font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;opacity:0.6;cursor:pointer;user-select:none"
+            <div style="padding:0.25rem 0.75rem">
+              <button
+                type="button"
                 phx-click="toggle_refused"
-                phx-value-open={!@refused_open}
+                style="font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;opacity:0.6;cursor:pointer;user-select:none;background:none;border:none;padding:0;text-align:left;width:100%"
               >
-                Not covered ({length(@refused_questions)})
-              </summary>
-              <div style="margin-top:0.25rem">
+                Not covered ({length(@refused_questions)}) {if @refused_open, do: "▾", else: "▸"}
+              </button>
+              <div :if={@refused_open} style="margin-top:0.25rem">
                 <%= for q <- @refused_questions do %>
                   <%= if @search_query == "" || String.contains?(String.downcase(q.question), String.downcase(@search_query)) do %>
                     <button
@@ -944,7 +943,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <% end %>
                 <% end %>
               </div>
-            </details>
+            </div>
             <div style="padding:0.25rem 0.75rem 0.5rem;border-bottom:1px solid var(--border-subtle);margin-bottom:0.25rem">
             </div>
           <% end %>
