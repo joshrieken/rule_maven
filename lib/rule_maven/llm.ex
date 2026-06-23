@@ -283,6 +283,7 @@ defmodule RuleMaven.LLM do
     2. Do NOT infer, extrapolate, or use general board game knowledge.
     3. If the text mentions a topic but does not give a rule for the specific situation asked, that counts as "not covered" — refuse.
     4. Do NOT say "the rulebook is unclear" followed by your best guess. Just refuse.
+    5. When refusing, do NOT include any FOLLOWUP, FOLLOWUPS, or CITATION markers. The response is ONLY the refusal phrase.
 
     CONFLICT RULES:
     5. If two sections of the text give different rules for the same thing, cite BOTH sections and state there is a conflict. Do NOT pick one.

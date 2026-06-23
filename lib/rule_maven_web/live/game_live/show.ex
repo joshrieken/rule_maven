@@ -96,6 +96,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         faq_hit: g.primary.llm_provider == "faq",
         pool_hit: g.primary.llm_provider == "pool",
         visibility: g.primary.visibility,
+        refused: g.primary.refused,
         timestamp: g.primary.inserted_at
       }
 
@@ -111,6 +112,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             llm_provider: h.llm_provider,
             llm_model: h.llm_model,
             pinned: h.pinned,
+            refused: h.refused,
             timestamp: h.inserted_at,
             history: true
           }
@@ -136,6 +138,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             llm_provider: f.llm_provider,
             llm_model: f.llm_model,
             pinned: f.pinned,
+            refused: f.refused,
             timestamp: f.inserted_at
           }
 
@@ -826,9 +829,14 @@ defmodule RuleMavenWeb.GameLive.Show do
               ]}
               style={"display:flex;flex-direction:column;align-items:#{if msg.role == :user, do: "flex-end", else: "flex-start"}"}
             >
-              <div style={"max-width:85%;padding:0.75rem 1rem;border-radius:0.85rem;font-size:0.95rem;line-height:1.4;box-shadow:0 1px 3px rgba(0,0,0,0.08);#{if msg.role == :user, do: "background:var(--accent);color:#fff;border-bottom-right-radius:0.25rem;margin-left:auto", else: "background:var(--bg-surface);color:var(--text);border-bottom-left-radius:0.25rem"}#{if is_followup, do: ";margin-left:2rem;font-size:0.85rem;opacity:0.92", else: ""}"}>
+              <div style={"max-width:85%;padding:0.75rem 1rem;border-radius:0.85rem;font-size:0.95rem;line-height:1.4;box-shadow:0 1px 3px rgba(0,0,0,0.08);#{if msg.role == :user, do: "background:var(--accent);color:#fff;border-bottom-right-radius:0.25rem;margin-left:auto", else: "background:var(--bg-surface);color:var(--text);border-bottom-left-radius:0.25rem"}#{if is_followup, do: ";margin-left:2rem;font-size:0.85rem;opacity:0.92", else: ""}#{if msg[:refused], do: ";opacity:0.72", else: ""}"}>
                 <%= if is_followup do %>
                   <div style="font-size:0.6rem;opacity:0.6;margin-bottom:0.15rem">↳ followup</div>
+                <% end %>
+                <%= if msg[:refused] do %>
+                  <div style="font-size:0.6rem;opacity:0.55;margin-bottom:0.15rem;color:var(--text-muted)">
+                    ⚐ not covered
+                  </div>
                 <% end %>
                 <div>{render_markdown(msg.content)}</div>
 

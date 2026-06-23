@@ -36,7 +36,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `Game` | `games/game.ex` | Game name, BGG linkage, expansion relationships (`parent_id`) |
 | `Document` | `games/document.ex` | Rulebook text (`full_text`), label, status, PDF/HTML paths |
 | `Chunk` | `games/chunk.ex` | Text chunks with embeddings, linked to Document. `page_number` from PDF page. |
-| `QuestionLog` | `games/question_log.ex` | Asked questions, answers, citations, pinned status, history chain |
+| `QuestionLog` | `games/question_log.ex` | Asked questions, answers, citations, pinned status, history chain, refused flag |
 
 ## LiveViews (UI pages — `lib/rule_maven_web/live/`)
 

@@ -41,7 +41,7 @@ defmodule RuleMaven.Workers.FaqClusterJob do
         from q in QuestionLog,
           where:
             q.game_id == ^game_id and q.inserted_at >= ^since and
-              not is_nil(q.question_embedding),
+              not is_nil(q.question_embedding) and q.refused == false,
           order_by: q.inserted_at
       )
 

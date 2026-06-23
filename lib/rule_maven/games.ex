@@ -408,6 +408,7 @@ defmodule RuleMaven.Games do
         where: q.game_id == ^game_id,
         where: not is_nil(q.question_embedding),
         where: q.visibility == "community",
+        where: q.refused == false,
         where:
           fragment(
             "cosine_distance(?, ?::vector)",

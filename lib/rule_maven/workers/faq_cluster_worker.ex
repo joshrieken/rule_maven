@@ -17,7 +17,7 @@ defmodule RuleMaven.Workers.FaqClusterWorker do
     game_ids =
       Repo.all(
         from q in QuestionLog,
-          where: is_nil(q.cluster_id) and not is_nil(q.question_embedding),
+          where: is_nil(q.cluster_id) and not is_nil(q.question_embedding) and q.refused == false,
           distinct: true,
           select: q.game_id
       )
@@ -33,7 +33,7 @@ defmodule RuleMaven.Workers.FaqClusterWorker do
         from q in QuestionLog,
           where:
             q.game_id == ^game_id and is_nil(q.cluster_id) and
-              not is_nil(q.question_embedding),
+              not is_nil(q.question_embedding) and q.refused == false,
           order_by: q.inserted_at
       )
 

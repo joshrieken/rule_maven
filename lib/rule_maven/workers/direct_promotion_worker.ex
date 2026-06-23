@@ -19,7 +19,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
     upvoted =
       Repo.all(
         from q in QuestionLog,
-          where: q.feedback == "up",
+          where: q.feedback == "up" and q.refused == false,
           group_by: [q.game_id, q.question],
           having: count(q.id) >= @min_upvotes,
           select: %{game_id: q.game_id, question: q.question, count: count(q.id)}
@@ -37,7 +37,9 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
     qas =
       Repo.all(
         from q in QuestionLog,
-          where: q.game_id == ^game_id and q.question == ^question and q.feedback == "up"
+          where:
+            q.game_id == ^game_id and q.question == ^question and q.feedback == "up" and
+              q.refused == false
       )
 
     if qas != [] do
