@@ -234,15 +234,58 @@ defmodule RuleMavenWeb.GameLive.Show do
         else
           case check_rate_limit(socket) do
             :ok ->
-              send(self(), {:ask_question, question, visibility})
-              user_msg = %{role: :user, content: question, timestamp: DateTime.utc_now()}
+              %{game: game, included_expansions: included} = socket.assigns
+              expansion_ids = Map.keys(included)
+              now = DateTime.utc_now()
+
+              # Collect recent Q&A for followup context (exclude pending/loading messages)
+              recent =
+                convo
+                |> Enum.reject(& &1[:pending])
+                |> Enum.take(-4)
+                |> Enum.chunk_every(2)
+                |> Enum.filter(&(length(&1) == 2))
+                |> Enum.map(fn [user, asst] -> %{q: user.content, a: asst.content} end)
+
+              # Log to DB immediately so question survives page refresh
+              {:ok, question_log} =
+                Games.log_question(%{
+                  game_id: game.id,
+                  question: question,
+                  answer: "Thinking...",
+                  user_id: socket.assigns.current_user.id,
+                  visibility: visibility
+                })
+
+              user_msg = %{id: question_log.id, role: :user, content: question, timestamp: now}
+
+              thinking_msg = %{
+                id: question_log.id,
+                role: :assistant,
+                content: "Thinking...",
+                pending: true,
+                timestamp: now
+              }
+
+              # Enqueue background worker
+              %{
+                game_id: game.id,
+                question_log_id: question_log.id,
+                question: question,
+                expansion_ids: expansion_ids,
+                recent_context: recent,
+                user_id: socket.assigns.current_user.id
+              }
+              |> RuleMaven.Workers.AskWorker.new()
+              |> Oban.insert()
 
               {:noreply,
                socket
                |> assign(
                  question: "",
-                 conversation: convo ++ [user_msg],
+                 conversation: convo ++ [user_msg, thinking_msg],
                  pending_count: socket.assigns.pending_count + 1,
+                 pending: Map.put(socket.assigns.pending, question_log.id, true),
                  confirm_delete_id: nil
                )
                |> push_event("scroll_bottom", %{})}
@@ -382,7 +425,9 @@ defmodule RuleMavenWeb.GameLive.Show do
       if question != "" do
         case check_rate_limit(socket) do
           :ok ->
-            game = socket.assigns.game
+            %{game: game, included_expansions: included} = socket.assigns
+            expansion_ids = Map.keys(included)
+            dt_now = DateTime.utc_now()
 
             old_q =
               game
@@ -407,14 +452,33 @@ defmodule RuleMavenWeb.GameLive.Show do
                 _ -> false
               end)
 
+            # Collect recent Q&A from remaining conversation for followup context
+            recent =
+              conversation
+              |> Enum.reject(& &1[:pending])
+              |> Enum.take(-4)
+              |> Enum.chunk_every(2)
+              |> Enum.filter(&(length(&1) == 2))
+              |> Enum.map(fn [user, asst] -> %{q: user.content, a: asst.content} end)
+
+            # Log to DB immediately so retry survives refresh
+            {:ok, question_log} =
+              Games.log_question(%{
+                game_id: game.id,
+                question: question,
+                answer: "Thinking...",
+                user_id: socket.assigns.current_user.id,
+                visibility: visibility
+              })
+
             new_msgs = [
-              %{id: nil, role: :user, content: question, timestamp: DateTime.utc_now()},
+              %{id: question_log.id, role: :user, content: question, timestamp: dt_now},
               %{
-                id: nil,
+                id: question_log.id,
                 role: :assistant,
                 content: "Thinking...",
                 pending: true,
-                timestamp: DateTime.utc_now()
+                timestamp: dt_now
               }
             ]
 
@@ -425,18 +489,27 @@ defmodule RuleMavenWeb.GameLive.Show do
                 socket.assigns.pending_count + 1
               end
 
-            socket =
-              assign(socket,
-                conversation: conversation ++ new_msgs,
-                question: "",
-                pending_count: pending_count,
-                pending: %{},
-                confirm_delete_id: nil,
-                retry_cooldowns: Map.put(cooldowns, id, now)
-              )
+            # Enqueue background worker
+            %{
+              game_id: game.id,
+              question_log_id: question_log.id,
+              question: question,
+              expansion_ids: expansion_ids,
+              recent_context: recent,
+              user_id: socket.assigns.current_user.id
+            }
+            |> RuleMaven.Workers.AskWorker.new()
+            |> Oban.insert()
 
-            send(self(), {:ask_question, question, visibility})
-            {:noreply, socket}
+            {:noreply,
+             assign(socket,
+               conversation: conversation ++ new_msgs,
+               question: "",
+               pending_count: pending_count,
+               pending: Map.put(socket.assigns.pending, question_log.id, true),
+               confirm_delete_id: nil,
+               retry_cooldowns: Map.put(cooldowns, id, now)
+             )}
 
           {:error, reason} ->
             {:noreply, put_flash(socket, :error, reason)}
@@ -492,70 +565,6 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
-  def handle_info({:ask_question, question, visibility}, socket) do
-    %{game: game, conversation: convo, included_expansions: included} = socket.assigns
-    expansion_ids = Map.keys(included)
-
-    # Collect recent Q&A pairs for followup context
-    recent =
-      convo
-      |> Enum.reject(& &1[:pending])
-      |> Enum.take(-4)
-      |> Enum.chunk_every(2)
-      |> Enum.filter(&(length(&1) == 2))
-      |> Enum.map(fn [user, asst] -> %{q: user.content, a: asst.content} end)
-
-    # Log question to DB so it survives refresh
-    {:ok, question_log} =
-      Games.log_question(%{
-        game_id: game.id,
-        question: question,
-        answer: "Thinking...",
-        user_id: socket.assigns.current_user.id,
-        visibility: visibility
-      })
-
-    # Update the placeholder user message with real DB id
-    updated_convo =
-      Enum.map(convo, fn
-        %{role: :user, content: ^question} = msg when msg.id == nil ->
-          %{msg | id: question_log.id}
-
-        msg ->
-          msg
-      end)
-
-    # Append thinking placeholder with real id
-    thinking_msg = %{
-      id: question_log.id,
-      role: :assistant,
-      content: "Thinking...",
-      pending: true,
-      timestamp: DateTime.utc_now()
-    }
-
-    %{
-      game_id: game.id,
-      question_log_id: question_log.id,
-      question: question,
-      expansion_ids: expansion_ids,
-      recent_context: recent,
-      user_id: socket.assigns.current_user.id
-    }
-    |> RuleMaven.Workers.AskWorker.new()
-    |> Oban.insert()
-
-    {:noreply,
-     assign(socket,
-       conversation: updated_convo ++ [thinking_msg],
-       pending: Map.put(socket.assigns.pending, question_log.id, true)
-     )}
-  end
-
-  def handle_info({:ask_question, question}, socket) do
-    handle_info({:ask_question, question, "private"}, socket)
-  end
-
   def handle_info({:ask_complete, data}, socket) do
     question_log_id = data.question_log_id
     game = socket.assigns.game
