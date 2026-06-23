@@ -462,6 +462,12 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> Enum.find(&(&1.id == id))
   end
 
+  defp get_question_log_by_id(id) do
+    import Ecto.Query
+    alias RuleMaven.Games.QuestionLog
+    RuleMaven.Repo.one(from q in QuestionLog, where: q.id == ^id)
+  end
+
   @impl true
   def handle_info({:ask_question, question, visibility}, socket) do
     %{game: game, conversation: convo, included_expansions: included} = socket.assigns
@@ -528,55 +534,66 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_info({:ask_complete, data}, socket) do
-    %{game: game} = socket.assigns
+    question_log_id = data.question_log_id
+    game = socket.assigns.game
 
-    # Rebuild conversation from DB so answer updates survive refresh
-    grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-    conversation = build_conversation(grouped)
-    community = Games.community_questions(game, socket.assigns.current_user.id)
-    refused_qs = Games.refused_questions(game, socket.assigns.current_user.id)
+    # Read just this one answer from DB (not the whole conversation)
+    ql = get_question_log_by_id(question_log_id)
 
-    # Inject followups and cited_page from broadcast into matching message
-    conversation =
-      Enum.map(conversation, fn
-        %{id: id} = msg when id == data.question_log_id ->
-          msg
-          |> Map.put(:followups, data[:followups] || [])
-          |> Map.put(:cited_page, data[:cited_page] || msg[:cited_page])
+    if ql do
+      # Update matching messages in-place — no full conversation rebuild
+      conversation =
+        Enum.map(socket.assigns.conversation, fn
+          %{id: ^question_log_id, role: :user} = msg ->
+            msg
+            |> Map.put(:content, ql.question)
+            |> Map.put(:cleaned_question, ql.cleaned_question)
+            |> Map.put(:followup, data[:followup] || false)
 
-        msg ->
-          msg
-      end)
+          %{id: ^question_log_id, role: :assistant} = msg ->
+            msg
+            |> Map.delete(:pending)
+            |> Map.put(:content, ql.answer)
+            |> Map.put(:cited_passage, ql.cited_passage)
+            |> Map.put(:cited_page, data[:cited_page] || ql.cited_page)
+            |> Map.put(:followups, data[:followups] || [])
+            |> Map.put(:refused, ql.refused)
+            |> Map.put(:raw_response, ql.raw_response)
+            |> Map.put(:llm_provider, ql.llm_provider)
+            |> Map.put(:llm_model, ql.llm_model)
+            |> Map.put(:faq_hit, ql.llm_provider == "faq")
+            |> Map.put(:pool_hit, ql.llm_provider == "pool")
+            |> Map.put(:visibility, ql.visibility)
 
-    # Compute pending count: recent Thinking... messages still in-flight
-    recent = NaiveDateTime.utc_now() |> NaiveDateTime.add(-120, :second)
+          msg ->
+            msg
+        end)
 
-    {conversation, pending_count} =
-      Enum.reduce(conversation, {[], 0}, fn
-        %{role: :assistant, content: "Thinking...", timestamp: ts} = msg, {acc, count}
-        when not is_nil(ts) ->
-          if NaiveDateTime.compare(ts, recent) == :gt do
-            {[Map.put(msg, :pending, true) | acc], count + 1}
-          else
-            {[msg | acc], count}
-          end
+      updated? = conversation != socket.assigns.conversation
 
-        msg, {acc, count} ->
-          {[msg | acc], count}
-      end)
+      pending_count =
+        if updated?,
+          do: max(0, socket.assigns.pending_count - 1),
+          else: socket.assigns.pending_count
 
-    conversation = Enum.reverse(conversation)
+      # Refresh sidebar data (newly refused questions appear here)
+      community = Games.community_questions(game, socket.assigns.current_user.id)
+      refused_qs = Games.refused_questions(game, socket.assigns.current_user.id)
 
-    {:noreply,
-     socket
-     |> assign(
-       conversation: conversation,
-       pending_count: pending_count,
-       community_questions: community,
-       refused_questions: refused_qs,
-       refresh: socket.assigns.refresh + 1
-     )
-     |> push_event("scroll_bottom", %{})}
+      {:noreply,
+       socket
+       |> assign(
+         conversation: conversation,
+         pending_count: pending_count,
+         community_questions: community,
+         refused_questions: refused_qs,
+         refresh: socket.assigns.refresh + 1
+       )
+       |> push_event("scroll_bottom", %{})}
+    else
+      # Question was already deleted (retry race) — do not decrement pending_count
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:ask_error, %{question: _question, error: reason}}, socket) do
