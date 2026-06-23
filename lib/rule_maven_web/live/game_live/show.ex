@@ -67,7 +67,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     sources = Games.list_documents(game)
     expansions = Games.expansions_with_documents(game)
     community = Games.community_questions(game, socket.assigns.current_user.id)
-    refused_qs = Games.refused_questions(game, socket.assigns.current_user.id)
+    refused_qs = Games.refused_questions(game)
     faq_count = RuleMaven.Faq.faq_count(game)
 
     socket =
@@ -328,7 +328,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
         conversation = build_current_conversation(grouped)
         community = Games.community_questions(game, socket.assigns.current_user.id)
-        refused_qs = Games.refused_questions(game, socket.assigns.current_user.id)
+        refused_qs = Games.refused_questions(game)
         refresh = socket.assigns.refresh + 1
 
         {:noreply,
@@ -510,7 +510,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
     conversation = build_current_conversation(grouped)
     community = Games.community_questions(game, socket.assigns.current_user.id)
-    refused_qs = Games.refused_questions(game, socket.assigns.current_user.id)
+    refused_qs = Games.refused_questions(game)
 
     # Inject followups and cited_page from broadcast into matching message
     conversation =
