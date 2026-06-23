@@ -3,8 +3,13 @@
 ## Ask a Question
 
 ```
-GameLive.Show (form submit with visibility)
-  → Games.log_question/1 (insert QuestionLog with visibility + parent_question_id=null)
+GameLive.Show handle_event("ask")
+  → Games.log_question/1 (insert QuestionLog with answer="Thinking...", gets real ID)
+  → Oban.insert(AskWorker) (enqueue background job with question_log_id)
+  → LiveView: append user_msg(id) + thinking_msg(id, pending) to conversation
+  → pending_count incremented (max 5 concurrent, input disabled at limit)
+
+AskWorker.perform (background, Oban queue)
   → Games.retrieve_chunks/3 (vector search on embeddings)
   → LLM.ask/4 (build prompt with chunks + game sources)
     → Games.find_similar_question_in_pool/2 (embedding check against community question pool)
@@ -12,8 +17,15 @@ GameLive.Show (form submit with visibility)
     → Faq.check_faq_cache/3 (embedding check against FAQ entries, expansion-aware)
       → HIT: return cached answer ("faq" provider)
     → MISS: LLM.chat/3 → parse response → return cited answer with followup detection
-  → Games.log_question_update/2 (save answer, citation, provider, parent_question_id if followup, cited_page parsed from citation, refused flag for "not covered" answers)
-  → LiveView: prepend to conversation (with followup nesting, page citation, refusal label). Refused answers skip followup suggestions and community pool.
+  → Games.log_question_update/2 (save answer, citation, provider, etc.)
+  → PubSub.broadcast({:ask_complete, %{question_log_id, ...}})
+
+GameLive.Show handle_info({:ask_complete})
+  → get_question_log_by_id/1 (read only this one answer from DB)
+  → Targeted in-place update: match messages by question_log_id, replace content
+  → pending_count decremented
+  → No full conversation rebuild — no DOM clobber, no index shift
+  → Refused answers skip followup suggestions and community pool.
   → Oban.insert(DirectPromotionWorker) (auto-promote exact-match to FAQ)
 ```
 
@@ -89,9 +101,8 @@ LLM.ask/4 returns followup: true (LLM detected followup based on recent context)
     → Games.find_parent_question_id/3 (find most recent root question by same user)
     → Games.log_question_update/2 (set parent_question_id on followup question)
   → GameLive.Show.handle_info(:ask_complete)
-    → Games.grouped_questions/1 (build tree: roots → history + followups)
-    → build_conversation/1 (flat list with followup flags for indentation)
-    → assign conversation, re-render
+    → Targeted update by question_log_id (followup flag set on user message)
+    → On next page load: handle_params → build_conversation/1 includes followup indentation
 ```
 
 Key files:
