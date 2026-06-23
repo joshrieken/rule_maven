@@ -17,6 +17,7 @@ defmodule RuleMaven.Games.QuestionLog do
     field :visibility, :string, default: "private"
     field :refused, :boolean, default: false
     field :cleaned_question, :string
+    field :raw_response, :string
     belongs_to :game, RuleMaven.Games.Game
     belongs_to :user, RuleMaven.Users.User
     belongs_to :document, RuleMaven.Games.Document
@@ -46,7 +47,8 @@ defmodule RuleMaven.Games.QuestionLog do
       :visibility,
       :parent_question_id,
       :refused,
-      :cleaned_question
+      :cleaned_question,
+      :raw_response
     ])
     |> validate_required([:question, :answer, :game_id])
   end

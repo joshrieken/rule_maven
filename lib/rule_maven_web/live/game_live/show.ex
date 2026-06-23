@@ -107,6 +107,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         pool_hit: g.primary.llm_provider == "pool",
         visibility: g.primary.visibility,
         refused: g.primary.refused,
+        raw_response: g.primary.raw_response,
         timestamp: g.primary.inserted_at
       }
 
@@ -123,6 +124,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             llm_model: h.llm_model,
             pinned: h.pinned,
             refused: h.refused,
+            raw_response: h.raw_response,
             timestamp: h.inserted_at,
             history: true
           }
@@ -151,6 +153,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             llm_model: f.llm_model,
             pinned: f.pinned,
             refused: f.refused,
+            raw_response: f.raw_response,
             timestamp: f.inserted_at
           }
 
@@ -459,14 +462,13 @@ defmodule RuleMavenWeb.GameLive.Show do
     conversation = build_current_conversation(grouped)
     community = Games.community_questions(game, socket.assigns.current_user.id)
 
-    # Inject followups, cited_page, and raw_response from broadcast into matching message
+    # Inject followups and cited_page from broadcast into matching message
     conversation =
       Enum.map(conversation, fn
         %{id: id} = msg when id == data.question_log_id ->
           msg
           |> Map.put(:followups, data[:followups] || [])
           |> Map.put(:cited_page, data[:cited_page] || msg[:cited_page])
-          |> Map.put(:raw_response, data[:raw_response])
 
         msg ->
           msg
@@ -1081,7 +1083,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 <% end %>
               </div>
               <!-- Admin debug: raw LLM response -->
-              <%= if RuleMaven.Users.game_master?(@current_user) && msg.role == :assistant && msg[:raw_response] do %>
+              <%= if RuleMaven.Users.game_master?(@current_user) && msg.role == :assistant && msg[:raw_response] && msg.content != "Thinking..." do %>
                 <details style="margin-top:0.25rem;font-size:0.6rem;color:var(--text-muted);opacity:0.6">
                   <summary style="cursor:pointer">raw</summary>
                   <pre style="white-space:pre-wrap;word-break:break-word;margin-top:0.15rem;padding:0.25rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem;max-height:12rem;overflow-y:auto"><%= msg[:raw_response] %></pre>
