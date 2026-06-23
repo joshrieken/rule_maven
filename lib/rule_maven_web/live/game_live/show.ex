@@ -13,8 +13,11 @@ defmodule RuleMavenWeb.GameLive.Show do
        game: nil,
        question: "",
        conversation: [],
+       threads: [],
+       active_thread_id: nil,
        pending_count: 0,
        pending: %{},
+       max_concurrent: @max_concurrent,
        source_count: 0,
        retry_cooldowns: %{},
        confirm_delete_id: nil,
@@ -40,26 +43,21 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
 
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-    conversation = build_conversation(grouped)
+    threads = build_thread_summaries(grouped)
 
-    # Mark recent Thinking... messages as pending (in-flight), stale ones stay as-is
-    recent = NaiveDateTime.utc_now() |> NaiveDateTime.add(-120, :second)
+    active_thread_id =
+      case socket.assigns.active_thread_id do
+        id when not is_nil(id) ->
+          if Enum.any?(threads, &(&1.id == id)), do: id, else: select_active_thread(threads)
 
-    {conversation, pending_count} =
-      Enum.reduce(conversation, {[], 0}, fn
-        %{role: :assistant, content: "Thinking...", timestamp: ts} = msg, {acc, count}
-        when not is_nil(ts) ->
-          if NaiveDateTime.compare(ts, recent) == :gt do
-            {[Map.put(msg, :pending, true) | acc], count + 1}
-          else
-            {[msg | acc], count}
-          end
+        _ ->
+          select_active_thread(threads)
+      end
 
-        msg, {acc, count} ->
-          {[msg | acc], count}
-      end)
+    conversation = build_conversation_for_thread(grouped, active_thread_id)
 
-    conversation = Enum.reverse(conversation)
+    # Compute pending count from threads list
+    pending_count = Enum.count(threads, & &1.pending)
 
     sources = Games.list_documents(game)
     expansions = Games.expansions_with_documents(game)
@@ -71,6 +69,8 @@ defmodule RuleMavenWeb.GameLive.Show do
       assign(socket,
         game: game,
         conversation: conversation,
+        threads: threads,
+        active_thread_id: active_thread_id,
         sources: sources,
         expansions: expansions,
         included_expansions: %{},
@@ -100,7 +100,43 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:noreply, assign(socket, suggestions: suggestions, suggestions_open: false)}
   end
 
-  # Build flat conversation from ALL grouped threads (supports concurrent questions).
+  # Pick the first non-refused thread, or the first thread, or nil.
+  defp select_active_thread([]), do: nil
+
+  defp select_active_thread(threads) do
+    (Enum.find(threads, &(!&1.refused)) || List.first(threads)).id
+  end
+
+  # Build thread summary list from grouped questions (one per root).
+  defp build_thread_summaries(grouped) do
+    recent = NaiveDateTime.utc_now() |> NaiveDateTime.add(-120, :second)
+
+    grouped
+    |> Enum.map(fn g ->
+      pending? =
+        g.primary.answer == "Thinking..." &&
+          not is_nil(g.primary.inserted_at) &&
+          NaiveDateTime.compare(g.primary.inserted_at, recent) == :gt
+
+      %{
+        id: g.primary.id,
+        question: g.primary.question,
+        pending: pending?,
+        refused: g.primary.refused,
+        inserted_at: g.primary.inserted_at
+      }
+    end)
+    |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime})
+  end
+
+  # Build flat conversation for a single thread (root + history + followups).
+  defp build_conversation_for_thread(grouped, thread_id) do
+    case Enum.find(grouped, &(&1.primary.id == thread_id)) do
+      nil -> []
+      g -> build_conversation([g])
+    end
+  end
+
   defp build_conversation(grouped) do
     grouped
     |> Enum.flat_map(fn g ->
@@ -130,7 +166,6 @@ defmodule RuleMavenWeb.GameLive.Show do
         timestamp: g.primary.inserted_at
       }
 
-      # Include history answers as additional assistant messages
       history_msgs =
         Enum.map(g.history, fn h ->
           %{
@@ -149,7 +184,6 @@ defmodule RuleMavenWeb.GameLive.Show do
           }
         end)
 
-      # Include followup Q&A pairs
       followup_msgs =
         Enum.flat_map(g.followups, fn f ->
           f_user = %{
@@ -205,6 +239,23 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
+  def handle_event("switch_thread", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    game = socket.assigns.game
+    grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
+    conversation = build_conversation_for_thread(grouped, id)
+
+    {:noreply,
+     socket
+     |> assign(
+       conversation: conversation,
+       active_thread_id: id,
+       sidebar_open: false
+     )
+     |> push_event("scroll_bottom", %{})}
+  end
+
+  @impl true
   def handle_event("ask", %{"question" => question} = params, socket) do
     question = String.trim(question)
     visibility = params["visibility"] || socket.assigns.visibility
@@ -212,7 +263,6 @@ defmodule RuleMavenWeb.GameLive.Show do
     if question != "" do
       convo = socket.assigns.conversation
 
-      # Check if already asked
       already =
         Enum.find(convo, fn m ->
           m.role == :user && String.downcase(m.content) == String.downcase(question)
@@ -238,7 +288,6 @@ defmodule RuleMavenWeb.GameLive.Show do
               expansion_ids = Map.keys(included)
               now = DateTime.utc_now()
 
-              # Collect recent Q&A for followup context (exclude pending/loading messages)
               recent =
                 convo
                 |> Enum.reject(& &1[:pending])
@@ -247,7 +296,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                 |> Enum.filter(&(length(&1) == 2))
                 |> Enum.map(fn [user, asst] -> %{q: user.content, a: asst.content} end)
 
-              # Log to DB immediately so question survives page refresh
               {:ok, question_log} =
                 Games.log_question(%{
                   game_id: game.id,
@@ -267,7 +315,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                 timestamp: now
               }
 
-              # Enqueue background worker
               %{
                 game_id: game.id,
                 question_log_id: question_log.id,
@@ -279,11 +326,24 @@ defmodule RuleMavenWeb.GameLive.Show do
               |> RuleMaven.Workers.AskWorker.new()
               |> Oban.insert()
 
+              # Add new thread to threads list and switch active to it
+              new_thread = %{
+                id: question_log.id,
+                question: question,
+                pending: true,
+                refused: false,
+                inserted_at: now
+              }
+
+              threads = [new_thread | socket.assigns.threads]
+
               {:noreply,
                socket
                |> assign(
                  question: "",
-                 conversation: convo ++ [user_msg, thinking_msg],
+                 conversation: [user_msg, thinking_msg],
+                 threads: threads,
+                 active_thread_id: question_log.id,
                  pending_count: socket.assigns.pending_count + 1,
                  pending: Map.put(socket.assigns.pending, question_log.id, true),
                  confirm_delete_id: nil
@@ -319,12 +379,26 @@ defmodule RuleMavenWeb.GameLive.Show do
       q -> Games.delete_question(q)
     end
 
+    # Rebuild threads and conversation from DB
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-    conversation = build_conversation(grouped)
+    threads = build_thread_summaries(grouped)
+
+    active_id =
+      if socket.assigns.active_thread_id == id do
+        select_active_thread(threads)
+      else
+        socket.assigns.active_thread_id
+      end
+
+    conversation = build_conversation_for_thread(grouped, active_id)
+    pending_count = Enum.count(threads, & &1.pending)
 
     {:noreply,
      assign(socket,
        conversation: conversation,
+       threads: threads,
+       active_thread_id: active_id,
+       pending_count: pending_count,
        confirm_delete_id: nil
      )}
   end
@@ -362,17 +436,18 @@ defmodule RuleMavenWeb.GameLive.Show do
         Games.update_question_visibility(q, new_vis)
 
         grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-        conversation = build_conversation(grouped)
+        conversation = build_conversation_for_thread(grouped, socket.assigns.active_thread_id)
+        threads = build_thread_summaries(grouped)
         community = Games.community_questions(game, socket.assigns.current_user.id)
         refused_qs = Games.refused_questions(game, socket.assigns.current_user.id)
-        refresh = socket.assigns.refresh + 1
 
         {:noreply,
          assign(socket,
            conversation: conversation,
+           threads: threads,
            community_questions: community,
            refused_questions: refused_qs,
-           refresh: refresh
+           refresh: socket.assigns.refresh + 1
          )}
     end
   end
@@ -411,7 +486,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
 
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-    conversation = build_conversation(grouped)
+    conversation = build_conversation_for_thread(grouped, socket.assigns.active_thread_id)
 
     {:noreply, assign(socket, conversation: conversation)}
   end
@@ -447,30 +522,27 @@ defmodule RuleMavenWeb.GameLive.Show do
 
             visibility = if old_q, do: old_q.visibility, else: "private"
 
-            # Check if old message was pending (affects count)
             old_was_pending? =
-              Enum.any?(socket.assigns.conversation, fn
+              Enum.any?(socket.assigns.threads, fn
                 %{id: ^id, pending: true} -> true
                 _ -> false
               end)
 
-            # Remove only the retried question's messages, keep everything else
-            conversation =
+            # Remove old thread, collect recent context from current conversation
+            remaining_convo =
               Enum.reject(socket.assigns.conversation, fn
                 %{id: ^id} -> true
                 _ -> false
               end)
 
-            # Collect recent Q&A from remaining conversation for followup context
             recent =
-              conversation
+              remaining_convo
               |> Enum.reject(& &1[:pending])
               |> Enum.take(-4)
               |> Enum.chunk_every(2)
               |> Enum.filter(&(length(&1) == 2))
               |> Enum.map(fn [user, asst] -> %{q: user.content, a: asst.content} end)
 
-            # Log to DB immediately so retry survives refresh
             {:ok, question_log} =
               Games.log_question(%{
                 game_id: game.id,
@@ -480,16 +552,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                 visibility: visibility
               })
 
-            new_msgs = [
-              %{id: question_log.id, role: :user, content: question, timestamp: dt_now},
-              %{
-                id: question_log.id,
-                role: :assistant,
-                content: "Thinking...",
-                pending: true,
-                timestamp: dt_now
-              }
-            ]
+            new_thread = %{
+              id: question_log.id,
+              question: question,
+              pending: true,
+              refused: false,
+              inserted_at: dt_now
+            }
+
+            threads =
+              [new_thread | Enum.reject(socket.assigns.threads, &(&1.id == id))]
 
             pending_count =
               if old_was_pending? do
@@ -498,7 +570,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                 socket.assigns.pending_count + 1
               end
 
-            # Enqueue background worker
             %{
               game_id: game.id,
               question_log_id: question_log.id,
@@ -512,7 +583,18 @@ defmodule RuleMavenWeb.GameLive.Show do
 
             {:noreply,
              assign(socket,
-               conversation: conversation ++ new_msgs,
+               conversation: [
+                 %{id: question_log.id, role: :user, content: question, timestamp: dt_now},
+                 %{
+                   id: question_log.id,
+                   role: :assistant,
+                   content: "Thinking...",
+                   pending: true,
+                   timestamp: dt_now
+                 }
+               ],
+               threads: threads,
+               active_thread_id: question_log.id,
                question: "",
                pending_count: pending_count,
                pending: Map.put(socket.assigns.pending, question_log.id, true),
@@ -578,46 +660,60 @@ defmodule RuleMavenWeb.GameLive.Show do
     question_log_id = data.question_log_id
     game = socket.assigns.game
 
-    # Read just this one answer from DB (not the whole conversation)
     ql = get_question_log_by_id(question_log_id)
 
     if ql do
-      # Update matching messages in-place — no full conversation rebuild
-      conversation =
-        Enum.map(socket.assigns.conversation, fn
-          %{id: ^question_log_id, role: :user} = msg ->
-            msg
-            |> Map.put(:content, ql.question)
-            |> Map.put(:cleaned_question, ql.cleaned_question)
-            |> Map.put(:followup, data[:followup] || false)
+      # Update thread status in threads list
+      threads =
+        Enum.map(socket.assigns.threads, fn
+          %{id: ^question_log_id} = t ->
+            %{t | pending: false, refused: ql.refused, question: ql.question}
 
-          %{id: ^question_log_id, role: :assistant} = msg ->
-            msg
-            |> Map.delete(:pending)
-            |> Map.put(:content, ql.answer)
-            |> Map.put(:cited_passage, ql.cited_passage)
-            |> Map.put(:cited_page, data[:cited_page] || ql.cited_page)
-            |> Map.put(:followups, data[:followups] || [])
-            |> Map.put(:refused, ql.refused)
-            |> Map.put(:raw_response, ql.raw_response)
-            |> Map.put(:llm_provider, ql.llm_provider)
-            |> Map.put(:llm_model, ql.llm_model)
-            |> Map.put(:faq_hit, ql.llm_provider == "faq")
-            |> Map.put(:pool_hit, ql.llm_provider == "pool")
-            |> Map.put(:visibility, ql.visibility)
-
-          msg ->
-            msg
+          t ->
+            t
         end)
 
-      updated? = conversation != socket.assigns.conversation
+      # Targeted update if this thread is currently active
+      conversation =
+        if socket.assigns.active_thread_id == question_log_id do
+          Enum.map(socket.assigns.conversation, fn
+            %{id: ^question_log_id, role: :user} = msg ->
+              msg
+              |> Map.put(:content, ql.question)
+              |> Map.put(:cleaned_question, ql.cleaned_question)
+              |> Map.put(:followup, data[:followup] || false)
+
+            %{id: ^question_log_id, role: :assistant} = msg ->
+              msg
+              |> Map.delete(:pending)
+              |> Map.put(:content, ql.answer)
+              |> Map.put(:cited_passage, ql.cited_passage)
+              |> Map.put(:cited_page, data[:cited_page] || ql.cited_page)
+              |> Map.put(:followups, data[:followups] || [])
+              |> Map.put(:refused, ql.refused)
+              |> Map.put(:raw_response, ql.raw_response)
+              |> Map.put(:llm_provider, ql.llm_provider)
+              |> Map.put(:llm_model, ql.llm_model)
+              |> Map.put(:faq_hit, ql.llm_provider == "faq")
+              |> Map.put(:pool_hit, ql.llm_provider == "pool")
+              |> Map.put(:visibility, ql.visibility)
+
+            msg ->
+              msg
+          end)
+        else
+          socket.assigns.conversation
+        end
+
+      updated? =
+        conversation != socket.assigns.conversation ||
+          threads != socket.assigns.threads
 
       pending_count =
         if updated?,
           do: max(0, socket.assigns.pending_count - 1),
           else: socket.assigns.pending_count
 
-      # Refresh sidebar data (newly refused questions appear here)
       community = Games.community_questions(game, socket.assigns.current_user.id)
       refused_qs = Games.refused_questions(game, socket.assigns.current_user.id)
 
@@ -625,6 +721,7 @@ defmodule RuleMavenWeb.GameLive.Show do
        socket
        |> assign(
          conversation: conversation,
+         threads: threads,
          pending_count: pending_count,
          community_questions: community,
          refused_questions: refused_qs,
@@ -632,7 +729,6 @@ defmodule RuleMavenWeb.GameLive.Show do
        )
        |> push_event("scroll_bottom", %{})}
     else
-      # Question was already deleted (retry race) — do not decrement pending_count
       {:noreply, socket}
     end
   end
@@ -640,9 +736,19 @@ defmodule RuleMavenWeb.GameLive.Show do
   def handle_info({:ask_error, data}, socket) do
     question_log_id = data[:question_log_id]
 
-    conversation =
+    # Update thread status
+    threads =
       if question_log_id do
-        # Replace pending thinking message with error, remove pending user message
+        Enum.map(socket.assigns.threads, fn
+          %{id: ^question_log_id} = t -> %{t | pending: false}
+          t -> t
+        end)
+      else
+        socket.assigns.threads
+      end
+
+    conversation =
+      if question_log_id && socket.assigns.active_thread_id == question_log_id do
         Enum.reject(socket.assigns.conversation, fn
           %{id: ^question_log_id, role: :user} -> true
           _ -> false
@@ -664,6 +770,7 @@ defmodule RuleMavenWeb.GameLive.Show do
      socket
      |> assign(
        conversation: conversation,
+       threads: threads,
        pending_count: max(0, socket.assigns.pending_count - 1)
      )
      |> push_event("scroll_bottom", %{})}
@@ -794,7 +901,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         >
         </div>
 
-        <!-- Question sidebar -->
+        <!-- Question sidebar: shows all threads -->
         <div
           id="question-sidebar"
           class={"question-sidebar #{if @sidebar_open, do: "", else: "sidebar-closed"}"}
@@ -829,19 +936,21 @@ defmodule RuleMavenWeb.GameLive.Show do
               Community
             </div>
             <%= for q <- @community_questions do %>
-              <button
-                type="button"
-                phx-click="ask_suggestion"
-                phx-value-q={q.question}
-                disabled={@pending_count >= @max_concurrent}
-                style="text-align:left;background:none;border:none;cursor:pointer;padding:0.35rem 0.75rem;color:var(--text-secondary);font-size:0.78rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%"
-                onmouseover="this.style.background='var(--bg-subtle)'"
-                onmouseout="this.style.background='none'"
-              >
-                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">
-                  {String.slice(q.question, 0, 55)}{if String.length(q.question) > 55, do: "…"}
-                </span>
-              </button>
+              <%= if @search_query == "" || String.contains?(String.downcase(q.question), String.downcase(@search_query)) do %>
+                <button
+                  type="button"
+                  phx-click="ask_suggestion"
+                  phx-value-q={q.question}
+                  disabled={@pending_count >= @max_concurrent}
+                  style="text-align:left;background:none;border:none;cursor:pointer;padding:0.35rem 0.75rem;color:var(--text-secondary);font-size:0.78rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%"
+                  onmouseover="this.style.background='var(--bg-subtle)'"
+                  onmouseout="this.style.background='none'"
+                >
+                  <span style="word-break:break-word;white-space:normal;display:block;line-height:1.3;text-align:left">
+                    {q.question}
+                  </span>
+                </button>
+              <% end %>
             <% end %>
             <div style="padding:0.25rem 0.75rem 0.5rem;border-bottom:1px solid var(--border-subtle);margin-bottom:0.25rem">
             </div>
@@ -855,56 +964,43 @@ defmodule RuleMavenWeb.GameLive.Show do
               </summary>
               <div style="margin-top:0.25rem">
                 <%= for q <- @refused_questions do %>
-                  <div style="text-align:left;padding:0.35rem 0.75rem;color:var(--text-muted);font-size:0.75rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%;opacity:0.5">
-                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">
-                      ⚐ {String.slice(q.question, 0, 52)}{if String.length(q.question) > 52, do: "…"}
-                    </span>
-                  </div>
+                  <%= if @search_query == "" || String.contains?(String.downcase(q.question), String.downcase(@search_query)) do %>
+                    <div style="text-align:left;padding:0.35rem 0.75rem;color:var(--text-muted);font-size:0.75rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%;opacity:0.5">
+                      <span style="word-break:break-word;white-space:normal;display:block;line-height:1.3;text-align:left">
+                        ⚐ {q.question}
+                      </span>
+                    </div>
+                  <% end %>
                 <% end %>
               </div>
             </details>
             <div style="padding:0.25rem 0.75rem 0.5rem;border-bottom:1px solid var(--border-subtle);margin-bottom:0.25rem">
             </div>
           <% end %>
-          <%= for {msg, idx} <- @conversation |> Enum.with_index() |> Enum.reverse() |> Enum.filter(fn {msg, _} -> msg.role == :user && !msg[:refused] && !msg[:pending] end) |> Enum.filter(fn {msg, _} -> @search_query == "" || String.contains?(String.downcase(msg.content), String.downcase(@search_query)) end) do %>
-            <button
-              type="button"
-              id={"sidebar-q-#{idx}"}
-              phx-click="toggle_sidebar"
-              phx-hook="ScrollToMessage"
-              data-target={"chat-msg-#{idx}"}
-              style="text-align:left;background:none;border:none;cursor:pointer;padding:0.45rem 0.75rem;color:var(--text);font-size:0.9rem;line-height:1.45;border-left:2px solid transparent;width:100%"
-              onmouseover="this.style.background='var(--bg-subtle)'"
-              onmouseout="this.style.background='none'"
-            >
-              <%= if msg[:feedback] == "down" do %>
-                <span style="color:var(--red);margin-right:0.15rem">👎</span>
-              <% end %>
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">
-                {String.slice(msg.content, 0, 55)}{if String.length(msg.content) > 55, do: "…"}
-              </span>
-            </button>
-          <% end %>
 
-          <!-- Refused current-thread questions (dimmed) -->
-          <%= for {msg, idx} <- @conversation |> Enum.with_index() |> Enum.reverse() |> Enum.filter(fn {msg, _} -> msg.role == :user && msg[:refused] end) do %>
-            <button
-              type="button"
-              id={"sidebar-q-#{idx}"}
-              phx-click="toggle_sidebar"
-              phx-hook="ScrollToMessage"
-              data-target={"chat-msg-#{idx}"}
-              style="text-align:left;background:none;border:none;cursor:pointer;padding:0.35rem 0.75rem;color:var(--text-muted);font-size:0.75rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%;opacity:0.5"
-              onmouseover="this.style.background='var(--bg-subtle)';this.style.opacity='0.8'"
-              onmouseout="this.style.background='none';this.style.opacity='0.5'"
-            >
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">
-                ⚐ {String.slice(msg.content, 0, 52)}{if String.length(msg.content) > 52, do: "…"}
-              </span>
-            </button>
+          <!-- Thread list (exclude refused — they appear in dropdown above) -->
+          <% non_refused = Enum.reject(@threads, & &1.refused) %>
+          <%= for t <- non_refused do %>
+            <%= if @search_query == "" || String.contains?(String.downcase(t.question), String.downcase(@search_query)) do %>
+              <button
+                type="button"
+                phx-click="switch_thread"
+                phx-value-id={t.id}
+                style={"display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.45rem 0.75rem;color:var(--text);font-size:0.9rem;line-height:1.45;border-left:2px solid #{if @active_thread_id == t.id, do: "var(--accent)", else: "transparent"};width:100%"}
+                onmouseover="this.style.background='var(--bg-subtle)'"
+                onmouseout="this.style.background='none'"
+              >
+                <%= if t.pending do %>
+                  <span class="animate-pulse" style="color:var(--accent);font-size:0.55rem">●</span>
+                <% end %>
+                <span style="word-break:break-word;white-space:normal">
+                  {t.question}
+                </span>
+              </button>
+            <% end %>
           <% end %>
           <div
-            :if={@conversation == []}
+            :if={non_refused == [] && @community_questions == []}
             style="padding:0.5rem 0.75rem;color:var(--text);font-size:0.8rem"
           >
             No questions yet
