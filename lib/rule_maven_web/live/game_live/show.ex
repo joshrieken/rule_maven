@@ -252,6 +252,7 @@ defmodule RuleMavenWeb.GameLive.Show do
              |> push_event("scroll_bottom", %{})
              |> then(fn s ->
                send(self(), {:ask_question, question, visibility})
+               Process.send_after(self(), :loading_timeout, 45_000)
                s
              end)}
 
@@ -410,6 +411,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               )
 
             send(self(), {:ask_question, question})
+            Process.send_after(self(), :loading_timeout, 45_000)
             {:noreply, socket}
 
           {:error, reason} ->
@@ -546,8 +548,16 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     {:noreply,
      socket
-     |> assign(conversation: socket.assigns.conversation ++ [error_msg], loading: false)
-     |> push_event("scroll_bottom", %{})}
+      |> assign(conversation: socket.assigns.conversation ++ [error_msg], loading: false)
+      |> push_event("scroll_bottom", %{})}
+  end
+
+  def handle_info(:loading_timeout, socket) do
+    if socket.assigns.loading do
+      {:noreply, assign(socket, loading: false)}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
