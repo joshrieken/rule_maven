@@ -33,6 +33,7 @@
   --red-bg: #FFF0F0;
   --green: #2A8040;
   --blue: #3060C0;
+  --border-subtle: #EAE8E2;
   --shadow: rgba(0, 0, 0, 0.06);
   --shadow-hover: rgba(96, 80, 220, 0.12);
   --header-bg-start: #4A3DB5;
@@ -42,7 +43,7 @@
   --radius-sm: 6px;
   --radius: 10px;
   --radius-lg: 14px;
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 /* Midnight — Tabletop Tavern, rich warm dark */
@@ -57,6 +58,7 @@
   --text-muted: #988878;
   --text-heading: #f0e4c8;
   --border: #3a3024;
+  --border-subtle: #2e2818;
   --border-strong: #5a4a34;
   --accent: #c09028;
   --accent-dark: #a07818;
@@ -87,6 +89,7 @@
     --text-muted: #988878;
     --text-heading: #f0e4c8;
     --border: #3a3024;
+    --border-subtle: #2e2818;
     --border-strong: #5a4a34;
     --accent: #c09028;
     --accent-dark: #a07818;
@@ -115,9 +118,10 @@
   --bg-danger: #1c1418;
   --text: #c0c0e0;
   --text-secondary: #8080b0;
-  --text-muted: #8888b0;
+  --text-muted: #606098;
   --text-heading: #e0e0f8;
   --border: #202040;
+  --border-subtle: #181830;
   --border-strong: #383868;
   --accent: #d848c8;
   --accent-dark: #b030a0;
@@ -148,6 +152,7 @@
   --text-muted: #908860;
   --text-heading: #e8e0c8;
   --border: #3a3428;
+  --border-subtle: #2c2820;
   --border-strong: #5a4a30;
   --accent: #a88838;
   --accent-dark: #907020;
@@ -178,6 +183,7 @@
   --text-muted: #a08078;
   --text-heading: #1a0c0a;
   --border: #f0d8d0;
+  --border-subtle: #faeae6;
   --border-strong: #d8b0a8;
   --accent: #e06850;
   --accent-dark: #c04830;
@@ -208,6 +214,7 @@
   --text-muted: #a08070;
   --text-heading: #f0d8b8;
   --border: #3a2a18;
+  --border-subtle: #2c2010;
   --border-strong: #5a3a20;
   --accent: #d06028;
   --accent-dark: #b04818;
@@ -238,6 +245,7 @@
   --text-muted: #9b8c70;
   --text-heading: #2a2010;
   --border: #d4c8a8;
+  --border-subtle: #e8dcbc;
   --border-strong: #a89870;
   --accent: #8b5e3c;
   --accent-dark: #6b4030;
@@ -268,6 +276,7 @@
   --text-muted: #78a080;
   --text-heading: #c8e0c8;
   --border: #1c3820;
+  --border-subtle: #142a18;
   --border-strong: #2a5832;
   --accent: #50b860;
   --accent-dark: #3a8a48;
@@ -298,6 +307,7 @@
   --text-muted: #8098b0;
   --text-heading: #102030;
   --border: #d0dce8;
+  --border-subtle: #e4eef6;
   --border-strong: #a0b8d0;
   --accent: #4088c8;
   --accent-dark: #2868a0;
@@ -328,6 +338,7 @@
   --text-muted: #9b8040;
   --text-heading: #2a1a05;
   --border: #e8d8b0;
+  --border-subtle: #f4eccc;
   --border-strong: #c8b080;
   --accent: #e09020;
   --accent-dark: #c07010;
@@ -358,6 +369,7 @@
   --text-muted: #a08040;
   --text-heading: #2a1a00;
   --border: #f0d898;
+  --border-subtle: #f8e8bc;
   --border-strong: #d8b860;
   --accent: #d89020;
   --accent-dark: #b87010;
@@ -388,6 +400,7 @@
   --text-muted: #9b98b0;
   --text-heading: #1e1b2e;
   --border: #e2dfe8;
+  --border-subtle: #f0eef6;
   --border-strong: #c4c0d0;
   --accent: #6c5ce7;
   --accent-dark: #5a4bd1;
@@ -418,6 +431,7 @@
   --text-muted: #908880;
   --text-heading: #181410;
   --border: #d4d0c8;
+  --border-subtle: #e4e0d8;
   --border-strong: #a8a098;
   --accent: #706050;
   --accent-dark: #504030;
@@ -445,9 +459,10 @@
   --bg-danger: #1c1515;
   --text: #b8d8b8;
   --text-secondary: #709070;
-  --text-muted: #88c088;
+  --text-muted: #507050;
   --text-heading: #c8f0c8;
   --border: #1c3a1c;
+  --border-subtle: #142a14;
   --border-strong: #2a5a2a;
   --accent: #00aa33;
   --accent-dark: #008822;
@@ -478,6 +493,7 @@
   --text-muted: #80a070;
   --text-heading: #102010;
   --border: #d8e8d0;
+  --border-subtle: #eaf4e2;
   --border-strong: #a8c8a0;
   --accent: #609838;
   --accent-dark: #407820;
@@ -505,9 +521,10 @@
   --bg-danger: #181c20;
   --text: #b0c8e0;
   --text-secondary: #7098b8;
-  --text-muted: #88a8c8;
+  --text-muted: #587898;
   --text-heading: #c0d8f0;
   --border: #182a40;
+  --border-subtle: #101e30;
   --border-strong: #284868;
   --accent: #3090d0;
   --accent-dark: #2068a0;
@@ -535,9 +552,10 @@
   --bg-danger: #201828;
   --text: #c8b8e8;
   --text-secondary: #9880c0;
-  --text-muted: #b0a0d0;
+  --text-muted: #787098;
   --text-heading: #d8d0f8;
   --border: #241840;
+  --border-subtle: #1a1230;
   --border-strong: #3a2870;
   --accent: #c030a8;
   --accent-dark: #a02088;
@@ -565,9 +583,10 @@
   --bg-danger: #2e1818;
   --text: #d0b8b8;
   --text-secondary: #a08080;
-  --text-muted: #b09090;
+  --text-muted: #806868;
   --text-heading: #e0c0c0;
   --border: #3a2020;
+  --border-subtle: #2c1818;
   --border-strong: #5a3030;
   --accent: #c84040;
   --accent-dark: #a03030;
@@ -595,9 +614,10 @@
   --bg-danger: #1a1420;
   --text: #c0c8e0;
   --text-secondary: #8090b8;
-  --text-muted: #a0b8d8;
+  --text-muted: #607090;
   --text-heading: #d8e0f8;
   --border: #1c2a4a;
+  --border-subtle: #141e38;
   --border-strong: #2c4070;
   --accent: #2098b8;
   --accent-dark: #187890;
@@ -628,6 +648,7 @@
   --text-muted: #a08090;
   --text-heading: #e8d0e0;
   --border: #3a2840;
+  --border-subtle: #2c1e32;
   --border-strong: #5a3860;
   --accent: #b84888;
   --accent-dark: #983068;
@@ -655,9 +676,10 @@
   --bg-danger: #201828;
   --text: #c8b8e8;
   --text-secondary: #9080c0;
-  --text-muted: #9890c8;
+  --text-muted: #706888;
   --text-heading: #d8d0f8;
   --border: #2a2040;
+  --border-subtle: #1e1630;
   --border-strong: #403068;
   --accent: #9060d8;
   --accent-dark: #7040b8;
@@ -685,9 +707,10 @@
   --bg-danger: #140a0a;
   --text: #a0a0a0;
   --text-secondary: #787878;
-  --text-muted: #909090;
+  --text-muted: #585858;
   --text-heading: #c0c0c0;
   --border: #1c1c1c;
+  --border-subtle: #111111;
   --border-strong: #303030;
   --accent: #808080;
   --accent-dark: #585858;
@@ -710,6 +733,7 @@
    Base Styles
    ============================ */
 html {
+  font-size: 125%; /* 20px base — scales all rem units */
   line-height: 1.6;
   -webkit-text-size-adjust: 100%;
   font-family: var(--font-body);
@@ -727,7 +751,12 @@ a { color: inherit; text-decoration: inherit; }
 
 ::selection {
   background: var(--accent);
-  color: #FFFFFF;
+  color: var(--bg);
+}
+/* Yellow-accent themes need dark text on selection for contrast */
+[data-theme="happy"] ::selection,
+[data-theme="honey"] ::selection {
+  color: var(--text);
 }
 
 /* ===== Global UI Polish ===== */
@@ -740,7 +769,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Subtle background texture */
+/* Subtle background texture — uses accent-subtle for theme-awareness */
 .app-shell::before {
   content: "";
   position: fixed;
@@ -748,8 +777,9 @@ body {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse at 20% 50%, rgba(180, 136, 32, 0.03) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 20%, rgba(180, 136, 32, 0.02) 0%, transparent 50%);
+    radial-gradient(ellipse at 15% 50%, var(--accent-subtle) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 15%, var(--bg-subtle) 0%, transparent 55%);
+  opacity: 0.35;
 }
 
 /* Cards — board game card feel */
