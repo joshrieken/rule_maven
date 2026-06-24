@@ -22,9 +22,13 @@ defmodule RuleMaven.Workers.AskWorker do
 
     game = Games.get_game!(game_id)
 
-    if prompt_injection?(question) do
+    if RuleMaven.Security.prompt_injection?(question) do
       if ql = get_question_log!(question_log_id) do
-        Games.log_question_update(ql, %{answer: "⚠️ This looks like a prompt injection attempt. Only rules questions are accepted.", refused: true})
+        Games.log_question_update(ql, %{
+          answer: "⚠️ This question was blocked by the security filter.",
+          refused: true,
+          blocked: true
+        })
         RuleMaven.PubSub.broadcast_ask_complete(game_id, question_log_id)
       end
 
@@ -163,106 +167,6 @@ defmodule RuleMaven.Workers.AskWorker do
     end  # end prompt_injection? else
   end
 
-  @injection_patterns [
-    # ── instruction override ──────────────────────────────────────────────────
-    "ignore all previous",
-    "ignore previous instructions",
-    "ignore your instructions",
-    "ignore the above instructions",
-    "ignore the system",
-    "disregard your instructions",
-    "disregard all previous",
-    "disregard previous instructions",
-    "forget your instructions",
-    "forget all previous",
-    "forget previous instructions",
-    "override your instructions",
-    "bypass your instructions",
-    "bypass your rules",
-    "cancel previous instructions",
-    "your new instructions",
-
-    # ── role / persona change ─────────────────────────────────────────────────
-    "you are now a",
-    "you are now an",
-    "you will now act as",
-    "i want you to act as",
-    "i need you to act as",
-    "pretend you are",
-    "pretend to be",
-    "roleplay as",
-    "role play as",
-    "impersonate",
-    "from now on you are",
-    "from now on act as",
-
-    # ── system / prompt extraction ────────────────────────────────────────────
-    "system prompt",
-    "reveal your instructions",
-    "repeat your instructions",
-    "print your instructions",
-    "show your instructions",
-    "display your instructions",
-    "output your instructions",
-    "what are your instructions",
-    "what is your system prompt",
-    "tell me your instructions",
-    "output your system",
-    "your original instructions",
-    "your initial instructions",
-    "your base instructions",
-    "your hidden instructions",
-    "your secret instructions",
-
-    # ── named jailbreak modes ─────────────────────────────────────────────────
-    "jailbreak",
-    "dan mode",
-    "developer mode",
-    "god mode",
-    "unrestricted mode",
-    "evil mode",
-    "do anything now",
-    "break character",
-    "sudo mode",
-
-    # ── token / markup injection ──────────────────────────────────────────────
-    "[inst]",
-    "[/inst]",
-    "<<sys>>",
-    "<|im_start|>",
-    "<|im_end|>",
-    "<|system|>",
-    "<|user|>",
-    "[system]",
-    "### instruction",
-    "### system",
-    "</s>",
-
-    # ── future-behavior manipulation ──────────────────────────────────────────
-    "in all future responses",
-    "for the rest of this conversation",
-    "for all future responses",
-
-    # ── authority spoofing ────────────────────────────────────────────────────
-    "your creator says",
-    "anthropic says",
-    "openai says",
-    "your developer says",
-    "your training says",
-    "as your administrator",
-  ]
-
-  defp prompt_injection?(text) do
-    # Normalize: lowercase, collapse whitespace, strip zero-width / control chars
-    normalized =
-      text
-      |> String.downcase()
-      |> String.replace(~r/[\x00-\x1f\x7f​‌‍﻿]/u, "")
-      |> String.replace(~r/\s+/, " ")
-      |> String.trim()
-
-    Enum.any?(@injection_patterns, &String.contains?(normalized, &1))
-  end
 
   defp get_question_log(id) do
     import Ecto.Query

@@ -22,6 +22,15 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:0.75rem">
         <.link
+          navigate={~p"/admin/security"}
+          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:1.25rem;text-decoration:none;display:block"
+        >
+          <div style="font-size:1.5rem;margin-bottom:0.4rem">🛡️</div>
+          <div style="font-weight:700;font-size:0.9rem;color:var(--text);margin-bottom:0.2rem">Security</div>
+          <div style="font-size:0.8rem;color:var(--text-muted)">Blocked questions and injection pattern management.</div>
+        </.link>
+
+        <.link
           navigate={~p"/admin/questions"}
           style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:1.25rem;text-decoration:none;display:block"
         >

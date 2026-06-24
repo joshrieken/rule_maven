@@ -1,0 +1,292 @@
+defmodule RuleMavenWeb.AdminLive.Security do
+  use RuleMavenWeb, :live_view
+
+  alias RuleMaven.{Security, Games, Users}
+
+  @impl true
+  def mount(_params, _session, socket) do
+    if Users.game_master?(socket.assigns.current_user) do
+      {:ok,
+       socket
+       |> assign(page_title: "Security")
+       |> assign(tab: "blocked")
+       |> load_blocked()
+       |> load_patterns()
+       |> assign(new_pattern: "", new_category: "instruction_override", new_note: "", add_error: nil)}
+    else
+      {:ok, socket |> put_flash(:error, "Access denied.") |> push_navigate(to: ~p"/")}
+    end
+  end
+
+  defp load_blocked(socket), do: assign(socket, blocked: Security.list_blocked_questions())
+  defp load_patterns(socket), do: assign(socket, patterns: Security.list_patterns())
+
+  @impl true
+  def handle_event("tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, tab: tab)}
+  end
+
+  def handle_event("unblock", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+
+    case Enum.find(socket.assigns.blocked, &(&1.id == id)) do
+      nil ->
+        {:noreply, socket}
+
+      q ->
+        case Security.unblock_question(q) do
+          {:ok, updated} ->
+            expansion_ids = []
+            recent_context = []
+
+            Oban.insert(RuleMaven.Workers.AskWorker.new(%{
+              "game_id" => updated.game_id,
+              "question" => updated.question,
+              "question_log_id" => updated.id,
+              "user_id" => updated.user_id,
+              "expansion_ids" => expansion_ids,
+              "recent_context" => recent_context
+            }))
+
+            {:noreply, socket |> load_blocked() |> put_flash(:info, "Unblocked and re-queued.")}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to unblock.")}
+        end
+    end
+  end
+
+  def handle_event("delete_blocked", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+
+    case Enum.find(socket.assigns.blocked, &(&1.id == id)) do
+      nil -> {:noreply, socket}
+      q ->
+        Games.delete_question(q)
+        {:noreply, load_blocked(socket)}
+    end
+  end
+
+  def handle_event("toggle_pattern", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+
+    case Enum.find(socket.assigns.patterns, &(&1.id == id)) do
+      nil -> {:noreply, socket}
+      p ->
+        Security.toggle_pattern(p)
+        {:noreply, load_patterns(socket)}
+    end
+  end
+
+  def handle_event("delete_pattern", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+
+    case Enum.find(socket.assigns.patterns, &(&1.id == id)) do
+      nil -> {:noreply, socket}
+      p ->
+        Security.delete_pattern(p)
+        {:noreply, load_patterns(socket)}
+    end
+  end
+
+  def handle_event("add_pattern", %{"pattern" => pattern, "category" => category, "note" => note}, socket) do
+    case Security.create_pattern(%{pattern: pattern, category: category, note: note}) do
+      {:ok, _} ->
+        {:noreply, socket |> assign(new_pattern: "", new_note: "", add_error: nil) |> load_patterns()}
+
+      {:error, changeset} ->
+        msg = changeset.errors |> Enum.map_join(", ", fn {f, {m, _}} -> "#{f} #{m}" end)
+        {:noreply, assign(socket, add_error: msg)}
+    end
+  end
+
+  def handle_event("form_change", params, socket) do
+    {:noreply,
+     assign(socket,
+       new_pattern: params["pattern"] || socket.assigns.new_pattern,
+       new_category: params["category"] || socket.assigns.new_category,
+       new_note: params["note"] || socket.assigns.new_note
+     )}
+  end
+
+  defp category_label("instruction_override"), do: "Override"
+  defp category_label("role_change"), do: "Role"
+  defp category_label("prompt_extraction"), do: "Extraction"
+  defp category_label("jailbreak"), do: "Jailbreak"
+  defp category_label("token_injection"), do: "Token"
+  defp category_label("future_behavior"), do: "Future"
+  defp category_label("authority_spoofing"), do: "Authority"
+  defp category_label(other), do: other
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div style="max-width:64rem;margin:0 auto;padding:1.25rem 1.5rem">
+      <.link navigate={~p"/admin"} class="back-link">&larr; Back to admin</.link>
+      <h1 style="font-size:1.5rem;font-weight:700;margin:0.25rem 0 1rem">Security</h1>
+
+      <!-- Tabs -->
+      <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:1.25rem">
+        <%= for {id, label} <- [{"blocked", "Blocked Questions (#{length(@blocked)})"}, {"patterns", "Injection Patterns (#{length(@patterns)})"}] do %>
+          <button
+            type="button"
+            phx-click="tab"
+            phx-value-tab={id}
+            style={"background:none;border:none;padding:0.5rem 1rem;font-size:0.85rem;font-weight:600;cursor:pointer;border-bottom:2px solid #{if @tab == id, do: "var(--accent)", else: "transparent"};color:#{if @tab == id, do: "var(--accent)", else: "var(--text-muted)"}"}
+          >{label}</button>
+        <% end %>
+      </div>
+
+      <!-- Blocked Questions Tab -->
+      <%= if @tab == "blocked" do %>
+        <%= if @blocked == [] do %>
+          <p style="color:var(--text-muted);font-size:0.85rem">No blocked questions.</p>
+        <% else %>
+          <div style="border:1px solid var(--border);border-radius:0.5rem;overflow:hidden">
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+              <thead>
+                <tr style="background:var(--bg-subtle);text-align:left">
+                  <th style="padding:0.5rem 0.75rem;font-weight:600;color:var(--text-muted)">When</th>
+                  <th style="padding:0.5rem 0.75rem;font-weight:600;color:var(--text-muted)">User</th>
+                  <th style="padding:0.5rem 0.75rem;font-weight:600;color:var(--text-muted)">Game</th>
+                  <th style="padding:0.5rem 0.75rem;font-weight:600;color:var(--text-muted)">Question</th>
+                  <th style="padding:0.5rem 0.75rem;font-weight:600;color:var(--text-muted)">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for q <- @blocked do %>
+                  <tr style="border-top:1px solid var(--border-subtle)">
+                    <td style="padding:0.45rem 0.75rem;white-space:nowrap;color:var(--text-muted);font-size:0.75rem">
+                      {Calendar.strftime(q.inserted_at, "%b %-d %H:%M")}
+                    </td>
+                    <td style="padding:0.45rem 0.75rem;color:var(--text-secondary);font-size:0.75rem">
+                      {q.user && q.user.username || "—"}
+                    </td>
+                    <td style="padding:0.45rem 0.75rem;color:var(--text-secondary);font-size:0.75rem;white-space:nowrap">
+                      {q.game && q.game.name || "—"}
+                    </td>
+                    <td style="padding:0.45rem 0.75rem;max-width:28rem">
+                      <span style="font-size:0.8rem;color:var(--text)">{q.question}</span>
+                    </td>
+                    <td style="padding:0.45rem 0.75rem;white-space:nowrap">
+                      <div style="display:flex;gap:0.4rem">
+                        <button
+                          type="button"
+                          phx-click="unblock"
+                          phx-value-id={q.id}
+                          style="background:none;border:1px solid var(--green);color:var(--green);padding:0.15rem 0.4rem;border-radius:0.25rem;font-size:0.7rem;font-weight:600;cursor:pointer"
+                          title="Unblock and re-queue for answering"
+                        >↻ Unblock</button>
+                        <button
+                          type="button"
+                          phx-click="delete_blocked"
+                          phx-value-id={q.id}
+                          style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.4rem;border-radius:0.25rem;font-size:0.7rem;cursor:pointer"
+                        >✕ Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
+      <% end %>
+
+      <!-- Patterns Tab -->
+      <%= if @tab == "patterns" do %>
+        <!-- Add pattern form -->
+        <form phx-submit="add_pattern" phx-change="form_change" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem;padding:0.75rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem">
+          <div>
+            <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-muted);margin-bottom:0.2rem">Pattern (lowercase)</label>
+            <input
+              type="text"
+              name="pattern"
+              value={@new_pattern}
+              placeholder="e.g. ignore all previous"
+              style="border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text);width:18rem"
+            />
+          </div>
+          <div>
+            <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-muted);margin-bottom:0.2rem">Category</label>
+            <select
+              name="category"
+              style="border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text)"
+            >
+              <%= for cat <- ~w[instruction_override role_change prompt_extraction jailbreak token_injection future_behavior authority_spoofing] do %>
+                <option value={cat} selected={@new_category == cat}>{category_label(cat)}</option>
+              <% end %>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-muted);margin-bottom:0.2rem">Note (optional)</label>
+            <input
+              type="text"
+              name="note"
+              value={@new_note}
+              placeholder="Why this pattern?"
+              style="border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text);width:14rem"
+            />
+          </div>
+          <button
+            type="submit"
+            style="background:var(--accent);color:#fff;border:none;padding:0.35rem 0.75rem;border-radius:0.375rem;font-size:0.8rem;font-weight:600;cursor:pointer"
+          >+ Add</button>
+          <%= if @add_error do %>
+            <p style="width:100%;font-size:0.72rem;color:var(--red);margin:0">{@add_error}</p>
+          <% end %>
+        </form>
+
+        <!-- Patterns table -->
+        <div style="border:1px solid var(--border);border-radius:0.5rem;overflow:hidden">
+          <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+            <thead>
+              <tr style="background:var(--bg-subtle);text-align:left">
+                <th style="padding:0.5rem 0.75rem;font-weight:600;color:var(--text-muted)">Pattern</th>
+                <th style="padding:0.5rem 0.75rem;font-weight:600;color:var(--text-muted)">Category</th>
+                <th style="padding:0.5rem 0.75rem;font-weight:600;color:var(--text-muted)">Note</th>
+                <th style="padding:0.5rem 0.75rem;font-weight:600;color:var(--text-muted)">Status</th>
+                <th style="padding:0.5rem 0.75rem;font-weight:600;color:var(--text-muted)">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for p <- @patterns do %>
+                <tr style={"border-top:1px solid var(--border-subtle);#{if !p.enabled, do: "opacity:0.5"}"}>
+                  <td style="padding:0.45rem 0.75rem;font-family:monospace;font-size:0.75rem;color:var(--text)">{p.pattern}</td>
+                  <td style="padding:0.45rem 0.75rem">
+                    <span style="font-size:0.65rem;font-weight:600;padding:0.1rem 0.35rem;border-radius:0.2rem;background:var(--bg-subtle);color:var(--text-muted)">{category_label(p.category)}</span>
+                  </td>
+                  <td style="padding:0.45rem 0.75rem;color:var(--text-muted);font-size:0.75rem">{p.note || ""}</td>
+                  <td style="padding:0.45rem 0.75rem">
+                    <span style={"font-size:0.7rem;font-weight:600;#{if p.enabled, do: "color:var(--green)", else: "color:var(--text-muted)"}"}>
+                      {if p.enabled, do: "Active", else: "Disabled"}
+                    </span>
+                  </td>
+                  <td style="padding:0.45rem 0.75rem;white-space:nowrap">
+                    <div style="display:flex;gap:0.35rem">
+                      <button
+                        type="button"
+                        phx-click="toggle_pattern"
+                        phx-value-id={p.id}
+                        style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.35rem;border-radius:0.25rem;font-size:0.7rem;cursor:pointer"
+                      >{if p.enabled, do: "Disable", else: "Enable"}</button>
+                      <button
+                        type="button"
+                        phx-click="delete_pattern"
+                        phx-value-id={p.id}
+                        style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.35rem;border-radius:0.25rem;font-size:0.7rem;cursor:pointer"
+                        data-confirm="Delete this pattern?"
+                      >✕</button>
+                    </div>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:0.72rem;color:var(--text-muted);margin-top:0.5rem">Disabled patterns are loaded from DB but skipped during detection.</p>
+      <% end %>
+    </div>
+    """
+  end
+end

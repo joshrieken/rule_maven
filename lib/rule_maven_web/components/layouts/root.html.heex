@@ -61,6 +61,7 @@
             <%= if me && RuleMaven.Users.game_master?(me) do %>
               <.link href={~p"/admin"} class="nav-link">Dashboard</.link>
               <.link href={~p"/admin/questions"} class="nav-link">Questions</.link>
+              <.link href={~p"/admin/security"} class="nav-link">Security</.link>
               <.link href={~p"/admin/threads"} class="nav-link">Threads</.link>
               <.link href={~p"/admin/users"} class="nav-link">Users</.link>
               <.link href={~p"/admin/invites"} class="nav-link">Invites</.link>
@@ -134,6 +135,7 @@
             <div class="drawer-section">Admin</div>
             <.link href={~p"/admin"} class="drawer-link">Dashboard</.link>
             <.link href={~p"/admin/questions"} class="drawer-link">Questions</.link>
+            <.link href={~p"/admin/security"} class="drawer-link">Security</.link>
             <.link href={~p"/admin/db"} class="drawer-link">DB Admin</.link>
             <.link href={~p"/admin/threads"} class="drawer-link">Review Threads</.link>
             <.link href={~p"/admin/users"} class="drawer-link">Manage Users</.link>

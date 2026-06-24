@@ -17,6 +17,7 @@ defmodule RuleMaven.Games.QuestionLog do
     field :cluster_id, :integer
     field :visibility, :string, default: "private"
     field :refused, :boolean, default: false
+    field :blocked, :boolean, default: false
     field :cleaned_question, :string
     field :raw_response, :string
     belongs_to :game, RuleMaven.Games.Game
@@ -48,6 +49,7 @@ defmodule RuleMaven.Games.QuestionLog do
       :visibility,
       :parent_question_id,
       :refused,
+      :blocked,
       :cleaned_question,
       :raw_response,
       :favorited
