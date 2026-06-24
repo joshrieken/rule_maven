@@ -111,10 +111,10 @@ defmodule RuleMavenWeb.AdminLive.Users do
   @impl true
   def render(assigns) do
     ~H"""
-    <div style="max-width:48rem;margin:0 auto;padding:0.75rem 1rem">
-      <.link navigate={~p"/admin"} style="color:var(--blue);font-size:0.75rem">&larr; Back to admin</.link>
+    <div style="max-width:52rem;margin:0 auto;padding:1.25rem 1.5rem">
+      <.link navigate={~p"/admin"} class="back-link">&larr; Back to admin</.link>
 
-      <h1 style="font-size:1.3rem;font-weight:700;margin:0.3rem 0">Manage Users</h1>
+      <h1 style="font-size:1.5rem;font-weight:700;margin:0.25rem 0 0.5rem">Manage Users</h1>
 
       <!-- Temp password display -->
       <%= if @temp_password do %>
@@ -199,7 +199,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
       </p>
 
       <div style="overflow-x:auto;border:1px solid var(--border);border-radius:0.5rem">
-        <table style="width:100%;border-collapse:collapse;font-size:0.72rem">
+        <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
           <thead>
             <tr style="background:var(--bg-subtle);text-align:left">
               <th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border)">
@@ -227,7 +227,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
                     {user.role}
                   </span>
                 </td>
-                <td style="padding:0.25rem 0.5rem;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-size:0.65rem">
+                <td style="padding:0.25rem 0.5rem;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-size:0.75rem">
                   {String.slice(to_string(user.inserted_at), 0, 10)}
                 </td>
                 <td style="padding:0.15rem 0.5rem;border-bottom:1px solid var(--border-subtle)">

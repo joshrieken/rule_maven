@@ -202,7 +202,7 @@ defmodule RuleMavenWeb.SettingsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="settings-page" style="max-width:640px;margin:0 auto;padding:1.5rem 1rem 3rem">
+    <div class="settings-page" style="max-width:52rem;margin:0 auto;padding:1.25rem 1.5rem 3rem">
       <%= if @usage_stats do %>
         <div class="mb-4">
           <.link navigate={~p"/settings"} class="back-link">&larr; Settings</.link>

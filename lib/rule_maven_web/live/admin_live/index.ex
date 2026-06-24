@@ -15,10 +15,10 @@ defmodule RuleMavenWeb.AdminLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <div style="max-width:36rem;margin:0 auto;padding:1.5rem 1rem">
-      <.link navigate={~p"/"} style="color:var(--blue);font-size:0.75rem">&larr; Back to games</.link>
+    <div style="max-width:52rem;margin:0 auto;padding:1.25rem 1.5rem">
+      <.link navigate={~p"/"} class="back-link">&larr; Back to games</.link>
 
-      <h1 style="font-size:1.3rem;font-weight:700;margin:0.5rem 0 0.75rem">Admin Dashboard</h1>
+      <h1 style="font-size:1.5rem;font-weight:700;margin:0.25rem 0 1rem">Admin Dashboard</h1>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:0.75rem">
         <.link

@@ -309,9 +309,9 @@ defmodule RuleMavenWeb.AdminLive.Db do
   def render(assigns) do
     ~H"""
     <div style="margin:0;padding:0 0.2rem;width:100vw;position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw">
-      <.link navigate={~p"/admin"} style="color:var(--blue);font-size:0.75rem">&larr; Back to admin</.link>
+      <.link navigate={~p"/admin"} class="back-link">&larr; Back to admin</.link>
 
-      <h1 style="font-size:1.3rem;font-weight:700;margin:0.3rem 0">DB Admin</h1>
+      <h1 style="font-size:1.5rem;font-weight:700;margin:0.25rem 0 0.5rem">DB Admin</h1>
 
       <div style="display:flex;gap:0.25rem;margin-bottom:0.5rem;flex-wrap:wrap">
         <%= for t <- @tables do %>

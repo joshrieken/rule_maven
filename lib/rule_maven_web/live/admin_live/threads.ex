@@ -91,10 +91,10 @@ defmodule RuleMavenWeb.AdminLive.Threads do
   @impl true
   def render(assigns) do
     ~H"""
-    <div style="max-width:48rem;margin:0 auto;padding:0.75rem 1rem">
-      <.link navigate={~p"/admin"} style="color:var(--blue);font-size:0.75rem">&larr; Back to admin</.link>
+    <div style="max-width:52rem;margin:0 auto;padding:1.25rem 1.5rem">
+      <.link navigate={~p"/admin"} class="back-link">&larr; Back to admin</.link>
 
-      <h1 style="font-size:1.3rem;font-weight:700;margin:0.3rem 0">Review Threads</h1>
+      <h1 style="font-size:1.5rem;font-weight:700;margin:0.25rem 0 0.5rem">Review Threads</h1>
 
       <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">
         Review root questions with their followups. Merge into FAQ entries. ({length(@threads)} threads)
@@ -102,7 +102,7 @@ defmodule RuleMavenWeb.AdminLive.Threads do
 
       <!-- Merge form -->
       <%= if @merge_thread_root do %>
-        <div style="background:var(--bg);border:2px solid var(--accent);border-radius:0.5rem;padding:1rem;margin-bottom:1rem">
+        <div style="background:var(--bg-surface);border:2px solid var(--accent);border-radius:0.5rem;padding:1rem;margin-bottom:1rem">
           <h3 style="font-size:0.85rem;font-weight:600;margin:0 0 0.75rem">
             Merge Thread into FAQ
           </h3>
@@ -113,7 +113,7 @@ defmodule RuleMavenWeb.AdminLive.Threads do
                 name="merge_question"
                 phx-change="merge_form_change"
                 rows="2"
-                style="width:100%;border:1px solid var(--border);border-radius:0.25rem;padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--bg);color:var(--text);resize:vertical"
+                style="width:100%;border:1px solid var(--border);border-radius:0.25rem;padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--bg-surface);color:var(--text);resize:vertical"
               ><%= @merge_question %></textarea>
             </div>
             <div>
@@ -122,7 +122,7 @@ defmodule RuleMavenWeb.AdminLive.Threads do
                 name="merge_answer"
                 phx-change="merge_form_change"
                 rows="6"
-                style="width:100%;border:1px solid var(--border);border-radius:0.25rem;padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--bg);color:var(--text);resize:vertical"
+                style="width:100%;border:1px solid var(--border);border-radius:0.25rem;padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--bg-surface);color:var(--text);resize:vertical"
               ><%= @merge_answer %></textarea>
             </div>
           </div>
@@ -144,14 +144,14 @@ defmodule RuleMavenWeb.AdminLive.Threads do
       <div style="display:flex;flex-direction:column;gap:0.5rem">
         <%= for thread <- @threads do %>
           <% root = thread.root %>
-          <div style="background:var(--bg);border:1px solid var(--border);border-radius:0.375rem;padding:0.6rem 0.75rem">
+          <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.375rem;padding:0.6rem 0.75rem">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem">
               <div style="flex:1;min-width:0">
                 <div style="font-weight:600;font-size:0.8rem;color:var(--text);margin-bottom:0.25rem">
                   <span style="color:var(--text-muted);font-weight:400">[{root.game &&
                     root.game.name}]</span> {String.slice(root.question, 0, 100)}
                 </div>
-                <div style="font-size:0.72rem;color:var(--text-muted);line-height:1.4">
+                <div style="font-size:0.8rem;color:var(--text-muted);line-height:1.4">
                   {String.slice(root.answer || "", 0, 150)}{if String.length(root.answer || "") >
                                                                  150,
                                                                do: "…"}

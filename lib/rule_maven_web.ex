@@ -52,8 +52,6 @@ defmodule RuleMavenWeb do
     quote do
       use Phoenix.LiveView
 
-      on_mount {RuleMavenWeb.UserLiveAuth, :default}
-
       unquote(html_helpers())
     end
   end

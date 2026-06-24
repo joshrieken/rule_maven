@@ -50,10 +50,10 @@ defmodule RuleMavenWeb.AdminLive.Invites do
   @impl true
   def render(assigns) do
     ~H"""
-    <div style="max-width:48rem;margin:0 auto;padding:0.75rem 1rem">
-      <.link navigate={~p"/admin"} style="color:var(--blue);font-size:0.75rem">&larr; Back to admin</.link>
+    <div style="max-width:52rem;margin:0 auto;padding:1.25rem 1.5rem">
+      <.link navigate={~p"/admin"} class="back-link">&larr; Back to admin</.link>
 
-      <h1 style="font-size:1.3rem;font-weight:700;margin:0.3rem 0">Invite Codes</h1>
+      <h1 style="font-size:1.5rem;font-weight:700;margin:0.25rem 0 0.5rem">Invite Codes</h1>
 
       <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">
         Generate invite codes for new users. Share a code — they'll use it to register. ({length(
@@ -83,7 +83,7 @@ defmodule RuleMavenWeb.AdminLive.Invites do
       </div>
 
       <div style="overflow-x:auto;border:1px solid var(--border);border-radius:0.5rem">
-        <table style="width:100%;border-collapse:collapse;font-size:0.72rem">
+        <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
           <thead>
             <tr style="background:var(--bg-subtle);text-align:left">
               <th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border)">Code</th>

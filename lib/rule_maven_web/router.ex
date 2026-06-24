@@ -26,9 +26,16 @@ defmodule RuleMavenWeb.Router do
     get "/games/:id/cheatsheet", CheatSheetController, :show
     get "/games/:id/cheatsheet/:version_id", CheatSheetController, :show_version
 
-    live_session :default, session: {RuleMavenWeb.UserLiveAuth, :get_session, []} do
-      live "/", GameLive.Index, :index
+    live_session :public,
+      on_mount: [{RuleMavenWeb.UserLiveAuth, :public}],
+      session: {RuleMavenWeb.UserLiveAuth, :get_session, []} do
       live "/register", RegistrationLive, :index
+    end
+
+    live_session :default,
+      on_mount: [{RuleMavenWeb.UserLiveAuth, :default}],
+      session: {RuleMavenWeb.UserLiveAuth, :get_session, []} do
+      live "/", GameLive.Index, :index
       live "/games/new", GameLive.Form, :new
       live "/games/import", GameLive.Import, :index
       live "/games/refresh", GameLive.Refresh, :index
