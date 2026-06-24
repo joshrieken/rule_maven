@@ -4,6 +4,22 @@ defmodule RuleMavenWeb.RegistrationLive do
   alias RuleMaven.{Users, InviteCodes}
 
   @impl true
+  def mount(%{"code" => code}, _session, socket) do
+    if socket.assigns.current_user do
+      {:ok, push_navigate(socket, to: ~p"/")}
+    else
+      {:ok,
+       assign(socket,
+         invite_code: code,
+         username: "",
+         email: "",
+         password: "",
+         errors: %{},
+         submitted: false
+       )}
+    end
+  end
+
   def mount(_params, _session, socket) do
     if socket.assigns.current_user do
       {:ok, push_navigate(socket, to: ~p"/")}
@@ -120,9 +136,13 @@ defmodule RuleMavenWeb.RegistrationLive do
     ~H"""
     <div style="max-width:24rem;margin:3rem auto;padding:0 1rem">
       <div style="text-align:center;margin-bottom:1.5rem">
-        <h1 style="font-size:1.3rem;font-weight:700;color:var(--text)">Create Account</h1>
-        <p style="font-size:0.8rem;color:var(--text-muted);margin-top:0.25rem">
-          You need an invite code to register.
+        <div style="font-size:2.5rem;margin-bottom:0.4rem">◆</div>
+        <h1 style="font-size:1.5rem;font-weight:700;color:var(--text)">Join Rule Maven</h1>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-top:0.4rem;line-height:1.5">
+          Ask rules questions about your board games and get instant, cited answers from the rulebook.
+        </p>
+        <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.5rem">
+          Registration requires an invite code.
         </p>
       </div>
 

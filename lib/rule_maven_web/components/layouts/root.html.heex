@@ -113,6 +113,7 @@
                   </div>
                 </details>
               <% true -> %>
+                <.link href={~p"/register"} class="nav-link" style="color:var(--text-muted)">Register</.link>
                 <.link href={~p"/login"} class="nav-link">Log in</.link>
             <% end %>
           </div>
@@ -144,6 +145,7 @@
             <.link href={~p"/logout"} class="drawer-link">Log out</.link>
           <% else %>
             <.link href={~p"/login"} class="drawer-link">Log in</.link>
+            <.link href={~p"/register"} class="drawer-link">Register</.link>
           <% end %>
         </nav>
       </div>

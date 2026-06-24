@@ -115,14 +115,21 @@ defmodule RuleMavenWeb.AdminLive.Invites do
                   {code.created_by && code.created_by.username}
                 </td>
                 <td style="padding:0.15rem 0.5rem;border-bottom:1px solid var(--border-subtle)">
-                  <%= if code.active do %>
-                    <button
-                      type="button"
-                      phx-click="deactivate_invite"
-                      phx-value-id={code.id}
-                      style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.35rem;border-radius:0.25rem;font-size:0.6rem;font-weight:600;cursor:pointer"
-                    >Deactivate</button>
-                  <% end %>
+                  <div style="display:flex;gap:0.35rem;align-items:center">
+                    <%= if code.active do %>
+                      <button
+                        type="button"
+                        onclick={"navigator.clipboard.writeText(window.location.origin + '/register?code=#{code.code}').then(() => { this.textContent = 'Copied!'; setTimeout(() => this.textContent = 'Copy link', 1500) })"}
+                        style="background:none;border:1px solid var(--border);color:var(--accent);padding:0.15rem 0.35rem;border-radius:0.25rem;font-size:0.6rem;font-weight:600;cursor:pointer"
+                      >Copy link</button>
+                      <button
+                        type="button"
+                        phx-click="deactivate_invite"
+                        phx-value-id={code.id}
+                        style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.35rem;border-radius:0.25rem;font-size:0.6rem;font-weight:600;cursor:pointer"
+                      >Deactivate</button>
+                    <% end %>
+                  </div>
                 </td>
               </tr>
             <% end %>
