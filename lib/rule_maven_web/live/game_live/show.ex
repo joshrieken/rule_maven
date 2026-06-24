@@ -445,24 +445,32 @@ defmodule RuleMavenWeb.GameLive.Show do
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
     threads = build_thread_summaries(grouped)
 
-    active_id =
-      if socket.assigns.active_thread_id == id do
-        select_active_thread(threads)
-      else
-        socket.assigns.active_thread_id
-      end
-
-    conversation = build_conversation_for_thread(grouped, active_id)
+    deleted_was_active = socket.assigns.active_thread_id == id
     pending_count = Enum.count(threads, & &1.pending)
 
-    {:noreply,
-     assign(socket,
-       conversation: conversation,
-       threads: threads,
-       active_thread_id: active_id,
-       pending_count: pending_count,
-       confirm_delete_id: nil
-     )}
+    if deleted_was_active do
+      {:noreply,
+       assign(socket,
+         threads: threads,
+         conversation: [],
+         active_thread_id: nil,
+         active_community_question: nil,
+         pending_count: pending_count,
+         show_onboarding: socket.assigns.source_count > 0,
+         confirm_delete_id: nil
+       )
+       |> push_patch(to: ~p"/games/#{game.id}")}
+    else
+      conversation = build_conversation_for_thread(grouped, socket.assigns.active_thread_id)
+
+      {:noreply,
+       assign(socket,
+         conversation: conversation,
+         threads: threads,
+         pending_count: pending_count,
+         confirm_delete_id: nil
+       )}
+    end
   end
 
   @impl true
