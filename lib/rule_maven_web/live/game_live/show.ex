@@ -1627,6 +1627,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <% else %>
                     <!-- normal answer: full actions -->
                     <button
+                      :if={!msg[:pending]}
                       type="button"
                       phx-click="retry_question"
                       phx-value-id={msg.id}
@@ -1663,7 +1664,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       title={if msg[:pinned], do: "Pinned", else: "Pin"}
                     >{if msg[:pinned], do: "◆", else: "◇"}</button>
                     <%= if @confirm_delete_id == msg.id do %>
-                      <span class="text-xs" style="color:var(--red)">Delete?</span>
+                      <span class="text-xs" style="color:var(--red)">{if msg[:pending], do: "Cancel?", else: "Delete?"}</span>
                       <button
                         type="button"
                         phx-click="confirm_delete_question"
@@ -1682,7 +1683,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         phx-click="delete_question"
                         phx-value-id={msg.id}
                         style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                        title="Delete"
+                        title={if msg[:pending], do: "Cancel", else: "Delete"}
                       >✕</button>
                     <% end %>
                     <%= if RuleMaven.Users.game_master?(@current_user) && (msg[:llm_provider] || msg[:llm_model]) do %>
