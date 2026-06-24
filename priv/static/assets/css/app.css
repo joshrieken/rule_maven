@@ -1871,6 +1871,9 @@ body:has([data-phx-main].phx-connected)::after {
 .md-answer ul > li { margin: 0.15rem 0; }
 .md-answer ol, .md-answer ul { margin: 0.15rem 0; padding-left: 1.3rem; }
 .md-answer strong { font-size: 0.9rem; }
+/* Paragraph that is just a bold label — treat as a section heading */
+.md-answer p:has(> strong:only-child) { margin-top: 0.85rem; margin-bottom: 0.1rem; }
+.md-answer p:first-child:has(> strong:only-child) { margin-top: 0; }
 
 /* ===== Question sidebar ===== */
 .sidebar-toggle { display: none; }
