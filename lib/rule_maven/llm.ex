@@ -329,7 +329,7 @@ defmodule RuleMaven.LLM do
     - Keep answers concise — 1-3 sentences of prose plus optional list.
     - Before the citation, add a FOLLOWUP tag: ---FOLLOWUP: yes--- if this question is a followup to the recent conversation (references prior exchange, uses pronouns like "it"/"that"/"they"), otherwise ---FOLLOWUP: no---.
     - ALWAYS suggest 2-3 natural followup questions a player might ask next. Format: ---FOLLOWUPS--- each on its own line, no numbers. Do NOT skip this section.
-    - End with ---CITATION--- followed by the exact sentence(s) from the rulebook that support the answer. Do NOT include [Page N] markers in the passage text — those are tracked separately.
+    - End with ---CITATION--- followed by the exact sentence(s) from the rulebook that support the answer. Preserve any [Page N] markers exactly as they appear in the source text.
     - Never fabricate a citation.
 
     RULEBOOK:
@@ -409,14 +409,7 @@ defmodule RuleMaven.LLM do
           |> String.replace(~r/---FOLLOWUPS?.*/s, "")
           |> strip_leading_question_echo()
 
-        passage =
-          passage
-          |> String.trim()
-          |> String.replace(~r/\[Page\s*\d+\]/i, "")
-          |> String.replace(~r/\(Page\s*\d+\)/i, "")
-          |> String.trim()
-
-        {answer, passage, followup?, followups, cleaned_question}
+        {answer, String.trim(passage), followup?, followups, cleaned_question}
 
       _ ->
         {strip_markers(cleaned) |> strip_leading_question_echo(), nil, followup?, followups,

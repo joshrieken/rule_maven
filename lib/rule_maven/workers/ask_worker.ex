@@ -36,9 +36,18 @@ defmodule RuleMaven.Workers.AskWorker do
           end
 
         if ql = get_question_log!(question_log_id) do
-          passage = llm_result[:cited_passage]
+          raw_passage = llm_result[:cited_passage]
           followup? = llm_result[:followup] || false
-          cited_page = parse_cited_page(passage)
+          cited_page = parse_cited_page(raw_passage)
+          # Strip [Page N] markers from display passage AFTER extracting page number
+          passage =
+            if raw_passage do
+              raw_passage
+              |> String.replace(~r/\[Page\s*\d+\]/i, "")
+              |> String.replace(~r/\(Page\s*\d+\)/i, "")
+              |> String.trim()
+            end
+
           refused? = refused?(answer)
 
           cleaned =
