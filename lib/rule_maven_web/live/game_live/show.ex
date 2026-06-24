@@ -988,33 +988,36 @@ defmodule RuleMavenWeb.GameLive.Show do
               />
             <% end %>
             <%!-- Rulebook sources dropdown --%>
-            <div :if={@sources != []} style="flex-shrink:0">
-              <details style="font-size:0.65rem">
-                <summary style="cursor:pointer;color:var(--text-muted);font-weight:600;user-select:none">
-                  ({length(@sources)})
+            <div :if={@sources != []} style="flex-shrink:0;position:relative">
+              <details class="sources-dropdown">
+                <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:0.2rem;color:var(--text-muted);font-size:0.7rem;font-weight:600;user-select:none;padding:0.2rem 0.4rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg-subtle)">
+                  <span>📖</span>
+                  <span>Rulebooks</span>
+                  <span style="font-size:0.6rem;opacity:0.6">▾</span>
                 </summary>
-                <div style="margin-top:0.25rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.5rem;max-width:calc(100vw - 2rem);box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-x:auto;display:inline-block">
-                  <%= for src <- @sources do %>
-                    <div style="padding:0.3rem 0;font-size:0.7rem;display:flex;gap:0.5rem;align-items:center">
-                      <span style="color:var(--text);font-weight:500;white-space:nowrap">{src.label}</span>
-                      <%= if src.pdf_path do %>
-                        <.link
-                          href={"/#{src.pdf_path}"}
-                          target="_blank"
-                          style="color:var(--blue);font-size:0.65rem;font-weight:600"
-                        >
-                          PDF
-                        </.link>
-                      <% end %>
-                      <%= if src.html_path do %>
-                        <.link
-                          href={"/#{src.html_path}"}
-                          target="_blank"
-                          style="color:var(--blue);font-size:0.65rem;font-weight:600"
-                        >
-                          HTML
-                        </.link>
-                      <% end %>
+                <div style="position:absolute;right:0;top:calc(100% + 0.35rem);z-index:200;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;box-shadow:0 6px 20px rgba(0,0,0,0.18);min-width:200px;max-width:min(320px,calc(100vw - 2rem));overflow:hidden">
+                  <%= for {src, i} <- Enum.with_index(@sources) do %>
+                    <div style={"padding:0.5rem 0.75rem;#{if i > 0, do: "border-top:1px solid var(--border-subtle)"}"}>
+                      <div style="font-size:0.78rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{src.label}</div>
+                      <div style="display:flex;gap:0.5rem">
+                        <%= if src.pdf_path do %>
+                          <.link
+                            href={"/#{src.pdf_path}"}
+                            target="_blank"
+                            style="display:inline-flex;align-items:center;gap:0.2rem;color:var(--blue);font-size:0.7rem;font-weight:600;text-decoration:none;padding:0.15rem 0.4rem;border:1px solid var(--blue);border-radius:0.25rem;opacity:0.85"
+                          >⬇ PDF</.link>
+                        <% end %>
+                        <%= if src.html_path do %>
+                          <.link
+                            href={"/#{src.html_path}"}
+                            target="_blank"
+                            style="display:inline-flex;align-items:center;gap:0.2rem;color:var(--blue);font-size:0.7rem;font-weight:600;text-decoration:none;padding:0.15rem 0.4rem;border:1px solid var(--blue);border-radius:0.25rem;opacity:0.85"
+                          >🔗 HTML</.link>
+                        <% end %>
+                        <%= if !src.pdf_path && !src.html_path do %>
+                          <span style="font-size:0.7rem;color:var(--text-muted)">No download</span>
+                        <% end %>
+                      </div>
                     </div>
                   <% end %>
                 </div>
