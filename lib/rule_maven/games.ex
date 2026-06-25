@@ -892,25 +892,39 @@ defmodule RuleMaven.Games do
 
   # ── Chunking (RAG) ──
 
-  # Leading per-page marker written at extraction time, e.g. "===== PAGE 12 ====="
-  # (the rulebook's printed page) or "===== SHEET 4 =====" (physical PDF sheet,
-  # used for front matter / when the printed number can't be detected).
-  @page_marker ~r/\A=+\s*(PAGE|SHEET)\s+(\d+)\s*=+[ \t]*\r?\n?/i
+  # Leading per-page marker written at extraction time. The physical PDF sheet
+  # is always present; the rulebook's printed page is appended when detected:
+  #   "===== SHEET 15 PAGE 12 =====" (printed page 12 lives on sheet 15)
+  #   "===== SHEET 4 ====="          (front matter / printed page unknown)
+  @page_marker ~r/\A=+\s*SHEET\s+(\d+)(?:\s+PAGE\s+(\d+))?\s*=+[ \t]*\r?\n?/i
 
   @doc """
   Splits a leading page marker off a page segment. Returns
-  `{kind, number, rest}` where kind is "Page" or "Sheet", or `nil` if the
-  segment has no marker (legacy documents extracted before numbering).
+  `{sheet, printed, rest}` where `sheet` is the physical PDF sheet number,
+  `printed` is the rulebook's printed page number (or `nil` when unknown), and
+  `rest` is the page text. Returns `nil` if the segment has no marker (legacy
+  documents extracted before numbering).
   """
   def split_page_marker(segment) do
     case Regex.run(@page_marker, segment) do
-      [matched, kind, num] ->
-        {String.capitalize(kind), String.to_integer(num),
+      [matched, sheet, printed] ->
+        {String.to_integer(sheet), String.to_integer(printed),
          String.replace_prefix(segment, matched, "")}
+
+      [matched, sheet] ->
+        {String.to_integer(sheet), nil, String.replace_prefix(segment, matched, "")}
 
       _ ->
         nil
     end
+  end
+
+  @doc """
+  Citation label + number for a page from its `{sheet, printed}` pair: the
+  printed page when known ("Page 12"), else the physical sheet ("Sheet 4").
+  """
+  def page_label(sheet, printed) do
+    if printed, do: {"Page", printed}, else: {"Sheet", sheet}
   end
 
   def chunk_document(%Document{} = doc) do
@@ -926,7 +940,10 @@ defmodule RuleMaven.Games do
         segments
         |> Enum.map(&split_page_marker/1)
         |> Enum.reject(&is_nil/1)
-        |> Enum.map(fn {kind, num, text} -> {kind, num, text} end)
+        |> Enum.map(fn {sheet, printed, text} ->
+          {kind, num} = page_label(sheet, printed)
+          {kind, num, text}
+        end)
       else
         segments
         |> Enum.with_index(1)

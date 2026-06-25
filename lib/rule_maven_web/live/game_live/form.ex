@@ -989,11 +989,12 @@ defmodule RuleMavenWeb.GameLive.Form do
           pages
           |> Enum.with_index(1)
           |> Enum.map(fn {page, idx} ->
-            # Keep the leading "===== PAGE n =====" marker out of the LLM's hands
-            # so the page number is preserved exactly; only clean the body.
+            # Keep the leading "===== SHEET n PAGE n =====" marker out of the
+            # LLM's hands so the page numbers are preserved exactly; clean body.
             {marker, body} =
               case Games.split_page_marker(page) do
-                {kind, num, rest} -> {"===== #{String.upcase(kind)} #{num} =====\n", rest}
+                {sheet, nil, rest} -> {"===== SHEET #{sheet} =====\n", rest}
+                {sheet, printed, rest} -> {"===== SHEET #{sheet} PAGE #{printed} =====\n", rest}
                 nil -> {"", page}
               end
 
@@ -1326,14 +1327,12 @@ defmodule RuleMavenWeb.GameLive.Form do
     pages
     |> Enum.with_index(1)
     |> Enum.map_join("", fn {text, sheet} ->
-      {kind, num} =
-        if offset && sheet - offset >= 1 do
-          {"PAGE", sheet - offset}
-        else
-          {"SHEET", sheet}
-        end
+      printed = if offset && sheet - offset >= 1, do: sheet - offset
 
-      "\f===== #{kind} #{num} =====\n" <> text
+      marker =
+        if printed, do: "SHEET #{sheet} PAGE #{printed}", else: "SHEET #{sheet}"
+
+      "\f===== #{marker} =====\n" <> text
     end)
   end
 
@@ -1406,12 +1405,16 @@ defmodule RuleMavenWeb.GameLive.Form do
       pages
       |> Enum.with_index(1)
       |> Enum.reduce({[], 1}, fn {page_text, idx}, {acc, para_num} ->
-        # Prefer the explicit "PAGE n / SHEET n" marker for the heading and
-        # page-data attribute; fall back to positional index for legacy text.
+        # Prefer the explicit marker for the heading and page-data attribute;
+        # fall back to positional index for legacy text.
         {label, page_num, page_text} =
           case Games.split_page_marker(page_text) do
-            {kind, num, rest} -> {"#{kind} #{num}", num, rest}
-            nil -> {"Page #{idx}", idx, page_text}
+            {sheet, printed, rest} ->
+              {kind, num} = Games.page_label(sheet, printed)
+              {"#{kind} #{num}", num, rest}
+
+            nil ->
+              {"Page #{idx}", idx, page_text}
           end
 
         page_text = String.trim(page_text)
@@ -2100,19 +2103,33 @@ defmodule RuleMavenWeb.GameLive.Form do
                   reader.text
                   |> String.split("\f")
                   |> Enum.with_index(1)
-                  |> Enum.map(fn {page, idx} ->
-                    case Games.split_page_marker(page) do
-                      {kind, num, rest} -> {"#{kind} #{num}", rest}
-                      nil -> {"Page #{idx}", page}
-                    end
+                  |> Enum.flat_map(fn {page, idx} ->
+                    {sheet, printed, body} =
+                      case Games.split_page_marker(page) do
+                        {s, p, rest} -> {s, p, rest}
+                        nil -> {idx, nil, page}
+                      end
+
+                    if String.trim(body) == "",
+                      do: [],
+                      else: [%{sheet: sheet, printed: printed, body: body}]
                   end)
-                  |> Enum.filter(fn {_label, body} -> String.trim(body) != "" end) %>
+                  |> Enum.with_index()
+                  |> Enum.map(fn {p, i} -> Map.put(p, :idx, i) end) %>
                 <% page_count = length(pages) %>
                 <% cur = @reader_page |> max(0) |> min(max(page_count - 1, 0)) %>
+                <% cur_page = Enum.at(pages, cur) %>
                 <% page_font =
                   "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.9rem;line-height:1.6;white-space:pre-wrap;color:var(--text)" %>
                 <% page_head =
                   "font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:1.5rem 0 0.6rem 0;text-align:center" %>
+                <% page_label = fn p ->
+                  if p.printed, do: "Page #{p.printed} · Sheet #{p.sheet}", else: "Sheet #{p.sheet}"
+                end %>
+                <% select_style =
+                  "border:1px solid var(--border);border-radius:0.4rem;padding:0.4rem 0.7rem;font-size:0.95rem;background:var(--bg);color:var(--text);cursor:pointer" %>
+                <% step_style =
+                  "font-size:1.3rem;line-height:1;padding:0.3rem 0.85rem;border-radius:0.4rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer" %>
                 <% tab_style = fn active ->
                   "font-size:0.72rem;padding:0.2rem 0.7rem;border-radius:0.3rem;cursor:pointer;border:1px solid var(--border);background:#{if active, do: "var(--accent)", else: "var(--bg-subtle)"};color:#{if active, do: "white", else: "var(--text-secondary)"}"
                 end %>
@@ -2133,30 +2150,47 @@ defmodule RuleMavenWeb.GameLive.Form do
                       </div>
 
                       <%= if @reader_mode == "paginated" and page_count > 0 do %>
-                        <div style="display:flex;align-items:center;gap:0.6rem;margin-left:auto">
+                        <% printed_pages = Enum.filter(pages, & &1.printed) %>
+                        <div style="display:flex;align-items:center;gap:0.6rem;margin-left:auto;flex-wrap:wrap">
                           <button
                             type="button"
                             phx-click="reader_page_step"
                             phx-value-delta="-1"
                             disabled={cur <= 0}
-                            style="font-size:1.3rem;line-height:1;padding:0.3rem 0.85rem;border-radius:0.4rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                            style={step_style}
                           >‹</button>
-                          <form phx-change="set_reader_page" style="margin:0">
-                            <select
-                              name="page"
-                              style="border:1px solid var(--border);border-radius:0.4rem;padding:0.4rem 0.7rem;font-size:0.95rem;background:var(--bg);color:var(--text);cursor:pointer"
-                            >
-                              <%= for {{label, _body}, i} <- Enum.with_index(pages) do %>
-                                <option value={i} selected={i == cur}>{label}</option>
-                              <% end %>
-                            </select>
-                          </form>
+
+                          <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.7rem;color:var(--text-muted)">
+                            Sheet
+                            <form phx-change="set_reader_page" style="margin:0">
+                              <select name="page" style={select_style}>
+                                <%= for p <- pages do %>
+                                  <option value={p.idx} selected={p.idx == cur}>{p.sheet}</option>
+                                <% end %>
+                              </select>
+                            </form>
+                          </label>
+
+                          <%= if printed_pages != [] do %>
+                            <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.7rem;color:var(--text-muted)">
+                              Page
+                              <form phx-change="set_reader_page" style="margin:0">
+                                <select name="page" style={select_style}>
+                                  <option value={cur} selected={cur_page && is_nil(cur_page.printed)} disabled>—</option>
+                                  <%= for p <- printed_pages do %>
+                                    <option value={p.idx} selected={p.idx == cur}>{p.printed}</option>
+                                  <% end %>
+                                </select>
+                              </form>
+                            </label>
+                          <% end %>
+
                           <button
                             type="button"
                             phx-click="reader_page_step"
                             phx-value-delta="1"
                             disabled={cur >= page_count - 1}
-                            style="font-size:1.3rem;line-height:1;padding:0.3rem 0.85rem;border-radius:0.4rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                            style={step_style}
                           >›</button>
                           <span style="font-size:0.9rem;color:var(--text-muted);white-space:nowrap">{cur + 1} / {page_count}</span>
                         </div>
@@ -2171,17 +2205,16 @@ defmodule RuleMavenWeb.GameLive.Form do
 
                     <div style="overflow:auto;padding:2rem clamp(1.5rem,8vw,8rem)">
                       <%= if @reader_mode == "paginated" do %>
-                        <%= case Enum.at(pages, cur) do %>
-                          <% {label, body} -> %>
-                            <div style={page_head}>— {label} —</div>
-                            <div style={page_font}>{body}</div>
-                          <% nil -> %>
-                            <p style="color:var(--text-muted)">No pages.</p>
+                        <%= if cur_page do %>
+                          <div style={page_head}>— {page_label.(cur_page)} —</div>
+                          <div style={page_font}>{cur_page.body}</div>
+                        <% else %>
+                          <p style="color:var(--text-muted)">No pages.</p>
                         <% end %>
                       <% else %>
-                        <%= for {label, body} <- pages do %>
-                          <div style={page_head}>— {label} —</div>
-                          <div style={page_font}>{body}</div>
+                        <%= for p <- pages do %>
+                          <div style={page_head}>— {page_label.(p)} —</div>
+                          <div style={page_font}>{p.body}</div>
                         <% end %>
                       <% end %>
                     </div>
