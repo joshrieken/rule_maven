@@ -54,7 +54,9 @@ defmodule RuleMavenWeb.GameLive.Form do
         parent_query: "",
         parent_results: [],
         parent_selected_id: nil,
-        parent_selected_name: nil
+        parent_selected_name: nil,
+        cleaning: %{},
+        expanded_source_id: nil
       )
       |> allow_upload(:rulebook_pdfs,
         accept: ["application/pdf", ".pdf"],
@@ -318,6 +320,29 @@ defmodule RuleMavenWeb.GameLive.Form do
     socket = assign(socket, regenerating_categories: true)
     send(self(), {:refresh_categories, game})
     {:noreply, socket}
+  end
+
+  # LLM cleanup of one rulebook source's extracted text. Runs async, cleans
+  # page-by-page (preserving the \f page separators), then drops the result
+  # back into the textarea for the user to review before saving.
+  def handle_event("cleanup_source", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    entry = Enum.find(socket.assigns.source_entries, &(&1.id == id))
+
+    if entry && String.trim(entry.text) != "" do
+      send(self(), {:cleanup_source, id})
+      {:noreply, assign(socket, cleaning: Map.put(socket.assigns.cleaning, id, {0, 0}))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("expand_source", %{"id" => id}, socket) do
+    {:noreply, assign(socket, expanded_source_id: String.to_integer(id))}
+  end
+
+  def handle_event("close_source", _params, socket) do
+    {:noreply, assign(socket, expanded_source_id: nil)}
   end
 
   def handle_event("save_categories", _params, socket) do
@@ -932,6 +957,57 @@ defmodule RuleMavenWeb.GameLive.Form do
   @impl true
   def handle_info({:categories_ready, cats}, socket) do
     {:noreply, assign(socket, draft_categories: cats, regenerating_categories: false)}
+  end
+
+  @impl true
+  def handle_info({:cleanup_source, id}, socket) do
+    parent = self()
+    entry = Enum.find(socket.assigns.source_entries, &(&1.id == id))
+
+    if entry do
+      Task.start(fn ->
+        # Clean each page independently so the \f page separators (and thus the
+        # page numbers derived from them at chunk time) survive untouched.
+        pages = String.split(entry.text, "\f")
+        total = length(pages)
+
+        cleaned_pages =
+          pages
+          |> Enum.with_index(1)
+          |> Enum.map(fn {page, idx} ->
+            cleaned =
+              case RuleMaven.LLM.cleanup_page(page) do
+                {:ok, text} -> text
+                {:error, _} -> page
+              end
+
+            send(parent, {:cleanup_progress, id, idx, total})
+            cleaned
+          end)
+
+        send(parent, {:cleanup_done, id, Enum.join(cleaned_pages, "\f")})
+      end)
+    end
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:cleanup_progress, id, done, total}, socket) do
+    {:noreply, assign(socket, cleaning: Map.put(socket.assigns.cleaning, id, {done, total}))}
+  end
+
+  @impl true
+  def handle_info({:cleanup_done, id, cleaned}, socket) do
+    entries =
+      Enum.map(socket.assigns.source_entries, fn e ->
+        if e.id == id, do: %{e | text: cleaned}, else: e
+      end)
+
+    {:noreply,
+     socket
+     |> assign(source_entries: entries, cleaning: Map.delete(socket.assigns.cleaning, id))
+     |> put_flash(:info, "Cleaned up the rulebook text — review it and Save to apply.")}
   end
 
   @impl true
@@ -1777,7 +1853,7 @@ defmodule RuleMavenWeb.GameLive.Form do
               <h2 class="text-lg font-semibold">Rulebook Sources</h2>
               <%= for entry <- @source_entries do %>
                 <div class="border rounded p-4">
-                  <div class="flex gap-2 items-start">
+                  <div class="flex gap-2 items-end mb-2">
                     <div class="flex-1">
                       <label class="block text-sm font-medium mb-1">Label</label>
                       <input
@@ -1788,16 +1864,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                         class="w-full border rounded px-3 py-2"
                       />
                     </div>
-                    <div class="flex-1">
-                      <label class="block text-sm font-medium mb-1">Text</label>
-                      <textarea
-                        name={"text_#{entry.id}"}
-                        rows="8"
-                        class="w-full border rounded px-3 py-2 font-mono text-xs"
-                        placeholder="Paste rulebook text here..."
-                      ><%= entry.text %></textarea>
-                    </div>
-                    <div class="flex flex-col gap-1">
+                    <div class="flex gap-1 items-center">
                       <button
                         :if={length(@source_entries) > 1}
                         type="button"
@@ -1810,26 +1877,56 @@ defmodule RuleMavenWeb.GameLive.Form do
                         type="button"
                         phx-click="delete_source"
                         phx-value-source_id={entry.source_id}
-                        style="color:var(--red);background:none;border:none;font-size:0.75rem;cursor:pointer;white-space:nowrap;margin-top:0.25rem"
+                        style="color:var(--red);background:none;border:none;font-size:0.75rem;cursor:pointer;white-space:nowrap"
                       >Delete</button>
                       <%= if entry[:source_id] && @confirm_delete_source_id == entry.source_id do %>
-                        <span style="font-size:0.65rem;color:var(--red);margin-top:0.25rem">Sure?</span>
+                        <span style="font-size:0.65rem;color:var(--red)">Sure?</span>
                         <button
                           type="button"
                           phx-click="confirm_delete_source"
                           phx-value-source_id={entry.source_id}
-                          style="color:#fff;background:var(--red);border:none;font-size:0.6rem;cursor:pointer;padding:0.1rem 0.3rem;border-radius:0.2rem;margin-top:0.25rem"
+                          style="color:#fff;background:var(--red);border:none;font-size:0.6rem;cursor:pointer;padding:0.1rem 0.3rem;border-radius:0.2rem"
                         >Yes</button>
                         <button
                           type="button"
                           phx-click="cancel_delete_source"
-                          style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer;margin-top:0.25rem"
+                          style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
                         >No</button>
                       <% end %>
                     </div>
                   </div>
-                  <%= if entry[:pdf_path] do %>
-                    <div class="mt-2 flex gap-3">
+
+                  <label class="block text-sm font-medium mb-1">Text</label>
+                  <textarea
+                    name={"text_#{entry.id}"}
+                    rows="20"
+                    class="w-full border rounded px-3 py-2 font-mono text-sm"
+                    style="resize:vertical;line-height:1.5"
+                    placeholder="Paste rulebook text here..."
+                  ><%= entry.text %></textarea>
+
+                  <div class="mt-2 flex gap-3 items-center flex-wrap">
+                    <button
+                      type="button"
+                      phx-click="cleanup_source"
+                      phx-value-id={entry.id}
+                      disabled={@cleaning[entry.id] != nil || String.trim(entry.text) == ""}
+                      style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                    >
+                      <%= case @cleaning[entry.id] do %>
+                        <% nil -> %>✨ Clean up text
+                        <% {0, 0} -> %>Cleaning…
+                        <% {d, t} -> %>Cleaning {d}/{t}…
+                      <% end %>
+                    </button>
+                    <button
+                      type="button"
+                      phx-click="expand_source"
+                      phx-value-id={entry.id}
+                      disabled={String.trim(entry.text) == ""}
+                      style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                    >⤢ Expand reader</button>
+                    <%= if entry[:pdf_path] do %>
                       <.link
                         href={"/#{entry.pdf_path}"}
                         target="_blank"
@@ -1842,12 +1939,47 @@ defmodule RuleMavenWeb.GameLive.Form do
                           class="text-green-600 hover:underline text-xs"
                         >View as HTML</.link>
                       <% end %>
-                    </div>
-                  <% end %>
+                    <% end %>
+                  </div>
                 </div>
               <% end %>
               <button type="button" phx-click="add_source" class="btn-add-source">+ Add manual rules entry</button>
             </div>
+
+            <%!-- Rulebook reader modal: roomy, page-separated, read-only view of
+                 the in-memory source text (so a just-cleaned, unsaved result shows). --%>
+            <%= if @expanded_source_id != nil do %>
+              <% reader = Enum.find(@source_entries, &(&1.id == @expanded_source_id)) %>
+              <%= if reader do %>
+                <div style="position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;padding:1.5rem">
+                  <div
+                    phx-click-away="close_source"
+                    phx-window-keydown="close_source"
+                    phx-key="Escape"
+                    style="background:var(--bg);border-radius:0.6rem;max-width:52rem;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,0.4)"
+                  >
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1.1rem;border-bottom:1px solid var(--border)">
+                      <strong style="font-size:0.95rem">
+                        {if String.trim(reader.label) != "", do: reader.label, else: "Rulebook"}
+                      </strong>
+                      <button
+                        type="button"
+                        phx-click="close_source"
+                        style="font-size:1.1rem;line-height:1;background:none;border:none;cursor:pointer;color:var(--text-muted)"
+                      >✕</button>
+                    </div>
+                    <div style="overflow:auto;padding:1.25rem 1.5rem">
+                      <%= for {page, idx} <- Enum.with_index(String.split(reader.text, "\f"), 1) do %>
+                        <div style="font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:1.25rem 0 0.5rem 0;text-align:center">
+                          — Page {idx} —
+                        </div>
+                        <div style="font-family:Georgia,serif;font-size:1rem;line-height:1.65;white-space:pre-wrap;color:var(--text)">{page}</div>
+                      <% end %>
+                    </div>
+                  </div>
+                </div>
+              <% end %>
+            <% end %>
 
             <%!-- Suggested questions (compact, per-category collapsible) --%>
             <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)">

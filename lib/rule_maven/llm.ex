@@ -122,6 +122,46 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  @cleanup_system """
+  You are a text-cleanup tool for board-game rulebook OCR/PDF extraction.
+  Return the SAME text with extraction artifacts fixed. STRICT RULES:
+  - Do NOT paraphrase, reword, summarize, translate, add, or remove any rules wording.
+  - Only: rejoin words split by a hyphen at a line break, merge mid-sentence line
+    wraps back into paragraphs, collapse runaway whitespace, and drop obvious
+    repeated page-header/footer noise.
+  - KEEP printed page numbers and section numbers exactly as written.
+  - Output ONLY the cleaned text, with no commentary and no code fences.
+  """
+
+  @doc """
+  Cleans a single page of extracted rulebook text via the LLM, fixing
+  OCR/extraction artifacts while preserving the wording verbatim (so the Q&A
+  flow can still quote it). Returns `{:ok, cleaned}` or `{:error, reason}`.
+
+  Empty/whitespace input is returned unchanged. If the model returns an empty
+  result or drops more than half the characters (a likely truncation/refusal),
+  the original page is kept instead.
+  """
+  def cleanup_page(page_text) do
+    if String.trim(page_text) == "" do
+      {:ok, page_text}
+    else
+      case chat(page_text, "cleanup_rulebook", system: @cleanup_system, max_tokens: 4096) do
+        {:ok, cleaned} ->
+          trimmed = String.trim(cleaned)
+
+          if trimmed == "" or String.length(trimmed) < div(String.length(page_text), 2) do
+            {:ok, page_text}
+          else
+            {:ok, cleaned}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
   @doc """
   Sends a generic chat prompt to the LLM. Returns `{:ok, raw_text}` or `{:error, reason}`.
   Options: :max_tokens (default 2048), :system (system prompt string)
