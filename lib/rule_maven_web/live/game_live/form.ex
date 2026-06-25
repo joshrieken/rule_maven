@@ -56,7 +56,9 @@ defmodule RuleMavenWeb.GameLive.Form do
         parent_selected_id: nil,
         parent_selected_name: nil,
         cleaning: %{},
-        expanded_source_id: nil
+        expanded_source_id: nil,
+        reader_mode: "scroll",
+        reader_page: 0
       )
       |> allow_upload(:rulebook_pdfs,
         accept: ["application/pdf", ".pdf"],
@@ -338,11 +340,23 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   def handle_event("expand_source", %{"id" => id}, socket) do
-    {:noreply, assign(socket, expanded_source_id: String.to_integer(id))}
+    {:noreply, assign(socket, expanded_source_id: String.to_integer(id), reader_page: 0)}
   end
 
   def handle_event("close_source", _params, socket) do
     {:noreply, assign(socket, expanded_source_id: nil)}
+  end
+
+  def handle_event("set_reader_mode", %{"mode" => mode}, socket) when mode in ~w(scroll paginated) do
+    {:noreply, assign(socket, reader_mode: mode)}
+  end
+
+  def handle_event("set_reader_page", %{"page" => page}, socket) do
+    {:noreply, assign(socket, reader_page: String.to_integer(page))}
+  end
+
+  def handle_event("reader_page_step", %{"delta" => delta}, socket) do
+    {:noreply, assign(socket, reader_page: socket.assigns.reader_page + String.to_integer(delta))}
   end
 
   def handle_event("save_categories", _params, socket) do
@@ -2082,6 +2096,26 @@ defmodule RuleMavenWeb.GameLive.Form do
             <%= if @expanded_source_id != nil do %>
               <% reader = Enum.find(@source_entries, &(&1.id == @expanded_source_id)) %>
               <%= if reader do %>
+                <% pages =
+                  reader.text
+                  |> String.split("\f")
+                  |> Enum.with_index(1)
+                  |> Enum.map(fn {page, idx} ->
+                    case Games.split_page_marker(page) do
+                      {kind, num, rest} -> {"#{kind} #{num}", rest}
+                      nil -> {"Page #{idx}", page}
+                    end
+                  end)
+                  |> Enum.filter(fn {_label, body} -> String.trim(body) != "" end) %>
+                <% page_count = length(pages) %>
+                <% cur = @reader_page |> max(0) |> min(max(page_count - 1, 0)) %>
+                <% page_font =
+                  "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.9rem;line-height:1.6;white-space:pre-wrap;color:var(--text)" %>
+                <% page_head =
+                  "font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:1.5rem 0 0.6rem 0;text-align:center" %>
+                <% tab_style = fn active ->
+                  "font-size:0.72rem;padding:0.2rem 0.7rem;border-radius:0.3rem;cursor:pointer;border:1px solid var(--border);background:#{if active, do: "var(--accent)", else: "var(--bg-subtle)"};color:#{if active, do: "white", else: "var(--text-secondary)"}"
+                end %>
                 <div style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:stretch;justify-content:center;padding:1.5rem">
                   <div
                     phx-click-away="close_source"
@@ -2089,28 +2123,65 @@ defmodule RuleMavenWeb.GameLive.Form do
                     phx-key="Escape"
                     style="background:var(--bg);border-radius:0.6rem;width:100%;height:100%;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,0.4)"
                   >
-                    <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1.1rem;border-bottom:1px solid var(--border)">
-                      <strong style="font-size:0.95rem">
+                    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1.1rem;border-bottom:1px solid var(--border)">
+                      <strong style="font-size:0.95rem;flex-shrink:0">
                         {if String.trim(reader.label) != "", do: reader.label, else: "Rulebook"}
                       </strong>
+                      <div style="display:flex;gap:0.35rem;margin-left:0.5rem">
+                        <button type="button" phx-click="set_reader_mode" phx-value-mode="scroll" style={tab_style.(@reader_mode == "scroll")}>Scroll</button>
+                        <button type="button" phx-click="set_reader_mode" phx-value-mode="paginated" style={tab_style.(@reader_mode == "paginated")}>Paginated</button>
+                      </div>
+
+                      <%= if @reader_mode == "paginated" and page_count > 0 do %>
+                        <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto">
+                          <button
+                            type="button"
+                            phx-click="reader_page_step"
+                            phx-value-delta="-1"
+                            disabled={cur <= 0}
+                            style="font-size:0.85rem;padding:0.15rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                          >‹</button>
+                          <form phx-change="set_reader_page" style="margin:0">
+                            <select
+                              name="page"
+                              style="border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.4rem;font-size:0.72rem;background:var(--bg);color:var(--text)"
+                            >
+                              <%= for {{label, _body}, i} <- Enum.with_index(pages) do %>
+                                <option value={i} selected={i == cur}>{label}</option>
+                              <% end %>
+                            </select>
+                          </form>
+                          <button
+                            type="button"
+                            phx-click="reader_page_step"
+                            phx-value-delta="1"
+                            disabled={cur >= page_count - 1}
+                            style="font-size:0.85rem;padding:0.15rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                          >›</button>
+                          <span style="font-size:0.68rem;color:var(--text-muted);white-space:nowrap">{cur + 1} / {page_count}</span>
+                        </div>
+                      <% end %>
+
                       <button
                         type="button"
                         phx-click="close_source"
-                        style="font-size:1.1rem;line-height:1;background:none;border:none;cursor:pointer;color:var(--text-muted)"
+                        style={"font-size:1.1rem;line-height:1;background:none;border:none;cursor:pointer;color:var(--text-muted)#{if @reader_mode == "paginated", do: ";margin-left:0.5rem", else: ";margin-left:auto"}"}
                       >✕</button>
                     </div>
+
                     <div style="overflow:auto;padding:2rem clamp(1.5rem,8vw,8rem)">
-                      <%= for {page, idx} <- Enum.with_index(String.split(reader.text, "\f"), 1) do %>
-                        <% {label, body} =
-                          case Games.split_page_marker(page) do
-                            {kind, num, rest} -> {"#{kind} #{num}", rest}
-                            nil -> {"Page #{idx}", page}
-                          end %>
-                        <%= if String.trim(body) != "" do %>
-                          <div style="font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:1.5rem 0 0.6rem 0;text-align:center">
-                            — {label} —
-                          </div>
-                          <div style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.9rem;line-height:1.6;white-space:pre-wrap;color:var(--text)">{body}</div>
+                      <%= if @reader_mode == "paginated" do %>
+                        <%= case Enum.at(pages, cur) do %>
+                          <% {label, body} -> %>
+                            <div style={page_head}>— {label} —</div>
+                            <div style={page_font}>{body}</div>
+                          <% nil -> %>
+                            <p style="color:var(--text-muted)">No pages.</p>
+                        <% end %>
+                      <% else %>
+                        <%= for {label, body} <- pages do %>
+                          <div style={page_head}>— {label} —</div>
+                          <div style={page_font}>{body}</div>
                         <% end %>
                       <% end %>
                     </div>
