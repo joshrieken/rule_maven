@@ -2082,12 +2082,12 @@ defmodule RuleMavenWeb.GameLive.Form do
             <%= if @expanded_source_id != nil do %>
               <% reader = Enum.find(@source_entries, &(&1.id == @expanded_source_id)) %>
               <%= if reader do %>
-                <div style="position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;padding:1.5rem">
+                <div style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:stretch;justify-content:center;padding:1.5rem">
                   <div
                     phx-click-away="close_source"
                     phx-window-keydown="close_source"
                     phx-key="Escape"
-                    style="background:var(--bg);border-radius:0.6rem;max-width:52rem;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,0.4)"
+                    style="background:var(--bg);border-radius:0.6rem;width:100%;height:100%;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,0.4)"
                   >
                     <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1.1rem;border-bottom:1px solid var(--border)">
                       <strong style="font-size:0.95rem">
@@ -2099,7 +2099,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                         style="font-size:1.1rem;line-height:1;background:none;border:none;cursor:pointer;color:var(--text-muted)"
                       >✕</button>
                     </div>
-                    <div style="overflow:auto;padding:1.25rem 1.5rem">
+                    <div style="overflow:auto;padding:2rem clamp(1.5rem,8vw,8rem)">
                       <%= for {page, idx} <- Enum.with_index(String.split(reader.text, "\f"), 1) do %>
                         <% {label, body} =
                           case Games.split_page_marker(page) do
@@ -2107,10 +2107,10 @@ defmodule RuleMavenWeb.GameLive.Form do
                             nil -> {"Page #{idx}", page}
                           end %>
                         <%= if String.trim(body) != "" do %>
-                          <div style="font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:1.25rem 0 0.5rem 0;text-align:center">
+                          <div style="font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:1.5rem 0 0.6rem 0;text-align:center">
                             — {label} —
                           </div>
-                          <div style="font-family:Georgia,serif;font-size:1rem;line-height:1.65;white-space:pre-wrap;color:var(--text)">{body}</div>
+                          <div style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.9rem;line-height:1.6;white-space:pre-wrap;color:var(--text)">{body}</div>
                         <% end %>
                       <% end %>
                     </div>
