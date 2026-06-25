@@ -8,6 +8,7 @@ defmodule RuleMaven.Games do
 
   alias RuleMaven.Games.Game
   alias RuleMaven.Games.QuestionLog
+  alias RuleMaven.Games.QuestionVote
   alias RuleMaven.Games.Document
   alias RuleMaven.Games.Chunk
   alias Oban
@@ -382,8 +383,8 @@ defmodule RuleMaven.Games do
   Returns community-visible FAQ-approved questions for a game.
   Excludes questions by the given user_id when specified.
   """
-  def community_questions(%Game{} = game, exclude_user_id \\ nil) do
-    query =
+  def community_questions(%Game{} = game, _exclude_user_id \\ nil) do
+    Repo.all(
       from q in QuestionLog,
         where: q.game_id == ^game.id,
         where: q.visibility == "community",
@@ -391,15 +392,7 @@ defmodule RuleMaven.Games do
         where: q.refused == false,
         order_by: [desc: q.inserted_at],
         limit: 50
-
-    query =
-      if exclude_user_id do
-        from q in query, where: q.user_id != ^exclude_user_id
-      else
-        query
-      end
-
-    Repo.all(query)
+    )
   end
 
   @doc """
@@ -794,5 +787,53 @@ defmodule RuleMaven.Games do
 
       initial_chunks ++ extra
     end
+  end
+
+  def get_user_community_vote(question_log_id, user_id) do
+    Repo.get_by(QuestionVote, question_log_id: question_log_id, user_id: user_id)
+  end
+
+  def set_community_vote(question_log_id, user_id, value) do
+    existing = get_user_community_vote(question_log_id, user_id)
+
+    cond do
+      existing && existing.value == value ->
+        Repo.delete(existing)
+        nil
+
+      existing ->
+        existing
+        |> QuestionVote.changeset(%{value: value})
+        |> Repo.update!()
+        value
+
+      true ->
+        %QuestionVote{}
+        |> QuestionVote.changeset(%{question_log_id: question_log_id, user_id: user_id, value: value})
+        |> Repo.insert!()
+        value
+    end
+  end
+
+  def community_vote_maps(question_log_ids, user_id) do
+    votes =
+      Repo.all(
+        from v in QuestionVote,
+          where: v.question_log_id in ^question_log_ids
+      )
+
+    counts =
+      Enum.reduce(votes, %{}, fn v, acc ->
+        acc
+        |> Map.update(v.question_log_id, %{up: 0, down: 0}, & &1)
+        |> update_in([v.question_log_id, String.to_atom(v.value)], &(&1 + 1))
+      end)
+
+    user_votes =
+      votes
+      |> Enum.filter(&(&1.user_id == user_id))
+      |> Map.new(&{&1.question_log_id, &1.value})
+
+    {counts, user_votes}
   end
 end

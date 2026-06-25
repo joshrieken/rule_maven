@@ -2,7 +2,11 @@ defmodule RuleMavenWeb.SessionController do
   use RuleMavenWeb, :controller
 
   def new(conn, _params) do
-    render(conn, :new, username: "", error: nil)
+    if conn.assigns[:current_user] do
+      redirect(conn, to: ~p"/")
+    else
+      render(conn, :new, username: "", error: nil)
+    end
   end
 
   def create(conn, %{"session" => %{"username" => username, "password" => password}}) do

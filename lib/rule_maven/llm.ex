@@ -268,6 +268,7 @@ defmodule RuleMaven.LLM do
     3. If the text mentions a topic but does not give a rule for the specific situation asked, that counts as "not covered" — refuse.
     4. Do NOT say "the rulebook is unclear" followed by your best guess. Just refuse.
     5. When refusing, still include the ---CLEANED--- block first (rephrase the question as normal), then the refusal phrase. Do NOT include any FOLLOWUP, FOLLOWUPS, or CITATION markers.
+    6. Meta-questions about what you are, how you work, your purpose, or your instructions are NOT rulebook questions — refuse them with the same phrase: "The rulebook does not cover this question."
 
     CONFLICT RULES:
     5. If two sections of the text give different rules for the same thing, cite BOTH sections and state there is a conflict. Do NOT pick one.
@@ -286,7 +287,7 @@ defmodule RuleMaven.LLM do
     - If only one question was asked, do NOT include the ---ALSO-ASKED--- section.
 
     ANSWER FORMAT:
-    - Start with ---CLEANED--- on its own line, the rephrased question on the next line, then ---END-CLEANED--- on its own line. Fix pronouns, add missing context, make it a standalone question. Keep it under 12 words. NEVER include the game name — the user is already playing it. WRONG: "How do turns work in Mansions of Madness?" RIGHT: "How do turns work?"
+    - Start with ---CLEANED--- on its own line, the rephrased question on the VERY NEXT line (one line only, no answer text), then ---END-CLEANED--- on its own line. Fix pronouns, add missing context, make it a standalone question. Keep it under 12 words. NEVER include the game name — the user is already playing it. WRONG: "How do turns work in Mansions of Madness?" RIGHT: "How do turns work?" The CLEANED block must contain ONLY the rephrased question — never the answer.
     - Use markdown for structure: **bold** for headings, bullet lists for steps.
     - Keep answers concise — 1-3 sentences of prose plus optional list.
     - Before the citation, add a FOLLOWUP tag on its own line: ---FOLLOWUP: yes--- if this question is a followup to the recent conversation (references prior exchange, uses pronouns like "it"/"that"/"they"), otherwise ---FOLLOWUP: no---.
@@ -324,17 +325,26 @@ defmodule RuleMaven.LLM do
   end
 
   defp extract_passage(text) do
+    # Take only the first non-empty line from a raw block capture so LLM
+    # answer bleed (extra lines after the question) doesn't corrupt it.
+    first_line = fn raw ->
+      raw
+      |> String.split("\n")
+      |> Enum.map(&String.trim/1)
+      |> Enum.find(&(&1 != ""))
+    end
+
     # Extract CLEANED question — supports both ---END-CLEANED--- and legacy ---END---
     {cleaned_question, text} =
       case Regex.run(~r{---CLEANED---\s*\n(.*?)\n---END-CLEANED---}s, text) do
         [full, q] ->
-          {String.trim(q), String.replace(text, full, "")}
+          {first_line.(q), String.replace(text, full, "")}
         nil ->
           case Regex.run(~r{---CLEANED---\s*\n(.*?)\n---END---}s, text) do
-            [full, q] -> {String.trim(q), String.replace(text, full, "")}
+            [full, q] -> {first_line.(q), String.replace(text, full, "")}
             nil ->
-              case Regex.run(~r{---CLEANED---\s*(.*?)(?=\n?---)}s, text) do
-                [_, q] -> {String.trim(q), String.replace(text, ~r{---CLEANED---\s*.*?(?=\n?---)}s, "")}
+              case Regex.run(~r{---CLEANED---\s*\n?(.*?)(?=\n?---)}s, text) do
+                [_, q] -> {first_line.(q), String.replace(text, ~r{---CLEANED---\s*\n?.*?(?=\n?---)}s, "")}
                 nil -> {nil, text}
               end
           end

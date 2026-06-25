@@ -20,6 +20,8 @@ defmodule RuleMaven.Games.QuestionLog do
     field :blocked, :boolean, default: false
     field :cleaned_question, :string
     field :raw_response, :string
+    field :canonical_question, :string
+    field :canonical_answer, :string
     belongs_to :game, RuleMaven.Games.Game
     belongs_to :user, RuleMaven.Users.User
     belongs_to :document, RuleMaven.Games.Document
@@ -52,6 +54,8 @@ defmodule RuleMaven.Games.QuestionLog do
       :blocked,
       :cleaned_question,
       :raw_response,
+      :canonical_question,
+      :canonical_answer,
       :favorited
     ])
     |> validate_required([:question, :answer, :game_id])

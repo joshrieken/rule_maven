@@ -87,6 +87,18 @@ defmodule RuleMaven.Workers.AskWorker do
             |> String.trim()
             |> strip_game_name(game.name)
 
+          # Sanity check: cleaned must be shorter than the answer and
+          # not exceed a reasonable question length, else the LLM put
+          # answer content in the CLEANED block — discard it.
+          cleaned =
+            if cleaned != "" and
+                 String.length(cleaned) <= 250 and
+                 String.length(cleaned) <= String.length(answer) * 2 do
+              cleaned
+            else
+              ""
+            end
+
           update_attrs = %{
             answer: answer,
             question: if(cleaned != "", do: cleaned, else: question),

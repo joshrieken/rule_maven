@@ -24,11 +24,13 @@ defmodule RuleMavenWeb.GameLive.Show do
        suggestions: [],
        suggestions_open: true,
        sidebar_open: false,
+       show_refused: false,
+       community_vote_counts: %{},
+       community_user_votes: %{},
        included_expansions: %{},
        visibility: "private",
        search_query: "",
        community_questions: [],
-       active_community_question: nil,
        community_count: 0,
        refresh: 0,
        show_onboarding: false,
@@ -71,6 +73,8 @@ defmodule RuleMavenWeb.GameLive.Show do
     expansions = Games.expansions_with_documents(game)
     community = Games.community_questions(game, socket.assigns.current_user.id)
     community_count = RuleMaven.Faq.community_count(game)
+    cq_ids = Enum.map(community, & &1.id)
+    {cv_counts, cv_user} = Games.community_vote_maps(cq_ids, socket.assigns.current_user.id)
 
     socket =
       assign(socket,
@@ -86,8 +90,9 @@ defmodule RuleMavenWeb.GameLive.Show do
         pending_count: pending_count,
         pending: %{},
         community_questions: community,
-        active_community_question: nil,
         community_count: community_count,
+        community_vote_counts: cv_counts,
+        community_user_votes: cv_user,
         show_onboarding: conversation == [] && sources != [] && pending_count == 0
       )
 
@@ -313,36 +318,30 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:noreply, assign(socket, sidebar_open: !socket.assigns.sidebar_open)}
   end
 
+  def handle_event("toggle_refused", _params, socket) do
+    {:noreply, assign(socket, show_refused: !socket.assigns.show_refused)}
+  end
+
+  def handle_event("community_vote", %{"id" => id_str, "vote" => value}, socket) do
+    id = String.to_integer(id_str)
+    uid = socket.assigns.current_user.id
+    Games.set_community_vote(id, uid, value)
+    cq_ids = Enum.map(socket.assigns.community_questions, & &1.id)
+    {cv_counts, cv_user} = Games.community_vote_maps(cq_ids, uid)
+    {:noreply, assign(socket, community_vote_counts: cv_counts, community_user_votes: cv_user)}
+  end
+
   @impl true
   def handle_event("switch_thread", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
 
     {:noreply,
      socket
-     |> assign(active_thread_id: id, sidebar_open: false, active_community_question: nil)
+     |> assign(active_thread_id: id, sidebar_open: false)
      |> push_patch(to: ~p"/games/#{socket.assigns.game.id}?t=#{id}")}
   end
 
   @impl true
-  def handle_event("switch_community", %{"id" => id_str}, socket) do
-    {id, _} = Integer.parse(id_str)
-
-    cq =
-      Enum.find(socket.assigns.community_questions, &(&1.id == id)) ||
-        get_question_log_by_id(id)
-
-    if cq do
-      {:noreply,
-       assign(socket,
-         active_community_question: cq,
-         active_thread_id: nil,
-         sidebar_open: false
-       )}
-    else
-      {:noreply, socket}
-    end
-  end
-
   @impl true
   def handle_event("quick_ask", %{"question" => question}, socket) do
     handle_event("ask", %{"question" => question}, socket)
@@ -500,8 +499,7 @@ defmodule RuleMavenWeb.GameLive.Show do
          threads: threads,
          conversation: [],
          active_thread_id: nil,
-         active_community_question: nil,
-         pending_count: pending_count,
+           pending_count: pending_count,
          show_onboarding: socket.assigns.source_count > 0,
          confirm_delete_id: nil
        )
@@ -775,12 +773,13 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     q = find_question_log(game, id)
 
-    if q && is_nil(q.feedback) do
-      Games.log_question_update(q, %{feedback: value})
+    if q do
+      new_feedback = if q.feedback == value, do: nil, else: value
+      Games.log_question_update(q, %{feedback: new_feedback})
 
       updated =
         Enum.map(socket.assigns.conversation, fn msg ->
-          if msg.id == id, do: Map.put(msg, :feedback, value), else: msg
+          if msg.id == id, do: Map.put(msg, :feedback, new_feedback), else: msg
         end)
 
       {:noreply, assign(socket, conversation: updated)}
@@ -799,6 +798,26 @@ defmodule RuleMavenWeb.GameLive.Show do
     import Ecto.Query
     alias RuleMaven.Games.QuestionLog
     RuleMaven.Repo.one(from q in QuestionLog, where: q.id == ^id)
+  end
+
+  defp group_threads_by_time(threads) do
+    now = DateTime.utc_now()
+    today_start = %{now | hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
+    week_start = DateTime.add(today_start, -6, :day)
+
+    Enum.group_by(threads, fn t ->
+      dt = case t.inserted_at do
+        %DateTime{} = d -> d
+        %NaiveDateTime{} = d -> DateTime.from_naive!(d, "Etc/UTC")
+        _ -> DateTime.add(now, -999, :day)
+      end
+
+      cond do
+        DateTime.compare(dt, today_start) != :lt -> :today
+        DateTime.compare(dt, week_start) != :lt -> :week
+        true -> :older
+      end
+    end)
   end
 
   defp format_relative_time(%DateTime{} = dt) do
@@ -1174,7 +1193,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
           <!-- Community questions -->
           <%= if @community_questions != [] do %>
-            <div style="padding:0.35rem 0.75rem 0.15rem;font-size:0.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase">
+            <div style="padding:0.3rem 0.75rem 0.1rem;font-size:0.6rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">
               Community
             </div>
             <%= for q <- @community_questions do %>
@@ -1182,66 +1201,107 @@ defmodule RuleMavenWeb.GameLive.Show do
                 <button
                   id={"community-#{q.id}"}
                   type="button"
-                  phx-click="switch_community"
+                  phx-click="switch_thread"
                   phx-value-id={q.id}
-                  class={"#{if @active_community_question && @active_community_question.id == q.id, do: "community-active", else: ""}"}
-                  style="text-align:left;background:none;border:none;cursor:pointer;padding:0.35rem 0.75rem;color:var(--text-secondary);font-size:0.78rem;line-height:1.4;border-left:2px solid var(--border-subtle);width:100%"
+                  style={"display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.25rem 0.75rem;color:var(--text-secondary);font-size:0.72rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == q.id, do: "var(--accent)", else: "var(--border-subtle)"};width:100%"}
                   onmouseover="this.style.background='var(--bg-subtle)'"
                   onmouseout="this.style.background='none'"
                 >
-                  <span style="word-break:break-word;white-space:normal;display:block;line-height:1.3;text-align:left">
-                    {q.question}
+                  <span style="word-break:break-word;white-space:normal;display:block;line-height:1.3">
+                    {q.canonical_question || q.question}
                   </span>
                 </button>
               <% end %>
             <% end %>
-            <div style="padding:0.25rem 0.75rem 0.5rem;border-bottom:1px solid var(--border-subtle);margin-bottom:0.25rem">
-            </div>
+            <div style="border-bottom:1px solid var(--border-subtle);margin:0.25rem 0.75rem 0.25rem"></div>
           <% end %>
 
-          <!-- Thread list: all questions, refused deemphasized, newest first -->
-          <%= for t <- @threads do %>
-            <%= if @search_query == "" || String.contains?(String.downcase(t.question), String.downcase(@search_query)) do %>
-              <button
-                id={"thread-#{t.id}"}
-                type="button"
-                phx-click="switch_thread"
-                phx-value-id={t.id}
-                style={"display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.45rem 0.75rem;font-size:#{if t.refused, do: "0.8rem", else: "0.9rem"};line-height:1.45;border-left:2px solid #{if @active_thread_id == t.id, do: "var(--accent)", else: "transparent"};width:100%;color:#{if t.refused, do: "var(--text-muted)", else: "var(--text)"};opacity:#{if t.refused, do: "0.6", else: "1"}"}
-                onmouseover={"this.style.background='var(--bg-subtle)';#{if t.refused, do: "this.style.opacity='0.9'", else: ""}"}
-                onmouseout={"this.style.background='none';#{if t.refused, do: "this.style.opacity='0.6'", else: ""}"}
-              >
-                <% thread_error = !t.pending && is_binary(t.answer) && String.starts_with?(t.answer, "⚠️") %>
-                <div style="display:flex;align-items:baseline;gap:0.25rem">
-                  <%= if t.favorited do %>
-                    <span style="color:#e05c2a;font-size:0.6rem;flex-shrink:0">♥</span>
-                  <% end %>
-                  <%= if t.pending do %>
-                    <span class="animate-pulse" style="color:var(--accent);font-size:0.5rem;flex-shrink:0">●</span>
-                  <% end %>
-                  <%= if thread_error do %>
-                    <span style="color:var(--red, #e53e3e);font-size:0.6rem;flex-shrink:0" title="Failed — click to retry">⚠</span>
-                  <% end %>
-                  <span style="word-break:break-word;white-space:normal">
-                    {t.question}
-                  </span>
-                </div>
-                <%= if t[:refused] do %>
-                  <span style="display:block;font-size:0.65rem;color:var(--text-muted);margin-top:0.1rem;font-style:italic">
-                    Not covered by rulebook
-                  </span>
-                <% else %>
-                  <%= if t.inserted_at do %>
-                    <span style="display:block;font-size:0.65rem;color:var(--text-muted);margin-top:0.1rem;opacity:0.7">
-                      {format_relative_time(t.inserted_at)}
-                    </span>
-                  <% end %>
-                <% end %>
-              </button>
+          <!-- Thread list grouped by time -->
+          <% community_ids = MapSet.new(@community_questions, & &1.id) %>
+          <% answered = Enum.reject(@threads, fn t -> t.refused || MapSet.member?(community_ids, t.id) end) %>
+          <% refused  = Enum.filter(@threads, & &1.refused) %>
+          <% refused_count = length(refused) %>
+          <% groups = group_threads_by_time(answered) %>
+          <% refused_groups = group_threads_by_time(refused) %>
+
+          <%= for {label, key} <- [{"Today", :today}, {"Last 7 Days", :week}, {"Older", :older}] do %>
+            <% items = Map.get(groups, key, []) |> Enum.filter(fn t ->
+                @search_query == "" || String.contains?(String.downcase(t.question), String.downcase(@search_query))
+               end) %>
+            <%= if items != [] do %>
+              <div style="padding:0.3rem 0.75rem 0.1rem;font-size:0.6rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">
+                {label}
+              </div>
+              <%= for t <- items do %>
+                <button
+                  id={"thread-#{t.id}"}
+                  type="button"
+                  phx-click="switch_thread"
+                  phx-value-id={t.id}
+                  style={"display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.22rem 0.75rem;font-size:0.73rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == t.id, do: "var(--accent)", else: "transparent"};width:100%;color:var(--text)"}
+                  onmouseover="this.style.background='var(--bg-subtle)'"
+                  onmouseout="this.style.background='none'"
+                >
+                  <div style="display:flex;align-items:baseline;gap:0.2rem">
+                    <%= if t.favorited do %>
+                      <span style="color:#e05c2a;font-size:0.55rem;flex-shrink:0">♥</span>
+                    <% end %>
+                    <%= if t.pending do %>
+                      <span class="animate-pulse" style="color:var(--accent);font-size:0.45rem;flex-shrink:0">●</span>
+                    <% end %>
+                    <%= if !t.pending && is_binary(t.answer) && String.starts_with?(t.answer, "⚠️") do %>
+                      <span style="color:var(--red,#e53e3e);font-size:0.55rem;flex-shrink:0" title="Failed">⚠</span>
+                    <% end %>
+                    <span style="word-break:break-word;white-space:normal">{t.question}</span>
+                  </div>
+                </button>
+              <% end %>
             <% end %>
           <% end %>
-          <%= if @search_query != "" && Enum.all?(@threads, fn t -> not String.contains?(String.downcase(t.question), String.downcase(@search_query)) end) && Enum.all?(@community_questions, fn q -> not String.contains?(String.downcase(q.question), String.downcase(@search_query)) end) do %>
-            <div style="padding:0.5rem 0.75rem;color:var(--text-muted);font-size:0.78rem;font-style:italic">
+
+          <!-- Refused toggle -->
+          <%= if refused_count > 0 do %>
+            <div style="padding:0.4rem 0.75rem 0.2rem">
+              <button
+                type="button"
+                phx-click="toggle_refused"
+                style="background:none;border:none;padding:0;cursor:pointer;font-size:0.6rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;display:flex;align-items:center;gap:0.25rem"
+              >
+                <span>{if @show_refused, do: "▾", else: "▸"}</span>
+                Not Covered ({refused_count})
+              </button>
+            </div>
+            <%= if @show_refused do %>
+              <%= for {label, key} <- [{"Today", :today}, {"Last 7 Days", :week}, {"Older", :older}] do %>
+                <% ritems = Map.get(refused_groups, key, []) |> Enum.filter(fn t ->
+                    @search_query == "" || String.contains?(String.downcase(t.question), String.downcase(@search_query))
+                   end) %>
+                <%= if ritems != [] do %>
+                  <div style="padding:0.2rem 0.75rem 0.05rem 1.1rem;font-size:0.58rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;opacity:0.7">
+                    {label}
+                  </div>
+                  <%= for t <- ritems do %>
+                    <button
+                      id={"thread-#{t.id}"}
+                      type="button"
+                      phx-click="switch_thread"
+                      phx-value-id={t.id}
+                      style={"display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.22rem 0.75rem 0.22rem 1.1rem;font-size:0.73rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == t.id, do: "var(--accent)", else: "transparent"};width:100%;color:var(--text-muted);opacity:0.6"}
+                      onmouseover="this.style.opacity='0.9';this.style.background='var(--bg-subtle)'"
+                      onmouseout="this.style.opacity='0.6';this.style.background='none'"
+                    >
+                      <span style="word-break:break-word;white-space:normal">{t.question}</span>
+                    </button>
+                  <% end %>
+                <% end %>
+              <% end %>
+            <% end %>
+          <% end %>
+
+          <%= if @search_query != "" &&
+               Enum.all?(@threads, fn t -> @search_query == "" || not String.contains?(String.downcase(t.question), String.downcase(@search_query)) end) &&
+               Enum.all?(@community_questions, fn q -> @search_query == "" || not String.contains?(String.downcase(q.question), String.downcase(@search_query)) end) do %>
+            <div style="padding:0.5rem 0.75rem;color:var(--text-muted);font-size:0.72rem;font-style:italic">
               No matching questions
             </div>
           <% end %>
@@ -1253,41 +1313,6 @@ defmodule RuleMavenWeb.GameLive.Show do
           </div>
         </div>
 
-        <!-- Community Q view (read-only) -->
-        <%= if @active_community_question do %>
-          <div style="flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:1rem;background:var(--bg);max-width:48rem;margin:0 auto;width:100%;min-width:0">
-            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem">
-              <span style="font-size:0.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">Community Q&amp;A</span>
-              <span style="font-size:0.65rem;color:var(--text-muted)">— read-only</span>
-            </div>
-            <div style="background:var(--bg-subtle);border-radius:0.5rem;padding:0.75rem 1rem;color:var(--text)">
-              <div style="font-size:0.78rem;font-weight:600;margin-bottom:0.1rem;color:var(--text-muted)">Question</div>
-              <div style="font-size:0.95rem">{@active_community_question.question}</div>
-            </div>
-            <div style="background:var(--bg);border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem 1rem;color:var(--text)">
-              <div style="font-size:0.78rem;font-weight:600;margin-bottom:0.5rem;color:var(--text-muted)">Answer</div>
-              <div style="font-size:0.9rem;line-height:1.6;white-space:pre-wrap">{@active_community_question.answer}</div>
-              <%= if @active_community_question.cited_passage do %>
-                <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border-subtle);font-size:0.78rem;color:var(--text-muted)">
-                  <div style="font-weight:600;margin-bottom:0.25rem">Source
-                    <%= if @active_community_question.cited_page do %>
-                      — p. {@active_community_question.cited_page}
-                    <% end %>
-                  </div>
-                  <div style="font-style:italic;line-height:1.4">{@active_community_question.cited_passage}</div>
-                </div>
-              <% end %>
-            </div>
-            <div style="margin-top:0.25rem">
-              <button
-                type="button"
-                phx-click="ask_suggestion"
-                phx-value-q={@active_community_question.question}
-                style="font-size:0.8rem;color:var(--accent);background:none;border:1px solid var(--accent);border-radius:0.3rem;padding:0.3rem 0.65rem;cursor:pointer"
-              >Ask this yourself</button>
-            </div>
-          </div>
-        <% else %>
         <!-- Messages -->
         <div
           id="chat-messages"
@@ -1565,55 +1590,78 @@ defmodule RuleMavenWeb.GameLive.Show do
                   💬 Community answer &mdash; from question pool
                 </div>
 
-                <!-- Thumbs up/down (LLM answers only) -->
-                <div
-                  :if={
-                    msg.role == :assistant && !msg[:pool_hit] && !msg[:refused] &&
-                      msg.content != "Thinking..." && !msg[:pending] &&
-                      not String.starts_with?(msg.content, "⚠️")
-                  }
-                  style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center"
-                >
-                  <% q_text = find_question_for_answer(@conversation, msg) %>
-                  <% plain_text = strip_markdown(msg.content) %>
+              </div>
+
+              <!-- Answer actions (copy + vote) -->
+              <% is_community_msg = MapSet.member?(MapSet.new(@community_questions, & &1.id), msg[:id]) %>
+              <div
+                :if={
+                  msg.role == :assistant && !msg[:refused] &&
+                    msg.content != "Thinking..." && !msg[:pending] &&
+                    not String.starts_with?(msg.content, "⚠️")
+                }
+                style="display:flex;gap:0.5rem;align-items:center;padding:0.25rem 0.25rem 0"
+              >
+                <% q_text = find_question_for_answer(@conversation, msg) %>
+                <% plain_text = strip_markdown(msg.content) %>
+                <button
+                  type="button"
+                  id={"copy-btn-#{idx}"}
+                  phx-hook="ClipboardCopy"
+                  data-clipboard-text={"Q: #{q_text}\n\nA: #{plain_text}"}
+                  style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
+                  title="Copy as plain text"
+                >Text</button>
+                <button
+                  type="button"
+                  id={"copy-md-btn-#{idx}"}
+                  phx-hook="ClipboardCopy"
+                  data-clipboard-text={msg.content}
+                  style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
+                  title="Copy as markdown"
+                >MD</button>
+
+                <!-- Community vote buttons -->
+                <%= if is_community_msg do %>
+                  <% cv = Map.get(@community_user_votes, msg[:id]) %>
+                  <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
                   <button
                     type="button"
-                    id={"copy-btn-#{idx}"}
-                    phx-hook="ClipboardCopy"
-                    data-clipboard-text={"Q: #{q_text}\n\nA: #{plain_text}"}
-                    style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
-                    title="Copy as plain text"
-                  >Text</button>
+                    phx-click="community_vote"
+                    phx-value-id={msg[:id]}
+                    phx-value-vote="up"
+                    style={"background:none;border:none;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
+                    title={if cv == "up", do: "Remove vote", else: "Helpful"}
+                  >👍</button>
+                  <span :if={Map.get(counts, :up, 0) > 0} style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem">{counts[:up]}</span>
                   <button
                     type="button"
-                    id={"copy-md-btn-#{idx}"}
-                    phx-hook="ClipboardCopy"
-                    data-clipboard-text={msg.content}
-                    style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
-                    title="Copy as markdown"
-                  >MD</button>
+                    phx-click="community_vote"
+                    phx-value-id={msg[:id]}
+                    phx-value-vote="down"
+                    style={"background:none;border:none;font-size:1rem;cursor:pointer;opacity:#{if cv == "down", do: "1", else: "0.4"}"}
+                    title={if cv == "down", do: "Remove vote", else: "Not helpful"}
+                  >👎</button>
+                  <span :if={Map.get(counts, :down, 0) > 0} style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem">{counts[:down]}</span>
+                <% else %>
+                  <!-- LLM feedback (own questions only) -->
                   <button
-                    :if={msg[:feedback] != "down"}
+                    :if={!msg[:pool_hit]}
                     type="button"
                     phx-click="thumbs_up"
                     phx-value-id={msg.id}
-                    disabled={msg[:feedback] != nil}
-                    style="background:none;border:none;font-size:1rem;cursor:pointer;opacity:0.5"
-                    title="Helpful"
+                    style={"background:none;border:none;font-size:1rem;cursor:pointer;opacity:#{if msg[:feedback] == "up", do: "1", else: "0.4"}"}
+                    title={if msg[:feedback] == "up", do: "Remove vote", else: "Helpful"}
                   >👍</button>
                   <button
-                    :if={msg[:feedback] != "up"}
+                    :if={!msg[:pool_hit]}
                     type="button"
                     phx-click="thumbs_down"
                     phx-value-id={msg.id}
-                    disabled={msg[:feedback] != nil}
-                    style="background:none;border:none;font-size:1rem;cursor:pointer;opacity:0.5"
-                    title="Not helpful"
+                    style={"background:none;border:none;font-size:1rem;cursor:pointer;opacity:#{if msg[:feedback] == "down", do: "1", else: "0.4"}"}
+                    title={if msg[:feedback] == "down", do: "Remove vote", else: "Not helpful"}
                   >👎</button>
-                  <%= if msg[:feedback] do %>
-                    <span style="font-size:0.65rem;color:var(--text-muted)">Thanks!</span>
-                  <% end %>
-                </div>
+                <% end %>
               </div>
 
               <!-- Message actions (admin only) -->
@@ -1771,7 +1819,6 @@ defmodule RuleMavenWeb.GameLive.Show do
             <% end %><!-- end history else -->
           <% end %>
         </div>
-      <% end %><!-- end active_community_question else -->
       </div>
 
       <!-- Input -->
