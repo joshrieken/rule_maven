@@ -1604,14 +1604,6 @@ defmodule RuleMavenWeb.GameLive.Form do
       <h1 class="text-2xl font-bold mb-6">
         {if @game, do: "Edit #{@game.name}", else: "Add Game"}
         <%= if @game && @game.bgg_id do %>
-          <.link
-            href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
-            target="_blank"
-            rel="noopener"
-            class="text-blue-500 hover:underline text-sm font-normal ml-2"
-          >
-            View on BGG
-          </.link>
           <button
             type="button"
             phx-click="refresh_bgg"
@@ -1743,7 +1735,16 @@ defmodule RuleMavenWeb.GameLive.Form do
                   &middot; ~{@game_changeset.data.playing_time}m
                 <% end %>
               </p>
-              <p class="text-xs text-gray-400 mt-0.5">BGG ID: {@game_changeset.data.bgg_id}</p>
+              <p class="text-xs text-gray-400 mt-0.5">
+                <%= if @game_changeset.data.bgg_id do %>
+                  <.link
+                    href={"https://boardgamegeek.com/boardgame/#{@game_changeset.data.bgg_id}"}
+                    target="_blank"
+                    rel="noopener"
+                    class="text-blue-500 hover:underline"
+                  >BGG ID: {@game_changeset.data.bgg_id}</.link>
+                <% end %>
+              </p>
             </div>
           </div>
         <% end %>
@@ -1791,6 +1792,89 @@ defmodule RuleMavenWeb.GameLive.Form do
           >
             Danger
           </button>
+        </div>
+
+        <%!-- Download from URL: separate form (can't nest inside save form),
+              shown above the Upload PDF on the Upload Rulebook tab. --%>
+        <div :if={@tab == "rulebook"} class="border rounded-lg p-4 mb-4">
+          <h2 class="text-base font-semibold mb-3">Download Rulebook from URL</h2>
+          <div class="flex gap-2 mb-3">
+            <button
+              type="button"
+              phx-click="find_download"
+              disabled={@downloading}
+              style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+            >Find &amp; Download</button>
+            <%= if @game.bgg_id do %>
+              <button
+                type="button"
+                phx-click="search_bgg"
+                disabled={@searching}
+                style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+              >{if @searching, do: "Searching BGG...", else: "Find on BGG"}</button>
+            <% end %>
+          </div>
+          <%= if @game.bgg_id do %>
+            <%= if @search_error do %>
+              <p class="text-sm text-red-500 mb-2">{@search_error}</p>
+            <% end %>
+            <%= if @bgg_results != [] do %>
+              <div class="border rounded p-2 mb-3 max-h-48 overflow-y-auto space-y-1">
+                <%= for result <- @bgg_results do %>
+                  <div class="flex items-center justify-between text-xs p-1 hover:bg-gray-50 rounded">
+                    <span class="truncate">{result.label}</span>
+                    <button
+                      type="button"
+                      phx-click="search_download"
+                      phx-value-url={result.url}
+                      phx-value-label={result.label}
+                      disabled={@downloading}
+                      style="color:var(--accent);border:none;background:none;font-size:0.75rem;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:0.5rem"
+                    >Download</button>
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
+          <% end %>
+          <form phx-submit="download">
+            <div style="margin-bottom:0.5rem">
+              <label class="block text-xs font-medium mb-1 text-gray-500">PDF URL</label>
+              <input
+                type="text"
+                name="url"
+                value={@download_url}
+                placeholder="https://example.com/rulebook.pdf"
+                class="w-full border rounded px-3 py-2 text-sm"
+                disabled={@downloading}
+              />
+            </div>
+            <div style="margin-bottom:0.5rem">
+              <label class="block text-xs font-medium mb-1 text-gray-500">Label (optional)</label>
+              <input
+                type="text"
+                name="label"
+                value={@download_label}
+                placeholder="e.g. Core Rulebook"
+                class="w-full border rounded px-3 py-2 text-sm"
+                disabled={@downloading}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={@downloading}
+              style="background:var(--accent);color:white;border:none;padding:0.4rem 0.875rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
+            >{if @downloading, do: "Downloading...", else: "Download & Extract"}</button>
+          </form>
+          <%= if @download_ok do %>
+            <p class="text-sm mt-2" style="color:var(--green)">
+              Downloaded!
+              <.link href={"/#{@download_ok}"} target="_blank" class="underline font-semibold">View PDF</.link>
+              or go to <.link navigate={~p"/games/#{@game.id}"} class="underline font-semibold">Ask page</.link>.
+            </p>
+          <% end %>
+          <%= if @download_error do %>
+            <p class="text-sm text-red-500 mt-2">{@download_error}</p>
+          <% end %>
         </div>
 
         <.form
@@ -2405,89 +2489,6 @@ defmodule RuleMavenWeb.GameLive.Form do
             <.button variant="secondary" navigate={~p"/"}>Cancel</.button>
           </div>
         </.form>
-
-        <%!-- Download from URL: separate form (can't nest inside save form),
-              shown with the Upload Rulebook tab. --%>
-        <div :if={@tab == "rulebook"} class="border rounded-lg p-4 mb-4 mt-4">
-          <h2 class="text-base font-semibold mb-3">Download Rulebook from URL</h2>
-          <div class="flex gap-2 mb-3">
-            <button
-              type="button"
-              phx-click="find_download"
-              disabled={@downloading}
-              style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
-            >Find &amp; Download</button>
-            <%= if @game.bgg_id do %>
-              <button
-                type="button"
-                phx-click="search_bgg"
-                disabled={@searching}
-                style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
-              >{if @searching, do: "Searching BGG...", else: "Find on BGG"}</button>
-            <% end %>
-          </div>
-          <%= if @game.bgg_id do %>
-            <%= if @search_error do %>
-              <p class="text-sm text-red-500 mb-2">{@search_error}</p>
-            <% end %>
-            <%= if @bgg_results != [] do %>
-              <div class="border rounded p-2 mb-3 max-h-48 overflow-y-auto space-y-1">
-                <%= for result <- @bgg_results do %>
-                  <div class="flex items-center justify-between text-xs p-1 hover:bg-gray-50 rounded">
-                    <span class="truncate">{result.label}</span>
-                    <button
-                      type="button"
-                      phx-click="search_download"
-                      phx-value-url={result.url}
-                      phx-value-label={result.label}
-                      disabled={@downloading}
-                      style="color:var(--accent);border:none;background:none;font-size:0.75rem;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:0.5rem"
-                    >Download</button>
-                  </div>
-                <% end %>
-              </div>
-            <% end %>
-          <% end %>
-          <form phx-submit="download">
-            <div style="margin-bottom:0.5rem">
-              <label class="block text-xs font-medium mb-1 text-gray-500">PDF URL</label>
-              <input
-                type="text"
-                name="url"
-                value={@download_url}
-                placeholder="https://example.com/rulebook.pdf"
-                class="w-full border rounded px-3 py-2 text-sm"
-                disabled={@downloading}
-              />
-            </div>
-            <div style="margin-bottom:0.5rem">
-              <label class="block text-xs font-medium mb-1 text-gray-500">Label (optional)</label>
-              <input
-                type="text"
-                name="label"
-                value={@download_label}
-                placeholder="e.g. Core Rulebook"
-                class="w-full border rounded px-3 py-2 text-sm"
-                disabled={@downloading}
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={@downloading}
-              style="background:var(--accent);color:white;border:none;padding:0.4rem 0.875rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
-            >{if @downloading, do: "Downloading...", else: "Download & Extract"}</button>
-          </form>
-          <%= if @download_ok do %>
-            <p class="text-sm mt-2" style="color:var(--green)">
-              Downloaded!
-              <.link href={"/#{@download_ok}"} target="_blank" class="underline font-semibold">View PDF</.link>
-              or go to <.link navigate={~p"/games/#{@game.id}"} class="underline font-semibold">Ask page</.link>.
-            </p>
-          <% end %>
-          <%= if @download_error do %>
-            <p class="text-sm text-red-500 mt-2">{@download_error}</p>
-          <% end %>
-        </div>
       </div>
 
       <!-- Cheatsheet panel -->
