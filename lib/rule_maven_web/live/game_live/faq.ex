@@ -39,27 +39,41 @@ defmodule RuleMavenWeb.GameLive.Faq do
 
   @impl true
   def handle_event("filter_category", %{"id" => id_str}, socket) do
-    cat_id = String.to_integer(id_str)
+    case Integer.parse(id_str) do
+      {cat_id, ""} ->
+        socket =
+          if socket.assigns.filter_category == cat_id do
+            assign(socket, filter_category: nil)
+          else
+            assign(socket, filter_category: cat_id)
+          end
 
-    socket =
-      if socket.assigns.filter_category == cat_id do
-        assign(socket, filter_category: nil)
-      else
-        assign(socket, filter_category: cat_id)
-      end
+        {:noreply, socket}
 
-    {:noreply, socket}
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   @impl true
   def handle_event("promote", %{"id" => id_str}, socket) do
-    Games.set_question_visibility(String.to_integer(id_str), "community")
+    if socket.assigns.is_admin do
+      with {id, ""} <- Integer.parse(id_str) do
+        Games.set_question_visibility(id, "community")
+      end
+    end
+
     {:noreply, reload(socket)}
   end
 
   @impl true
   def handle_event("reject", %{"id" => id_str}, socket) do
-    Games.set_question_visibility(String.to_integer(id_str), "private")
+    if socket.assigns.is_admin do
+      with {id, ""} <- Integer.parse(id_str) do
+        Games.set_question_visibility(id, "private")
+      end
+    end
+
     {:noreply, reload(socket)}
   end
 

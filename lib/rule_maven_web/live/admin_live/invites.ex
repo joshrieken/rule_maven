@@ -29,16 +29,13 @@ defmodule RuleMavenWeb.AdminLive.Invites do
   end
 
   def handle_event("deactivate_invite", %{"id" => id_str}, socket) do
-    {id, _} = Integer.parse(id_str)
-
-    case InviteCodes.list_codes() |> Enum.find(&(&1.id == id)) do
-      nil ->
-        {:noreply, put_flash(socket, :error, "Invite code not found.")}
-
-      code ->
-        {:ok, _} = InviteCodes.deactivate_code(code)
-        codes = InviteCodes.list_codes()
-        {:noreply, assign(socket, invite_codes: codes) |> put_flash(:info, "Code deactivated.")}
+    with {id, ""} <- Integer.parse(id_str),
+         code when not is_nil(code) <- InviteCodes.list_codes() |> Enum.find(&(&1.id == id)),
+         {:ok, _} <- InviteCodes.deactivate_code(code) do
+      codes = InviteCodes.list_codes()
+      {:noreply, assign(socket, invite_codes: codes) |> put_flash(:info, "Code deactivated.")}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Invite code not found.")}
     end
   end
 

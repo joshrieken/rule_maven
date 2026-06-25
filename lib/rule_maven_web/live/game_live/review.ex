@@ -25,20 +25,29 @@ defmodule RuleMavenWeb.GameLive.Review do
 
   @impl true
   def handle_event("approve_doc", %{"id" => id_str}, socket) do
-    doc = Games.get_document!(String.to_integer(id_str))
-    Games.update_document(doc, %{status: "published"})
+    with {id, ""} <- Integer.parse(id_str) do
+      doc = Games.get_document!(id)
+      Games.update_document(doc, %{status: "published"})
+    end
+
     {:noreply, assign(socket, documents: Games.list_documents(socket.assigns.game))}
   end
 
   @impl true
   def handle_event("promote", %{"id" => id_str}, socket) do
-    Games.set_question_visibility(String.to_integer(id_str), "community")
+    with {id, ""} <- Integer.parse(id_str) do
+      Games.set_question_visibility(id, "community")
+    end
+
     {:noreply, assign(socket, community_questions: Games.faq_questions(socket.assigns.game, 100))}
   end
 
   @impl true
   def handle_event("reject", %{"id" => id_str}, socket) do
-    Games.set_question_visibility(String.to_integer(id_str), "private")
+    with {id, ""} <- Integer.parse(id_str) do
+      Games.set_question_visibility(id, "private")
+    end
+
     {:noreply, assign(socket, community_questions: Games.faq_questions(socket.assigns.game, 100))}
   end
 
