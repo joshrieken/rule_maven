@@ -729,27 +729,27 @@ defmodule RuleMavenWeb.GameLive.Form do
     pdf_texts =
       consume_uploaded_entries(socket, :rulebook_pdfs, fn %{path: path}, entry ->
         case extract_pdf_text(path, entry.client_name) do
-          {:ok, text, pdf_path, html_path} ->
+          {:ok, attrs} ->
             label =
               entry.client_name
               |> Path.rootname()
               |> String.replace(~r/[_\-]/, " ")
 
-            {:ok, {label, text, pdf_path, html_path}}
+            {:ok, {label, attrs}}
 
           {:error, reason, _} ->
-            {:ok, {entry.client_name, "Error extracting text: #{reason}", nil, nil}}
+            {:ok, {entry.client_name, %{full_text: "Error extracting text: #{reason}"}}}
         end
       end)
 
     merged =
-      Enum.reduce(pdf_texts, source_map, fn {label, text, pdf_path, html_path}, acc ->
+      Enum.reduce(pdf_texts, source_map, fn {label, attrs}, acc ->
         case acc do
           %{^label => _} ->
             acc
 
           _ ->
-            Keyword.put(acc, label, %{full_text: text, pdf_path: pdf_path, html_path: html_path})
+            Keyword.put(acc, label, attrs)
         end
       end)
       |> Map.new()
@@ -765,13 +765,13 @@ defmodule RuleMavenWeb.GameLive.Form do
     results =
       consume_uploaded_entries(socket, :rulebook_pdfs, fn %{path: path}, entry ->
         case extract_pdf_text(path, entry.client_name) do
-          {:ok, text, pdf_path, html_path} ->
+          {:ok, attrs} ->
             label =
               entry.client_name
               |> Path.rootname()
               |> String.replace(~r/[_\-]/, " ")
 
-            {:ok, {:ok, label, text, pdf_path, html_path}}
+            {:ok, {:ok, label, attrs}}
 
           {:error, reason, _} ->
             {:ok, {:error, "#{entry.client_name}: #{reason}"}}
@@ -779,16 +779,10 @@ defmodule RuleMavenWeb.GameLive.Form do
       end)
 
     errors = for {:error, msg} <- results, do: msg
-    pdfs = for {:ok, label, text, pdf_path, html_path} <- results, do: {label, text, pdf_path, html_path}
+    pdfs = for {:ok, label, attrs} <- results, do: {label, attrs}
 
-    Enum.each(pdfs, fn {label, text, pdf_path, html_path} ->
-      Games.create_rulebook_source(%{
-        game_id: game.id,
-        label: label,
-        full_text: text,
-        pdf_path: pdf_path,
-        html_path: html_path
-      })
+    Enum.each(pdfs, fn {label, attrs} ->
+      Games.create_rulebook_source(Map.merge(attrs, %{game_id: game.id, label: label}))
     end)
 
     if pdfs != [], do: send(self(), {:refresh_suggestions, game})
@@ -1268,16 +1262,12 @@ defmodule RuleMavenWeb.GameLive.Form do
         # explicitly (printed page when detectable, else physical sheet).
         case extract_text_pages(path) do
           pages when pages != [] ->
-            text = Games.number_pages(pages)
-            html_path = text_to_html(text, pdf_path)
-            {:ok, text, pdf_path, html_path}
+            {:ok, build_pdf_attrs(pages, pdf_path, dest, false)}
 
           [] ->
             case ocr_pages(path) do
               {:ok, pages} ->
-                text = Games.number_pages(pages)
-                html_path = text_to_html(text, pdf_path)
-                {:ok, text, pdf_path, html_path}
+                {:ok, build_pdf_attrs(pages, pdf_path, dest, true)}
 
               {:error, reason} ->
                 {:error, reason, pdf_path}
@@ -1290,6 +1280,31 @@ defmodule RuleMavenWeb.GameLive.Form do
   rescue
     e ->
       {:error, "pdftotext error: #{Exception.message(e)}", nil}
+  end
+
+  # Build the document attrs (sans game_id/label) from extracted pages: numbered
+  # text plus extraction metadata persisted alongside it.
+  defp build_pdf_attrs(pages, pdf_path, dest, from_ocr) do
+    text = Games.number_pages(pages)
+
+    %{
+      full_text: text,
+      pdf_path: pdf_path,
+      html_path: text_to_html(text, pdf_path),
+      content_type: "application/pdf",
+      file_size: file_size(dest),
+      page_count: length(pages),
+      printed_offset: Games.detect_printed_offset(pages),
+      from_ocr: from_ocr,
+      extracted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    }
+  end
+
+  defp file_size(path) do
+    case File.stat(path) do
+      {:ok, %{size: size}} -> size
+      _ -> nil
+    end
   end
 
   # Number of pages in the PDF (via pdfinfo). Returns 0 if unknown.
@@ -1451,15 +1466,8 @@ defmodule RuleMavenWeb.GameLive.Form do
   defp save_game(socket, nil, game_params, source_map) do
     case Games.create_game(game_params) do
       {:ok, game} ->
-        Enum.each(source_map, fn {label,
-                                  %{full_text: text, pdf_path: pdf_path, html_path: html_path}} ->
-          Games.create_rulebook_source(%{
-            game_id: game.id,
-            label: label,
-            full_text: text,
-            pdf_path: pdf_path,
-            html_path: html_path
-          })
+        Enum.each(source_map, fn {label, attrs} ->
+          Games.create_rulebook_source(Map.merge(attrs, %{game_id: game.id, label: label}))
         end)
 
         {:noreply,
@@ -1485,14 +1493,8 @@ defmodule RuleMavenWeb.GameLive.Form do
 
         source_map
         |> Enum.filter(fn {label, _} -> not MapSet.member?(existing_labels, label) end)
-        |> Enum.each(fn {label, %{full_text: text, pdf_path: pdf_path, html_path: html_path}} ->
-          Games.create_rulebook_source(%{
-            game_id: game.id,
-            label: label,
-            full_text: text,
-            pdf_path: pdf_path,
-            html_path: html_path
-          })
+        |> Enum.each(fn {label, attrs} ->
+          Games.create_rulebook_source(Map.merge(attrs, %{game_id: game.id, label: label}))
         end)
 
         {:noreply,

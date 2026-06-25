@@ -110,11 +110,13 @@ defmodule RuleMaven.RulebookDownloader do
 
     with {:ok, pdf_binary} <- fetch_pdf(url),
          {:ok, pdf_path} <- save_pdf(pdf_binary, url),
-         {:ok, raw_text, _from_ocr} <- extract_text_with_source(pdf_path) do
+         {:ok, raw_text, from_ocr} <- extract_text_with_source(pdf_path) do
       # Number pages (printed page when detectable, else physical sheet) so the
       # reader can distinguish them — same treatment as the upload path.
-      text = raw_text |> String.split("\f") |> Games.number_pages()
+      pages = String.split(raw_text, "\f")
+      text = Games.number_pages(pages)
       html_path = text_to_html(text, pdf_path)
+      full_path = Application.app_dir(:rule_maven, "priv/static/#{pdf_path}")
 
       Games.create_rulebook_source(%{
         game_id: game.id,
@@ -122,8 +124,21 @@ defmodule RuleMaven.RulebookDownloader do
         full_text: text,
         pdf_path: pdf_path,
         html_path: html_path,
-        source_url: url
+        source_url: url,
+        content_type: "application/pdf",
+        file_size: file_size(full_path),
+        page_count: length(pages),
+        printed_offset: Games.detect_printed_offset(pages),
+        from_ocr: from_ocr,
+        extracted_at: DateTime.utc_now() |> DateTime.truncate(:second)
       })
+    end
+  end
+
+  defp file_size(path) do
+    case File.stat(path) do
+      {:ok, %{size: size}} -> size
+      _ -> nil
     end
   end
 

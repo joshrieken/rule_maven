@@ -949,11 +949,13 @@ defmodule RuleMaven.Games do
     end)
   end
 
-  # Find the global offset between physical sheet index and printed page number
-  # by consensus: for each page with a detected footer/header number, the offset
-  # is `sheet - printed`; the true offset is the mode across pages (title/TOC
-  # pages with no number or noise get outvoted). Returns nil if no clear winner.
-  defp detect_printed_offset(pages) do
+  @doc """
+  Finds the global offset between physical sheet index and printed page number
+  by consensus: for each page with a detected footer/header number, the offset
+  is `sheet - printed`; the true offset is the mode across pages (title/TOC
+  pages with no number or noise get outvoted). Returns nil if no clear winner.
+  """
+  def detect_printed_offset(pages) do
     offsets =
       pages
       |> Enum.with_index(1)
