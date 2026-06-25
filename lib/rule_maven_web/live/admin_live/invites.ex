@@ -18,18 +18,13 @@ defmodule RuleMavenWeb.AdminLive.Invites do
 
   @impl true
   def handle_event("create_invite", %{"max_uses" => max_str}, socket) do
-    max_uses = String.to_integer(max_str)
-    user_id = socket.assigns.current_user.id
-
-    case InviteCodes.create_code(user_id, max_uses: max_uses) do
-      {:ok, code} ->
-        codes = InviteCodes.list_codes()
-
-        {:noreply,
-         assign(socket, invite_codes: codes) |> put_flash(:info, "Created: #{code.code}")}
-
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Failed to create invite code.")}
+    with {max_uses, ""} when max_uses >= 1 and max_uses <= 1000 <- Integer.parse(max_str),
+         user_id <- socket.assigns.current_user.id,
+         {:ok, code} <- InviteCodes.create_code(user_id, max_uses: max_uses) do
+      codes = InviteCodes.list_codes()
+      {:noreply, assign(socket, invite_codes: codes) |> put_flash(:info, "Created: #{code.code}")}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Invalid max uses (1–1000).")}
     end
   end
 

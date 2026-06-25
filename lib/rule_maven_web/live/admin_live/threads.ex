@@ -69,30 +69,34 @@ defmodule RuleMavenWeb.AdminLive.Threads do
 
   def handle_event("merge_thread", _params, socket) do
     thread = socket.assigns.merge_thread_root
-    root = thread.root
 
-    Repo.update_all(
-      from(q in QuestionLog, where: q.id == ^root.id),
-      set: [
-        visibility: "community",
-        canonical_question: socket.assigns.merge_question,
-        canonical_answer: socket.assigns.merge_answer
-      ]
-    )
+    if is_nil(thread) do
+      {:noreply, put_flash(socket, :error, "No thread selected.")}
+    else
+      root = thread.root
 
-    RuleMaven.Workers.EmbedQuestionWorker.enqueue(root.id)
+      Repo.update_all(
+        from(q in QuestionLog, where: q.id == ^root.id),
+        set: [
+          visibility: "community",
+          canonical_question: socket.assigns.merge_question,
+          canonical_answer: socket.assigns.merge_answer
+        ]
+      )
 
-    threads = Games.all_question_threads()
+      RuleMaven.Workers.EmbedQuestionWorker.enqueue(root.id)
 
-    {:noreply,
-     assign(socket,
-       threads: threads,
-       merge_thread_root: nil,
-       merge_question: "",
-       merge_answer: ""
-     )
-     |> put_flash(:info, "Thread promoted to community!")}
+      threads = Games.all_question_threads()
 
+      {:noreply,
+       assign(socket,
+         threads: threads,
+         merge_thread_root: nil,
+         merge_question: "",
+         merge_answer: ""
+       )
+       |> put_flash(:info, "Thread promoted to community!")}
+    end
   end
 
   @impl true

@@ -668,11 +668,6 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   @impl true
-  def handle_progress(:rulebook_pdfs, _entry, socket) do
-    {:noreply, socket}
-  end
-
-  @impl true
   def handle_event("process_uploads", _params, socket) do
     game = socket.assigns.game
     socket = assign(socket, uploading_pdfs: true)
@@ -726,6 +721,10 @@ defmodule RuleMavenWeb.GameLive.Form do
         end
       end)
 
+    {:noreply, socket}
+  end
+
+  def handle_progress(:rulebook_pdfs, _entry, socket) do
     {:noreply, socket}
   end
 

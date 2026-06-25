@@ -346,7 +346,6 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
-  @impl true
   def handle_event("quick_ask", %{"question" => question}, socket) do
     handle_event("ask", %{"question" => question}, socket)
   end
@@ -592,7 +591,6 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
-  @impl true
   def handle_event("favorite_question", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
     q = Enum.find(socket.assigns.conversation, &(&1.id == id))
@@ -754,7 +752,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             {:noreply, put_flash(socket, :error, reason)}
         end
       else
-        {:noreply, assign(socket, stale_timer: nil)}
+        {:noreply, socket}
       end
     else
       {:noreply, put_flash(socket, :error, "Please wait a moment before retrying.")}
@@ -820,19 +818,6 @@ defmodule RuleMavenWeb.GameLive.Show do
     end)
   end
 
-  defp format_relative_time(%DateTime{} = dt) do
-    diff = DateTime.diff(DateTime.utc_now(), dt, :second)
-
-    cond do
-      diff < 60 -> "just now"
-      diff < 3600 -> "#{div(diff, 60)}m ago"
-      diff < 86400 -> "#{div(diff, 3600)}h ago"
-      diff < 7 * 86400 -> "#{div(diff, 86400)}d ago"
-      true -> Calendar.strftime(dt, "%b %-d")
-    end
-  end
-
-  defp format_relative_time(_), do: ""
 
   @impl true
   def handle_info({:ask_complete, data}, socket) do

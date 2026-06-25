@@ -44,6 +44,13 @@ defmodule RuleMavenWeb.Router do
       live "/games/:id/edit", GameLive.Form, :edit
       live "/games/:id/review", GameLive.Review, :index
       live "/games/:id/faq", GameLive.Faq, :index
+      live "/settings", SettingsLive, :index
+      live "/settings/usage", SettingsLive, :usage
+    end
+
+    live_session :admin,
+      on_mount: [{RuleMavenWeb.UserLiveAuth, :admin}],
+      session: {RuleMavenWeb.UserLiveAuth, :get_session, []} do
       live "/admin", AdminLive.Index, :index
       live "/admin/db", AdminLive.Db, :index
       live "/admin/security", AdminLive.Security, :index
@@ -51,8 +58,6 @@ defmodule RuleMavenWeb.Router do
       live "/admin/threads", AdminLive.Threads, :index
       live "/admin/users", AdminLive.Users, :index
       live "/admin/invites", AdminLive.Invites, :index
-      live "/settings", SettingsLive, :index
-      live "/settings/usage", SettingsLive, :usage
     end
   end
 

@@ -321,6 +321,8 @@ defmodule RuleMaven.Games do
     Repo.update_all(from(q in QuestionLog, where: q.id == ^id), set: [visibility: visibility])
   end
 
+  def check_rate_limit(nil), do: {:error, "Not logged in."}
+
   def check_rate_limit(user) do
     alias RuleMaven.Users
     alias RuleMaven.Settings
@@ -882,7 +884,7 @@ defmodule RuleMaven.Games do
     if is_nil(q.question_embedding) do
       :skipped
     else
-      q_vec = Pgvector.new(Pgvector.to_list(q.question_embedding))
+      q_vec = q.question_embedding
 
       top2 =
         Repo.all(
