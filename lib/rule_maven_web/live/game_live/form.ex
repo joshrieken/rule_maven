@@ -2133,18 +2133,18 @@ defmodule RuleMavenWeb.GameLive.Form do
                       </div>
 
                       <%= if @reader_mode == "paginated" and page_count > 0 do %>
-                        <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto">
+                        <div style="display:flex;align-items:center;gap:0.6rem;margin-left:auto">
                           <button
                             type="button"
                             phx-click="reader_page_step"
                             phx-value-delta="-1"
                             disabled={cur <= 0}
-                            style="font-size:0.85rem;padding:0.15rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                            style="font-size:1.3rem;line-height:1;padding:0.3rem 0.85rem;border-radius:0.4rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
                           >‹</button>
                           <form phx-change="set_reader_page" style="margin:0">
                             <select
                               name="page"
-                              style="border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.4rem;font-size:0.72rem;background:var(--bg);color:var(--text)"
+                              style="border:1px solid var(--border);border-radius:0.4rem;padding:0.4rem 0.7rem;font-size:0.95rem;background:var(--bg);color:var(--text);cursor:pointer"
                             >
                               <%= for {{label, _body}, i} <- Enum.with_index(pages) do %>
                                 <option value={i} selected={i == cur}>{label}</option>
@@ -2156,9 +2156,9 @@ defmodule RuleMavenWeb.GameLive.Form do
                             phx-click="reader_page_step"
                             phx-value-delta="1"
                             disabled={cur >= page_count - 1}
-                            style="font-size:0.85rem;padding:0.15rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                            style="font-size:1.3rem;line-height:1;padding:0.3rem 0.85rem;border-radius:0.4rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
                           >›</button>
-                          <span style="font-size:0.68rem;color:var(--text-muted);white-space:nowrap">{cur + 1} / {page_count}</span>
+                          <span style="font-size:0.9rem;color:var(--text-muted);white-space:nowrap">{cur + 1} / {page_count}</span>
                         </div>
                       <% end %>
 
