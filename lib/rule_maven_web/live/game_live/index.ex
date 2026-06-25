@@ -101,47 +101,52 @@ defmodule RuleMavenWeb.GameLive.Index do
     end
   end
 
-  # Load the game list for a view. "all" is DB-backed (catalog can be huge);
-  # "mine"/"playable" are bounded lists filtered in-memory by the render path.
-  defp load_view_games("mine", user_id, _search, _category), do: Games.list_collection(user_id)
+  # Load the game list for a view. "all" is DB-backed (catalog can be huge), so
+  # it pages from the database with a growing limit; "mine"/"playable"/"favorites"
+  # are bounded lists loaded fully and paginated in-memory by the render path.
+  defp load_view_games(view, user_id, search, category, limit \\ 20)
 
-  defp load_view_games("favorites", user_id, _search, _category),
+  defp load_view_games("mine", user_id, _search, _category, _limit),
+    do: Games.list_collection(user_id)
+
+  defp load_view_games("favorites", user_id, _search, _category, _limit),
     do: Games.list_favorites(user_id)
 
-  defp load_view_games("all", _user_id, search, category),
-    do: Games.search_catalog(search || "", category: category)
+  defp load_view_games("all", _user_id, search, category, limit),
+    # Fetch one extra row so the render path can tell there's more to page in
+    # (the infinite-scroll sentinel shows while display_games < loaded games).
+    do: Games.search_catalog(search || "", category: category, limit: limit + 1)
 
-  defp load_view_games(_playable, _user_id, _search, _category),
+  defp load_view_games(_playable, _user_id, _search, _category, _limit),
     do: Games.list_games_with_documents()
 
   # Assign the current games plus their expansion/source counts. Counts are
-  # computed only for the games actually shown, so this stays cheap even when
-  # the catalog has 150k rows.
+  # computed only for the games actually visible (display_count), in a couple of
+  # batched aggregate queries, so this stays cheap even on a 150k catalog.
   defp assign_games(socket, games) do
+    socket = assign(socket, games: games)
     is_admin = RuleMaven.Users.game_master?(socket.assigns.current_user)
 
+    visible_ids = socket.assigns |> visible_games() |> Enum.map(& &1.id)
+
     expansion_counts =
-      Map.new(games, fn game ->
-        exps =
-          if is_admin, do: Games.expansions_for(game), else: Games.expansions_with_documents(game)
+      if is_admin,
+        do: Games.expansion_counts(visible_ids),
+        else: Games.expansion_with_doc_counts(visible_ids)
 
-        {game.id, length(exps)}
-      end)
+    source_counts = Games.document_counts(visible_ids)
 
-    source_counts =
-      Map.new(games, fn game -> {game.id, length(Games.list_documents(game))} end)
-
-    assign(socket,
-      games: games,
-      expansion_counts: expansion_counts,
-      source_counts: source_counts
-    )
+    assign(socket, expansion_counts: expansion_counts, source_counts: source_counts)
   end
 
   # Reload the games for the current view/search/category and recompute counts.
   defp reload_games(socket) do
-    %{view: view, search: search, category_filter: category} = socket.assigns
-    games = load_view_games(view, socket.assigns.current_user.id, search || "", category)
+    %{view: view, search: search, category_filter: category, display_count: limit} =
+      socket.assigns
+
+    games =
+      load_view_games(view, socket.assigns.current_user.id, search || "", category, limit)
+
     assign_games(socket, games)
   end
 
@@ -369,7 +374,11 @@ defmodule RuleMavenWeb.GameLive.Index do
 
   @impl true
   def handle_event("load_more", _params, socket) do
-    {:noreply, assign(socket, display_count: socket.assigns.display_count + 20)}
+    socket = assign(socket, display_count: socket.assigns.display_count + 20)
+    # The "all" view pages from the DB, so fetch the next page; other views are
+    # already fully loaded and just reveal more rows in-memory.
+    socket = if socket.assigns.view == "all", do: reload_games(socket), else: socket
+    {:noreply, socket}
   end
 
   @impl true

@@ -53,6 +53,41 @@ defmodule RuleMaven.Games do
     |> Enum.sort_by(&String.downcase(&1.name))
   end
 
+  @doc "Map of game_id => document count for the given ids (one query)."
+  def document_counts(game_ids) do
+    Repo.all(
+      from d in Document,
+        where: d.game_id in ^game_ids,
+        group_by: d.game_id,
+        select: {d.game_id, count(d.id)}
+    )
+    |> Map.new()
+  end
+
+  @doc "Map of base game_id => expansion count for the given ids (one query)."
+  def expansion_counts(game_ids) do
+    Repo.all(
+      from g in Game,
+        where: g.parent_game_id in ^game_ids,
+        group_by: g.parent_game_id,
+        select: {g.parent_game_id, count(g.id)}
+    )
+    |> Map.new()
+  end
+
+  @doc "Map of base game_id => count of expansions that have published documents."
+  def expansion_with_doc_counts(game_ids) do
+    Repo.all(
+      from g in Game,
+        join: d in Document,
+        on: d.game_id == g.id and d.status == "published",
+        where: g.parent_game_id in ^game_ids,
+        group_by: g.parent_game_id,
+        select: {g.parent_game_id, count(g.id, :distinct)}
+    )
+    |> Map.new()
+  end
+
   def expansions_with_documents(%Game{} = base_game) do
     Repo.all(
       from g in Game,

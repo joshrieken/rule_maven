@@ -50,7 +50,11 @@ defmodule RuleMavenWeb.GameLive.Form do
         uploading_pdfs: false,
         draft_categories: [],
         saved_categories: [],
-        regenerating_categories: false
+        regenerating_categories: false,
+        parent_query: "",
+        parent_results: [],
+        parent_selected_id: nil,
+        parent_selected_name: nil
       )
       |> allow_upload(:rulebook_pdfs,
         accept: ["application/pdf", ".pdf"],
@@ -167,7 +171,15 @@ defmodule RuleMavenWeb.GameLive.Form do
 
           saved_categories = RuleMaven.Games.list_game_categories(game)
           socket = assign(socket, draft_categories: draft_categories, saved_categories: saved_categories)
-          socket
+
+          parent = if game.parent_game_id, do: Games.get_game!(game.parent_game_id)
+
+          assign(socket,
+            parent_selected_id: game.parent_game_id,
+            parent_selected_name: parent && parent.name,
+            parent_query: "",
+            parent_results: []
+          )
 
         _ ->
           changeset = Games.change_game(%Games.Game{})
@@ -540,6 +552,43 @@ defmodule RuleMavenWeb.GameLive.Form do
 
   @impl true
   def handle_event("validate", _params, socket), do: {:noreply, socket}
+
+  # Parent-game (expansion-of) typeahead. Avoids preloading the entire ~150k
+  # catalog into a <select>; results are searched on demand.
+  def handle_event("search_parent", %{"value" => query}, socket) do
+    query = String.trim(query)
+
+    results =
+      if query == "" do
+        []
+      else
+        query
+        |> Games.search_catalog(limit: 15)
+        |> Enum.reject(&(socket.assigns.game && &1.id == socket.assigns.game.id))
+      end
+
+    {:noreply, assign(socket, parent_query: query, parent_results: results)}
+  end
+
+  def handle_event("select_parent", %{"id" => id, "name" => name}, socket) do
+    {:noreply,
+     assign(socket,
+       parent_selected_id: String.to_integer(id),
+       parent_selected_name: name,
+       parent_query: "",
+       parent_results: []
+     )}
+  end
+
+  def handle_event("clear_parent", _params, socket) do
+    {:noreply,
+     assign(socket,
+       parent_selected_id: nil,
+       parent_selected_name: nil,
+       parent_query: "",
+       parent_results: []
+     )}
+  end
 
   @impl true
   def handle_event("download", %{"url" => url, "label" => label}, socket) do
@@ -1619,33 +1668,51 @@ defmodule RuleMavenWeb.GameLive.Form do
             </div>
 
             <%= if @game do %>
-              <% parent_id = @game_changeset.data.parent_game_id || @game.parent_game_id %>
-              <%= if parent_id do %>
-                <% parent = Games.get_game!(parent_id) %>
-                <div style="margin-bottom:0.5rem">
-                  <span style="font-size:0.75rem;color:var(--text-muted)">Expansion of</span>
-                  <.link
-                    navigate={~p"/games/#{parent.id}/edit"}
-                    style="font-size:0.8rem;color:var(--blue);font-weight:600;margin-left:0.25rem"
-                  >{parent.name} →</.link>
-                </div>
-              <% end %>
-              <% base_games = Games.list_base_games() |> Enum.reject(&(&1.id == @game.id)) %>
               <div style="margin-bottom:1.25rem">
-                <label for="game_parent_game_id" class="block text-sm font-medium mb-1">Base Game
-                <span class="text-gray-400">(optional — set if this is an expansion)</span></label>
-                <select
-                  name="game[parent_game_id]"
-                  id="game_parent_game_id"
+                <label class="block text-sm font-medium mb-1">Base Game
+                  <span class="text-gray-400">(optional — set if this is an expansion)</span>
+                </label>
+
+                <input type="hidden" name="game[parent_game_id]" value={@parent_selected_id} />
+
+                <%= if @parent_selected_id do %>
+                  <div class="flex items-center gap-2 mb-2">
+                    <span style="font-size:0.8rem">
+                      Expansion of <strong>{@parent_selected_name}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      phx-click="clear_parent"
+                      style="font-size:0.7rem;color:var(--red);background:none;border:none;cursor:pointer;font-weight:600"
+                    >Clear</button>
+                  </div>
+                <% end %>
+
+                <input
+                  type="text"
+                  name="parent_query"
+                  value={@parent_query}
+                  autocomplete="off"
+                  phx-keyup="search_parent"
+                  phx-debounce="250"
+                  placeholder="Search for a base game…"
                   class="w-full border rounded px-3 py-2 text-sm"
-                >
-                  <option value="">None (standalone game)</option>
-                  <%= for base <- base_games do %>
-                    <option value={base.id} selected={@game_changeset.data.parent_game_id == base.id}>
-                      {base.name}
-                    </option>
-                  <% end %>
-                </select>
+                />
+
+                <%= if @parent_results != [] do %>
+                  <div class="border rounded mt-1" style="max-height:12rem;overflow:auto">
+                    <%= for base <- @parent_results do %>
+                      <button
+                        type="button"
+                        phx-click="select_parent"
+                        phx-value-id={base.id}
+                        phx-value-name={base.name}
+                        class="block w-full text-left px-3 py-1.5 text-sm"
+                        style="background:none;border:none;cursor:pointer"
+                      >{base.name}</button>
+                    <% end %>
+                  </div>
+                <% end %>
               </div>
             <% end %>
 
