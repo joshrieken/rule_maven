@@ -464,6 +464,7 @@ defmodule RuleMaven.LLM do
     avg_duration =
       case Repo.one(from(l in base, select: avg(l.duration_ms))) do
         nil -> nil
+        %Decimal{} = n -> n |> Decimal.round() |> Decimal.to_integer()
         n when is_float(n) -> trunc(n)
         n -> n
       end
@@ -473,7 +474,7 @@ defmodule RuleMaven.LLM do
       total_requests: total_requests,
       total_tokens: total_tokens,
       error_count: error_count,
-      avg_duration_ms: avg_duration && trunc(avg_duration),
+      avg_duration_ms: avg_duration,
       by_provider: by_provider,
       by_operation: by_operation
     }
