@@ -5,7 +5,7 @@
 
 ## Project
 
-Rules Buddy — Phoenix LiveView PWA for board game rules Q&A.
+Rule Maven — Phoenix LiveView PWA for board game rules Q&A.
 Ask questions in plain English, get answers grounded in rulebook text.
 
 ## Quick Index

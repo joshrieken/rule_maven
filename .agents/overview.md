@@ -1,6 +1,6 @@
 # Project Overview
 
-Rules Buddy — a Phoenix LiveView app (installable as a PWA) that answers board
+Rule Maven — a Phoenix LiveView app (installable as a PWA) that answers board
 game rules questions at the table. Pick a game, ask a question in plain English,
 get an answer grounded in that game's actual rulebook text.
 

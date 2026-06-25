@@ -4,7 +4,7 @@ alias RuleMaven.Users.User
 # --- Admin User ---
 
 username = "admin"
-email = "admin@rulesbuddy.local"
+email = "admin@rulemaven.local"
 password = "admin"
 
 if is_nil(Repo.get_by(User, username: username)) do
@@ -25,7 +25,7 @@ end
 # --- Player User ---
 
 player_username = "player"
-player_email = "player@rulesbuddy.local"
+player_email = "player@rulemaven.local"
 player_password = "player"
 
 if is_nil(Repo.get_by(User, username: player_username)) do

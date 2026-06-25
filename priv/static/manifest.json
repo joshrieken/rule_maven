@@ -1,6 +1,6 @@
 {
-  "name": "Rules Buddy",
-  "short_name": "RulesBuddy",
+  "name": "Rule Maven",
+  "short_name": "RuleMaven",
   "description": "Board game rules assistant — pick a game, ask a question, get an answer grounded in the rulebook.",
   "start_url": "/",
   "display": "standalone",

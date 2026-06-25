@@ -1,4 +1,4 @@
-# Design Doc — Rules Buddy v2
+# Design Doc — Rule Maven
 
 > Written before implementation. Must be reviewed and signed off
 > before changes begin.
@@ -89,7 +89,7 @@ no tiny tap targets.
 
 ```
 ┌──────────────────────────┐
-│  Rules Buddy             │
+│  Rule Maven             │
 ├──────────────────────────┤
 │  🔍 Search games...      │
 │                          │

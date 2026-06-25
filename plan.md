@@ -1,4 +1,4 @@
-# Rules Buddy — Build Plan
+# Rule Maven — Build Plan
 
 ## What this is
 

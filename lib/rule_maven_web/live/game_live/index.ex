@@ -678,7 +678,7 @@ defmodule RuleMavenWeb.GameLive.Index do
           <div class="text-center py-12 text-gray-500" style="max-width:24rem;margin:0 auto">
             <div style="font-size:2rem;margin-bottom:0.75rem">📚</div>
             <p style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">
-              Welcome to Rules Buddy
+              Welcome to Rule Maven
             </p>
             <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.25rem;line-height:1.5">
               Ask rulebook questions in plain English and get answers with exact citations.
