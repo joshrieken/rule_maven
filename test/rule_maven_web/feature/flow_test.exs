@@ -77,7 +77,7 @@ defmodule RuleMavenWeb.Feature.FlowTest do
 
   feature "login succeeds and shows game list", %{session: session} do
     user = create_user("e2e_flow_user", "game_master")
-    game_fixture(%{name: "E2E Test Game", bgg_id: 9999})
+    published_game_fixture(%{name: "E2E Test Game", bgg_id: 9999})
 
     session
     |> login(user.username)
@@ -125,7 +125,7 @@ defmodule RuleMavenWeb.Feature.FlowTest do
   feature "game list shows game metadata when logged in", %{session: session} do
     user = create_user("e2e_meta_user", "game_master")
 
-    game_fixture(%{
+    published_game_fixture(%{
       name: "Meta Test Game",
       bgg_id: 8888,
       year: 2024,
