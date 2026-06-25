@@ -59,6 +59,7 @@ defmodule RuleMaven.LLM do
          %{
            answer: row.canonical_answer || row.answer,
            cited_passage: row.cited_passage,
+           cited_page: row.cited_page,
            provider: "pool",
            # Encode tier in the model field so it survives a page reload
            # (the served row has no trust_score of its own to derive from).
@@ -101,14 +102,19 @@ defmodule RuleMaven.LLM do
          %{
            answer: answer,
            cited_passage: passage,
+           cited_page: llm_result[:cited_page],
            provider: provider_name,
            model: model_name,
            question_embedding: question_embedding,
            faq_hit: false,
            followup: llm_result[:followup] || false,
            followups: llm_result[:followups] || [],
+           also_asked: llm_result[:also_asked] || [],
            cleaned_question: llm_result[:cleaned_question],
-           raw_response: llm_result[:raw_response]
+           raw_response: llm_result[:raw_response],
+           # Retrieved chunk texts (each prefixed with a [Page N] marker) so the
+           # worker can recover the page if the model drops it from the citation.
+           source_chunks: Enum.map(chunks, fn {_, text} -> text end)
          }}
 
       {:error, reason} ->
@@ -276,11 +282,17 @@ defmodule RuleMaven.LLM do
     CROSS-REFERENCE RULES:
     - If one section refers to another (e.g. "see Section 4.3"), use that referenced section to answer. Reference chains are valid.
 
+    CITATION RULES — how to fill "citation" and "page":
+    - "citation": copy the supporting text VERBATIM, character-for-character, from the RULEBOOK. Do NOT paraphrase, summarize, shorten, merge, or fix typos. It must be findable as an exact substring of the rulebook text. Quote the prose only — do NOT include the [Page N] marker itself in this string.
+    - Quote ONLY from the RULEBOOK below. NEVER quote from the RECENT CONVERSATION or from your own previous answers.
+    - "page": the integer page number of the cited text, read from the [Page N] marker that immediately precedes your quoted prose in the RULEBOOK. Every non-refusal answer MUST set this. Use ONLY a number that actually appears in a [Page N] marker — NEVER invent, guess, or renumber. If your quote spans pages, use the page where it begins.
+
     OUTPUT — respond with ONE json object (a single JSON object) and nothing else (no markdown fences, no prose around it). Schema:
     {
       "cleaned_question": string,  // the user's question rephrased as a standalone question: fix pronouns, add missing context, under 12 words, NEVER include the game name. WRONG: "How do turns work in Catan?" RIGHT: "How do turns work?"
       "answer": string,            // the answer in plain English. Use markdown (**bold**, bullet lists). Concise: 1-3 sentences plus optional list. On refusal this is exactly: "The rulebook does not cover this question."
-      "citation": string,          // the exact sentence(s) from the rulebook supporting the answer. Preserve any [Page N] markers exactly. Empty string if refusing. Never fabricate.
+      "citation": string,          // verbatim supporting prose — follow CITATION RULES above exactly. Empty string only when refusing.
+      "page": integer,             // page number of the citation per CITATION RULES. Required for every non-refusal answer; use null only when refusing.
       "followup": boolean,         // true if this question is a followup to the recent conversation (references a prior exchange, uses pronouns like "it"/"that"/"they"), else false
       "followups": [string],       // 2-3 natural next questions a player might ask. Empty array on refusal.
       "also_asked": [string]       // if the user's message contained more than one distinct question, the exact text of the additional questions (answer only the FIRST in "answer"). Empty array otherwise.
@@ -313,6 +325,7 @@ defmodule RuleMaven.LLM do
         %{
           answer: trimmed_string(map["answer"]),
           cited_passage: nilable_string(map["citation"]),
+          cited_page: coerce_page(map["page"]),
           followup: map["followup"] == true,
           followups: string_list(map["followups"]),
           cleaned_question: nilable_string(map["cleaned_question"]),
@@ -323,6 +336,7 @@ defmodule RuleMaven.LLM do
         %{
           answer: String.trim(content),
           cited_passage: nil,
+          cited_page: nil,
           followup: false,
           followups: [],
           cleaned_question: nil,
@@ -367,6 +381,18 @@ defmodule RuleMaven.LLM do
   end
 
   defp string_list(_), do: []
+
+  # Page may arrive as an int or a stringified int ("5", "p.5", "Page 5").
+  defp coerce_page(n) when is_integer(n) and n > 0, do: n
+
+  defp coerce_page(s) when is_binary(s) do
+    case Regex.run(~r/\d+/, s) do
+      [num] -> String.to_integer(num)
+      _ -> nil
+    end
+  end
+
+  defp coerce_page(_), do: nil
 
   defp api_url do
     provider_name = provider()

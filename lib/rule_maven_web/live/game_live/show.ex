@@ -1549,23 +1549,26 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </div>
 
                   <%= if msg[:cited_passage] && msg.content != "Thinking..." do %>
-                    <div style={"margin-top:0.75rem;padding:0.5rem 0 0 0;border-top:1px solid #{if msg.role == :user, do: "rgba(255,255,255,0.3)", else: "var(--border-strong)"};font-size:0.78rem;line-height:1.45;#{if msg.role == :user, do: "color:rgba(255,255,255,0.9)", else: "color:var(--text)"}"}>
+                    <% on_user = msg.role == :user %>
+                    <figure style={"margin:0.75rem 0 0;border-radius:0.5rem;overflow:hidden;border:1px solid #{if on_user, do: "rgba(255,255,255,0.25)", else: "var(--border)"};background:#{if on_user, do: "rgba(255,255,255,0.1)", else: "var(--bg-subtle)"}"}>
                       <%= if msg[:cited_page] do %>
-                        <span style="font-weight:700">p.{msg.cited_page}</span> &mdash;
+                        <figcaption style={"display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.6rem;font-size:0.66rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;border-bottom:1px solid #{if on_user, do: "rgba(255,255,255,0.15)", else: "var(--border-subtle)"};color:#{if on_user, do: "rgba(255,255,255,0.85)", else: "var(--text-muted)"}"}>
+                          <span aria-hidden="true">&#128206;</span> Rulebook &middot; p.{msg.cited_page}
+                        </figcaption>
                       <% end %>
-                      <span class="italic">{msg.cited_passage}</span>
+                      <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "rgba(255,255,255,0.5)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:#{if on_user, do: "rgba(255,255,255,0.92)", else: "var(--text)"}"}>{String.trim(msg.cited_passage)}</blockquote>
                       <%= if msg[:cited_html_link] do %>
-                        <div style="margin-top:0.35rem">
+                        <div style={"padding:0 0.7rem 0.5rem 0.85rem"}>
                           <.link
                             href={msg.cited_html_link}
                             target="_blank"
-                            style={"font-size:0.72rem;font-weight:600;#{if msg.role == :user, do: "color:#fff", else: "color:var(--blue)"}"}
+                            style={"font-size:0.72rem;font-weight:600;#{if on_user, do: "color:#fff", else: "color:var(--blue)"}"}
                           >
                             View in rulebook &rarr;
                           </.link>
                         </div>
                       <% end %>
-                    </div>
+                    </figure>
                   <% end %>
 
                   <!-- Followup suggestions -->

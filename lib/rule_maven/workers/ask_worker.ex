@@ -75,7 +75,6 @@ defmodule RuleMaven.Workers.AskWorker do
           if ql = get_question_log!(question_log_id) do
             raw_passage = llm_result[:cited_passage]
             followup? = llm_result[:followup] || false
-            cited_page = parse_cited_page(raw_passage)
             # Strip [Page N] markers from display passage AFTER extracting page number
             passage =
               if raw_passage do
@@ -84,6 +83,14 @@ defmodule RuleMaven.Workers.AskWorker do
                 |> String.replace(~r/\(Page\s*\d+\)/i, "")
                 |> String.trim()
               end
+
+            # Page citation is a hard requirement: trust the model's [Page N]
+            # marker first, else recover the page by matching the cited passage
+            # back to its source chunk (each chunk text carries a [Page N] prefix).
+            cited_page =
+              llm_result[:cited_page] ||
+                parse_cited_page(raw_passage) ||
+                infer_page_from_chunks(passage, llm_result[:source_chunks])
 
             refused? = refused?(answer)
 
@@ -280,6 +287,39 @@ defmodule RuleMaven.Workers.AskWorker do
       [_, num] -> String.to_integer(num)
       nil -> nil
     end
+  end
+
+  # Recover the page when the model dropped the [Page N] marker: find the source
+  # chunk whose text contains the cited passage, then read that chunk's marker.
+  defp infer_page_from_chunks(passage, chunks)
+       when is_binary(passage) and is_list(chunks) and chunks != [] do
+    needle =
+      passage
+      |> normalize_for_match()
+      |> String.split(" ", trim: true)
+      |> Enum.take(10)
+      |> Enum.join(" ")
+
+    if String.length(needle) < 12 do
+      nil
+    else
+      Enum.find_value(chunks, fn text ->
+        if String.contains?(normalize_for_match(text), needle),
+          do: parse_cited_page(text),
+          else: nil
+      end)
+    end
+  end
+
+  defp infer_page_from_chunks(_passage, _chunks), do: nil
+
+  defp normalize_for_match(text) do
+    text
+    |> String.downcase()
+    |> String.replace(~r/\[page\s*\d+\]/i, " ")
+    |> String.replace(~r/[^a-z0-9 ]/, " ")
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
   end
 
   @refusal_phrase "The rulebook does not cover this question."
