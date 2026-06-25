@@ -608,7 +608,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               if t.id == id, do: %{t | favorited: updated.favorited}, else: t
             end)
             |> Enum.sort_by(fn t -> {if(t.favorited, do: 0, else: 1), t.inserted_at} end, fn
-              {fa, ta}, {fb, tb} -> fa < fb || (fa == fb && DateTime.compare(ta, tb) != :lt)
+              {fa, ta}, {fb, tb} -> fa < fb || (fa == fb && DateTime.compare(ta, tb) == :gt)
             end)
 
           {:noreply, assign(socket, conversation: conversation, threads: threads)}
