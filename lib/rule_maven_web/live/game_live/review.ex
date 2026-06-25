@@ -2,9 +2,6 @@ defmodule RuleMavenWeb.GameLive.Review do
   use RuleMavenWeb, :live_view
 
   alias RuleMaven.Games
-  alias RuleMaven.Games.QuestionLog
-  alias RuleMaven.Repo
-  import Ecto.Query
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -19,7 +16,7 @@ defmodule RuleMavenWeb.GameLive.Review do
          game: game,
          is_admin: is_admin,
          documents: Games.list_documents(game),
-         community_questions: load_community_questions(game.id),
+         community_questions: Games.faq_questions(game, 100),
          categories: Games.list_game_categories(game),
          page_title: "Review — #{game.name}"
        )}
@@ -35,25 +32,14 @@ defmodule RuleMavenWeb.GameLive.Review do
 
   @impl true
   def handle_event("promote", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
-    Repo.update_all(from(q in QuestionLog, where: q.id == ^id), set: [visibility: "community"])
-    {:noreply, assign(socket, community_questions: load_community_questions(socket.assigns.game.id))}
+    Games.set_question_visibility(String.to_integer(id_str), "community")
+    {:noreply, assign(socket, community_questions: Games.faq_questions(socket.assigns.game, 100))}
   end
 
   @impl true
   def handle_event("reject", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
-    Repo.update_all(from(q in QuestionLog, where: q.id == ^id), set: [visibility: "private"])
-    {:noreply, assign(socket, community_questions: load_community_questions(socket.assigns.game.id))}
-  end
-
-  defp load_community_questions(game_id) do
-    Repo.all(
-      from q in QuestionLog,
-        where: q.game_id == ^game_id and q.visibility == "community" and q.refused == false,
-        order_by: [desc: q.inserted_at],
-        limit: 100
-    )
+    Games.set_question_visibility(String.to_integer(id_str), "private")
+    {:noreply, assign(socket, community_questions: Games.faq_questions(socket.assigns.game, 100))}
   end
 
   @impl true

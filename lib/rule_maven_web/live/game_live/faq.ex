@@ -2,16 +2,13 @@ defmodule RuleMavenWeb.GameLive.Faq do
   use RuleMavenWeb, :live_view
 
   alias RuleMaven.Games
-  alias RuleMaven.Games.QuestionLog
-  alias RuleMaven.Repo
-  import Ecto.Query
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     game = Games.get_game!(id)
     is_admin = RuleMaven.Users.game_master?(socket.assigns.current_user)
     categories = Games.list_game_categories(game)
-    community_questions = load_community_questions(game.id)
+    community_questions = Games.faq_questions(game)
 
     question_ids = Enum.map(community_questions, & &1.id)
     category_map = Games.categories_for_questions(question_ids)
@@ -53,34 +50,23 @@ defmodule RuleMavenWeb.GameLive.Faq do
 
   @impl true
   def handle_event("promote", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
-    Repo.update_all(from(q in QuestionLog, where: q.id == ^id), set: [visibility: "community"])
+    Games.set_question_visibility(String.to_integer(id_str), "community")
     {:noreply, reload(socket)}
   end
 
   @impl true
   def handle_event("reject", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
-    Repo.update_all(from(q in QuestionLog, where: q.id == ^id), set: [visibility: "private"])
+    Games.set_question_visibility(String.to_integer(id_str), "private")
     {:noreply, reload(socket)}
   end
 
   defp reload(socket) do
     game = socket.assigns.game
-    community_questions = load_community_questions(game.id)
+    community_questions = Games.faq_questions(game)
     question_ids = Enum.map(community_questions, & &1.id)
     category_map = Games.categories_for_questions(question_ids)
 
     assign(socket, community_questions: community_questions, category_map: category_map)
-  end
-
-  defp load_community_questions(game_id) do
-    Repo.all(
-      from q in QuestionLog,
-        where: q.game_id == ^game_id and q.visibility == "community" and q.refused == false,
-        order_by: [desc: q.inserted_at],
-        limit: 200
-    )
   end
 
   defp questions_for_category(questions, category_map, cat_id) do

@@ -1880,10 +1880,14 @@ body:has([data-phx-main].phx-connected)::after {
 .sidebar-close-btn { display: none; }
 .sidebar-backdrop { display: none; }
 
+.sidebar-item:hover { background: var(--bg-subtle); }
+.sidebar-item-muted:hover { background: var(--bg-subtle); opacity: 0.9; }
+.sidebar-item-muted { opacity: 0.6; }
+
 @media (max-width: 768px) {
-  .sidebar-toggle { display: inline-flex !important; }
-  .sidebar-close-btn { display: inline !important; }
-  .sidebar-backdrop { display: block !important; }
+  .sidebar-toggle { display: inline-flex; }
+  .sidebar-close-btn { display: inline; }
+  .sidebar-backdrop { display: block; }
   .question-sidebar {
     position: absolute !important;
     top: 0;

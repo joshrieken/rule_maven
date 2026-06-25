@@ -14,7 +14,6 @@ defmodule RuleMaven.Games.QuestionLog do
     field :question_embedding, Pgvector.Ecto.Vector
     field :source_chunk_ids, {:array, :integer}
     field :feedback, :string
-    field :cluster_id, :integer
     field :visibility, :string, default: "private"
     field :refused, :boolean, default: false
     field :blocked, :boolean, default: false
@@ -46,7 +45,6 @@ defmodule RuleMaven.Games.QuestionLog do
       :question_embedding,
       :source_chunk_ids,
       :feedback,
-      :cluster_id,
       :document_id,
       :visibility,
       :parent_question_id,

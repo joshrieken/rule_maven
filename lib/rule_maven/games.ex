@@ -317,6 +317,53 @@ defmodule RuleMaven.Games do
     |> Repo.update()
   end
 
+  def set_question_visibility(id, visibility) when is_integer(id) do
+    Repo.update_all(from(q in QuestionLog, where: q.id == ^id), set: [visibility: visibility])
+  end
+
+  def check_rate_limit(user) do
+    alias RuleMaven.Users
+    alias RuleMaven.Settings
+
+    if Users.game_master?(user) do
+      :ok
+    else
+      now = DateTime.utc_now()
+
+      daily_count = recent_question_count(user.id, DateTime.add(now, -1, :day))
+      weekly_count = recent_question_count(user.id, DateTime.add(now, -7, :day))
+      monthly_count = recent_question_count(user.id, DateTime.add(now, -30, :day))
+
+      daily_limit = parse_limit(Settings.get("rate_limit_daily"), 50)
+      weekly_limit = parse_limit(Settings.get("rate_limit_weekly"), 200)
+      monthly_limit = parse_limit(Settings.get("rate_limit_monthly"), 500)
+
+      cond do
+        daily_count >= daily_limit -> {:error, "Daily question limit reached (#{daily_limit})."}
+        weekly_count >= weekly_limit -> {:error, "Weekly question limit reached (#{weekly_limit})."}
+        monthly_count >= monthly_limit -> {:error, "Monthly question limit reached (#{monthly_limit})."}
+        true -> :ok
+      end
+    end
+  end
+
+  defp parse_limit(nil, default), do: default
+  defp parse_limit(val, default) do
+    case Integer.parse(to_string(val)) do
+      {n, _} -> n
+      :error -> default
+    end
+  end
+
+  def faq_questions(%Game{} = game, limit \\ 200) do
+    Repo.all(
+      from q in QuestionLog,
+        where: q.game_id == ^game.id and q.visibility == "community" and q.refused == false,
+        order_by: [desc: q.inserted_at],
+        limit: ^limit
+    )
+  end
+
   def delete_question(%QuestionLog{} = q), do: Repo.delete(q)
 
   def recent_questions(%Game{} = game, limit \\ 20, opts \\ []) do
@@ -490,23 +537,28 @@ defmodule RuleMaven.Games do
   Returns all question threads across all games.
   """
   def all_question_threads do
-    Repo.all(
-      from q in QuestionLog,
-        where: is_nil(q.parent_question_id),
-        where: q.answer != "Thinking...",
-        order_by: [desc: q.inserted_at],
-        limit: 200,
-        preload: [:game]
-    )
-    |> Enum.map(fn root ->
-      followups =
-        Repo.all(
-          from q in QuestionLog,
-            where: q.parent_question_id == ^root.id,
-            order_by: [asc: q.inserted_at]
-        )
+    roots =
+      Repo.all(
+        from q in QuestionLog,
+          where: is_nil(q.parent_question_id),
+          where: q.answer != "Thinking...",
+          order_by: [desc: q.inserted_at],
+          limit: 200,
+          preload: [:game]
+      )
 
-      %{root: root, followups: followups}
+    root_ids = Enum.map(roots, & &1.id)
+
+    followups_by_parent =
+      Repo.all(
+        from q in QuestionLog,
+          where: q.parent_question_id in ^root_ids,
+          order_by: [asc: q.inserted_at]
+      )
+      |> Enum.group_by(& &1.parent_question_id)
+
+    Enum.map(roots, fn root ->
+      %{root: root, followups: Map.get(followups_by_parent, root.id, [])}
     end)
   end
 
@@ -826,20 +878,21 @@ defmodule RuleMaven.Games do
 
   def tag_question(question_log_id, game_id) do
     q = Repo.get!(QuestionLog, question_log_id)
-    cats = Repo.all(from c in GameCategory, where: c.game_id == ^game_id and not is_nil(c.name_embedding))
 
-    if cats == [] or is_nil(q.question_embedding) do
+    if is_nil(q.question_embedding) do
       :skipped
     else
-      q_vec = Pgvector.to_list(q.question_embedding)
+      q_vec = Pgvector.new(Pgvector.to_list(q.question_embedding))
 
-      scored = Enum.map(cats, fn cat ->
-        cat_vec = Pgvector.to_list(cat.name_embedding)
-        dist = cosine_distance(q_vec, cat_vec)
-        {cat.id, dist}
-      end)
-
-      top2 = scored |> Enum.sort_by(&elem(&1, 1)) |> Enum.take(2) |> Enum.filter(&(elem(&1, 1) <= 0.5))
+      top2 =
+        Repo.all(
+          from c in GameCategory,
+            where: c.game_id == ^game_id and not is_nil(c.name_embedding),
+            order_by: fragment("cosine_distance(?, ?::vector)", c.name_embedding, ^q_vec),
+            limit: 2,
+            select: {c.id, fragment("cosine_distance(?, ?::vector)", c.name_embedding, ^q_vec)}
+        )
+        |> Enum.filter(fn {_, dist} -> dist <= 0.5 end)
 
       Enum.each(top2, fn {cat_id, _} ->
         %QuestionCategoryTag{}
@@ -849,13 +902,6 @@ defmodule RuleMaven.Games do
 
       :ok
     end
-  end
-
-  defp cosine_distance(a, b) do
-    dot = Enum.zip(a, b) |> Enum.reduce(0.0, fn {x, y}, acc -> acc + x * y end)
-    norm_a = :math.sqrt(Enum.reduce(a, 0.0, fn x, acc -> acc + x * x end))
-    norm_b = :math.sqrt(Enum.reduce(b, 0.0, fn x, acc -> acc + x * x end))
-    if norm_a == 0.0 or norm_b == 0.0, do: 1.0, else: 1.0 - dot / (norm_a * norm_b)
   end
 
   def retag_all_questions(%Game{} = game) do
@@ -928,23 +974,26 @@ defmodule RuleMaven.Games do
   end
 
   def community_vote_maps(question_log_ids, user_id) do
-    votes =
+    all_votes =
       Repo.all(
         from v in QuestionVote,
           where: v.question_log_id in ^question_log_ids
       )
 
+    user_votes_rows =
+      Repo.all(
+        from v in QuestionVote,
+          where: v.question_log_id in ^question_log_ids and v.user_id == ^user_id
+      )
+
     counts =
-      Enum.reduce(votes, %{}, fn v, acc ->
+      Enum.reduce(all_votes, %{}, fn v, acc ->
         acc
         |> Map.update(v.question_log_id, %{up: 0, down: 0}, & &1)
         |> update_in([v.question_log_id, String.to_atom(v.value)], &(&1 + 1))
       end)
 
-    user_votes =
-      votes
-      |> Enum.filter(&(&1.user_id == user_id))
-      |> Map.new(&{&1.question_log_id, &1.value})
+    user_votes = Map.new(user_votes_rows, &{&1.question_log_id, &1.value})
 
     {counts, user_votes}
   end

@@ -181,9 +181,8 @@ defmodule RuleMavenWeb.GameLive.Show do
       }
     end)
     |> Enum.sort_by(fn t -> {if(t.favorited, do: 0, else: 1), t.inserted_at} end, fn
-      {fa, ta}, {fb, tb} -> fa < fb || (fa == fb && DateTime.compare(ta, tb) != :lt)
+      {fa, ta}, {fb, tb} -> fa < fb || (fa == fb && DateTime.compare(ta, tb) == :gt)
     end)
-    |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime})
   end
 
   # Build flat conversation for a single thread (root + history + followups).
@@ -390,7 +389,7 @@ defmodule RuleMavenWeb.GameLive.Show do
              "Maximum #{@max_concurrent} concurrent questions. Please wait for one to finish."
            )}
         else
-          case check_rate_limit(socket) do
+          case Games.check_rate_limit(socket.assigns.current_user) do
             :ok ->
               %{game: game, included_expansions: included} = socket.assigns
               expansion_ids = Map.keys(included)
@@ -662,7 +661,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         end
 
       if question != "" do
-        case check_rate_limit(socket) do
+        case Games.check_rate_limit(socket.assigns.current_user) do
           :ok ->
             %{game: game, included_expansions: included} = socket.assigns
             expansion_ids = Map.keys(included)
@@ -793,11 +792,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
-  defp find_question_log(_game, id) do
-    import Ecto.Query
-    alias RuleMaven.Games.QuestionLog
-    RuleMaven.Repo.one(from q in QuestionLog, where: q.id == ^id)
-  end
+  defp find_question_log(_game, id), do: get_question_log_by_id(id)
 
   defp get_question_log_by_id(id) do
     import Ecto.Query
@@ -1103,7 +1098,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               type="button"
               phx-click="toggle_sidebar"
               class="sidebar-toggle"
-              style="background:none;border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.4rem;font-size:0.8rem;cursor:pointer;color:var(--text);display:none"
+              style="background:none;border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.4rem;font-size:0.8rem;cursor:pointer;color:var(--text)"
             >☰</button>
             <%!-- Community --%>
             <%= if @community_count > 0 do %>
@@ -1169,7 +1164,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               type="button"
               phx-click="toggle_sidebar"
               class="sidebar-close-btn"
-              style="display:none;background:none;border:none;font-size:1rem;cursor:pointer;color:var(--text);padding:0;line-height:1"
+              style="background:none;border:none;font-size:1rem;cursor:pointer;color:var(--text);padding:0;line-height:1"
             >✕</button>
           </div>
 
@@ -1206,11 +1201,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                 <button
                   id={"community-#{q.id}"}
                   type="button"
+                  class="sidebar-item"
                   phx-click="switch_thread"
                   phx-value-id={q.id}
                   style={"display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.25rem 0.75rem;color:var(--text-secondary);font-size:0.72rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == q.id, do: "var(--accent)", else: "var(--border-subtle)"};width:100%"}
-                  onmouseover="this.style.background='var(--bg-subtle)'"
-                  onmouseout="this.style.background='none'"
                 >
                   <span style="word-break:break-word;white-space:normal;display:block;line-height:1.3">
                     {q.canonical_question || q.question}
@@ -1241,11 +1235,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                 <button
                   id={"thread-#{t.id}"}
                   type="button"
+                  class="sidebar-item"
                   phx-click="switch_thread"
                   phx-value-id={t.id}
                   style={"display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.22rem 0.75rem;font-size:0.73rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == t.id, do: "var(--accent)", else: "transparent"};width:100%;color:var(--text)"}
-                  onmouseover="this.style.background='var(--bg-subtle)'"
-                  onmouseout="this.style.background='none'"
                 >
                   <div style="display:flex;align-items:baseline;gap:0.2rem">
                     <%= if t.favorited do %>
@@ -1289,11 +1282,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <button
                       id={"thread-#{t.id}"}
                       type="button"
+                      class="sidebar-item-muted"
                       phx-click="switch_thread"
                       phx-value-id={t.id}
-                      style={"display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.22rem 0.75rem 0.22rem 1.1rem;font-size:0.73rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == t.id, do: "var(--accent)", else: "transparent"};width:100%;color:var(--text-muted);opacity:0.6"}
-                      onmouseover="this.style.opacity='0.9';this.style.background='var(--bg-subtle)'"
-                      onmouseout="this.style.opacity='0.6';this.style.background='none'"
+                      style={"display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.22rem 0.75rem 0.22rem 1.1rem;font-size:0.73rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == t.id, do: "var(--accent)", else: "transparent"};width:100%;color:var(--text-muted)"}
                     >
                       <span style="word-break:break-word;white-space:normal">{t.question}</span>
                     </button>
@@ -1933,54 +1925,6 @@ defmodule RuleMavenWeb.GameLive.Show do
       </div>
     </div>
     """
-  end
-
-  defp check_rate_limit(socket) do
-    user = socket.assigns.current_user
-
-    if RuleMaven.Users.game_master?(user) do
-      :ok
-    else
-      now = DateTime.utc_now()
-      daily_since = DateTime.add(now, -1, :day)
-      weekly_since = DateTime.add(now, -7, :day)
-      monthly_since = DateTime.add(now, -30, :day)
-
-      daily_count = Games.recent_question_count(user.id, daily_since)
-      weekly_count = Games.recent_question_count(user.id, weekly_since)
-      monthly_count = Games.recent_question_count(user.id, monthly_since)
-
-      daily_limit = rate_limit_setting("rate_limit_daily", 50)
-      weekly_limit = rate_limit_setting("rate_limit_weekly", 200)
-      monthly_limit = rate_limit_setting("rate_limit_monthly", 500)
-
-      cond do
-        daily_count >= daily_limit ->
-          {:error, "Daily question limit reached (#{daily_limit})."}
-
-        weekly_count >= weekly_limit ->
-          {:error, "Weekly question limit reached (#{weekly_limit})."}
-
-        monthly_count >= monthly_limit ->
-          {:error, "Monthly question limit reached (#{monthly_limit})."}
-
-        true ->
-          :ok
-      end
-    end
-  end
-
-  defp rate_limit_setting(key, default) do
-    case RuleMaven.Settings.get(key) do
-      nil ->
-        default
-
-      val ->
-        case Integer.parse(to_string(val)) do
-          {n, _} -> n
-          :error -> default
-        end
-    end
   end
 
   # ── Helpers ──
