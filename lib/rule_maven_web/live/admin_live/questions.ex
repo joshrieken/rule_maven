@@ -6,15 +6,16 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   @impl true
   def mount(_params, _session, socket) do
     if Users.game_master?(socket.assigns.current_user) do
-      games = Games.list_games()
       questions = Games.admin_list_questions()
 
       {:ok,
        assign(socket,
          page_title: "Questions",
          questions: questions,
-         games: games,
          filter_game_id: nil,
+         filter_game_name: nil,
+         game_query: "",
+         game_results: [],
          filter_status: nil,
          search: "",
          confirm_delete_id: nil,
@@ -48,21 +49,36 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   end
 
   @impl true
-  def handle_event("filter", params, socket) do
-    game_id =
-      case params["game_id"] do
-        "" -> nil
-        id -> String.to_integer(id)
-      end
-
+  def handle_event("filter_status", params, socket) do
     status = if params["status"] == "", do: nil, else: params["status"]
+    {:noreply, socket |> assign(filter_status: status) |> reload()}
+  end
 
-    socket =
-      socket
-      |> assign(filter_game_id: game_id, filter_status: status)
-      |> reload()
+  # Game filter typeahead. Avoids loading the entire ~150k catalog into a
+  # <select>; matches are searched on demand, mirroring the game-form picker.
+  def handle_event("search_game", %{"value" => query}, socket) do
+    query = String.trim(query)
+    results = if query == "", do: [], else: Games.search_catalog(query, limit: 15)
+    {:noreply, assign(socket, game_query: query, game_results: results)}
+  end
 
-    {:noreply, socket}
+  def handle_event("select_game", %{"id" => id, "name" => name}, socket) do
+    {:noreply,
+     socket
+     |> assign(
+       filter_game_id: String.to_integer(id),
+       filter_game_name: name,
+       game_query: "",
+       game_results: []
+     )
+     |> reload()}
+  end
+
+  def handle_event("clear_game_filter", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(filter_game_id: nil, filter_game_name: nil, game_query: "", game_results: [])
+     |> reload()}
   end
 
   def handle_event("search", %{"search" => q}, socket) do
@@ -149,32 +165,61 @@ defmodule RuleMavenWeb.AdminLive.Questions do
       </div>
 
       <!-- Filters -->
-      <form
-        phx-change="filter"
-        phx-submit="filter"
-        style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem;align-items:center"
-      >
-        <select
-          name="game_id"
-          style="border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text)"
-        >
-          <option value="">All games</option>
-          <%= for g <- @games do %>
-            <option value={g.id} selected={@filter_game_id == g.id}>{g.name}</option>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem;align-items:flex-start">
+        <!-- Game filter typeahead -->
+        <div style="position:relative;min-width:16rem">
+          <%= if @filter_game_id do %>
+            <div style="display:flex;align-items:center;gap:0.4rem;border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg)">
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                Game: <strong>{@filter_game_name}</strong>
+              </span>
+              <button
+                type="button"
+                phx-click="clear_game_filter"
+                style="font-size:0.75rem;color:var(--red);background:none;border:none;cursor:pointer;font-weight:600"
+              >✕</button>
+            </div>
+          <% else %>
+            <input
+              type="text"
+              name="game_query"
+              value={@game_query}
+              autocomplete="off"
+              phx-keyup="search_game"
+              phx-debounce="250"
+              placeholder="Filter by game…"
+              style="width:100%;border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text)"
+            />
+            <%= if @game_results != [] do %>
+              <div style="position:absolute;z-index:10;left:0;right:0;border:1px solid var(--border);border-radius:0.375rem;margin-top:0.15rem;background:var(--bg);max-height:14rem;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,0.15)">
+                <%= for g <- @game_results do %>
+                  <button
+                    type="button"
+                    phx-click="select_game"
+                    phx-value-id={g.id}
+                    phx-value-name={g.name}
+                    class="block w-full text-left"
+                    style="padding:0.35rem 0.6rem;font-size:0.8rem;background:none;border:none;cursor:pointer;color:var(--text)"
+                  >{g.name}</button>
+                <% end %>
+              </div>
+            <% end %>
           <% end %>
-        </select>
+        </div>
 
-        <select
-          name="status"
-          style="border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text)"
-        >
-          <option value="">All statuses</option>
-          <option value="answered" selected={@filter_status == "answered"}>Answered</option>
-          <option value="pending" selected={@filter_status == "pending"}>Pending</option>
-          <option value="refused" selected={@filter_status == "refused"}>Refused</option>
-          <option value="error" selected={@filter_status == "error"}>Error</option>
-        </select>
-      </form>
+        <form phx-change="filter_status" phx-submit="filter_status">
+          <select
+            name="status"
+            style="border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text)"
+          >
+            <option value="">All statuses</option>
+            <option value="answered" selected={@filter_status == "answered"}>Answered</option>
+            <option value="pending" selected={@filter_status == "pending"}>Pending</option>
+            <option value="refused" selected={@filter_status == "refused"}>Refused</option>
+            <option value="error" selected={@filter_status == "error"}>Error</option>
+          </select>
+        </form>
+      </div>
 
       <form
         phx-change="search"
