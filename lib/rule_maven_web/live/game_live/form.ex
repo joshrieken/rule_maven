@@ -1777,6 +1777,15 @@ defmodule RuleMavenWeb.GameLive.Form do
             Manage Rulebooks
           </button>
           <button
+            :if={@source_entries != []}
+            type="button"
+            phx-click="switch_tab"
+            phx-value-tab="generated"
+            style={"cursor:pointer;padding:0.35rem 0.75rem;font-size:0.8rem;font-weight:600;border:none;border-bottom:2px solid #{if @tab == "generated", do: "var(--blue)", else: "transparent"};color:#{if @tab == "generated", do: "var(--blue)", else: "var(--text-muted)"};background:#{if @tab == "generated", do: "var(--bg-subtle)", else: "transparent"};border-radius:0.25rem 0.25rem 0 0"}
+          >
+            Generated
+          </button>
+          <button
             type="button"
             phx-click="switch_tab"
             phx-value-tab="cheatsheet"
@@ -2253,7 +2262,10 @@ defmodule RuleMavenWeb.GameLive.Form do
                 </div>
               <% end %>
             <% end %>
+          </div>
 
+          <%!-- Generated tab: suggested questions + categories --%>
+          <div style={if @tab == "generated", do: "display:block", else: "display:none"}>
             <%!-- Suggested questions (compact, per-category collapsible) --%>
             <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)">
               <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.4rem">
