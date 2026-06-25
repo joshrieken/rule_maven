@@ -55,8 +55,12 @@ defmodule RuleMavenWeb.GameLive.Show do
     active_thread_id =
       cond do
         t = params["t"] ->
-          tid = String.to_integer(t)
-          if Enum.any?(threads, &(&1.id == tid)), do: tid, else: select_active_thread(threads)
+          case Integer.parse(t) do
+            {tid, ""} when is_integer(tid) ->
+              if Enum.any?(threads, &(&1.id == tid)), do: tid, else: select_active_thread(threads)
+            _ ->
+              select_active_thread(threads)
+          end
 
         id = socket.assigns.active_thread_id ->
           if Enum.any?(threads, &(&1.id == id)), do: id, else: select_active_thread(threads)
@@ -327,7 +331,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_event("community_vote", %{"id" => id_str, "vote" => value}, socket) do
-    id = String.to_integer(id_str)
+    {id, _} = Integer.parse(id_str)
     uid = socket.assigns.current_user.id
     Games.set_community_vote(id, uid, value)
     cq_ids = Enum.map(socket.assigns.community_questions, & &1.id)
