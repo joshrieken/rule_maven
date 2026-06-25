@@ -892,19 +892,54 @@ defmodule RuleMaven.Games do
 
   # ── Chunking (RAG) ──
 
+  # Leading per-page marker written at extraction time, e.g. "===== PAGE 12 ====="
+  # (the rulebook's printed page) or "===== SHEET 4 =====" (physical PDF sheet,
+  # used for front matter / when the printed number can't be detected).
+  @page_marker ~r/\A=+\s*(PAGE|SHEET)\s+(\d+)\s*=+[ \t]*\r?\n?/i
+
+  @doc """
+  Splits a leading page marker off a page segment. Returns
+  `{kind, number, rest}` where kind is "Page" or "Sheet", or `nil` if the
+  segment has no marker (legacy documents extracted before numbering).
+  """
+  def split_page_marker(segment) do
+    case Regex.run(@page_marker, segment) do
+      [matched, kind, num] ->
+        {String.capitalize(kind), String.to_integer(num),
+         String.replace_prefix(segment, matched, "")}
+
+      _ ->
+        nil
+    end
+  end
+
   def chunk_document(%Document{} = doc) do
     Repo.delete_all(from c in Chunk, where: c.document_id == ^doc.id)
 
-    pages = String.split(doc.full_text, "\f")
+    segments = String.split(doc.full_text, "\f")
+
+    # Newer documents carry explicit "PAGE n / SHEET n" markers, so page numbers
+    # come from the marker (robust to a dropped \f). Legacy documents have no
+    # markers — fall back to the old positional numbering.
+    pages =
+      if Enum.any?(segments, &(split_page_marker(&1) != nil)) do
+        segments
+        |> Enum.map(&split_page_marker/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.map(fn {kind, num, text} -> {kind, num, text} end)
+      else
+        segments
+        |> Enum.with_index(1)
+        |> Enum.map(fn {text, idx} -> {"Page", idx, text} end)
+      end
 
     chunks_with_meta =
       pages
-      |> Enum.with_index(1)
-      |> Enum.flat_map(fn {page_text, page_num} ->
+      |> Enum.flat_map(fn {kind, page_num, page_text} ->
         page_text
         |> split_into_chunks(500)
         |> Enum.map(fn chunk_text ->
-          %{content: "[Page #{page_num}]\n#{String.trim(chunk_text)}", page_number: page_num}
+          %{content: "[#{kind} #{page_num}]\n#{String.trim(chunk_text)}", page_number: page_num}
         end)
       end)
       |> Enum.with_index()

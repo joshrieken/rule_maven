@@ -975,9 +975,17 @@ defmodule RuleMavenWeb.GameLive.Form do
           pages
           |> Enum.with_index(1)
           |> Enum.map(fn {page, idx} ->
+            # Keep the leading "===== PAGE n =====" marker out of the LLM's hands
+            # so the page number is preserved exactly; only clean the body.
+            {marker, body} =
+              case Games.split_page_marker(page) do
+                {kind, num, rest} -> {"===== #{String.upcase(kind)} #{num} =====\n", rest}
+                nil -> {"", page}
+              end
+
             cleaned =
-              case RuleMaven.LLM.cleanup_page(page) do
-                {:ok, text} -> text
+              case RuleMaven.LLM.cleanup_page(body) do
+                {:ok, text} -> marker <> text
                 {:error, _} -> page
               end
 
@@ -1224,27 +1232,20 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     case File.cp(path, dest) do
       :ok ->
-        case System.cmd("pdftotext", [path, "-"]) do
-          {text, 0} ->
-            if String.trim(text) == "" do
-              case ocr_text(path) do
-                {:ok, ocr_text} ->
-                  html_path = text_to_html(ocr_text, pdf_path)
-                  {:ok, ocr_text, pdf_path, html_path}
+        # Extract page-by-page so each page is a clean unit we can number
+        # explicitly (printed page when detectable, else physical sheet).
+        case extract_text_pages(path) do
+          pages when pages != [] ->
+            text = number_pages(pages)
+            html_path = text_to_html(text, pdf_path)
+            {:ok, text, pdf_path, html_path}
 
-                {:error, reason} ->
-                  {:error, reason, pdf_path}
-              end
-            else
-              html_path = text_to_html(text, pdf_path)
-              {:ok, text, pdf_path, html_path}
-            end
-
-          {_output, _exit_code} ->
-            case ocr_text(path) do
-              {:ok, ocr_text} ->
-                html_path = text_to_html(ocr_text, pdf_path)
-                {:ok, ocr_text, pdf_path, html_path}
+          [] ->
+            case ocr_pages(path) do
+              {:ok, pages} ->
+                text = number_pages(pages)
+                html_path = text_to_html(text, pdf_path)
+                {:ok, text, pdf_path, html_path}
 
               {:error, reason} ->
                 {:error, reason, pdf_path}
@@ -1259,6 +1260,127 @@ defmodule RuleMavenWeb.GameLive.Form do
       {:error, "pdftotext error: #{Exception.message(e)}", nil}
   end
 
+  # Number of pages in the PDF (via pdfinfo). Returns 0 if unknown.
+  defp pdf_page_count(path) do
+    case System.cmd("pdfinfo", [path], stderr_to_stdout: true) do
+      {out, 0} ->
+        case Regex.run(~r/^Pages:\s+(\d+)/m, out) do
+          [_, n] -> String.to_integer(n)
+          _ -> 0
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  # Extract each PDF page separately so page boundaries are exact. Returns a
+  # list of per-page text strings (physical order). Empty list if pdftotext
+  # yields nothing (e.g. scanned PDF), so the caller can fall back to OCR.
+  defp extract_text_pages(path) do
+    case pdf_page_count(path) do
+      n when n > 0 ->
+        pages =
+          for p <- 1..n do
+            case System.cmd("pdftotext", ["-f", "#{p}", "-l", "#{p}", "-enc", "UTF-8", path, "-"]) do
+              {text, 0} -> text
+              _ -> ""
+            end
+          end
+
+        if Enum.all?(pages, &(String.trim(&1) == "")), do: [], else: pages
+
+      _ ->
+        # pdfinfo unavailable: fall back to a single whole-doc extraction split
+        # on the form-feed page separator pdftotext already emits.
+        case System.cmd("pdftotext", ["-enc", "UTF-8", path, "-"]) do
+          {text, 0} ->
+            if String.trim(text) == "", do: [], else: String.split(text, "\f")
+
+          _ ->
+            []
+        end
+    end
+  end
+
+  # Prefix each page with a durable, visible marker. When the printed page
+  # number can be detected (footer/header) we anchor to it; otherwise the
+  # physical sheet number is used (front matter, or low-confidence docs).
+  defp number_pages(pages) do
+    offset = detect_printed_offset(pages)
+
+    pages
+    |> Enum.with_index(1)
+    |> Enum.map_join("", fn {text, sheet} ->
+      {kind, num} =
+        if offset && sheet - offset >= 1 do
+          {"PAGE", sheet - offset}
+        else
+          {"SHEET", sheet}
+        end
+
+      "\f===== #{kind} #{num} =====\n" <> text
+    end)
+  end
+
+  # Find the global offset between physical sheet index and printed page number
+  # by consensus: for each page with a detected footer/header number, the offset
+  # is `sheet - printed`; the true offset is the mode across pages (title/TOC
+  # pages with no number or noise get outvoted). Returns nil if no clear winner.
+  defp detect_printed_offset(pages) do
+    offsets =
+      pages
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {text, sheet} ->
+        case page_number_candidate(text) do
+          nil -> []
+          c -> [sheet - c]
+        end
+      end)
+
+    case offsets do
+      [] ->
+        nil
+
+      _ ->
+        {offset, count} =
+          offsets |> Enum.frequencies() |> Enum.max_by(fn {_o, n} -> n end)
+
+        # Require real consensus before trusting detection over raw sheet numbers.
+        if count >= max(3, div(length(pages), 5)), do: offset, else: nil
+    end
+  end
+
+  # Best-guess printed page number for one page: scan the first and last few
+  # non-empty lines (where headers/footers live) for a bare/decorated integer,
+  # preferring the footer. Returns the integer or nil.
+  defp page_number_candidate(text) do
+    lines =
+      text
+      |> String.split("\n")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    # Footer lines first (most reliable), then header lines.
+    candidates = Enum.reverse(Enum.take(lines, -3)) ++ Enum.take(lines, 3)
+
+    Enum.find_value(candidates, fn line ->
+      cond do
+        Regex.match?(~r/^\d{1,3}$/, line) ->
+          String.to_integer(line)
+
+        m = Regex.run(~r/^(?:page|p\.?)\s*(\d{1,3})$/i, line) ->
+          m |> Enum.at(1) |> String.to_integer()
+
+        m = Regex.run(~r/^[—\-–|•\s]*(\d{1,3})[—\-–|•\s]*$/, line) ->
+          m |> Enum.at(1) |> String.to_integer()
+
+        true ->
+          nil
+      end
+    end)
+  end
+
   defp text_to_html(text, pdf_path) do
     html_filename = Path.basename(pdf_path, Path.extname(pdf_path)) <> ".html"
     html_path = Path.join(Path.dirname(pdf_path), html_filename)
@@ -1269,7 +1391,15 @@ defmodule RuleMavenWeb.GameLive.Form do
     {paragraphs, _para_num} =
       pages
       |> Enum.with_index(1)
-      |> Enum.reduce({[], 1}, fn {page_text, page_num}, {acc, para_num} ->
+      |> Enum.reduce({[], 1}, fn {page_text, idx}, {acc, para_num} ->
+        # Prefer the explicit "PAGE n / SHEET n" marker for the heading and
+        # page-data attribute; fall back to positional index for legacy text.
+        {label, page_num, page_text} =
+          case Games.split_page_marker(page_text) do
+            {kind, num, rest} -> {"#{kind} #{num}", num, rest}
+            nil -> {"Page #{idx}", idx, page_text}
+          end
+
         page_text = String.trim(page_text)
 
         if page_text == "" do
@@ -1281,7 +1411,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             |> Enum.map(&String.trim/1)
             |> Enum.reject(&(&1 == ""))
 
-          marker = "<div class=\"page-break\">— Page #{page_num} —</div>"
+          marker = "<div class=\"page-break\">— #{label} —</div>"
 
           {page_acc, next_para} =
             Enum.reduce(page_paras, {[marker | acc], para_num}, fn para, {list, pn} ->
@@ -1317,7 +1447,10 @@ defmodule RuleMavenWeb.GameLive.Form do
     _ -> nil
   end
 
-  defp ocr_text(pdf_path) do
+  # OCR a scanned PDF one page at a time. Returns `{:ok, pages}` (a list of
+  # per-page text in physical order) or `{:error, reason}`. pdftoppm already
+  # renders one image per page, so the sorted images give the page order.
+  defp ocr_pages(pdf_path) do
     if System.find_executable("tesseract") do
       tmp_dir = Application.app_dir(:rule_maven, "tmp/ocr")
       File.mkdir_p!(tmp_dir)
@@ -1332,23 +1465,21 @@ defmodule RuleMavenWeb.GameLive.Form do
             |> Enum.sort()
             |> Enum.map(&Path.join(tmp_dir, &1))
 
-          text =
-            images
-            |> Enum.map(fn img ->
+          pages =
+            Enum.map(images, fn img ->
               case System.cmd("tesseract", [img, "stdout", "-l", "eng", "--psm", "6"],
                      stderr_to_stdout: true
                    ) do
                 {t, _} -> t
               end
             end)
-            |> Enum.join("\f")
 
           Enum.each(images, &File.rm/1)
 
-          if String.trim(text) == "" do
+          if Enum.all?(pages, &(String.trim(&1) == "")) do
             {:error, "OCR produced no text — scanned PDF may be unreadable"}
           else
-            {:ok, text}
+            {:ok, pages}
           end
 
         {_, _} ->
@@ -1970,10 +2101,17 @@ defmodule RuleMavenWeb.GameLive.Form do
                     </div>
                     <div style="overflow:auto;padding:1.25rem 1.5rem">
                       <%= for {page, idx} <- Enum.with_index(String.split(reader.text, "\f"), 1) do %>
-                        <div style="font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:1.25rem 0 0.5rem 0;text-align:center">
-                          — Page {idx} —
-                        </div>
-                        <div style="font-family:Georgia,serif;font-size:1rem;line-height:1.65;white-space:pre-wrap;color:var(--text)">{page}</div>
+                        <% {label, body} =
+                          case Games.split_page_marker(page) do
+                            {kind, num, rest} -> {"#{kind} #{num}", rest}
+                            nil -> {"Page #{idx}", page}
+                          end %>
+                        <%= if String.trim(body) != "" do %>
+                          <div style="font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:1.25rem 0 0.5rem 0;text-align:center">
+                            — {label} —
+                          </div>
+                          <div style="font-family:Georgia,serif;font-size:1rem;line-height:1.65;white-space:pre-wrap;color:var(--text)">{body}</div>
+                        <% end %>
                       <% end %>
                     </div>
                   </div>
