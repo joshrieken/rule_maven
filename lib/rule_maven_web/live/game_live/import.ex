@@ -59,7 +59,7 @@ defmodule RuleMavenWeb.GameLive.Import do
   @impl true
   def handle_event("import", _params, socket) do
     %{results: results, imported: imported} = socket.assigns
-    existing_bgg_ids = MapSet.new(Games.list_games(), & &1.bgg_id)
+    existing_bgg_ids = Games.collection_bgg_ids(socket.assigns.current_user.id)
 
     to_import =
       results
@@ -82,12 +82,15 @@ defmodule RuleMavenWeb.GameLive.Import do
 
   @impl true
   def handle_info({:import_games, [game | rest], imported, created}, socket) do
-    {new_imported, new_created} =
-      case Games.create_game(%{name: game.name, bgg_id: game.bgg_id}) do
-        {:ok, db_game} ->
-          {imported ++ [game.bgg_id], [db_game | created]}
+    user_id = socket.assigns.current_user.id
 
-        _ ->
+    {new_imported, new_created} =
+      case ensure_catalog_game(game) do
+        {:ok, db_game, was_created} ->
+          Games.add_to_collection(user_id, db_game.id)
+          {imported ++ [game.bgg_id], if(was_created, do: [db_game | created], else: created)}
+
+        :error ->
           {imported, created}
       end
 
@@ -141,10 +144,25 @@ defmodule RuleMavenWeb.GameLive.Import do
   defp resolve_cookies("", _), do: {:ok, nil}
   defp resolve_cookies(user, pass), do: BGG.login(user, pass)
 
+  # Find the game in the global catalog by BGG id, or create it. Returns
+  # {:ok, game, was_created?} so callers can enrich only freshly-created rows.
+  defp ensure_catalog_game(%{bgg_id: bgg_id, name: name}) do
+    case Games.get_game_by_bgg_id(bgg_id) do
+      nil ->
+        case Games.create_game(%{name: name, bgg_id: bgg_id}) do
+          {:ok, game} -> {:ok, game, true}
+          _ -> :error
+        end
+
+      game ->
+        {:ok, game, false}
+    end
+  end
+
   defp do_fetch(socket, username, cookies) do
     case BGG.fetch_collection(username, cookies: cookies) do
       {:ok, games} ->
-        existing_bgg_ids = MapSet.new(Games.list_games(), & &1.bgg_id)
+        existing_bgg_ids = Games.collection_bgg_ids(socket.assigns.current_user.id)
 
         {already, new_games} =
           games
@@ -303,7 +321,7 @@ defmodule RuleMavenWeb.GameLive.Import do
                       class="text-xs px-2 py-1 rounded"
                       style="background:var(--bg-subtle);color:var(--text-secondary)"
                     >
-                      Already imported
+                      In your collection
                     </span>
                   <% game.bgg_id in @imported -> %>
                     <span class="text-xs px-2 py-1 rounded badge-green">

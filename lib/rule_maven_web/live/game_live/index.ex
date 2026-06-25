@@ -5,30 +5,13 @@ defmodule RuleMavenWeb.GameLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    is_admin = RuleMaven.Users.game_master?(socket.assigns.current_user)
+    user_id = socket.assigns.current_user.id
+    collection_ids = Games.collection_game_ids(user_id)
 
-    games =
-      if is_admin do
-        Games.list_base_games()
-      else
-        Games.list_games_with_documents()
-      end
-
-    # Preload expansion counts and source counts for rendering
-    expansion_counts =
-      Enum.reduce(games, %{}, fn game, acc ->
-        exps =
-          if is_admin, do: Games.expansions_for(game), else: Games.expansions_with_documents(game)
-
-        count = length(exps)
-        Map.put(acc, game.id, count)
-      end)
-
-    source_counts =
-      Enum.reduce(games, %{}, fn game, acc ->
-        count = length(Games.list_documents(game))
-        Map.put(acc, game.id, count)
-      end)
+    # Default landing view: askable games (those with rulebooks). Users can
+    # toggle to their collection or browse the full catalog.
+    view = "playable"
+    games = load_view_games(view, user_id, "", nil)
 
     {refresh_total, refresh_current, refresh_complete, refresh_errored} =
       if BggRefresher.running?() do
@@ -42,28 +25,77 @@ defmodule RuleMavenWeb.GameLive.Index do
         {0, 0, false, false}
       end
 
-    {:ok,
-     assign(socket,
-       games: games,
-       expansion_counts: expansion_counts,
-       source_counts: source_counts,
-       confirm_clear: false,
-       confirm_text: "",
-       search: if(connected?(socket), do: nil, else: ""),
-       search_ready: false,
-       delete_id: nil,
-       page: 1,
-       per_page: 20,
-       selected_idx: -1,
-       display_count: 20,
-       expanded_games: %{},
-       category_filter: nil,
-       refresh_total: refresh_total,
-       refresh_current: refresh_current,
-       refresh_complete: refresh_complete,
-       refresh_errored: refresh_errored,
-       version: 0
-     )}
+    socket =
+      socket
+      |> assign(
+        view: view,
+        collection_ids: collection_ids,
+        confirm_clear: false,
+        confirm_text: "",
+        search: if(connected?(socket), do: nil, else: ""),
+        search_ready: false,
+        delete_id: nil,
+        page: 1,
+        per_page: 20,
+        selected_idx: -1,
+        display_count: 20,
+        expanded_games: %{},
+        category_filter: nil,
+        refresh_total: refresh_total,
+        refresh_current: refresh_current,
+        refresh_complete: refresh_complete,
+        refresh_errored: refresh_errored,
+        version: 0
+      )
+      |> assign_games(games)
+
+    {:ok, socket}
+  end
+
+  # Load the game list for a view. "all" is DB-backed (catalog can be huge);
+  # "mine"/"playable" are bounded lists filtered in-memory by the render path.
+  defp load_view_games("mine", user_id, _search, _category), do: Games.list_collection(user_id)
+
+  defp load_view_games("all", _user_id, search, category),
+    do: Games.search_catalog(search || "", category: category)
+
+  defp load_view_games(_playable, _user_id, _search, _category),
+    do: Games.list_games_with_documents()
+
+  # Assign the current games plus their expansion/source counts. Counts are
+  # computed only for the games actually shown, so this stays cheap even when
+  # the catalog has 150k rows.
+  defp assign_games(socket, games) do
+    is_admin = RuleMaven.Users.game_master?(socket.assigns.current_user)
+
+    expansion_counts =
+      Map.new(games, fn game ->
+        exps =
+          if is_admin, do: Games.expansions_for(game), else: Games.expansions_with_documents(game)
+
+        {game.id, length(exps)}
+      end)
+
+    source_counts =
+      Map.new(games, fn game -> {game.id, length(Games.list_documents(game))} end)
+
+    assign(socket,
+      games: games,
+      expansion_counts: expansion_counts,
+      source_counts: source_counts
+    )
+  end
+
+  # Reload the games for the current view/search/category and recompute counts.
+  defp reload_games(socket) do
+    %{view: view, search: search, category_filter: category} = socket.assigns
+    games = load_view_games(view, socket.assigns.current_user.id, search || "", category)
+    assign_games(socket, games)
+  end
+
+  # "all" view is DB-backed, so search/category changes must re-query.
+  defp maybe_reload_for_all(socket) do
+    if socket.assigns.view == "all", do: reload_games(socket), else: socket
   end
 
   @impl true
@@ -115,11 +147,10 @@ defmodule RuleMavenWeb.GameLive.Index do
 
     case Games.delete_game(game) do
       {:ok, _} ->
-        games = load_games(socket)
-
         {:noreply,
          socket
-         |> assign(games: games, delete_id: nil)
+         |> assign(delete_id: nil)
+         |> reload_games()
          |> put_flash(:info, "Deleted #{game.name}.")}
 
       {:error, _} ->
@@ -203,7 +234,9 @@ defmodule RuleMavenWeb.GameLive.Index do
   @impl true
   def handle_event("search", %{"search" => text}, socket) do
     {:noreply,
-     assign(socket, search: text, search_ready: true, display_count: 20, selected_idx: -1)}
+     socket
+     |> assign(search: text, search_ready: true, display_count: 20, selected_idx: -1)
+     |> maybe_reload_for_all()}
   end
 
   @impl true
@@ -211,19 +244,52 @@ defmodule RuleMavenWeb.GameLive.Index do
     {:noreply,
      socket
      |> assign(search: "", search_ready: true, display_count: 20, selected_idx: -1)
+     |> maybe_reload_for_all()
      |> push_event("refocus", %{})}
   end
 
   @impl true
   def handle_event("restore_search", %{"value" => text}, socket) do
     {:noreply,
-     assign(socket, search: text, search_ready: true, display_count: 20, selected_idx: -1)}
+     socket
+     |> assign(search: text, search_ready: true, display_count: 20, selected_idx: -1)
+     |> maybe_reload_for_all()}
   end
 
   @impl true
   def handle_event("set_category_filter", %{"category" => category}, socket) do
     filter = if category == "", do: nil, else: category
-    {:noreply, assign(socket, category_filter: filter, display_count: 20, selected_idx: -1)}
+
+    {:noreply,
+     socket
+     |> assign(category_filter: filter, display_count: 20, selected_idx: -1)
+     |> maybe_reload_for_all()}
+  end
+
+  @impl true
+  def handle_event("set_view", %{"view" => view}, socket) do
+    {:noreply,
+     socket
+     |> assign(view: view, display_count: 20, selected_idx: -1)
+     |> reload_games()}
+  end
+
+  @impl true
+  def handle_event("toggle_collection", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    user_id = socket.assigns.current_user.id
+
+    if MapSet.member?(socket.assigns.collection_ids, id) do
+      Games.remove_from_collection(user_id, id)
+    else
+      Games.add_to_collection(user_id, id)
+    end
+
+    collection_ids = Games.collection_game_ids(user_id)
+    socket = assign(socket, collection_ids: collection_ids)
+    # Reflect membership change immediately when viewing the collection.
+    socket = if socket.assigns.view == "mine", do: reload_games(socket), else: socket
+    {:noreply, socket}
   end
 
   @impl true
@@ -292,15 +358,6 @@ defmodule RuleMavenWeb.GameLive.Index do
   defp visible_games(assigns) do
     filtered = filtered_games(assigns.games, assigns.search, assigns.category_filter)
     Enum.take(filtered, assigns.display_count)
-  end
-
-  defp load_games(socket) do
-    if RuleMaven.Users.game_master?(socket.assigns.current_user) do
-      Games.list_base_games()
-    else
-      Games.list_games_with_documents()
-    end
-    |> Enum.sort_by(&String.downcase(&1.name))
   end
 
   defp filtered_games(_games, nil, _category), do: []
@@ -372,6 +429,17 @@ defmodule RuleMavenWeb.GameLive.Index do
           >✕</button>
         </div>
       </form>
+
+      <div class="mb-4 flex gap-2 flex-wrap">
+        <%= for {key, label} <- [{"playable", "Playable"}, {"mine", "My Collection"}, {"all", "All Games"}] do %>
+          <button
+            type="button"
+            phx-click="set_view"
+            phx-value-view={key}
+            style={"display:inline-block;padding:0.25rem 0.75rem;border-radius:9999px;font-size:0.78rem;font-weight:600;cursor:pointer;border:1.5px solid var(--accent);background:#{if @view == key, do: "var(--accent)", else: "transparent"};color:#{if @view == key, do: "white", else: "var(--accent)"}"}
+          >{label}</button>
+        <% end %>
+      </div>
 
       <% present_categories =
         @games
@@ -542,6 +610,14 @@ defmodule RuleMavenWeb.GameLive.Index do
                   :if={Map.get(@source_counts, game.id, 0) == 0}
                   style="display:inline-block;visibility:hidden;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;line-height:1.2"
                 >Ask</span>
+                <% in_collection = MapSet.member?(@collection_ids, game.id) %>
+                <button
+                  type="button"
+                  phx-click="toggle_collection"
+                  phx-value-id={game.id}
+                  title={if in_collection, do: "Remove from your collection", else: "Add to your collection"}
+                  style={"background:#{if in_collection, do: "color-mix(in srgb,var(--accent) 14%,transparent)", else: "var(--bg-subtle)"};color:#{if in_collection, do: "var(--accent)", else: "var(--text-muted)"};border:1px solid var(--border);font-size:0.75rem;font-weight:600;cursor:pointer;padding:0.2rem 0.45rem;border-radius:0.3rem;line-height:1.2"}
+                >{if in_collection, do: "★", else: "☆"}</button>
                 <.link
                   :if={RuleMaven.Users.game_master?(@current_user)}
                   navigate={~p"/games/#{game.id}/edit"}

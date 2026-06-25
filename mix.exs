@@ -58,6 +58,7 @@ defmodule RuleMaven.MixProject do
       {:req, "~> 0.5"},
       {:bcrypt_elixir, "~> 3.0"},
       {:sweet_xml, "~> 0.7"},
+      {:nimble_csv, "~> 1.2"},
       {:pgvector, "~> 0.3"},
       {:oban, "~> 2.18"},
       {:oban_web, "~> 2.11"},

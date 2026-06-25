@@ -5,6 +5,7 @@ defmodule RuleMaven.Games.Game do
   schema "games" do
     field :name, :string
     field :bgg_id, :integer
+    field :bgg_rank, :integer
     field :year_published, :integer
     field :min_players, :integer
     field :max_players, :integer
@@ -25,6 +26,7 @@ defmodule RuleMaven.Games.Game do
     |> cast(attrs, [
       :name,
       :bgg_id,
+      :bgg_rank,
       :year_published,
       :min_players,
       :max_players,

@@ -8,6 +8,7 @@ defmodule RuleMaven.BGG do
 
   @base "https://boardgamegeek.com/xmlapi2"
   @login_url "https://boardgamegeek.com/login/api/v1"
+  @data_dump_url "https://boardgamegeek.com/data_dumps/bg_ranks"
 
   @doc """
   Authenticates with BGG and returns session cookies for subsequent requests.
@@ -87,6 +88,91 @@ defmodule RuleMaven.BGG do
         {:error, reason} ->
           {:error, "HTTP error: #{inspect(reason)}"}
       end
+    end
+  end
+
+  @doc """
+  Downloads BGG's official ranked-games data dump (the full catalog) and
+  returns the decompressed CSV as a binary.
+
+  Requires authenticated `cookies` (from `login/2`) — the data_dumps page is
+  login-gated. Flow: load the dump page, scrape the time-limited signed S3
+  URL, download the ZIP, unzip in memory, return the CSV entry.
+
+  Returns `{:ok, csv_binary}` or `{:error, reason}`.
+  """
+  def fetch_rank_dump(cookies) do
+    require Logger
+
+    with {:ok, page} <- get_dump_page(cookies),
+         {:ok, zip_url} <- extract_dump_url(page),
+         {:ok, zip} <- download_zip(zip_url),
+         {:ok, csv} <- unzip_csv(zip) do
+      Logger.info("BGG rank dump: #{byte_size(csv)} bytes of CSV")
+      {:ok, csv}
+    end
+  end
+
+  defp get_dump_page(cookies) do
+    case Req.get(@data_dump_url,
+           headers: build_headers(cookies),
+           redirect: true,
+           receive_timeout: 30_000
+         ) do
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        {:ok, body}
+
+      {:ok, %{status: 200}} ->
+        {:error, "BGG data dump page returned a non-text body"}
+
+      {:ok, %{status: status}} ->
+        {:error, "BGG data dump page returned status #{status} (are credentials valid?)"}
+
+      {:error, reason} ->
+        {:error, "Data dump page HTTP error: #{inspect(reason)}"}
+    end
+  end
+
+  # The page embeds a time-limited signed link to the dated ZIP on S3.
+  defp extract_dump_url(page) do
+    regex = ~r{https://[^\s"'<>]+?(?:amazonaws\.com|geekdo-files\.com)[^\s"'<>]+?\.zip[^\s"'<>]*}
+
+    case Regex.run(regex, page) do
+      [url | _] ->
+        {:ok, url |> String.replace("&amp;", "&")}
+
+      nil ->
+        require Logger
+        Logger.error("BGG dump: no download URL found in page (#{byte_size(page)} bytes)")
+        {:error, "Could not find the data dump download link. You may need to log in to BGG."}
+    end
+  end
+
+  defp download_zip(url) do
+    case Req.get(url, redirect: true, receive_timeout: 120_000, decode_body: false) do
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        {:ok, body}
+
+      {:ok, %{status: status}} ->
+        {:error, "Data dump download returned status #{status}"}
+
+      {:error, reason} ->
+        {:error, "Data dump download HTTP error: #{inspect(reason)}"}
+    end
+  end
+
+  defp unzip_csv(zip) do
+    case :zip.unzip(zip, [:memory]) do
+      {:ok, entries} ->
+        csv =
+          Enum.find_value(entries, fn {name, content} ->
+            if String.ends_with?(to_string(name), ".csv"), do: content
+          end)
+
+        if csv, do: {:ok, csv}, else: {:error, "No CSV found inside the data dump ZIP"}
+
+      {:error, reason} ->
+        {:error, "Failed to unzip data dump: #{inspect(reason)}"}
     end
   end
 

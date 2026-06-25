@@ -13,11 +13,16 @@ defmodule RuleMaven.Games do
   alias RuleMaven.Games.QuestionCategoryTag
   alias RuleMaven.Games.Document
   alias RuleMaven.Games.Chunk
+  alias RuleMaven.Games.UserCollection
   alias Oban
+
+  NimbleCSV.define(RuleMaven.Games.RankCSV, separator: ",", escape: "\"")
 
   # ── Games ──
 
   def list_games, do: Repo.all(Game)
+
+  def count_games, do: Repo.aggregate(Game, :count)
 
   def list_games_with_documents do
     # Base games + expansions that have published documents.
@@ -68,6 +73,8 @@ defmodule RuleMaven.Games do
 
   def get_game!(id), do: Repo.get!(Game, id)
 
+  def get_game_by_bgg_id(bgg_id) when is_integer(bgg_id), do: Repo.get_by(Game, bgg_id: bgg_id)
+
   def create_game(attrs) do
     %Game{}
     |> Game.changeset(attrs)
@@ -95,6 +102,137 @@ defmodule RuleMaven.Games do
 
   def change_game(%Game{} = game, attrs \\ %{}) do
     Game.changeset(game, attrs)
+  end
+
+  # ── Catalog import (BGG rank dump) ──
+
+  @doc """
+  Bulk-upserts BGG's full game catalog from the rank-dump CSV binary.
+
+  Columns: id,name,yearpublished,rank,bayesaverage,average,usersrated,is_expansion,...
+  Upserts by `bgg_id`, replacing only catalog fields so lazily-enriched data
+  (image, players, playing_time) on existing rows is preserved. Idempotent.
+
+  Returns the number of rows processed.
+  """
+  def import_rank_dump(csv_binary) when is_binary(csv_binary) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    csv_binary
+    |> RuleMaven.Games.RankCSV.parse_string(skip_headers: true)
+    |> Stream.map(&dump_row_to_attrs(&1, now))
+    |> Stream.reject(&is_nil/1)
+    |> Stream.chunk_every(2000)
+    |> Enum.reduce(0, fn chunk, acc ->
+      {count, _} =
+        Repo.insert_all(Game, chunk,
+          on_conflict: {:replace, [:name, :year_published, :bgg_rank, :updated_at]},
+          conflict_target: :bgg_id
+        )
+
+      acc + count
+    end)
+  end
+
+  defp dump_row_to_attrs([id, name, year | rest], now) do
+    rank = rest |> List.first() |> parse_dump_int()
+
+    with {bgg_id, _} when bgg_id > 0 <- Integer.parse(to_string(id)),
+         name when name != "" <- String.trim(to_string(name)) do
+      %{
+        bgg_id: bgg_id,
+        name: name,
+        year_published: parse_dump_int(year),
+        bgg_rank: rank,
+        category: "board_game",
+        inserted_at: now,
+        updated_at: now
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp dump_row_to_attrs(_, _now), do: nil
+
+  # Dump uses "0" for unranked / missing — treat as nil.
+  defp parse_dump_int(v) do
+    case Integer.parse(to_string(v)) do
+      {0, _} -> nil
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+
+  @doc """
+  DB-backed catalog search for browsing the (large) global catalog.
+
+  Opts: `:category`, `:limit` (default 50). Orders by popularity
+  (`bgg_rank` ascending, nulls last) then name.
+  """
+  def search_catalog(query, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 50)
+    category = Keyword.get(opts, :category)
+    term = "%#{String.trim(query || "")}%"
+
+    base =
+      from g in Game,
+        where: is_nil(g.parent_game_id),
+        where: ilike(g.name, ^term),
+        order_by: [asc_nulls_last: g.bgg_rank, asc: g.name],
+        limit: ^limit
+
+    base
+    |> maybe_category(category)
+    |> Repo.all()
+  end
+
+  defp maybe_category(query, nil), do: query
+  defp maybe_category(query, ""), do: query
+  defp maybe_category(query, category), do: from(g in query, where: g.category == ^category)
+
+  # ── User collections ──
+
+  def add_to_collection(user_id, game_id) when is_integer(user_id) and is_integer(game_id) do
+    %UserCollection{}
+    |> UserCollection.changeset(%{user_id: user_id, game_id: game_id})
+    |> Repo.insert(on_conflict: :nothing, conflict_target: [:user_id, :game_id])
+  end
+
+  def remove_from_collection(user_id, game_id) when is_integer(user_id) and is_integer(game_id) do
+    Repo.delete_all(
+      from uc in UserCollection, where: uc.user_id == ^user_id and uc.game_id == ^game_id
+    )
+  end
+
+  @doc "Base games in a user's collection, sorted by name."
+  def list_collection(user_id) when is_integer(user_id) do
+    Repo.all(
+      from g in Game,
+        join: uc in UserCollection,
+        on: uc.game_id == g.id,
+        where: uc.user_id == ^user_id,
+        where: is_nil(g.parent_game_id)
+    )
+    |> Enum.sort_by(&String.downcase(&1.name))
+  end
+
+  @doc "MapSet of game ids in a user's collection (for membership checks)."
+  def collection_game_ids(user_id) when is_integer(user_id) do
+    Repo.all(from uc in UserCollection, where: uc.user_id == ^user_id, select: uc.game_id)
+    |> MapSet.new()
+  end
+
+  @doc "MapSet of BGG ids in a user's collection (for matching BGG import results)."
+  def collection_bgg_ids(user_id) when is_integer(user_id) do
+    Repo.all(
+      from uc in UserCollection,
+        join: g in Game,
+        on: g.id == uc.game_id,
+        where: uc.user_id == ^user_id and not is_nil(g.bgg_id),
+        select: g.bgg_id
+    )
+    |> MapSet.new()
   end
 
   # ── Documents ──
