@@ -443,12 +443,6 @@ defmodule RuleMavenWeb.SettingsLive do
                     style="width:100%;border:1px solid var(--border-strong);border-radius:0.375rem;padding:0.5rem 0.75rem;font-size:0.85rem;background:var(--bg);color:var(--text)"
                   >
                     <option
-                      value="deepseek/deepseek-v4-flash:free"
-                      selected={@llm_model_openrouter == "deepseek/deepseek-v4-flash:free"}
-                    >
-                      DeepSeek V4 Flash — free (rate-limited), fast, 1M ctx
-                    </option>
-                    <option
                       value="deepseek/deepseek-v4-flash"
                       selected={@llm_model_openrouter == "deepseek/deepseek-v4-flash"}
                     >
@@ -528,12 +522,6 @@ defmodule RuleMavenWeb.SettingsLive do
                   >
                     <option value="" selected={@llm_cleanup_model_openrouter == ""}>
                       Use Answer model
-                    </option>
-                    <option
-                      value="deepseek/deepseek-v4-flash:free"
-                      selected={@llm_cleanup_model_openrouter == "deepseek/deepseek-v4-flash:free"}
-                    >
-                      DeepSeek V4 Flash — free (rate-limited), fast, 1M ctx
                     </option>
                     <option
                       value="deepseek/deepseek-v4-flash"
