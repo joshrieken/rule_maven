@@ -33,7 +33,6 @@ defmodule RuleMaven.LLM do
   rulebook chunks and calls the LLM (JSON output).
   """
   def ask(game, question, expansion_ids \\ [], recent_context \\ [], opts \\ []) do
-    user_id = Keyword.get(opts, :user_id)
     skip_pool = Keyword.get(opts, :skip_pool, false)
 
     # Step 0: embed the question (used for pool check + logging)
@@ -43,11 +42,11 @@ defmodule RuleMaven.LLM do
         {:error, _} -> nil
       end
 
+    # Pooled/community answers are rulebook-derived, so any asker may be served a
+    # match — the lookup intentionally doesn't filter by user (no user_id passed).
     pool_hit =
       !skip_pool && question_embedding &&
-        RuleMaven.Games.find_similar_question_in_pool(game.id, question_embedding,
-          user_id: user_id
-        )
+        RuleMaven.Games.find_similar_question_in_pool(game.id, question_embedding)
 
     cond do
       pool_hit ->
