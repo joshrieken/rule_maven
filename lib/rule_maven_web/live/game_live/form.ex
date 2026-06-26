@@ -56,6 +56,9 @@ defmodule RuleMavenWeb.GameLive.Form do
         parent_selected_id: nil,
         parent_selected_name: nil,
         cleaning: %{},
+        # Source ids freshly added by upload/download — drives the "clean now?"
+        # prompt on the Manage tab.
+        clean_prompt_sids: [],
         cleanup_subscribed: false,
         expanded_source_id: nil,
         reader_mode: "paginated",
@@ -370,29 +373,21 @@ defmodule RuleMavenWeb.GameLive.Form do
     id = String.to_integer(id)
     entry = Enum.find(socket.assigns.source_entries, &(&1.id == id))
 
-    if entry && entry.source_id && String.trim(entry.text) != "" do
-      sid = entry.source_id
-      total = length(entry.pages)
+    socket =
+      if entry && entry.source_id, do: start_cleanup(socket, entry.source_id), else: socket
 
-      # Durable, restart-survivable cleanup via Oban. enqueue_cleanup/1 nulls the
-      # existing cleaned layer (full re-clean) and queues the worker, which
-      # writes each finished page back to the document and broadcasts progress.
-      {:ok, _job} = Games.enqueue_cleanup(Games.get_document!(sid))
+    {:noreply, socket}
+  end
 
-      # Mirror the DB reset in the open form so progress tracks from 0/total.
-      entries =
-        Enum.map(socket.assigns.source_entries, fn e ->
-          if e.source_id == sid, do: reset_cleaned(e), else: e
-        end)
+  # "Clean now?" prompt shown after an upload/download: clean the freshly added
+  # sources, or dismiss.
+  def handle_event("clean_prompt_yes", _params, socket) do
+    socket = Enum.reduce(socket.assigns.clean_prompt_sids, socket, &start_cleanup(&2, &1))
+    {:noreply, assign(socket, clean_prompt_sids: [])}
+  end
 
-      {:noreply,
-       assign(socket,
-         source_entries: entries,
-         cleaning: Map.put(socket.assigns.cleaning, sid, {0, total})
-       )}
-    else
-      {:noreply, socket}
-    end
+  def handle_event("clean_prompt_no", _params, socket) do
+    {:noreply, assign(socket, clean_prompt_sids: [])}
   end
 
   def handle_event("expand_source", %{"id" => id}, socket) do
@@ -902,9 +897,13 @@ defmodule RuleMavenWeb.GameLive.Form do
     errors = for {:error, msg} <- results, do: msg
     pdfs = for {:ok, label, attrs} <- results, do: {label, attrs}
 
-    Enum.each(pdfs, fn {label, attrs} ->
-      Games.create_rulebook_source(Map.merge(attrs, %{game_id: game.id, label: label}))
-    end)
+    new_sids =
+      Enum.flat_map(pdfs, fn {label, attrs} ->
+        case Games.create_rulebook_source(Map.merge(attrs, %{game_id: game.id, label: label})) do
+          {:ok, doc} -> [doc.id]
+          _ -> []
+        end
+      end)
 
     if pdfs != [], do: send(self(), {:refresh_suggestions, game})
 
@@ -918,7 +917,7 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     socket =
       socket
-      |> assign(source_entries: sources, uploading_pdfs: false)
+      |> assign(source_entries: sources, uploading_pdfs: false, clean_prompt_sids: new_sids)
       # Jump to Manage so the freshly extracted rulebook is visible.
       |> assign(tab: tab)
       # Keep the URL in sync so a refresh stays on this tab instead of falling
@@ -950,6 +949,9 @@ defmodule RuleMavenWeb.GameLive.Form do
         |> Enum.with_index()
         |> Enum.map(fn {s, i} -> source_entry(s, i) end)
 
+      new_sids =
+        for s <- sources, s.pdf_path == pdf_path and not is_nil(s.source_id), do: s.source_id
+
       {:noreply,
        socket
        |> assign(
@@ -957,7 +959,8 @@ defmodule RuleMavenWeb.GameLive.Form do
          download_error: nil,
          download_ok: pdf_path,
          source_entries: sources,
-         tab: "manage"
+         tab: "manage",
+         clean_prompt_sids: new_sids
        )
        |> push_patch(to: ~p"/games/#{game}/edit?tab=manage")
        |> put_flash(:info, "Rulebook downloaded!")
@@ -1227,6 +1230,30 @@ defmodule RuleMavenWeb.GameLive.Form do
 
       {:error, _} ->
         {:noreply, socket}
+    end
+  end
+
+  # Enqueue a durable, restart-survivable cleanup for one source (full re-clean:
+  # enqueue_cleanup/1 nulls the existing cleaned layer first), and mirror the
+  # reset in the open form so progress tracks from 0/total. No-op for an empty
+  # or already-cleaning source.
+  defp start_cleanup(socket, sid) do
+    entry = Enum.find(socket.assigns.source_entries, &(&1.source_id == sid))
+
+    if entry && String.trim(entry.text) != "" and not Map.has_key?(socket.assigns.cleaning, sid) do
+      {:ok, _job} = Games.enqueue_cleanup(Games.get_document!(sid))
+
+      entries =
+        Enum.map(socket.assigns.source_entries, fn e ->
+          if e.source_id == sid, do: reset_cleaned(e), else: e
+        end)
+
+      assign(socket,
+        source_entries: entries,
+        cleaning: Map.put(socket.assigns.cleaning, sid, {0, length(entry.pages)})
+      )
+    else
+      socket
     end
   end
 
@@ -2165,6 +2192,27 @@ defmodule RuleMavenWeb.GameLive.Form do
           <div style={if @tab == "manage", do: "display:block", else: "display:none"}>
             <div class="space-y-4">
               <h2 class="text-lg font-semibold">Rulebook Sources</h2>
+              <div
+                :if={@clean_prompt_sids != []}
+                class="flex items-center gap-3 flex-wrap"
+                style="padding:0.6rem 0.85rem;border:1px solid var(--blue);border-radius:0.5rem;background:var(--bg-subtle)"
+              >
+                <span style="font-size:0.85rem">
+                  ✨ Rulebook extracted. Clean up the text now? Fixes OCR/PDF artifacts before it's used for answers.
+                </span>
+                <span class="flex gap-2" style="margin-left:auto">
+                  <button
+                    type="button"
+                    phx-click="clean_prompt_yes"
+                    style="font-size:0.78rem;padding:0.25rem 0.7rem;border-radius:0.3rem;border:1px solid var(--blue);background:var(--blue);color:#fff;cursor:pointer"
+                  >Clean {if length(@clean_prompt_sids) > 1, do: "all", else: "now"}</button>
+                  <button
+                    type="button"
+                    phx-click="clean_prompt_no"
+                    style="font-size:0.78rem;padding:0.25rem 0.7rem;border-radius:0.3rem;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer"
+                  >Not now</button>
+                </span>
+              </div>
               <p :if={@source_entries == []} style="color:var(--text-muted);font-size:0.85rem">
                 No rulebook sources yet. Add one from the
                 <button
