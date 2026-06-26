@@ -410,13 +410,17 @@ defmodule RuleMavenWeb.GameLive.Show do
                   %{game: game, included_expansions: included} = socket.assigns
                   expansion_ids = Map.keys(included)
 
-                  # Scope context to active thread only (not entire mixed history)
-                  active_tid = socket.assigns.active_thread_id
-
+                  # `convo` is already scoped to the active thread (it's built
+                  # per-thread), so just drop in-flight "Thinking..." turns and
+                  # superseded regeneration history; keep the root + followup
+                  # turns in order. build_recent_pairs/1 takes the last two pairs.
+                  #
+                  # The old `m.id == active_thread_id` filter kept ONLY the root
+                  # pair — whose id equals the thread id — silently dropping every
+                  # followup, so a continued conversation lost its recent turns.
                   recent =
                     convo
-                    |> Enum.filter(fn m -> is_nil(active_tid) || m.id == active_tid end)
-                    |> Enum.reject(& &1[:pending])
+                    |> Enum.reject(&(&1[:pending] || &1[:history]))
                     |> build_recent_pairs()
 
                   case Games.log_question(%{
