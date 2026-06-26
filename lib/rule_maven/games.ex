@@ -409,6 +409,8 @@ defmodule RuleMaven.Games do
     case result do
       {:ok, doc} ->
         chunk_document(doc)
+        # A new/corrected rulebook can make previously cached answers stale.
+        invalidate_pool(doc.game_id)
 
         # Enqueue cheatsheet generation (skip in test)
         unless testing?() do
@@ -463,10 +465,12 @@ defmodule RuleMaven.Games do
       |> Document.changeset(derive_pages(attrs))
       |> Repo.update()
 
-    # Re-chunk when the text actually changed so RAG retrieval stays in sync.
+    # Re-chunk when the text actually changed so RAG retrieval stays in sync,
+    # and demote stale cached answers for the game.
     case result do
       {:ok, updated} when updated.full_text != doc.full_text ->
         chunk_document(updated)
+        invalidate_pool(updated.game_id)
         result
 
       _ ->
@@ -501,9 +505,12 @@ defmodule RuleMaven.Games do
     Repo.delete_all(from c in Chunk, where: c.document_id == ^doc.id)
     result = Repo.delete(doc)
 
-    # If that was the game's last rulebook, drop the per-game generation caches
-    # (cheat sheet, suggestions, categories) that are now stale.
     with {:ok, _} <- result do
+      # Removing a rulebook can make cached answers stale — demote them.
+      invalidate_pool(doc.game_id)
+
+      # If that was the game's last rulebook, also drop the per-game generation
+      # caches (cheat sheet, suggestions, categories).
       if document_count(doc.game_id) == 0, do: clear_game_generation_state(doc.game_id)
     end
 
@@ -512,6 +519,36 @@ defmodule RuleMaven.Games do
 
   defp document_count(game_id) do
     Repo.aggregate(from(d in Document, where: d.game_id == ^game_id), :count)
+  end
+
+  @doc """
+  Drop a game's auto-cached answers from the answer pool. Called whenever the
+  game's rulebook content materially changes (new/edited/cleaned/deleted source)
+  so stale answers — computed against the old text — stop being served by
+  `find_similar_question_in_pool/3`. Community-promoted rows (human-curated) are
+  left alone; only auto-pooled (`pooled = true`) rows are demoted. Returns the
+  number of rows demoted.
+  """
+  def invalidate_pool(game_id) do
+    {n, _} =
+      Repo.update_all(
+        from(q in QuestionLog, where: q.game_id == ^game_id and q.pooled == true),
+        set: [pooled: false]
+      )
+
+    n
+  end
+
+  @doc """
+  Re-chunk (and re-embed) every document, e.g. after changing how chunk text is
+  derived. `chunk_document/1` clears + reinserts chunks and enqueues embedding.
+  Returns the number of documents processed.
+  """
+  def rechunk_all_documents do
+    Document
+    |> Repo.all()
+    |> Enum.map(&chunk_document/1)
+    |> length()
   end
 
   @doc_job_workers ~w(RuleMaven.Workers.CleanupWorker RuleMaven.Workers.CheatSheetWorker)
@@ -1306,7 +1343,10 @@ defmodule RuleMaven.Games do
         [_ | _] = doc_pages ->
           Enum.map(doc_pages, fn p ->
             {kind, num} = page_label(p.sheet, p.printed)
-            {kind, num, p.text || ""}
+            # Use the effective text (cleaned/edited copy if present, else the
+            # original) so rulebook cleanup actually reaches retrieval, not just
+            # the displayed text and cheat sheet.
+            {kind, num, effective_page_text(p)}
           end)
 
         _ ->

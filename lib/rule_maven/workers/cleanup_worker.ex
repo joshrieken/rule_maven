@@ -56,8 +56,11 @@ defmodule RuleMaven.Workers.CleanupWorker do
     end)
 
     # Re-chunk once now that every page's effective text is final (per-page
-    # writes skip chunking to avoid 21x re-embeds).
-    doc_id |> Games.get_document!() |> Games.chunk_document()
+    # writes skip chunking to avoid 21x re-embeds). Cleaned text now feeds
+    # retrieval, so demote stale cached answers for the game.
+    doc = Games.get_document!(doc_id)
+    Games.chunk_document(doc)
+    Games.invalidate_pool(doc.game_id)
 
     Phoenix.PubSub.broadcast(RuleMaven.PubSub, topic, {:cleanup_done, doc_id})
     :ok
