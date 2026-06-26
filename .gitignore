@@ -28,6 +28,9 @@ boardgame-*.tar
 # User-uploaded files
 /priv/static/uploads/
 
+# Downloaded / generated rulebook PDFs + HTML (runtime content)
+/priv/static/rulebooks/
+
 # Browser binaries for E2E tests (Wallaby)
 /priv/browser/chrome-*
 /priv/browser/chromedriver-*
