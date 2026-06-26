@@ -490,9 +490,60 @@ defmodule RuleMaven.Games do
   end
 
   def delete_document(%Document{} = doc) do
+    # Cancel any in-flight cleanup/cheatsheet jobs for this document so they
+    # don't wake up, fail get_document!/1, and burn retries on a row that's gone.
+    cancel_document_jobs(doc.id)
+    # Remove the stored PDF/HTML from disk (the DB row alone wouldn't).
+    remove_document_files(doc)
+
+    # chunks + cheatsheet_versions are removed by FK cascade; the explicit chunk
+    # delete is belt-and-suspenders.
     Repo.delete_all(from c in Chunk, where: c.document_id == ^doc.id)
-    Repo.delete(doc)
+    result = Repo.delete(doc)
+
+    # If that was the game's last rulebook, drop the per-game generation caches
+    # (cheat sheet, suggestions, categories) that are now stale.
+    with {:ok, _} <- result do
+      if document_count(doc.game_id) == 0, do: clear_game_generation_state(doc.game_id)
+    end
+
+    result
   end
+
+  defp document_count(game_id) do
+    Repo.aggregate(from(d in Document, where: d.game_id == ^game_id), :count)
+  end
+
+  @doc_job_workers ~w(RuleMaven.Workers.CleanupWorker RuleMaven.Workers.CheatSheetWorker)
+  @cancellable_states ~w(available scheduled executing retryable)
+
+  defp cancel_document_jobs(doc_id) do
+    if oban_running?() do
+      from(j in Oban.Job,
+        where:
+          j.worker in ^@doc_job_workers and j.state in ^@cancellable_states and
+            fragment("?->>'document_id' = ?", j.args, ^to_string(doc_id))
+      )
+      |> Oban.cancel_all_jobs()
+    end
+  end
+
+  defp remove_document_files(doc) do
+    for path <- [doc.pdf_path, doc.html_path], is_binary(path) and path != "" do
+      :rule_maven
+      |> Application.app_dir("priv/static/#{path}")
+      |> File.rm()
+    end
+  end
+
+  defp clear_game_generation_state(game_id) do
+    ~w(cheat_status cheat_content cheat_error cheat_started cheat_level
+       cheat_cancelled cheat_provider cheat_model cheat_elapsed
+       suggestions categories download_error)
+    |> Enum.each(&RuleMaven.Settings.delete("#{&1}_#{game_id}"))
+  end
+
+  defp oban_running?, do: Application.get_env(:rule_maven, Oban)[:testing] != :manual
 
   def document_full_text(%Game{} = game) do
     game
