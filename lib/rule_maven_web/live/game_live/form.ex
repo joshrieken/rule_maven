@@ -843,7 +843,8 @@ defmodule RuleMavenWeb.GameLive.Form do
       end)
 
     pdf_texts =
-      consume_uploaded_entries(socket, :rulebook_pdfs, fn %{path: path}, entry ->
+      socket
+      |> consume_uploaded_entries(:rulebook_pdfs, fn %{path: path}, entry ->
         case extract_pdf_text(path, entry.client_name) do
           {:ok, attrs} ->
             label =
@@ -851,11 +852,19 @@ defmodule RuleMavenWeb.GameLive.Form do
               |> Path.rootname()
               |> String.replace(~r/[_\-]/, " ")
 
-            {:ok, {label, attrs}}
+            {:ok, {:ok, label, attrs}}
 
-          {:error, reason, _} ->
-            {:ok, {entry.client_name, %{full_text: "Error extracting text: #{reason}"}}}
+          # Don't persist a "document" whose body is an extraction error — it
+          # only litters the source list (mirrors the process_uploads path,
+          # which drops failures). extract_pdf_text already removes the copied
+          # PDF on failure, so nothing is orphaned.
+          {:error, _reason, _} ->
+            {:ok, :error}
         end
+      end)
+      |> Enum.flat_map(fn
+        {:ok, label, attrs} -> [{label, attrs}]
+        :error -> []
       end)
 
     merged =
@@ -1376,6 +1385,9 @@ defmodule RuleMavenWeb.GameLive.Form do
                 {:ok, build_pdf_attrs(pages, pdf_path, dest, true)}
 
               {:error, reason} ->
+                # Extraction failed for good — drop the copied PDF so it doesn't
+                # linger on disk unreferenced (no document row will point at it).
+                File.rm(dest)
                 {:error, reason, pdf_path}
             end
         end
