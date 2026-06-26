@@ -428,28 +428,32 @@ defmodule RuleMaven.Games do
 
   defp quality_ok?(text) do
     stripped = String.trim(text)
+    words = String.split(stripped, ~r/\s+/, trim: true)
+    total = length(words)
 
-    # Too short = garbage
-    if String.length(stripped) < 500 do
-      false
-    else
-      # Check ratio of dictionary-like words
-      words = String.split(stripped, ~r/\s+/)
-      total = length(words)
-
-      if total == 0 do
-        false
-      else
-        # Words that look like English: contain at least one vowel
-        valid =
+    cond do
+      # Too short = extraction junk or a near-empty page.
+      String.length(stripped) < 500 -> false
+      # A real rulebook has many words; a few labels/numbers don't qualify.
+      total < 100 -> false
+      true ->
+        # "Prose" words: >= 3 chars, contain a vowel, and are *mostly* letters
+        # (rejects "1.2.3", "[12]", component counts, and OCR symbol soup that
+        # the old vowel-only check happily passed).
+        prose =
           Enum.count(words, fn w ->
-            String.match?(String.downcase(w), ~r/[aeiou]/) and
-              String.length(w) >= 2
+            lw = String.downcase(w)
+            letters = lw |> String.replace(~r/[^a-z]/, "") |> String.length()
+
+            String.length(w) >= 3 and String.match?(lw, ~r/[aeiou]/) and
+              letters >= String.length(lw) * 0.6
           end)
 
-        ratio = valid / total
-        ratio >= 0.7
-      end
+        # Sentence punctuation density guards against table/label dumps that are
+        # word-rich but have no real prose structure.
+        sentences = length(Regex.scan(~r/[.!?]/, stripped))
+
+        prose / total >= 0.5 and sentences >= 5
     end
   end
 
@@ -458,6 +462,56 @@ defmodule RuleMaven.Games do
   end
 
   def get_document!(id), do: Repo.get!(Document, id)
+
+  @doc """
+  Admin manual approval: publish a `pending_review` document, record who/when,
+  and (re)enqueue embedding generation. The embed enqueue heals docs whose
+  upload-time embed job failed or never ran — `EmbedChunksWorker` only touches
+  chunks whose `embedding` is still nil, so it's a safe no-op once embedded.
+  Without this, an approved-but-unembedded doc would silently serve answers from
+  the whole-rulebook full_text fallback forever.
+  """
+  def approve_document(%Document{} = doc, approver \\ nil) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    result =
+      update_document(doc, %{
+        status: "published",
+        reviewed_by_id: approver && approver.id,
+        reviewed_at: now
+      })
+
+    ensure_embeddings(doc.id)
+    result
+  end
+
+  @doc """
+  Admin manual rejection: quarantine a document as `rejected` so it stays out of
+  retrieval (only `published` docs are searchable) without deleting the file.
+  """
+  def reject_document(%Document{} = doc, approver \\ nil) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    update_document(doc, %{
+      status: "rejected",
+      reviewed_by_id: approver && approver.id,
+      reviewed_at: now
+    })
+  end
+
+  @doc """
+  Enqueue embedding generation for a document if any chunk is missing a vector.
+  Idempotent: `EmbedChunksWorker` filters `embedding IS NULL`.
+  """
+  def ensure_embeddings(doc_id) do
+    unless testing?() do
+      %{document_id: doc_id}
+      |> RuleMaven.Workers.EmbedChunksWorker.new()
+      |> Oban.insert()
+    end
+
+    :ok
+  end
 
   def update_document(%Document{} = doc, attrs) do
     result =
@@ -1383,26 +1437,26 @@ defmodule RuleMaven.Games do
         {text, idx, section, refs, pn}
       end)
 
-    # Insert all chunks with metadata
-    Enum.each(chunks_with_meta, fn {text, idx, section, refs, pn} ->
-      case %Chunk{}
-           |> Chunk.changeset(%{
-             document_id: doc.id,
-             chunk_index: idx,
-             content: text,
-             section_label: section,
-             references_section: refs,
-             page_number: pn
-           })
-           |> Repo.insert() do
-        {:ok, _} ->
-          :ok
+    # Batch-insert all chunks in one query (a big rulebook is hundreds of chunks;
+    # one INSERT per row blocked the upload request on round-trips). insert_all
+    # skips changeset autotimestamps, so set them explicitly.
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-        {:error, changeset} ->
-          require Logger
-          Logger.error("Failed to insert chunk #{idx}: #{inspect(changeset.errors)}")
-      end
-    end)
+    rows =
+      Enum.map(chunks_with_meta, fn {text, idx, section, refs, pn} ->
+        %{
+          document_id: doc.id,
+          chunk_index: idx,
+          content: text,
+          section_label: section,
+          references_section: refs,
+          page_number: pn,
+          inserted_at: now,
+          updated_at: now
+        }
+      end)
+
+    if rows != [], do: Repo.insert_all(Chunk, rows)
 
     # Enqueue embedding generation as Oban job (skip in test)
     unless testing?() do
@@ -1460,15 +1514,7 @@ defmodule RuleMaven.Games do
           )
 
         if chunks == [] do
-          # Fallback: full text from all games
-          texts =
-            Enum.map(game_ids, fn gid ->
-              game = Repo.get!(Game, gid)
-              document_full_text(game)
-            end)
-            |> Enum.reject(&(&1 == ""))
-
-          Enum.map(texts, &{nil, &1})
+          published_full_text_fallback(game_ids)
         else
           chunks
           |> pull_referenced_chunks(game_ids)
@@ -1478,6 +1524,33 @@ defmodule RuleMaven.Games do
       {:error, _} ->
         # Fallback to keyword overlap across all games
         keyword_retrieve_multi(game_ids, question, limit)
+    end
+  end
+
+  # Last-resort retrieval context when semantic + keyword search find nothing
+  # (e.g. embeddings not yet generated). Two invariants the per-document
+  # fallbacks got wrong:
+  #   1. PUBLISHED ONLY — `document_full_text/1` ignored status, so a
+  #      `pending_review`/`rejected` rulebook leaked into answers, bypassing the
+  #      whole approval gate.
+  #   2. CAPPED — dumping an entire (multi-game) rulebook could overflow the
+  #      model's context window; budget the text instead.
+  @fallback_char_budget 12_000
+
+  defp published_full_text_fallback(game_ids) do
+    text =
+      Repo.all(
+        from d in Document,
+          where: d.game_id in ^game_ids and d.status == "published",
+          order_by: [asc: d.game_id, asc: d.id],
+          select: d.full_text
+      )
+      |> Enum.map_join("\n\n", &(&1 || ""))
+      |> String.trim()
+
+    cond do
+      text == "" -> []
+      true -> [{nil, String.slice(text, 0, @fallback_char_budget)}]
     end
   end
 
@@ -1497,14 +1570,7 @@ defmodule RuleMaven.Games do
       )
 
     if chunks == [] do
-      texts =
-        Enum.map(game_ids, fn gid ->
-          game = Repo.get!(Game, gid)
-          document_full_text(game)
-        end)
-        |> Enum.reject(&(&1 == ""))
-
-      Enum.map(texts, &{nil, &1})
+      published_full_text_fallback(game_ids)
     else
       question_words = tokenize(question)
 
@@ -1518,14 +1584,7 @@ defmodule RuleMaven.Games do
         |> Enum.take(limit)
 
       if Enum.all?(scored, fn {score, _} -> score == 0 end) do
-        texts =
-          Enum.map(game_ids, fn gid ->
-            game = Repo.get!(Game, gid)
-            document_full_text(game)
-          end)
-          |> Enum.reject(&(&1 == ""))
-
-        Enum.map(texts, &{nil, &1})
+        published_full_text_fallback(game_ids)
       else
         top_chunks = Enum.map(scored, fn {_, c} -> c end)
         top_chunks |> pull_referenced_chunks(game_ids) |> Enum.map(&{nil, &1.content})

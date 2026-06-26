@@ -27,7 +27,17 @@ defmodule RuleMavenWeb.GameLive.Review do
   def handle_event("approve_doc", %{"id" => id_str}, socket) do
     with {id, ""} <- Integer.parse(id_str) do
       doc = Games.get_document!(id)
-      Games.update_document(doc, %{status: "published"})
+      Games.approve_document(doc, socket.assigns.current_user)
+    end
+
+    {:noreply, assign(socket, documents: Games.list_documents(socket.assigns.game))}
+  end
+
+  @impl true
+  def handle_event("reject_doc", %{"id" => id_str}, socket) do
+    with {id, ""} <- Integer.parse(id_str) do
+      doc = Games.get_document!(id)
+      Games.reject_document(doc, socket.assigns.current_user)
     end
 
     {:noreply, assign(socket, documents: Games.list_documents(socket.assigns.game))}
@@ -77,12 +87,20 @@ defmodule RuleMavenWeb.GameLive.Review do
                     {doc.status}
                   </span>
                 </div>
-                <button
-                  :if={doc.status != "published"}
-                  phx-click="approve_doc"
-                  phx-value-id={doc.id}
-                  style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.25rem;font-size:0.8rem;cursor:pointer"
-                >Approve</button>
+                <div style="display:flex;gap:0.4rem">
+                  <button
+                    :if={doc.status != "published"}
+                    phx-click="approve_doc"
+                    phx-value-id={doc.id}
+                    style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.25rem;font-size:0.8rem;cursor:pointer"
+                  >Approve</button>
+                  <button
+                    :if={doc.status != "rejected"}
+                    phx-click="reject_doc"
+                    phx-value-id={doc.id}
+                    style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.25rem 0.75rem;border-radius:0.25rem;font-size:0.8rem;cursor:pointer"
+                  >Reject</button>
+                </div>
               </div>
             </div>
           <% end %>
@@ -130,6 +148,8 @@ defmodule RuleMavenWeb.GameLive.Review do
     do: "background:color-mix(in srgb,var(--green) 20%,var(--bg-surface));color:var(--green)"
   defp status_color("pending_review"),
     do: "background:color-mix(in srgb,var(--yellow) 20%,var(--bg-surface));color:var(--yellow)"
+  defp status_color("rejected"),
+    do: "background:color-mix(in srgb,var(--red) 20%,var(--bg-surface));color:var(--red)"
   defp status_color(_),
     do: "background:var(--bg-subtle);color:var(--text-secondary)"
 end

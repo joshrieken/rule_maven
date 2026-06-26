@@ -11,7 +11,10 @@ defmodule RuleMaven.Workers.EmbedChunksWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"document_id" => doc_id}}) do
-    doc_id = String.to_integer(doc_id)
+    # Oban serializes args to JSON: an integer enqueued as `document_id` comes
+    # back an integer, a string stays a string. Accept both — passing the raw
+    # integer here used to crash `String.to_integer/1` and fail every embed job.
+    doc_id = normalize_id(doc_id)
     doc = Games.get_document!(doc_id)
 
     chunks =
@@ -40,4 +43,7 @@ defmodule RuleMaven.Workers.EmbedChunksWorker do
       :ok
     end
   end
+
+  defp normalize_id(id) when is_integer(id), do: id
+  defp normalize_id(id) when is_binary(id), do: String.to_integer(id)
 end

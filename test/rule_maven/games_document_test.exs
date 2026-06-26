@@ -77,6 +77,12 @@ defmodule RuleMaven.GamesDocumentTest do
       })
 
     assert Enum.map(doc.pages, & &1.text) == ["original one", "original two"]
+
+    # This short doc auto-flags as pending_review; publish it so retrieval can
+    # see it (only published docs are retrievable — the point under test here is
+    # re-chunking on edit, not the approval gate).
+    {:ok, _} = Games.approve_document(doc)
+
     chunks_before = Games.retrieve_chunks(game, "original") |> length()
     assert chunks_before > 0
 

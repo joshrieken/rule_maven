@@ -46,13 +46,19 @@ defmodule RuleMaven.Workers.CleanupWorker do
       zip_input_on_exit: true
     )
     |> Enum.each(fn
-      {:ok, {index, cleaned}} ->
+      {:ok, {index, {:ok, cleaned}}} ->
         persist(doc_id, index, cleaned, topic)
 
-      # A killed/exited task still resolves: keep the original page text so the
-      # run completes and the page is marked done.
-      {:exit, {page, _reason}} ->
-        persist(doc_id, page.index, page.text || "", topic)
+      # LLM failed for this page: leave `cleaned` nil rather than baking the raw
+      # text in. Retrieval/display already fall back to `text` (effective text =
+      # cleaned||text), and the page stays eligible for a later re-clean instead
+      # of looking permanently "cleaned" after a transient blip.
+      {:ok, {_index, :failed}} ->
+        :ok
+
+      # A killed/exited task: same — leave it nil so a re-run retries it.
+      {:exit, {_page, _reason}} ->
+        :ok
     end)
 
     # Re-chunk once now that every page's effective text is final (per-page
@@ -66,19 +72,21 @@ defmodule RuleMaven.Workers.CleanupWorker do
     :ok
   end
 
-  # Never let one page crash the job: on any failure keep the original text.
+  # Never let one page crash the job. Returns {:ok, cleaned} on success or
+  # :failed on any error — the caller leaves failed pages' `cleaned` nil so they
+  # can be retried, instead of persisting raw text as if it were cleaned.
   defp clean_one(page) do
     body = page.text || ""
 
     try do
       case RuleMaven.LLM.cleanup_page(body) do
-        {:ok, text} -> text
-        {:error, _} -> body
+        {:ok, text} -> {:ok, text}
+        {:error, _} -> :failed
       end
     rescue
-      _ -> body
+      _ -> :failed
     catch
-      _, _ -> body
+      _, _ -> :failed
     end
   end
 
