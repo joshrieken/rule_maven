@@ -302,11 +302,23 @@ defmodule RuleMaven.LLM do
         mime = if String.ends_with?(image_path, ".jpg"), do: "image/jpeg", else: "image/png"
         data_url = "data:#{mime};base64," <> Base.encode64(bin)
 
+        # Optional guidance appended on a re-read: the adversarial critic's defect
+        # list, so the model fixes specific misses rather than re-transcribing blind.
+        prompt =
+          case opts[:guidance] do
+            g when is_binary(g) and g != "" ->
+              @vision_extract_prompt <>
+                "\n\nA previous transcription had these defects — fix them this time:\n" <> g
+
+            _ ->
+              @vision_extract_prompt
+          end
+
         messages = [
           %{
             role: "user",
             content: [
-              %{type: "text", text: @vision_extract_prompt},
+              %{type: "text", text: prompt},
               %{type: "image_url", image_url: %{url: data_url}}
             ]
           }
@@ -326,6 +338,101 @@ defmodule RuleMaven.LLM do
       {:error, reason} ->
         {:error, "could not read page image: #{inspect(reason)}"}
     end
+  end
+
+  @critic_prompt """
+  You are an adversarial proofreader checking a transcription of the attached
+  rulebook page image. Assume the transcription is WRONG until proven otherwise.
+  Compare it against the image and list concrete, specific defects, one per line:
+
+  - MISSING: text clearly visible in the image but absent from the transcription
+    (a sidebar, a caption, a table row, a column).
+  - HALLUCINATED: text in the transcription that is NOT present in the image.
+  - WRONG NUMBER: a count, value, or page number transcribed incorrectly.
+  - TABLE: a table row dropped, merged, or garbled.
+  - ORDER: columns or sections transcribed out of reading order.
+
+  Each defect must be specific enough to act on (quote the text). Do not list
+  vague or stylistic concerns. If the transcription is faithful and complete,
+  output exactly: NONE
+  """
+
+  @doc """
+  Adversarial critic for a page transcription. Given the page image and a
+  candidate transcription, returns `{:ok, defects}` where `defects` is a list of
+  concrete defect lines (empty list = faithful). `{:error, reason}` on failure
+  (caller treats that as "no defects found" — never block on a critic failure).
+  Uses the escalation vision model by default (strong, multimodal).
+  """
+  def critique_page(image_path, transcription, opts \\ []) do
+    case File.read(image_path) do
+      {:ok, bin} ->
+        mime = if String.ends_with?(image_path, ".jpg"), do: "image/jpeg", else: "image/png"
+        data_url = "data:#{mime};base64," <> Base.encode64(bin)
+
+        messages = [
+          %{
+            role: "user",
+            content: [
+              %{type: "text", text: @critic_prompt},
+              %{type: "image_url", image_url: %{url: data_url}},
+              %{type: "text", text: "TRANSCRIPTION TO CHECK:\n\n" <> (transcription || "")}
+            ]
+          }
+        ]
+
+        body = %{
+          model: opts[:model] || vision_model(:escalate),
+          max_tokens: opts[:max_tokens] || 2048,
+          messages: messages
+        }
+
+        case do_request(body, 1, operation: "ocr_critic") do
+          {:ok, %{answer: text}} -> {:ok, parse_defects(text)}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, "could not read page image: #{inspect(reason)}"}
+    end
+  end
+
+  @doc """
+  Parses an adversarial critic reply into a defect list. A clean page yields `[]`:
+  an empty reply, a bare "NONE" (any case, trailing punctuation tolerated), or a
+  single-line "no defects/issues/errors" phrasing. Otherwise each non-blank,
+  non-"NONE" line is a defect. Tolerant on purpose — a stray period must not be
+  read as a defect and trigger a needless (paid) re-transcribe.
+  """
+  def parse_defects(text) do
+    trimmed = String.trim(text || "")
+
+    lines =
+      trimmed
+      |> String.split("\n", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == "" or none_marker?(&1)))
+
+    cond do
+      trimmed == "" ->
+        []
+
+      # Whole reply is a single "no defects"-style sentence → clean.
+      Regex.match?(~r/^\s*no\b.{0,40}\b(defects?|issues?|errors?)\b/i, trimmed) and
+          length(lines) <= 1 ->
+        []
+
+      true ->
+        lines
+    end
+  end
+
+  # A line that just says "NONE" (any case, surrounding punctuation/markers).
+  defp none_marker?(line) do
+    line
+    |> String.replace(~r/[^\p{L}]/u, "")
+    |> String.upcase()
+    |> Kernel.==("NONE")
   end
 
   @doc """

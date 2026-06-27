@@ -6,7 +6,7 @@ defmodule RuleMaven.RulebookDownloader do
   """
 
   alias RuleMaven.Games
-  alias RuleMaven.Extract.Gate
+  alias RuleMaven.Extract.{Critic, Gate}
 
   @bgg_base "https://boardgamegeek.com"
   @pdf_link_re ~r{<a[^>]*href="([^"]*\.pdf)"[^>]*>(.*?)</a>}s
@@ -568,10 +568,33 @@ defmodule RuleMaven.RulebookDownloader do
       if g.agree? do
         %{text: text, confidence: g.confidence, lane: base_lane, source: "crosscheck"}
       else
-        # Phase 3: escalate to a stronger/high-res model + adversarial critic here.
-        # For now keep the richer cheap read and flag it for review.
-        %{text: text, confidence: g.confidence, lane: "vision", source: "unverified"}
+        escalate_page(image, text)
       end
+    end
+  end
+
+  # Disagreement escalation: re-read the page with the strong/high-res model, take
+  # the richer of that and the cheap candidate, then run the adversarial critic
+  # loop. A critic-clean result is treated as the accuracy ceiling (high
+  # confidence); residual defects are flagged for review. Runs only on
+  # disagreement pages, so the costly path stays bounded.
+  defp escalate_page(image, cheap_text) do
+    strong =
+      case RuleMaven.LLM.transcribe_page_image(image,
+             model: RuleMaven.LLM.vision_model(:escalate),
+             max_tokens: 8192
+           ) do
+        {:ok, t} -> t
+        {:error, _} -> ""
+      end
+
+    candidate = richer(strong, cheap_text)
+    v = Critic.verify(image, candidate)
+
+    if v.verified? do
+      %{text: v.text, confidence: 0.9, lane: "ensemble", source: "critic"}
+    else
+      %{text: v.text, confidence: 0.5, lane: "ensemble", source: "critic_residual"}
     end
   end
 
