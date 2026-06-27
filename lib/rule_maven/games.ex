@@ -1870,34 +1870,6 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Returns one random published rulebook chunk for the given games — the source
-  for the "Did you know?" rule card. Prefers a readable, sentence-sized chunk;
-  falls back to any chunk if none land in that band. Returns
-  `%{content, page_number}` or `nil` when no published rules exist.
-  """
-  def random_rule_chunk(game_ids) when is_list(game_ids) do
-    random_rule_chunk(game_ids, true) || random_rule_chunk(game_ids, false)
-  end
-
-  defp random_rule_chunk(game_ids, sized?) do
-    query =
-      from c in Chunk,
-        join: d in Document,
-        on: c.document_id == d.id,
-        where: d.game_id in ^game_ids and d.status == "published",
-        order_by: fragment("RANDOM()"),
-        limit: 1,
-        select: %{content: c.content, page_number: c.page_number}
-
-    query =
-      if sized?,
-        do: where(query, [c], fragment("char_length(?) between 140 and 700", c.content)),
-        else: query
-
-    Repo.one(query)
-  end
-
-  @doc """
   Semantic chunk retrieval. Pass `:embedding` to reuse a question vector already
   computed upstream (avoids a redundant embedding API call); otherwise embeds
   here. `:limit` caps returned chunks (default 6).

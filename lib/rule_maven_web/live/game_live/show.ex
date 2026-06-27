@@ -127,10 +127,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         question_categories: question_categories,
         show_onboarding: conversation == [] && sources != [] && pending_count == 0,
         dyk_facts: dyk_facts,
-        rule_card:
-          if(sources != [],
-            do: pick_rule_card(dyk_facts, rule_card_game_ids(game, expansions))
-          ),
+        rule_card: fact_card(dyk_facts),
         setup_status: RuleMaven.Setup.status(game.id),
         setup_checklist: RuleMaven.Setup.stored_checklist(game.id)
       )
@@ -363,8 +360,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_event("shuffle_rule", _params, socket) do
-    game_ids = rule_card_game_ids(socket.assigns.game, socket.assigns[:expansions] || [])
-    {:noreply, assign(socket, rule_card: pick_rule_card(socket.assigns.dyk_facts, game_ids))}
+    {:noreply, assign(socket, rule_card: fact_card(socket.assigns.dyk_facts))}
   end
 
   def handle_event("generate_setup", _params, socket) do
@@ -2480,10 +2476,6 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp present?(s), do: is_binary(s) and String.trim(s) != ""
 
   # ── Random rule card ──
-  defp rule_card_game_ids(game, expansions) do
-    [game.id | Enum.map(expansions || [], & &1.id)]
-  end
-
   # Load cached LLM facts; enqueue generation (and subscribe for the result) the
   # first time a game with published rules has none yet.
   defp load_did_you_know(game, sources, connected?) do
@@ -2507,16 +2499,11 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
-  # Prefer a clean generated fact; fall back to a raw rulebook chunk until the
-  # facts have been generated.
-  defp pick_rule_card([_ | _] = facts, _game_ids), do: fact_card(facts)
-  defp pick_rule_card(_facts, game_ids), do: Games.random_rule_chunk(game_ids)
-
-  # Wrap a fact string in the same shape the card template expects. Generated
+  # Wrap a random generated fact in the shape the card template expects, or nil
+  # when none have been generated yet (the card is simply hidden). Generated
   # facts have no page citation.
-  defp fact_card(facts) do
-    %{content: Enum.random(facts), page_number: nil}
-  end
+  defp fact_card([]), do: nil
+  defp fact_card(facts), do: %{content: Enum.random(facts), page_number: nil}
 
   # Strip [Page N] markers and collapse whitespace for friendly card display.
   defp clean_rule_text(text) do
