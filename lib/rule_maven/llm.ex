@@ -949,8 +949,8 @@ defmodule RuleMaven.LLM do
 
     Return each fact on its own line starting with "- ".
 
-    RULEBOOK:
-    #{String.slice(rulebook_text, 0, 4000)}
+    RULEBOOK (sampled across the whole book):
+    #{sample_across(rulebook_text, 8000, 1000)}
     """
 
     case chat(prompt, "did_you_know",
@@ -971,6 +971,27 @@ defmodule RuleMaven.LLM do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # Sample `budget` chars from `text` as evenly-spaced windows of ~`window` chars
+  # spanning the whole document, so generation sees the start, middle, AND end
+  # (where edge-case/advanced rules — the best "Did you know?" material — live)
+  # instead of just the intro. Returns the whole text when it fits in budget.
+  defp sample_across(text, budget, window) do
+    len = String.length(text)
+
+    if len <= budget do
+      text
+    else
+      count = max(div(budget, window), 1)
+      # Last valid start so a window never runs off the end.
+      max_start = len - window
+      step = if count > 1, do: div(max_start, count - 1), else: 0
+
+      0..(count - 1)
+      |> Enum.map(fn i -> String.slice(text, i * step, window) end)
+      |> Enum.join("\n...\n")
     end
   end
 
