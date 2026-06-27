@@ -530,6 +530,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                        |> assign(
                          question: "",
                          active_thread_id: question_log.id,
+                         rule_card: fact_card(socket.assigns.dyk_facts),
                          pending_count: socket.assigns.pending_count + 1,
                          conversation: [
                            %{
@@ -1810,6 +1811,21 @@ defmodule RuleMavenWeb.GameLive.Show do
                         <span class="typing-indicator">
                           <span></span><span></span><span></span>
                         </span>
+                        <%= if @rule_card do %>
+                          <div style="margin-top:0.65rem;padding-top:0.6rem;border-top:1px solid var(--border)">
+                            <div style="font-size:0.62rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent);margin-bottom:0.25rem">
+                              💡 Did you know?
+                            </div>
+                            <p style="font-size:0.8rem;line-height:1.5;color:var(--text-secondary);margin:0">
+                              {clean_rule_text(@rule_card.content)}
+                            </p>
+                            <%= if @rule_card.page_number do %>
+                              <div style="margin-top:0.35rem;font-size:0.6rem;font-weight:600;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-muted)">
+                                📎 Rulebook · p.{@rule_card.page_number}
+                              </div>
+                            <% end %>
+                          </div>
+                        <% end %>
                       <% else %>
                         <div style="font-size:0.6rem;opacity:0.5;margin-bottom:0.1rem;color:var(--text-muted)">
                           No answer received
