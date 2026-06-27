@@ -520,16 +520,30 @@ defmodule RuleMaven.Games do
       |> Repo.update()
 
     # Re-chunk when the text actually changed so RAG retrieval stays in sync,
-    # and demote stale cached answers for the game.
+    # demote stale cached answers, and refresh the rulebook-derived suggestions
+    # and category proposals for the game.
     case result do
       {:ok, updated} when updated.full_text != doc.full_text ->
         chunk_document(updated)
         invalidate_pool(updated.game_id)
+        refresh_generated(updated.game_id)
         result
 
       _ ->
         result
     end
+  end
+
+  @doc """
+  Enqueues regeneration of the rulebook-derived suggested questions and category
+  proposals for a game. Called whenever the rulebook text changes (edit, clean)
+  so both stay in sync with the content. Both workers are `unique` per game and
+  no-op in test, so rapid changes coalesce safely.
+  """
+  def refresh_generated(game_id) do
+    RuleMaven.Workers.SuggestionsWorker.enqueue(game_id)
+    RuleMaven.Workers.CategoriesWorker.enqueue(game_id)
+    :ok
   end
 
   # Derive first-class pages from full_text when a caller supplies text but not

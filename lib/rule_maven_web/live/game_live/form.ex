@@ -976,7 +976,10 @@ defmodule RuleMavenWeb.GameLive.Form do
         end
       end)
 
-    if pdfs != [], do: send(self(), {:refresh_suggestions, game})
+    if pdfs != [] do
+      send(self(), {:refresh_suggestions, game})
+      send(self(), {:refresh_categories, game})
+    end
 
     sources =
       game
@@ -1038,6 +1041,7 @@ defmodule RuleMavenWeb.GameLive.Form do
        |> put_flash(:info, "Rulebook downloaded!")
        |> then(fn s ->
          send(self(), {:refresh_suggestions, game})
+         send(self(), {:refresh_categories, game})
          s
        end)}
     else
@@ -2639,8 +2643,8 @@ defmodule RuleMavenWeb.GameLive.Form do
           <%!-- Categories section --%>
             <div style="margin-top:1.25rem">
               <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
-                <span style="font-size:0.62rem;font-weight:700;text-transform:uppercase;color:var(--text-secondary)">
-                  Question Categories
+                <span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">
+                  Question categories
                   <%= if @saved_categories != [] do %>
                     ({length(@saved_categories)})
                   <% end %>

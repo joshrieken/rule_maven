@@ -96,6 +96,8 @@ defmodule RuleMaven.Workers.CleanupWorker do
     doc = Games.get_document!(doc_id)
     Games.chunk_document(doc)
     Games.invalidate_pool(doc.game_id)
+    # Cleaned text changes the rulebook content — refresh derived suggestions/cats.
+    Games.refresh_generated(doc.game_id)
 
     # Clear the durable counter now the run is finished (idle = nil).
     Games.set_cleaning_done(doc_id, nil)
