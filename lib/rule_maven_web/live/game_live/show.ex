@@ -1249,6 +1249,13 @@ defmodule RuleMavenWeb.GameLive.Show do
                           target="_blank"
                           style="display:inline-flex;align-items:center;gap:0.2rem;color:var(--blue);font-size:0.7rem;font-weight:600;text-decoration:none;padding:0.15rem 0.4rem;border:1px solid var(--blue);border-radius:0.25rem;opacity:0.85"
                         >🔗 HTML</.link>
+                        <button
+                          type="button"
+                          phx-click="regenerate_html"
+                          phx-value-id={src.id}
+                          title="Re-render the HTML view from the current text"
+                          style="display:inline-flex;align-items:center;gap:0.2rem;color:var(--text-secondary);font-size:0.7rem;font-weight:600;padding:0.15rem 0.4rem;border:1px solid var(--border);border-radius:0.25rem;background:none;cursor:pointer"
+                        >↻ Regen</button>
                       </div>
                     </div>
                   <% end %>

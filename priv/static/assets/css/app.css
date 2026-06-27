@@ -773,13 +773,36 @@ body {
 .app-shell::before {
   content: "";
   position: fixed;
-  inset: 0;
+  inset: -10%;
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse at 15% 50%, var(--accent-subtle) 0%, transparent 55%),
-    radial-gradient(ellipse at 85% 15%, var(--bg-subtle) 0%, transparent 55%);
-  opacity: 0.35;
+    radial-gradient(ellipse 40% 50% at 15% 50%, color-mix(in srgb, var(--accent) 35%, transparent) 0%, transparent 55%),
+    radial-gradient(ellipse 45% 45% at 85% 15%, var(--bg-subtle) 0%, transparent 55%),
+    radial-gradient(ellipse 35% 40% at 70% 85%, color-mix(in srgb, var(--accent-light) 25%, transparent) 0%, transparent 60%);
+  opacity: 0.4;
+  animation: blob-drift 24s ease-in-out infinite alternate;
+}
+
+@keyframes blob-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(2%, -1.5%, 0) scale(1.06); }
+  100% { transform: translate3d(-1.5%, 2%, 0) scale(1.02); }
+}
+
+/* Respect reduced-motion: keep the looks, drop the movement */
+@media (prefers-reduced-motion: reduce) {
+  .header::after,
+  .header-icon,
+  .header-title-accent,
+  .app-shell::before,
+  .main-content {
+    animation: none !important;
+  }
+  .btn-primary::after,
+  .game-card::before {
+    transition: none !important;
+  }
 }
 
 /* Cards — board game card feel */
@@ -797,15 +820,34 @@ body {
 
 /* Game cards in list */
 .game-card {
+  position: relative;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: 0 1px 2px var(--shadow);
-  transition: all 0.2s;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+/* Accent top-edge that wipes in on hover */
+.game-card::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: linear-gradient(90deg, var(--accent), var(--accent-light));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.25s ease;
 }
 .game-card:hover {
-  box-shadow: 0 4px 16px var(--shadow-hover);
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px var(--shadow-hover);
   border-color: var(--accent);
+}
+.game-card:hover::before {
+  transform: scaleX(1);
 }
 
 /* Inputs */
@@ -853,13 +895,51 @@ a:not([class]):hover {
   min-height: 100vh;
 }
 
+/* Gentle fade + rise of page content on load */
+.main-content {
+  animation: content-rise 0.45s ease both;
+}
+
+@keyframes content-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* ===== Header ===== */
 .header {
-  background: linear-gradient(135deg, var(--header-bg-start) 0%, var(--header-bg-end) 100%);
+  background:
+    linear-gradient(135deg, var(--header-bg-start) 0%, var(--header-bg-end) 100%),
+    radial-gradient(120% 180% at 0% 0%, color-mix(in srgb, var(--header-border) 22%, transparent) 0%, transparent 45%);
+  background-blend-mode: screen;
   border-bottom: 2px solid var(--header-border);
   padding: 0 1.5rem;
   position: relative;
   z-index: 100;
+  overflow: hidden;
+}
+
+/* Animated light sweep across the header */
+.header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    color-mix(in srgb, var(--header-border) 28%, transparent) 50%,
+    transparent 80%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  opacity: 0.5;
+  animation: header-sweep 9s ease-in-out infinite;
+}
+
+@keyframes header-sweep {
+  0%   { background-position: 180% 0; }
+  60%  { background-position: -80% 0; }
+  100% { background-position: -80% 0; }
 }
 
 .header-inner {
@@ -867,6 +947,8 @@ a:not([class]):hover {
   align-items: center;
   gap: 1rem;
   padding: 0.75rem 0;
+  position: relative;
+  z-index: 1;
 }
 
 .header-brand {
@@ -879,6 +961,20 @@ a:not([class]):hover {
 .header-icon {
   font-size: 1.5rem;
   line-height: 1;
+  display: inline-block;
+  color: var(--header-border);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--header-border) 60%, transparent));
+  animation: icon-float 4s ease-in-out infinite;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.header-brand:hover .header-icon {
+  transform: rotate(180deg) scale(1.15);
+}
+
+@keyframes icon-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
 }
 
 .header-title {
@@ -887,6 +983,21 @@ a:not([class]):hover {
   font-weight: 800;
   color: #FFFFFF;
   letter-spacing: -0.02em;
+}
+
+/* "Maven" — static theme-accent gradient text. No motion: animating a
+   clipped-text gradient repaints every frame and stutters. */
+.header-title-accent {
+  background-image: linear-gradient(
+    100deg,
+    var(--header-border) 0%,
+    #ffffff 50%,
+    var(--accent-light) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .header-tagline {
@@ -1303,14 +1414,33 @@ button:disabled, .btn:disabled, [type="button"]:disabled, [type="submit"]:disabl
 }
 
 .btn-primary {
-  background: var(--accent);
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--accent-light) 0%, var(--accent) 55%, var(--accent-dark) 100%);
   color: #FFFFFF;
   border-color: var(--accent-dark);
 }
 
+/* Diagonal shine that sweeps across on hover */
+.btn-primary::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -120%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.5s ease;
+}
+
 .btn-primary:hover {
-  background: var(--accent-light);
   border-color: var(--accent);
+  box-shadow: 0 4px 14px var(--shadow-hover);
+}
+
+.btn-primary:hover::after {
+  left: 130%;
 }
 
 .btn-secondary {

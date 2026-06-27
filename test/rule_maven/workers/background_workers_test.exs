@@ -38,15 +38,42 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
   end
 
   describe "CategoriesWorker" do
-    test "persists categories and broadcasts" do
-      mock_llm("Strategy, Card Game, Engine Building")
+    setup do
+      # Stub embeddings so replace_game_categories doesn't hit the network; it
+      # stores a nil embedding on error, which is fine for these assertions.
+      Application.put_env(:rule_maven, :embed_mock, fn _ -> {:error, :stub} end)
+      on_exit(fn -> Application.delete_env(:rule_maven, :embed_mock) end)
+      :ok
+    end
+
+    test "first generation auto-saves (nothing to blow away)" do
+      mock_llm("Setup: How to prepare the game.\nCombat: Resolving attacks.")
       game = game_with_rulebook()
       Phoenix.PubSub.subscribe(RuleMaven.PubSub, CategoriesWorker.topic(game.id))
 
       assert :ok = CategoriesWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
 
+      # No prior categories → committed straight to the curated set, no draft.
+      assert_received {:categories_saved, saved}
+      assert length(saved) == 2
+      assert "Setup" in Enum.map(saved, & &1.name)
+      assert Enum.count(Games.list_game_categories(game)) == 2
+      assert Settings.get("categories_#{game.id}") == nil
+    end
+
+    test "regeneration over an existing set stays a draft" do
+      mock_llm("Setup: How to prepare the game.\nCombat: Resolving attacks.")
+      game = game_with_rulebook()
+      # Seed an existing curated category so there's something to blow away.
+      Games.replace_game_categories(game, [%{name: "Existing", description: "Already here."}])
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, CategoriesWorker.topic(game.id))
+
+      assert :ok = CategoriesWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
+
+      # Existing categories preserved; new proposals held as a draft for review.
       assert_received {:categories_ready, cats}
       assert is_list(cats)
+      assert Enum.map(Games.list_game_categories(game), & &1.name) == ["Existing"]
       assert Settings.get("categories_#{game.id}") != nil
     end
   end

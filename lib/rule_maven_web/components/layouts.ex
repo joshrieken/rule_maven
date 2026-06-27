@@ -15,7 +15,7 @@ defmodule RuleMavenWeb.Layouts do
         <div class="header-inner">
           <a href={~p"/"} class="header-brand">
             <span class="header-icon">◆</span>
-            <span class="header-title">Rule Maven</span>
+            <span class="header-title">Rule <span class="header-title-accent">Maven</span></span>
           </a>
           <span class="header-tagline">rules &amp; reference assistant</span>
         </div>

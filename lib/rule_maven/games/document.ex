@@ -31,12 +31,38 @@ defmodule RuleMaven.Games.Document do
       field :confidence, :float
       field :lane, :string
       field :source, :string
+      # Decision-log detail (Phase: per-source decision log). Captures *why* the
+      # page landed where it did so the edit page can show the extraction
+      # reasoning. nil for pages extracted before this was recorded, or where a
+      # signal doesn't apply (e.g. gate signals on a clean-text-layer page).
+      field :gate_agreement, :float
+      field :gate_coverage, :float
+      field :escalated, :boolean
+      field :critic_rounds, :integer
+      field :residual_defects, :integer
     end
 
     def changeset(page, attrs) do
       # empty_values: [] so a blank page body ("") is stored as "" rather than
       # Ecto's default of treating "" as missing and leaving the field nil.
-      cast(page, attrs, [:index, :sheet, :printed, :text, :cleaned, :confidence, :lane, :source],
+      cast(
+        page,
+        attrs,
+        [
+          :index,
+          :sheet,
+          :printed,
+          :text,
+          :cleaned,
+          :confidence,
+          :lane,
+          :source,
+          :gate_agreement,
+          :gate_coverage,
+          :escalated,
+          :critic_rounds,
+          :residual_defects
+        ],
         empty_values: []
       )
     end

@@ -27,18 +27,31 @@ defmodule RuleMaven.Workers.CategoriesWorker do
     game = Games.get_game!(game_id)
     text = Games.document_full_text(game)
 
-    cats =
-      case RuleMaven.LLM.generate_categories(game.name, text) do
-        {:ok, cats} ->
+    case RuleMaven.LLM.generate_categories(game.name, text) do
+      {:ok, cats} ->
+        # When the game has no saved categories yet, there's nothing to blow away
+        # — commit straight to the curated set (saves the admin a review click).
+        # Once categories exist, a regeneration stays a draft so it doesn't nuke a
+        # curated, embedding-anchored taxonomy without approval.
+        if Games.list_game_categories(game) == [] do
+          Games.replace_game_categories(game, cats)
+          Settings.delete("categories_#{game_id}")
+          saved = Games.list_game_categories(game)
+          broadcast(game_id, {:categories_saved, saved})
+        else
           Settings.put("categories_#{game_id}", Jason.encode!(cats))
-          cats
+          broadcast(game_id, {:categories_ready, cats})
+        end
 
-        {:error, _} ->
-          []
-      end
+      {:error, _} ->
+        broadcast(game_id, {:categories_ready, []})
+    end
 
-    Phoenix.PubSub.broadcast(RuleMaven.PubSub, topic(game_id), {:categories_ready, cats})
     :ok
+  end
+
+  defp broadcast(game_id, msg) do
+    Phoenix.PubSub.broadcast(RuleMaven.PubSub, topic(game_id), msg)
   end
 
   defp oban_running?, do: Application.get_env(:rule_maven, Oban)[:testing] != :manual

@@ -52,6 +52,8 @@ defmodule RuleMavenWeb.GameLive.Form do
         bgg_search_results: [],
         bgg_search_error: nil,
         suggestions: [],
+        # Per-source HTML-regen result for inline feedback: source_id => :ok | :error.
+        regen_html_status: %{},
         regenerating_suggestions: false,
         uploading_pdfs: false,
         draft_categories: [],
@@ -399,6 +401,28 @@ defmodule RuleMavenWeb.GameLive.Form do
     socket = assign(socket, regenerating_suggestions: true)
     send(self(), {:refresh_suggestions, game})
     {:noreply, socket}
+  end
+
+  def handle_event("regenerate_html", %{"id" => id_str}, socket) do
+    # Re-render the source's "View as HTML" file from its current saved text, then
+    # flag the result inline next to the button (flash isn't visible on this page).
+    sid = parse_id(id_str)
+
+    status =
+      case Games.get_document(sid) do
+        %Document{} = doc -> Games.regenerate_document_html(doc)
+        _ -> :error
+      end
+
+    status_map = Map.put(socket.assigns.regen_html_status, sid, status)
+    {:noreply, assign(socket, regen_html_status: status_map)}
+  end
+
+  defp parse_id(id_str) do
+    case Integer.parse(to_string(id_str)) do
+      {id, _} -> id
+      _ -> id_str
+    end
   end
 
   def handle_event("regenerate_categories", _params, socket) do
@@ -1228,6 +1252,16 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   @impl true
+  def handle_info({:categories_saved, saved}, socket) do
+    # First generation auto-committed (nothing to blow away) — show the saved set,
+    # no draft to review.
+    {:noreply,
+     socket
+     |> assign(saved_categories: saved, draft_categories: [], regenerating_categories: false)
+     |> put_flash(:info, "Generated and saved #{length(saved)} categories.")}
+  end
+
+  @impl true
   def handle_info({:page_cleaned, sid, idx, text, done, total}, socket) do
     # The cleanup worker persisted one page and broadcast it — swap that page
     # live and take the authoritative {done, total} the worker computed from its
@@ -1523,6 +1557,89 @@ defmodule RuleMavenWeb.GameLive.Form do
   defp reload_entry(entry), do: entry
 
   # Build the LiveView source-entry map (with first-class pages) from a Document.
+  # Per-source extraction decision log: one row per page showing how/why it was
+  # extracted (lane, decision, confidence, gate signals, critic outcome). Gate
+  # and critic columns are blank for pages extracted before this was recorded or
+  # where the signal doesn't apply (e.g. a clean text-layer page never cross-checks).
+  attr :pages, :list, required: true
+
+  def decision_log(assigns) do
+    assigns = assign(assigns, :rows, Enum.filter(assigns.pages, &decided?/1))
+
+    ~H"""
+    <details :if={@rows != []} style="margin-top:0.6rem">
+      <summary style="cursor:pointer;font-size:0.72rem;font-weight:600;color:var(--text-secondary);user-select:none">
+        🧭 Extraction decision log ({length(@rows)} page{if length(@rows) == 1, do: "", else: "s"})
+      </summary>
+      <div style="overflow-x:auto;margin-top:0.4rem;border:1px solid var(--border-subtle);border-radius:0.4rem">
+        <table style="width:100%;border-collapse:collapse;font-size:0.7rem">
+          <thead>
+            <tr style="background:var(--bg-subtle);color:var(--text-secondary);text-align:left">
+              <th style="padding:0.3rem 0.5rem;font-weight:600">Page</th>
+              <th style="padding:0.3rem 0.5rem;font-weight:600">Lane</th>
+              <th style="padding:0.3rem 0.5rem;font-weight:600">Decision</th>
+              <th style="padding:0.3rem 0.5rem;font-weight:600;text-align:right">Conf</th>
+              <th style="padding:0.3rem 0.5rem;font-weight:600;text-align:right">Agree</th>
+              <th style="padding:0.3rem 0.5rem;font-weight:600;text-align:right">Cov</th>
+              <th style="padding:0.3rem 0.5rem;font-weight:600">Critic</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              :for={p <- @rows}
+              style="border-top:1px solid var(--border-subtle)"
+            >
+              <td style="padding:0.3rem 0.5rem;white-space:nowrap;color:var(--text-secondary)">{page_label(p)}</td>
+              <td style="padding:0.3rem 0.5rem;white-space:nowrap;color:var(--text-secondary)">{p[:lane] || "—"}</td>
+              <td style={"padding:0.3rem 0.5rem;white-space:nowrap;color:#{decision_color(p)}"}>{decision_label(p)}</td>
+              <td style={"padding:0.3rem 0.5rem;text-align:right;color:#{conf_color(p[:confidence])}"}>{fmt_num(p[:confidence])}</td>
+              <td style="padding:0.3rem 0.5rem;text-align:right;color:var(--text-muted)">{fmt_num(p[:gate_agreement])}</td>
+              <td style="padding:0.3rem 0.5rem;text-align:right;color:var(--text-muted)">{fmt_num(p[:gate_coverage])}</td>
+              <td style="padding:0.3rem 0.5rem;white-space:nowrap;color:var(--text-muted)">{critic_label(p)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+    """
+  end
+
+  # A page has something to show when it carries any extraction provenance.
+  defp decided?(p), do: p[:lane] != nil or p[:source] != nil
+
+  defp page_label(p) do
+    cond do
+      p[:printed] -> "p.#{p[:printed]}"
+      p[:sheet] -> "sheet #{p[:sheet]}"
+      true -> "##{(p[:index] || 0) + 1}"
+    end
+  end
+
+  defp decision_label(%{source: "text_layer"}), do: "clean text ✓"
+  defp decision_label(%{source: "crosscheck"}), do: "two reads agree ✓"
+  defp decision_label(%{source: "critic"}), do: "escalated → critic ✓"
+  defp decision_label(%{source: "critic_residual"}), do: "escalated → residual ⚠"
+  defp decision_label(%{source: "error"}), do: "extraction error ✗"
+  defp decision_label(_), do: "—"
+
+  defp decision_color(%{source: s}) when s in ["critic_residual", "error"], do: "var(--red)"
+  defp decision_color(%{source: "critic"}), do: "var(--yellow)"
+  defp decision_color(_), do: "var(--text)"
+
+  defp critic_label(%{critic_rounds: r, residual_defects: d}) when is_integer(r) do
+    "#{r} round#{if r == 1, do: "", else: "s"}, #{d || 0} residual"
+  end
+
+  defp critic_label(_), do: "—"
+
+  defp conf_color(c) when is_float(c) and c < 0.6, do: "var(--red)"
+  defp conf_color(c) when is_float(c), do: "var(--text)"
+  defp conf_color(_), do: "var(--text-muted)"
+
+  defp fmt_num(n) when is_float(n), do: :erlang.float_to_binary(n, decimals: 2)
+  defp fmt_num(n) when is_integer(n), do: Integer.to_string(n)
+  defp fmt_num(_), do: "—"
+
   defp source_entry(s, i) do
     %{
       id: i,
@@ -1548,7 +1665,15 @@ defmodule RuleMavenWeb.GameLive.Form do
             text: p.text || "",
             cleaned: p.cleaned,
             confidence: p.confidence,
-            needs_review: Games.page_needs_review?(p)
+            needs_review: Games.page_needs_review?(p),
+            # Decision-log detail for the per-source decision table.
+            lane: Map.get(p, :lane),
+            source: Map.get(p, :source),
+            gate_agreement: Map.get(p, :gate_agreement),
+            gate_coverage: Map.get(p, :gate_coverage),
+            escalated: Map.get(p, :escalated),
+            critic_rounds: Map.get(p, :critic_rounds),
+            residual_defects: Map.get(p, :residual_defects)
           }
         end)
 
@@ -2638,8 +2763,23 @@ defmodule RuleMavenWeb.GameLive.Form do
                         target="_blank"
                         class="text-green-600 hover:underline text-xs"
                       >View as HTML</.link>
+                      <button
+                        type="button"
+                        phx-click="regenerate_html"
+                        phx-value-id={entry.source_id}
+                        title="Re-render the HTML view from the current text"
+                        style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                      >↻ Regen HTML</button>
+                      <%= case @regen_html_status[entry.source_id] do %>
+                        <% :ok -> %>
+                          <span style="font-size:0.72rem;font-weight:600;color:var(--green)">✓ Regenerated</span>
+                        <% :error -> %>
+                          <span style="font-size:0.72rem;font-weight:600;color:var(--red)">✗ Failed</span>
+                        <% _ -> %>
+                      <% end %>
                     <% end %>
                   </div>
+                  <.decision_log pages={entry.pages} />
                 </div>
               <% end %>
               <button type="button" phx-click="add_source" class="btn-add-source">+ Add manual rules entry</button>

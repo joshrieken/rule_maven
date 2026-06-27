@@ -191,7 +191,17 @@ defmodule RuleMaven.RulebookDownloader do
     merged =
       Enum.zip(pages, meta)
       |> Enum.map(fn {p, m} ->
-        Map.merge(p, %{confidence: m.confidence, lane: m.lane, source: m.source})
+        Map.merge(p, %{
+          confidence: m.confidence,
+          lane: m.lane,
+          source: m.source,
+          # Decision-log detail (nil for keys a given lane didn't produce).
+          gate_agreement: Map.get(m, :gate_agreement),
+          gate_coverage: Map.get(m, :gate_coverage),
+          escalated: Map.get(m, :escalated),
+          critic_rounds: Map.get(m, :critic_rounds),
+          residual_defects: Map.get(m, :residual_defects)
+        })
       end)
 
     merged ++ Enum.drop(pages, length(merged))
@@ -275,24 +285,129 @@ defmodule RuleMaven.RulebookDownloader do
 
     paragraphs_html = paragraphs |> Enum.reverse() |> Enum.join("\n")
 
-    html = """
-    <!DOCTYPE html>
-    <html><head><meta charset="utf-8">
-    <style>
-      body { font-family: Georgia, serif; font-size: 14px; line-height: 1.6; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; }
-      p { margin: 0.5rem 0; }
-      p:hover { background: #fffde7; }
-      .page-break { margin: 1.5rem 0 0.5rem 0; font-size: 12px; color: #999; border-top: 1px dashed #ccc; padding-top: 0.5rem; font-weight: 600; }
-    </style></head>
-    <body>
-    #{paragraphs_html}
-    </body></html>
-    """
+    html = render_html_doc(paragraphs_html)
 
     File.write!(dest, html)
     html_path
   rescue
     _ -> nil
+  end
+
+  # Wraps the rendered paragraphs in a self-contained, themeable HTML document.
+  # Light/dark are pure CSS variables; the inline <head> script applies the
+  # saved choice (localStorage key "rulebook-theme") before first paint to avoid
+  # a flash, falling back to the OS `prefers-color-scheme` when no choice is
+  # stored. The toggle button writes the choice back. No external assets, so the
+  # file stays viewable standalone.
+  defp render_html_doc(paragraphs_html) do
+    """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("rulebook-theme");
+          if (saved === "light" || saved === "dark") {
+            document.documentElement.setAttribute("data-theme", saved);
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --text: #222222;
+        --muted: #999999;
+        --rule: #cccccc;
+        --highlight: #fffde7;
+        --btn-bg: #f4f4f4;
+        --btn-border: #d0d0d0;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --bg: #1a1a1e;
+          --text: #d8d4cc;
+          --muted: #777777;
+          --rule: #3a3a40;
+          --highlight: #2e2c20;
+          --btn-bg: #26262c;
+          --btn-border: #3a3a42;
+          color-scheme: dark;
+        }
+      }
+      [data-theme="dark"] {
+        --bg: #1a1a1e;
+        --text: #d8d4cc;
+        --muted: #777777;
+        --rule: #3a3a40;
+        --highlight: #2e2c20;
+        --btn-bg: #26262c;
+        --btn-border: #3a3a42;
+        color-scheme: dark;
+      }
+      html, body { background: var(--bg); }
+      body {
+        font-family: Georgia, serif;
+        font-size: 14px;
+        line-height: 1.6;
+        max-width: 720px;
+        margin: 2rem auto;
+        padding: 0 1rem 4rem;
+        color: var(--text);
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+      p { margin: 0.5rem 0; }
+      p:hover { background: var(--highlight); }
+      .page-break {
+        margin: 1.5rem 0 0.5rem 0;
+        font-size: 12px;
+        color: var(--muted);
+        border-top: 1px dashed var(--rule);
+        padding-top: 0.5rem;
+        font-weight: 600;
+      }
+      .theme-toggle {
+        position: fixed;
+        top: 0.75rem;
+        right: 0.75rem;
+        font: 600 12px/1 system-ui, sans-serif;
+        background: var(--btn-bg);
+        color: var(--text);
+        border: 1px solid var(--btn-border);
+        border-radius: 999px;
+        padding: 0.4rem 0.7rem;
+        cursor: pointer;
+        z-index: 10;
+        opacity: 0.85;
+        transition: opacity 0.15s ease;
+      }
+      .theme-toggle:hover { opacity: 1; }
+      @media print { .theme-toggle { display: none; } }
+    </style>
+    </head>
+    <body>
+    <button type="button" class="theme-toggle" aria-label="Toggle light or dark theme" onclick="__rmToggleTheme()">◐ Theme</button>
+    <script>
+      function __rmToggleTheme() {
+        var el = document.documentElement;
+        var current = el.getAttribute("data-theme");
+        if (!current) {
+          var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+          current = prefersDark ? "dark" : "light";
+        }
+        var next = current === "dark" ? "light" : "dark";
+        el.setAttribute("data-theme", next);
+        try { localStorage.setItem("rulebook-theme", next); } catch (e) {}
+      }
+    </script>
+    #{paragraphs_html}
+    </body>
+    </html>
+    """
   end
 
   # Splits a "\f"-delimited page chunk into its display label and body. Reads the
@@ -665,7 +780,8 @@ defmodule RuleMaven.RulebookDownloader do
     layer = String.trim(layer)
 
     if Gate.clean_text_layer?(layer) do
-      %{text: layer, confidence: 0.9, lane: "text_layer", source: "text_layer"}
+      # Clean born-digital text — no cross-check ran, so no gate/critic signals.
+      %{text: layer, confidence: 0.9, lane: "text_layer", source: "text_layer", escalated: false}
     else
       reader_a = if layer != "", do: layer, else: ocr_one(image)
       reader_b = vision_one(image)
@@ -681,7 +797,10 @@ defmodule RuleMaven.RulebookDownloader do
           escalate_page(image, text, signals: g.signals, drift: true)
 
         g.agree? ->
-          %{text: text, confidence: g.confidence, lane: base_lane, source: "crosscheck"}
+          Map.merge(
+            %{text: text, confidence: g.confidence, lane: base_lane, source: "crosscheck", escalated: false},
+            gate_detail(g.signals)
+          )
 
         true ->
           escalate_page(image, text, signals: g.signals, drift: false)
@@ -770,12 +889,32 @@ defmodule RuleMaven.RulebookDownloader do
     v = Critic.verify(image, candidate)
     log_calibration(strong, cheap_text, opts)
 
+    # Decision-log detail: gate signals (when this came from the cross-check path,
+    # not a bare re-extract), plus the critic outcome.
+    detail =
+      gate_detail(opts[:signals])
+      |> Map.merge(%{
+        escalated: true,
+        critic_rounds: v.rounds,
+        residual_defects: length(v.residual_defects)
+      })
+
     if v.verified? do
-      %{text: v.text, confidence: 0.9, lane: "ensemble", source: "critic"}
+      Map.merge(%{text: v.text, confidence: 0.9, lane: "ensemble", source: "critic"}, detail)
     else
-      %{text: v.text, confidence: 0.5, lane: "ensemble", source: "critic_residual"}
+      Map.merge(
+        %{text: v.text, confidence: 0.5, lane: "ensemble", source: "critic_residual"},
+        detail
+      )
     end
   end
+
+  # Gate signals as decision-log fields, or empty when absent (a bare
+  # re-extract has no cross-check signals to report).
+  defp gate_detail(%{agreement: a, coverage: c}),
+    do: %{gate_agreement: Float.round(a, 3), gate_coverage: Float.round(c, 3)}
+
+  defp gate_detail(_), do: %{}
 
   # Records the escalation outcome for calibration, when gate signals are present
   # (the cross-check path) and the strong read produced something to compare

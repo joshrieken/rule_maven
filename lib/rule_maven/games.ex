@@ -560,7 +560,7 @@ defmodule RuleMaven.Games do
 
     case RuleMaven.RulebookDownloader.text_to_html(text, pdf_path) do
       nil ->
-        :ok
+        :error
 
       html_path ->
         if html_path != doc.html_path do
@@ -574,6 +574,18 @@ defmodule RuleMaven.Games do
   end
 
   def regenerate_document_html(_doc), do: :ok
+
+  @doc """
+  Regenerates the "View as HTML" file for every source backed by a PDF, from its
+  current effective text. Used to roll out template changes (e.g. new theming) to
+  already-ingested rulebooks. Returns the number of sources regenerated.
+  """
+  def regenerate_all_document_html do
+    from(d in Document, where: not is_nil(d.pdf_path) and d.pdf_path != "")
+    |> Repo.all()
+    |> Enum.map(&regenerate_document_html/1)
+    |> length()
+  end
 
   @doc """
   Enqueues regeneration of the rulebook-derived suggested questions and category
@@ -816,7 +828,13 @@ defmodule RuleMaven.Games do
       cleaned: p.cleaned,
       confidence: Map.get(p, :confidence),
       lane: Map.get(p, :lane),
-      source: Map.get(p, :source)
+      source: Map.get(p, :source),
+      # Preserve decision-log detail across round-trips (edits, cleanup, re-extract).
+      gate_agreement: Map.get(p, :gate_agreement),
+      gate_coverage: Map.get(p, :gate_coverage),
+      escalated: Map.get(p, :escalated),
+      critic_rounds: Map.get(p, :critic_rounds),
+      residual_defects: Map.get(p, :residual_defects)
     }
   end
 
@@ -1516,7 +1534,14 @@ defmodule RuleMaven.Games do
               cleaned: nil,
               confidence: fields.confidence,
               lane: fields.lane,
-              source: fields.source
+              source: fields.source,
+              # A re-extract is a fresh decision: overwrite the detail (Map.get so
+              # callers passing only the core fields clear stale signals to nil).
+              gate_agreement: Map.get(fields, :gate_agreement),
+              gate_coverage: Map.get(fields, :gate_coverage),
+              escalated: Map.get(fields, :escalated),
+              critic_rounds: Map.get(fields, :critic_rounds),
+              residual_defects: Map.get(fields, :residual_defects)
           }
         else
           page_attrs(p)
