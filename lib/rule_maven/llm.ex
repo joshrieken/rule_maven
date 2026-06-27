@@ -772,15 +772,17 @@ defmodule RuleMaven.LLM do
     prompt =
       RuleMaven.Prompts.render("did_you_know", %{
         game_name: game_name,
-        rulebook: sample_across(rulebook_text, 8000, 2000)
+        # Wider sample (≈16k across ~8 coherent windows) so there's enough source
+        # material to draw up to ~50 distinct facts from.
+        rulebook: sample_across(rulebook_text, 16000, 2000)
       })
 
     case chat(prompt, "did_you_know",
            system:
              "You surface interesting, accurate board game rule facts. Never invent rules; only use the provided text.",
-           # Headroom for reasoning models: too low and the cap is hit mid-thought,
-           # returning empty content with no bullets.
-           max_tokens: 2000
+           # Room for up to ~50 facts plus reasoning-model overhead; too low and
+           # the cap is hit mid-thought, returning empty content with no bullets.
+           max_tokens: 8000
          ) do
       {:ok, text} ->
         facts =

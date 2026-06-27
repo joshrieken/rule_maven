@@ -201,9 +201,10 @@ defmodule RuleMaven.Prompts do
 
   # Vars: game_name, rulebook
   @did_you_know """
-  From the rulebook text below for "{{game_name}}", write 8 short "Did you know?"
-  facts about the rules — the kind of surprising, easy-to-miss, or clarifying
-  details a player would enjoy learning.
+  From the rulebook text below for "{{game_name}}", write up to 50 short
+  "Did you know?" facts about the rules — the kind of surprising, easy-to-miss,
+  or clarifying details a player would enjoy learning. Aim for 50, but only if
+  the text supports that many; write fewer rather than padding or repeating.
 
   The text below is SAMPLED from across the rulebook, so you are NOT seeing
   every rule. Treat it as partial.
