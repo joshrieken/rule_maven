@@ -828,7 +828,7 @@ body {
    sliding under the bottom edge. */
 .list-controls {
   position: sticky;
-  top: var(--header-height);
+  top: var(--header-height, 3.125rem);
   z-index: 50;
   background: var(--bg);
   padding-top: 0.5rem;
