@@ -1581,9 +1581,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                           <span style="font-size:0.78rem;font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--text)">
                             🧩 Setup checklist
                           </span>
-                          <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">
-                            {done}/{total} done
-                          </span>
+                          <div style="display:flex;align-items:center;gap:0.5rem">
+                            <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">
+                              {done}/{total} done
+                            </span>
+                            <button
+                              type="button"
+                              phx-click="reset_checklist"
+                              style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted);font-weight:600"
+                            >🗑️ Clear</button>
+                          </div>
                         </div>
 
                         <%= if @setup_checklist["components"] != [] do %>
