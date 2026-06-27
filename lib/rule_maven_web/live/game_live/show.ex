@@ -2019,6 +2019,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         type="button"
                         phx-click="regenerate_answer"
                         phx-value-id={msg.id}
+                        data-confirm="Regenerate this answer? The current one will be replaced."
                         style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
                         title="Generate a fresh answer from the rulebook"
                       >Regenerate</button>
