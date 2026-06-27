@@ -134,16 +134,14 @@ defmodule RuleMavenWeb.GameLive.Show do
     suggestions =
       case RuleMaven.Settings.get("suggestions_#{game.id}") do
         nil ->
-          if sources != [] do
-            # Durable generation via Oban; result arrives over PubSub.
-            if connected?(socket) do
-              Phoenix.PubSub.subscribe(
-                RuleMaven.PubSub,
-                RuleMaven.Workers.SuggestionsWorker.topic(game.id)
-              )
-            end
-
-            RuleMaven.Workers.SuggestionsWorker.enqueue(game.id)
+          # Generation is not automatic — it runs when an admin finalizes the
+          # source. Subscribe so a finalize that happens while this page is open
+          # streams the result in live; never enqueue here.
+          if sources != [] and connected?(socket) do
+            Phoenix.PubSub.subscribe(
+              RuleMaven.PubSub,
+              RuleMaven.Workers.SuggestionsWorker.topic(game.id)
+            )
           end
 
           []
@@ -2381,20 +2379,17 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp present?(s), do: is_binary(s) and String.trim(s) != ""
 
   # ── Random rule card ──
-  # Load cached LLM facts; enqueue generation (and subscribe for the result) the
-  # first time a game with published rules has none yet.
+  # Load cached LLM facts. Generation is not automatic — it runs when an admin
+  # finalizes the source. Subscribe so a finalize while this page is open streams
+  # the result in live; never enqueue here.
   defp load_did_you_know(game, sources, connected?) do
     case RuleMaven.Settings.get("did_you_know_#{game.id}") do
       nil ->
-        if sources != [] do
-          if connected? do
-            Phoenix.PubSub.subscribe(
-              RuleMaven.PubSub,
-              RuleMaven.Workers.DidYouKnowWorker.topic(game.id)
-            )
-          end
-
-          RuleMaven.Workers.DidYouKnowWorker.enqueue(game.id)
+        if sources != [] and connected? do
+          Phoenix.PubSub.subscribe(
+            RuleMaven.PubSub,
+            RuleMaven.Workers.DidYouKnowWorker.topic(game.id)
+          )
         end
 
         []
@@ -2404,27 +2399,10 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
-  # Load the cached setup checklist; kick off durable generation the first time a
-  # game with published rules has none. Result arrives over Setup.topic (already
-  # subscribed in mount). Returns {status, checklist}.
-  defp load_setup(game, sources) do
-    checklist = RuleMaven.Setup.stored_checklist(game.id)
-    status = RuleMaven.Setup.status(game.id)
-
-    cond do
-      checklist != nil ->
-        {status, checklist}
-
-      sources == [] ->
-        {status, nil}
-
-      status in ["generating", "error"] ->
-        {status, nil}
-
-      true ->
-        RuleMaven.Setup.generate_async(game)
-        {"generating", nil}
-    end
+  # Load the cached setup checklist (already subscribed to Setup.topic in mount).
+  # Generation is not automatic — it runs at finalize. Returns {status, checklist}.
+  defp load_setup(game, _sources) do
+    {RuleMaven.Setup.status(game.id), RuleMaven.Setup.stored_checklist(game.id)}
   end
 
   # Wrap a random generated fact in the shape the card template expects, or nil

@@ -460,6 +460,27 @@ defmodule RuleMavenWeb.GameLive.Form do
     {:noreply, assign(socket, setup_checklist: nil, regenerating_setup: true)}
   end
 
+  def handle_event("finalize_game", _params, socket) do
+    game = socket.assigns.game
+    # One explicit action that fires every rulebook-derived generator. Results
+    # arrive over each worker's PubSub topic and update the panels live.
+    Games.generate_all(game.id)
+
+    {:noreply,
+     socket
+     |> assign(
+       regenerating_suggestions: true,
+       regenerating_categories: true,
+       regenerating_dyk: true,
+       regenerating_setup: true,
+       setup_checklist: nil
+     )
+     |> put_flash(
+       :info,
+       "Generating questions, facts, categories, and the setup checklist…"
+     )}
+  end
+
   def handle_event("clear_setup", _params, socket) do
     game = socket.assigns.game
     if game, do: RuleMaven.Setup.clear(game.id)
@@ -3018,8 +3039,38 @@ defmodule RuleMavenWeb.GameLive.Form do
 
           <%!-- Generated tab: suggested questions + categories --%>
           <div style={if @tab == "generated", do: "display:block", else: "display:none"}>
+            <% finalizing =
+              @regenerating_suggestions or @regenerating_categories or @regenerating_dyk or
+                @regenerating_setup %>
+            <%!-- Finalize: the one explicit action that generates everything --%>
+            <div style="margin-top:1rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.5rem;padding:0.85rem 1rem">
+              <div style="font-size:0.78rem;font-weight:700;color:var(--text);margin-bottom:0.25rem">
+                Finalize source
+              </div>
+              <p style="font-size:0.7rem;color:var(--text-muted);line-height:1.5;margin:0 0 0.6rem">
+                Nothing is generated automatically. Once you're happy with the rulebook
+                text quality, finalize to generate the suggested questions, “Did you know?”
+                facts, question categories, and the setup checklist in one go. You can
+                re-run any of them individually below.
+              </p>
+              <button
+                type="button"
+                phx-click="finalize_game"
+                disabled={@source_entries == [] or finalizing}
+                style={"font-size:0.72rem;font-weight:600;padding:0.35rem 0.9rem;border-radius:0.35rem;border:none;background:var(--accent);color:#fff;cursor:pointer#{if @source_entries == [] or finalizing, do: ";opacity:0.55;cursor:default", else: ""}"}
+              >
+                {if finalizing, do: "Generating…", else: "✨ Finalize & generate all"}
+              </button>
+              <span
+                :if={@source_entries == []}
+                style="margin-left:0.5rem;font-size:0.66rem;color:var(--text-muted)"
+              >
+                Add a rulebook source first.
+              </span>
+            </div>
+
             <%!-- Suggested questions (compact, per-category collapsible) --%>
-            <div style="margin-top:1rem">
+            <div style="margin-top:1.25rem">
               <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.4rem">
                 <span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">
                   Suggested questions

@@ -98,8 +98,9 @@ defmodule RuleMaven.Workers.CleanupWorker do
     # Re-render the "View as HTML" file from the freshly cleaned text.
     Games.regenerate_document_html(doc)
     Games.invalidate_pool(doc.game_id)
-    # Cleaned text changes the rulebook content — refresh derived suggestions/cats.
-    Games.refresh_generated(doc.game_id)
+    # Derived content (suggestions/facts/setup/categories) is intentionally NOT
+    # regenerated here — that's the explicit finalize step, run once the admin is
+    # satisfied with the cleaned source.
 
     # Clear the durable counter now the run is finished (idle = nil).
     Games.set_cleaning_done(doc_id, nil)

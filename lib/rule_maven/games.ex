@@ -532,15 +532,15 @@ defmodule RuleMaven.Games do
       |> Document.changeset(derive_pages(attrs))
       |> Repo.update()
 
-    # Re-chunk when the text actually changed so RAG retrieval stays in sync,
-    # demote stale cached answers, and refresh the rulebook-derived suggestions
-    # and category proposals for the game.
+    # Re-chunk when the text actually changed so RAG retrieval stays in sync and
+    # demote stale cached answers. Rulebook-derived content (suggestions, facts,
+    # setup, categories) is NOT regenerated here — that's the explicit finalize
+    # step (`generate_all/1`), run once the admin is happy with the source.
     case result do
       {:ok, updated} when updated.full_text != doc.full_text ->
         chunk_document(updated)
         regenerate_document_html(updated)
         invalidate_pool(updated.game_id)
-        refresh_generated(updated.game_id)
         result
 
       _ ->
@@ -588,15 +588,23 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Enqueues regeneration of the rulebook-derived suggested questions and category
-  proposals for a game. Called whenever the rulebook text changes (edit, clean)
-  so both stay in sync with the content. Both workers are `unique` per game and
-  no-op in test, so rapid changes coalesce safely.
+  Fires every rulebook-derived generator for a game in one shot: suggested
+  questions, question categories, "Did you know?" facts, and the setup
+  checklist. This is the "finalize" action — generation is never automatic on
+  upload/edit/clean, so an admin runs it explicitly once satisfied with the
+  source quality, against clean reviewed text. Each worker is `unique` per game
+  and no-ops in test, so repeat finalizes coalesce safely.
   """
-  def refresh_generated(game_id) do
+  def generate_all(game_id) do
     RuleMaven.Workers.SuggestionsWorker.enqueue(game_id)
     RuleMaven.Workers.CategoriesWorker.enqueue(game_id)
     RuleMaven.Workers.DidYouKnowWorker.enqueue(game_id)
+
+    case Repo.get(Game, game_id) do
+      %Game{} = game -> RuleMaven.Setup.generate_async(game)
+      _ -> :ok
+    end
+
     :ok
   end
 
