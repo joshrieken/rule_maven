@@ -37,10 +37,13 @@ defmodule RuleMavenWeb.GameLive.Index do
         # game_id => {done, total} while an expansion BGG sync is in flight.
         expansion_sync: %{},
         exp_sync_subscribed: MapSet.new(),
+        # game_ids with a BGG "Pull" in flight (drives the per-row spinner).
+        bgg_pulling: MapSet.new(),
         category_filter: nil
       )
       |> assign_games(games)
       |> resume_exp_syncs()
+      |> resume_bgg_pulls()
 
     {:ok, socket}
   end
@@ -70,6 +73,22 @@ defmodule RuleMavenWeb.GameLive.Index do
         exp_sync_subscribed: MapSet.new(ids),
         expanded_games: Enum.reduce(ids, socket.assigns.expanded_games, &Map.put(&2, &1, true))
       )
+    else
+      socket
+    end
+  end
+
+  # Re-seed the "Pulling…" indicator from in-flight Oban jobs after a remount, so
+  # the spinner survives navigation instead of going dark mid-pull.
+  defp resume_bgg_pulls(socket) do
+    if connected?(socket) do
+      pulling = RuleMaven.Workers.BggEnrichWorker.running_game_ids()
+
+      Enum.each(pulling, fn id ->
+        Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.Workers.BggEnrichWorker.topic(id))
+      end)
+
+      assign(socket, bgg_pulling: pulling)
     else
       socket
     end
@@ -478,19 +497,29 @@ defmodule RuleMavenWeb.GameLive.Index do
       |> RuleMaven.Workers.BggEnrichWorker.new()
       |> Oban.insert()
 
-      {:noreply, put_flash(socket, :info, "Pulling BGG data for #{game.name}…")}
+      {:noreply,
+       socket
+       |> assign(bgg_pulling: MapSet.put(socket.assigns.bgg_pulling, id))
+       |> put_flash(:info, "Pulling BGG data for #{game.name}…")}
     else
       {:noreply, socket}
     end
   end
 
   @impl true
-  def handle_info({:bgg_enriched, _game_id, :ok}, socket) do
-    {:noreply, socket |> reload_games() |> put_flash(:info, "BGG data updated.")}
+  def handle_info({:bgg_enriched, game_id, :ok}, socket) do
+    {:noreply,
+     socket
+     |> assign(bgg_pulling: MapSet.delete(socket.assigns.bgg_pulling, game_id))
+     |> reload_games()
+     |> put_flash(:info, "BGG data updated.")}
   end
 
-  def handle_info({:bgg_enriched, _game_id, {:error, reason}}, socket) do
-    {:noreply, put_flash(socket, :error, "BGG pull failed: #{reason}")}
+  def handle_info({:bgg_enriched, game_id, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(bgg_pulling: MapSet.delete(socket.assigns.bgg_pulling, game_id))
+     |> put_flash(:error, "BGG pull failed: #{reason}")}
   end
 
   @impl true
@@ -768,8 +797,9 @@ defmodule RuleMavenWeb.GameLive.Index do
                   type="button"
                   phx-click="pull_bgg"
                   phx-value-id={game.id}
-                  style="background:var(--accent);color:#fff;border:none;font-size:0.75rem;font-weight:600;cursor:pointer;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2"
-                >⬇ Pull BGG</button>
+                  disabled={MapSet.member?(@bgg_pulling, game.id)}
+                  style={"background:var(--accent);color:#fff;border:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2;cursor:#{if MapSet.member?(@bgg_pulling, game.id), do: "default", else: "pointer"};opacity:#{if MapSet.member?(@bgg_pulling, game.id), do: "0.6", else: "1"}"}
+                >{if MapSet.member?(@bgg_pulling, game.id), do: "⟳ Pulling…", else: "⬇ Pull BGG"}</button>
                 <%= if unsupported do %>
                   <% requested = MapSet.member?(@requested_ids, game.id) %>
                   <%= if requested do %>
@@ -788,8 +818,9 @@ defmodule RuleMavenWeb.GameLive.Index do
                   type="button"
                   phx-click="pull_bgg"
                   phx-value-id={game.id}
-                  style="background:var(--accent);color:#fff;border:none;font-size:0.75rem;font-weight:600;cursor:pointer;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2"
-                >⬇ Pull BGG</button>
+                  disabled={MapSet.member?(@bgg_pulling, game.id)}
+                  style={"background:var(--accent);color:#fff;border:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2;cursor:#{if MapSet.member?(@bgg_pulling, game.id), do: "default", else: "pointer"};opacity:#{if MapSet.member?(@bgg_pulling, game.id), do: "0.6", else: "1"}"}
+                >{if MapSet.member?(@bgg_pulling, game.id), do: "⟳ Pulling…", else: "⬇ Pull BGG"}</button>
                 <a
                   :if={game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(game.category)}
                   id={"bgg-link-#{game.id}"}

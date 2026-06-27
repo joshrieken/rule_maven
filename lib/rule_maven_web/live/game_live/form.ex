@@ -2131,9 +2131,10 @@ defmodule RuleMavenWeb.GameLive.Form do
           <button
             type="button"
             phx-click="refresh_bgg"
-            style="color:var(--accent);background:none;border:none;font-size:0.75rem;font-weight:600;cursor:pointer;margin-left:0.5rem"
+            disabled={@generating}
+            style={"color:var(--accent);background:none;border:none;font-size:0.75rem;font-weight:600;margin-left:0.5rem;cursor:#{if @generating, do: "default", else: "pointer"};opacity:#{if @generating, do: "0.6", else: "1"}"}
           >
-            Refresh info
+            {if @generating, do: "⟳ Refreshing…", else: "Refresh info"}
           </button>
         <% end %>
       </h1>

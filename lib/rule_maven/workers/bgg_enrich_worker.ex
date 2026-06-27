@@ -11,9 +11,25 @@ defmodule RuleMaven.Workers.BggEnrichWorker do
     max_attempts: 3,
     unique: [keys: [:game_id], states: [:available, :scheduled, :executing, :retryable]]
 
+  import Ecto.Query
   alias RuleMaven.Games
 
   def topic(game_id), do: "bgg:#{game_id}"
+
+  @doc """
+  Game ids with a BGG enrich job currently in flight. Lets a LiveView re-seed
+  its "pulling…" indicator after a remount so the spinner survives navigation.
+  """
+  def running_game_ids do
+    RuleMaven.Repo.all(
+      from j in Oban.Job,
+        where:
+          j.worker == "RuleMaven.Workers.BggEnrichWorker" and
+            j.state in ["available", "scheduled", "executing", "retryable"],
+        select: fragment("(?->>'game_id')::int", j.args)
+    )
+    |> MapSet.new()
+  end
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"game_id" => game_id}}) do
