@@ -1,4 +1,4 @@
-const CACHE = "rules-buddy-v2"
+const CACHE = "rules-buddy-v3"
 
 self.addEventListener("install", (event) => {
   self.skipWaiting()
@@ -23,17 +23,18 @@ self.addEventListener("fetch", (event) => {
     return
   }
 
+  // Network-first for assets: always prefer fresh from the server when online
+  // (so CSS/JS edits show up immediately), fall back to cache only when offline.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      let fetchPromise = fetch(event.request).then((response) => {
+    fetch(event.request)
+      .then((response) => {
         if (response && response.status === 200) {
           let clone = response.clone()
           caches.open(CACHE).then((cache) => cache.put(event.request, clone))
         }
         return response
       })
-      return cached || fetchPromise
-    })
+      .catch(() => caches.match(event.request))
   )
 })
 

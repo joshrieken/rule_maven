@@ -390,6 +390,13 @@ function syncHeaderHeight() {
   if (header) {
     document.documentElement.style.setProperty("--header-height", header.offsetHeight + "px");
   }
+  // Offset the whole sticky stack (header + any sticky list controls) so
+  // scrollIntoView / scroll restore land cards below it instead of clipping
+  // the top row under the bar.
+  const headerH = header ? header.offsetHeight : 0;
+  const controls = document.querySelector(".list-controls");
+  const controlsH = controls ? controls.offsetHeight : 0;
+  document.documentElement.style.scrollPaddingTop = (headerH + controlsH) + "px";
 }
 window.addEventListener("resize", syncHeaderHeight);
 window.addEventListener("phx:page-loading-stop", syncHeaderHeight);

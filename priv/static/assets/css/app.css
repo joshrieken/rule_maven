@@ -835,8 +835,18 @@ body {
   padding-bottom: 0.25rem;
 }
 
+/* Real (transparent) gap below the sticky bar so a hovered first card lifts
+   into open space instead of tucking under the opaque, z-indexed controls.
+   Matches the space-y-3 gap between cards. */
+#game-list {
+  margin-top: 0.5rem;
+}
+
 .game-card {
   position: relative;
+  /* Clip the ::before accent stripe to the rounded corners so it doesn't
+     poke past the top edge. */
+  overflow: hidden;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -847,10 +857,10 @@ body {
 .game-card::before {
   content: "";
   position: absolute;
-  top: -1px;
+  top: 0;
   left: 0;
   right: 0;
-  height: 3px;
+  height: 2px;
   border-radius: var(--radius) var(--radius) 0 0;
   background: linear-gradient(90deg, var(--accent), var(--accent-light));
   transform: scaleX(0);

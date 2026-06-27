@@ -711,7 +711,7 @@ defmodule RuleMavenWeb.GameLive.Index do
         </div>
       <% end %>
 
-      <div class="mb-4 flex gap-2 flex-wrap">
+      <div class="flex gap-2 flex-wrap">
         <.button
           :if={RuleMaven.Users.game_master?(@current_user)}
           variant="primary"
