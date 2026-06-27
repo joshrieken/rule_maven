@@ -43,6 +43,9 @@ defmodule RuleMavenWeb.GameLive.Show do
        voice_cache: %{},
        voice_pending: MapSet.new(),
        rule_card: nil,
+       # LLM-generated "Did you know?" facts (durable, per-game). Empty until the
+       # worker fills them; the card falls back to a raw rulebook chunk meanwhile.
+       dyk_facts: [],
        # Setup checklist (durable, per-game) + per-session checked items.
        setup_status: nil,
        setup_checklist: nil,
@@ -101,6 +104,8 @@ defmodule RuleMavenWeb.GameLive.Show do
     all_thread_ids = Enum.map(threads, & &1.id)
     question_categories = Games.categories_for_questions(all_thread_ids ++ cq_ids)
 
+    dyk_facts = load_did_you_know(game, sources, connected?(socket))
+
     socket =
       assign(socket,
         game: game,
@@ -121,7 +126,11 @@ defmodule RuleMavenWeb.GameLive.Show do
         community_user_votes: cv_user,
         question_categories: question_categories,
         show_onboarding: conversation == [] && sources != [] && pending_count == 0,
-        rule_card: if(sources != [], do: Games.random_rule_chunk(rule_card_game_ids(game, expansions))),
+        dyk_facts: dyk_facts,
+        rule_card:
+          if(sources != [],
+            do: pick_rule_card(dyk_facts, rule_card_game_ids(game, expansions))
+          ),
         setup_status: RuleMaven.Setup.status(game.id),
         setup_checklist: RuleMaven.Setup.stored_checklist(game.id)
       )
@@ -355,7 +364,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def handle_event("shuffle_rule", _params, socket) do
     game_ids = rule_card_game_ids(socket.assigns.game, socket.assigns[:expansions] || [])
-    {:noreply, assign(socket, rule_card: Games.random_rule_chunk(game_ids))}
+    {:noreply, assign(socket, rule_card: pick_rule_card(socket.assigns.dyk_facts, game_ids))}
   end
 
   def handle_event("generate_setup", _params, socket) do
@@ -1139,6 +1148,13 @@ defmodule RuleMavenWeb.GameLive.Show do
   def handle_info({:suggestions_ready, qs}, socket) do
     {:noreply, assign(socket, suggestions: qs)}
   end
+
+  # Facts finished generating: swap the raw-chunk fallback for a real fact.
+  def handle_info({:did_you_know_ready, facts}, socket) when is_list(facts) and facts != [] do
+    {:noreply, assign(socket, dyk_facts: facts, rule_card: fact_card(facts))}
+  end
+
+  def handle_info({:did_you_know_ready, _facts}, socket), do: {:noreply, socket}
 
   def handle_info(:check_stale, socket) do
     stale_cutoff = DateTime.utc_now() |> DateTime.add(-120, :second)
@@ -2466,6 +2482,40 @@ defmodule RuleMavenWeb.GameLive.Show do
   # ── Random rule card ──
   defp rule_card_game_ids(game, expansions) do
     [game.id | Enum.map(expansions || [], & &1.id)]
+  end
+
+  # Load cached LLM facts; enqueue generation (and subscribe for the result) the
+  # first time a game with published rules has none yet.
+  defp load_did_you_know(game, sources, connected?) do
+    case RuleMaven.Settings.get("did_you_know_#{game.id}") do
+      nil ->
+        if sources != [] do
+          if connected? do
+            Phoenix.PubSub.subscribe(
+              RuleMaven.PubSub,
+              RuleMaven.Workers.DidYouKnowWorker.topic(game.id)
+            )
+          end
+
+          RuleMaven.Workers.DidYouKnowWorker.enqueue(game.id)
+        end
+
+        []
+
+      json ->
+        Jason.decode!(json)
+    end
+  end
+
+  # Prefer a clean generated fact; fall back to a raw rulebook chunk until the
+  # facts have been generated.
+  defp pick_rule_card([_ | _] = facts, _game_ids), do: fact_card(facts)
+  defp pick_rule_card(_facts, game_ids), do: Games.random_rule_chunk(game_ids)
+
+  # Wrap a fact string in the same shape the card template expects. Generated
+  # facts have no page citation.
+  defp fact_card(facts) do
+    %{content: Enum.random(facts), page_number: nil}
   end
 
   # Strip [Page N] markers and collapse whitespace for friendly card display.

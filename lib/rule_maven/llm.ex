@@ -928,6 +928,52 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  @doc """
+  Generates a list of short, standalone "Did you know?" rule facts for a game
+  from its rulebook text. Each is a friendly one- or two-sentence nugget — the
+  kind worth surfacing on the game's empty state. Returns `{:ok, [fact_string]}`
+  or `{:error, reason}`.
+  """
+  def generate_did_you_know(game_name, rulebook_text) do
+    prompt = """
+    From the rulebook text below for "#{game_name}", write 8 short "Did you know?"
+    facts about the rules — the kind of surprising, easy-to-miss, or clarifying
+    details a player would enjoy learning.
+
+    Rules:
+    - Each fact must be a single self-contained sentence (two at most), readable
+      out of context. No "see above", no references to page numbers or sections.
+    - Only state things actually supported by the rulebook text. Do not invent
+      rules. If the text is thin, write fewer facts rather than guessing.
+    - Plain, friendly language. No markdown headers, no preamble.
+
+    Return each fact on its own line starting with "- ".
+
+    RULEBOOK:
+    #{String.slice(rulebook_text, 0, 4000)}
+    """
+
+    case chat(prompt, "did_you_know",
+           system:
+             "You surface interesting, accurate board game rule facts. Never invent rules; only use the provided text.",
+           max_tokens: 900
+         ) do
+      {:ok, text} ->
+        facts =
+          text
+          |> bullet_lines()
+          |> Enum.map(&String.trim/1)
+          # Drop blanks and truncated runt fragments (a cut-off final bullet).
+          |> Enum.reject(&(String.length(&1) < 20))
+          |> Enum.uniq()
+
+        {:ok, facts}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   # Pull the "- " / "* " bullet lines out of a block as clean question strings,
   # ignoring any prose/preamble lines that aren't bullets.
   defp bullet_lines(block) do

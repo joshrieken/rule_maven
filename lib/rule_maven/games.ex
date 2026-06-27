@@ -596,6 +596,7 @@ defmodule RuleMaven.Games do
   def refresh_generated(game_id) do
     RuleMaven.Workers.SuggestionsWorker.enqueue(game_id)
     RuleMaven.Workers.CategoriesWorker.enqueue(game_id)
+    RuleMaven.Workers.DidYouKnowWorker.enqueue(game_id)
     :ok
   end
 
