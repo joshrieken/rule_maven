@@ -826,6 +826,12 @@ body {
    header while the game list scrolls underneath. `--header-height` is the live
    header height (kept current in app.js). The solid page-bg masks cards
    sliding under the bottom edge. */
+/* Cancel the .main-content top padding for this page so the search/controls
+   start flush under the header at rest — exactly where they pin when scrolling. */
+.game-list {
+  margin-top: -2rem;
+}
+
 .list-controls {
   position: sticky;
   top: var(--header-height, 3.125rem);
@@ -1933,8 +1939,8 @@ textarea {
   }
 
   .game-card img {
-    width: 100% !important;
-    height: 120px !important;
+    width: 80px !important;
+    height: 80px !important;
   }
 
   .game-actions {

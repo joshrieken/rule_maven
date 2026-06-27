@@ -249,7 +249,14 @@ defmodule RuleMavenWeb.GameLive.Form do
               json -> Jason.decode!(json)
             end
 
-          socket = assign(socket, suggestions: suggestions, dyk_facts: dyk_facts)
+          # Re-seed the in-flight "Generating…" state from the durable Oban job so
+          # it survives a refresh instead of falling back to the "Generate" button.
+          socket =
+            assign(socket,
+              suggestions: suggestions,
+              dyk_facts: dyk_facts,
+              regenerating_dyk: RuleMaven.Workers.DidYouKnowWorker.running?(game.id)
+            )
 
           draft_categories =
             case RuleMaven.Settings.get("categories_#{game.id}") do

@@ -13,9 +13,23 @@ defmodule RuleMaven.Workers.DidYouKnowWorker do
     max_attempts: 3,
     unique: [keys: [:game_id], states: [:available, :scheduled, :executing, :retryable, :suspended]]
 
+  import Ecto.Query
   alias RuleMaven.{Games, Settings}
 
+  @worker "RuleMaven.Workers.DidYouKnowWorker"
+  @active_states ~w(available scheduled executing retryable suspended)
+
   def topic(game_id), do: "did_you_know:#{game_id}"
+
+  @doc "True when fact generation for this game is queued or running (survives a refresh)."
+  def running?(game_id) do
+    RuleMaven.Repo.exists?(
+      from j in Oban.Job,
+        where:
+          j.worker == ^@worker and j.state in ^@active_states and
+            fragment("?->>'game_id' = ?", j.args, ^to_string(game_id))
+    )
+  end
 
   @doc "Enqueue fact generation (no-op in test where Oban isn't supervised)."
   def enqueue(game_id) do
