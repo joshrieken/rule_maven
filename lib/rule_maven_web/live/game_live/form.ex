@@ -2067,6 +2067,7 @@ defmodule RuleMavenWeb.GameLive.Form do
           phx-click="reextract_page"
           phx-value-id={@id}
           phx-value-page={@cur}
+          data-confirm="Re-extract this page with the stronger model? It overwrites the current page text and uses extra LLM credits."
           disabled={@busy}
           style="font-size:0.68rem;padding:0.1rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer"
         >{if @busy, do: "Re-extracting…", else: "Re-extract (stronger model)"}</button>
@@ -2534,6 +2535,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                     <button
                       type="button"
                       phx-click="clear_parent"
+                      data-confirm="Remove this game's expansion link to its parent?"
                       style="font-size:0.7rem;color:var(--red);background:none;border:none;cursor:pointer;font-weight:600"
                     >Clear</button>
                   </div>
@@ -2581,6 +2583,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                         type="button"
                         phx-click="unlink_expansion"
                         phx-value-id={exp.id}
+                        data-confirm={"Unlink “#{exp.name}” from this game?"}
                         class="text-xs"
                         style="color:var(--red);background:none;border:none;cursor:pointer;font-weight:600"
                       >Unlink</button>
@@ -2697,6 +2700,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                         type="button"
                         phx-click="remove_source"
                         phx-value-id={entry.id}
+                        data-confirm="Remove this rulebook source?"
                         class="btn-remove-source"
                       >✕</button>
                       <button
@@ -2785,6 +2789,12 @@ defmodule RuleMavenWeb.GameLive.Form do
                       type="button"
                       phx-click="cleanup_source"
                       phx-value-id={entry.id}
+                      data-confirm={
+                        if has_cleaned,
+                          do:
+                            "Discard the existing cleaned text and re-clean from the original extraction? This can't be undone.",
+                          else: nil
+                      }
                       title={
                         if has_cleaned,
                           do:
@@ -2808,6 +2818,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                       type="button"
                       phx-click="reclean_source"
                       phx-value-id={entry.id}
+                      data-confirm="Run another cleanup pass over the cleaned text? This rewrites it and can't be undone."
                       title="Run another cleanup pass over the already-cleaned text to catch leftover junk."
                       disabled={cleaning? || String.trim(entry.text) == ""}
                       style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
@@ -2995,6 +3006,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                   :if={@suggestions != []}
                   type="button"
                   phx-click="clear_suggestions"
+                  data-confirm="Clear all suggested questions for this game?"
                   style="font-size:0.65rem;padding:0.15rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--red);cursor:pointer"
                 >
                   Clear
@@ -3046,6 +3058,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                   :if={@dyk_facts != []}
                   type="button"
                   phx-click="clear_dyk"
+                  data-confirm="Clear all generated “Did you know?” facts for this game?"
                   style="font-size:0.65rem;padding:0.15rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--red);cursor:pointer"
                 >
                   Clear
@@ -3133,6 +3146,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                         type="button"
                         phx-click="delete_category"
                         phx-value-id={cat.id}
+                        data-confirm={"Delete the “#{cat.name}” category?"}
                         style="font-size:0.6rem;padding:0.1rem 0.35rem;border-radius:0.25rem;border:1px solid var(--red);color:var(--red);background:transparent;cursor:pointer;flex-shrink:0"
                       >×</button>
                     </div>

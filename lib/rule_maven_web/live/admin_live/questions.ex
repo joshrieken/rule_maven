@@ -342,6 +342,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                     type="button"
                     phx-click="delete_question"
                     phx-value-id={q.id}
+                    data-confirm="Delete this question? This can't be undone."
                     style="background:none;border:none;color:var(--text-muted);font-size:0.7rem;cursor:pointer"
                     title="Delete"
                   >✕</button>

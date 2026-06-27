@@ -247,6 +247,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
                         type="button"
                         phx-click="demote_user"
                         phx-value-id={user.id}
+                        data-confirm={"Remove game-master access from #{user.username}?"}
                         style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;font-weight:600;cursor:pointer"
                       >Demote</button>
                     <% end %>

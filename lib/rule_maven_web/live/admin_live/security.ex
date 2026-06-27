@@ -193,6 +193,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
                           type="button"
                           phx-click="delete_blocked"
                           phx-value-id={q.id}
+                          data-confirm="Delete this blocked entry?"
                           style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.4rem;border-radius:0.25rem;font-size:0.7rem;cursor:pointer"
                         >✕</button>
                       </div>
