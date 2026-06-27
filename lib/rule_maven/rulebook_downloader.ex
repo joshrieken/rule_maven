@@ -6,7 +6,7 @@ defmodule RuleMaven.RulebookDownloader do
   """
 
   alias RuleMaven.Games
-  alias RuleMaven.Extract.{Critic, Gate, Native}
+  alias RuleMaven.Extract.{Calibrate, Critic, Gate, Native}
 
   @bgg_base "https://boardgamegeek.com"
   @pdf_link_re ~r{<a[^>]*href="([^"]*\.pdf)"[^>]*>(.*?)</a>}s
@@ -564,11 +564,15 @@ defmodule RuleMaven.RulebookDownloader do
           # on a rare mismatch is the right trade.
           layer_pages = aligned_layers(pdftext_pages(full_path), length(images))
 
+          # Read the drift-sample rate once for the whole book (avoids a Settings
+          # DB read per page).
+          drift_rate = Calibrate.drift_rate()
+
           results =
             images
             |> Enum.with_index()
             |> Task.async_stream(
-              fn {img, i} -> decide_page(img, Enum.at(layer_pages, i) || "") end,
+              fn {img, i} -> decide_page(img, Enum.at(layer_pages, i) || "", drift_rate) end,
               max_concurrency: @vision_concurrency,
               ordered: true,
               timeout: :infinity
@@ -626,7 +630,7 @@ defmodule RuleMaven.RulebookDownloader do
   # cross-check the text layer (or local OCR when there's no layer) against a
   # cheap vision read; agreement keeps the richer text at the gate's confidence,
   # disagreement is the escalation point (Phase 3).
-  defp decide_page(image, layer) do
+  defp decide_page(image, layer, drift_rate \\ 0.0) do
     layer = String.trim(layer)
 
     if Gate.clean_text_layer?(layer) do
@@ -638,10 +642,18 @@ defmodule RuleMaven.RulebookDownloader do
       text = richer(reader_a, reader_b)
       base_lane = if layer != "", do: "text_layer", else: "ocr"
 
-      if g.agree? do
-        %{text: text, confidence: g.confidence, lane: base_lane, source: "crosscheck"}
-      else
-        escalate_page(image, text)
+      cond do
+        # Agreed = accuracy ceiling. A small random sample escalates anyway and
+        # logs the outcome, to keep verifying that "agreement = ceiling" holds
+        # (drift detection). The sampled page keeps the escalated result.
+        g.agree? and Calibrate.should_sample?(drift_rate) ->
+          escalate_page(image, text, signals: g.signals, drift: true)
+
+        g.agree? ->
+          %{text: text, confidence: g.confidence, lane: base_lane, source: "crosscheck"}
+
+        true ->
+          escalate_page(image, text, signals: g.signals, drift: false)
       end
     end
   end
@@ -711,8 +723,9 @@ defmodule RuleMaven.RulebookDownloader do
   # the richer of that and the cheap candidate, then run the adversarial critic
   # loop. A critic-clean result is treated as the accuracy ceiling (high
   # confidence); residual defects are flagged for review. Runs only on
-  # disagreement pages, so the costly path stays bounded.
-  defp escalate_page(image, cheap_text) do
+  # disagreement (or drift-sampled) pages, so the costly path stays bounded.
+  # `opts[:signals]` (gate signals) + `opts[:drift]` enable calibration logging.
+  defp escalate_page(image, cheap_text, opts \\ []) do
     strong =
       case RuleMaven.LLM.transcribe_page_image(image,
              model: RuleMaven.LLM.vision_model(:escalate),
@@ -724,11 +737,35 @@ defmodule RuleMaven.RulebookDownloader do
 
     candidate = richer(strong, cheap_text)
     v = Critic.verify(image, candidate)
+    log_calibration(strong, cheap_text, opts)
 
     if v.verified? do
       %{text: v.text, confidence: 0.9, lane: "ensemble", source: "critic"}
     else
       %{text: v.text, confidence: 0.5, lane: "ensemble", source: "critic_residual"}
+    end
+  end
+
+  # Records the escalation outcome for calibration, when gate signals are present
+  # (the cross-check path) and the strong read produced something to compare
+  # against (a failed/empty strong read isn't a real material difference).
+  defp log_calibration(strong, cheap, opts) do
+    with %{} = signals <- opts[:signals],
+         false <- String.trim(strong) == "" do
+      jaccard = Gate.agreement(strong, cheap)
+
+      Calibrate.log(%{
+        agreement: signals.agreement,
+        coverage: signals.coverage,
+        cheap_wordish: max(signals.wordish_a, signals.wordish_b),
+        cheap_tokens: length(Gate.tokens(cheap)),
+        strong_tokens: length(Gate.tokens(strong)),
+        jaccard_strong_cheap: jaccard,
+        materially_differed: Calibrate.materially_differed?(jaccard),
+        drift_sample: opts[:drift] == true
+      })
+    else
+      _ -> :ok
     end
   end
 
