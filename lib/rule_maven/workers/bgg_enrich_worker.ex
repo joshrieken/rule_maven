@@ -9,7 +9,7 @@ defmodule RuleMaven.Workers.BggEnrichWorker do
   use Oban.Worker,
     queue: :expansion,
     max_attempts: 3,
-    unique: [keys: [:game_id], states: [:available, :scheduled, :executing, :retryable]]
+    unique: [keys: [:game_id], states: [:available, :scheduled, :executing, :retryable, :suspended]]
 
   import Ecto.Query
   alias RuleMaven.Games

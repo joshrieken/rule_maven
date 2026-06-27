@@ -507,22 +507,6 @@ defmodule RuleMavenWeb.GameLive.Index do
   end
 
   @impl true
-  def handle_info({:bgg_enriched, game_id, :ok}, socket) do
-    {:noreply,
-     socket
-     |> assign(bgg_pulling: MapSet.delete(socket.assigns.bgg_pulling, game_id))
-     |> reload_games()
-     |> put_flash(:info, "BGG data updated.")}
-  end
-
-  def handle_info({:bgg_enriched, game_id, {:error, reason}}, socket) do
-    {:noreply,
-     socket
-     |> assign(bgg_pulling: MapSet.delete(socket.assigns.bgg_pulling, game_id))
-     |> put_flash(:error, "BGG pull failed: #{reason}")}
-  end
-
-  @impl true
   def handle_event("pull_expansions", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
 
@@ -566,6 +550,21 @@ defmodule RuleMavenWeb.GameLive.Index do
   end
 
   @impl true
+  def handle_info({:bgg_enriched, game_id, :ok}, socket) do
+    {:noreply,
+     socket
+     |> assign(bgg_pulling: MapSet.delete(socket.assigns.bgg_pulling, game_id))
+     |> reload_games()
+     |> put_flash(:info, "BGG data updated.")}
+  end
+
+  def handle_info({:bgg_enriched, game_id, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(bgg_pulling: MapSet.delete(socket.assigns.bgg_pulling, game_id))
+     |> put_flash(:error, "BGG pull failed: #{reason}")}
+  end
+
   def handle_info({:expansion_progress, id, done, total}, socket) do
     # Recompute counts (over the already-loaded games) so the "⬇ Exp (n)" button
     # decrements live and the expanded panel re-queries each expansion's freshly

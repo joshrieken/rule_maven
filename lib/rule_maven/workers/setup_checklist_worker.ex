@@ -7,7 +7,7 @@ defmodule RuleMaven.Workers.SetupChecklistWorker do
   use Oban.Worker,
     queue: :llm,
     max_attempts: 3,
-    unique: [keys: [:game_id], states: [:available, :scheduled, :executing, :retryable]]
+    unique: [keys: [:game_id], states: [:available, :scheduled, :executing, :retryable, :suspended]]
 
   alias RuleMaven.{Games, Settings, Setup}
 

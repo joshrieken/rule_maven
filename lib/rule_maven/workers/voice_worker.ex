@@ -12,7 +12,7 @@ defmodule RuleMaven.Workers.VoiceWorker do
     max_attempts: 3,
     unique: [
       keys: [:question_log_id, :voice],
-      states: [:available, :scheduled, :executing, :retryable]
+      states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
   alias RuleMaven.{Games, Voices}

@@ -1869,11 +1869,6 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Semantic chunk retrieval. Pass `:embedding` to reuse a question vector already
-  computed upstream (avoids a redundant embedding API call); otherwise embeds
-  here. `:limit` caps returned chunks (default 6).
-  """
-  @doc """
   Returns one random published rulebook chunk for the given games — the source
   for the "Did you know?" rule card. Prefers a readable, sentence-sized chunk;
   falls back to any chunk if none land in that band. Returns
@@ -1901,6 +1896,11 @@ defmodule RuleMaven.Games do
     Repo.one(query)
   end
 
+  @doc """
+  Semantic chunk retrieval. Pass `:embedding` to reuse a question vector already
+  computed upstream (avoids a redundant embedding API call); otherwise embeds
+  here. `:limit` caps returned chunks (default 6).
+  """
   def retrieve_chunks_for_games(game_ids, question, opts \\ []) when is_list(game_ids) do
     limit = Keyword.get(opts, :limit, 6)
 

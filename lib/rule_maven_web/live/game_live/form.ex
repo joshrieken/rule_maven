@@ -427,13 +427,6 @@ defmodule RuleMavenWeb.GameLive.Form do
     {:noreply, assign(socket, regen_html_status: status_map)}
   end
 
-  defp parse_id(id_str) do
-    case Integer.parse(to_string(id_str)) do
-      {id, _} -> id
-      _ -> id_str
-    end
-  end
-
   def handle_event("regenerate_categories", _params, socket) do
     game = socket.assigns.game
     socket = assign(socket, regenerating_categories: true)
@@ -1339,47 +1332,6 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   @impl true
-  def handle_async(:search_bgg, {:ok, {cookies, result}}, socket) do
-    require Logger
-
-    case result do
-      {:ok, results} ->
-        Logger.debug("BGG search found #{length(results)} PDFs")
-
-        search_error =
-          if results == [], do: "No PDF rulebooks found on BGG files page"
-
-        {:noreply,
-         assign(socket,
-           searching: false,
-           bgg_results: results,
-           search_error: search_error
-         )}
-
-      {:error, reason} ->
-        Logger.error("BGG search error: #{reason}")
-
-        reason =
-          if String.contains?(reason, "403") && is_nil(cookies) do
-            "BGG blocked the request. Set your BGG login credentials in Settings for access."
-          else
-            reason
-          end
-
-        {:noreply, assign(socket, searching: false, search_error: reason, bgg_results: [])}
-    end
-  end
-
-  def handle_async(:search_bgg, {:exit, reason}, socket) do
-    {:noreply,
-     assign(socket,
-       searching: false,
-       bgg_results: [],
-       search_error: "BGG search failed: #{inspect(reason)}"
-     )}
-  end
-
-  @impl true
   def handle_info(:poll_cheat_status, socket) do
     game = socket.assigns.game
 
@@ -1471,6 +1423,47 @@ defmodule RuleMavenWeb.GameLive.Form do
      socket
      |> assign(generating: false)
      |> put_flash(:error, "Failed to refresh: #{reason}")}
+  end
+
+  @impl true
+  def handle_async(:search_bgg, {:ok, {cookies, result}}, socket) do
+    require Logger
+
+    case result do
+      {:ok, results} ->
+        Logger.debug("BGG search found #{length(results)} PDFs")
+
+        search_error =
+          if results == [], do: "No PDF rulebooks found on BGG files page"
+
+        {:noreply,
+         assign(socket,
+           searching: false,
+           bgg_results: results,
+           search_error: search_error
+         )}
+
+      {:error, reason} ->
+        Logger.error("BGG search error: #{reason}")
+
+        reason =
+          if String.contains?(reason, "403") && is_nil(cookies) do
+            "BGG blocked the request. Set your BGG login credentials in Settings for access."
+          else
+            reason
+          end
+
+        {:noreply, assign(socket, searching: false, search_error: reason, bgg_results: [])}
+    end
+  end
+
+  def handle_async(:search_bgg, {:exit, reason}, socket) do
+    {:noreply,
+     assign(socket,
+       searching: false,
+       bgg_results: [],
+       search_error: "BGG search failed: #{inspect(reason)}"
+     )}
   end
 
   def handle_async(:bgg_search, {:ok, {query, result}}, socket) do
@@ -1733,6 +1726,13 @@ defmodule RuleMavenWeb.GameLive.Form do
         RuleMaven.Workers.ReextractPageWorker.running?(sid),
         into: %{},
         do: {sid, true}
+  end
+
+  defp parse_id(id_str) do
+    case Integer.parse(to_string(id_str)) do
+      {id, _} -> id
+      _ -> id_str
+    end
   end
 
   defp resolve_bgg_cookies do
