@@ -1487,13 +1487,15 @@ defmodule RuleMavenWeb.GameLive.Form do
             sheet: p.sheet,
             printed: p.printed,
             text: p.text || "",
-            cleaned: p.cleaned
+            cleaned: p.cleaned,
+            confidence: p.confidence,
+            needs_review: Games.page_needs_review?(p)
           }
         end)
 
       _ ->
         Games.pages_from_full_text(s.full_text || "")
-        |> Enum.map(&Map.put(&1, :cleaned, nil))
+        |> Enum.map(&(&1 |> Map.put(:cleaned, nil) |> Map.put(:needs_review, false)))
     end
   end
 
@@ -1727,6 +1729,34 @@ defmodule RuleMavenWeb.GameLive.Form do
           style="height:1.6rem;display:inline-flex;align-items:center;font-size:0.68rem;padding:0 0.55rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
         >Number pages</button>
       </span>
+    </div>
+    """
+  end
+
+  # Review badge: a per-source count of low-confidence pages and, when the current
+  # page is one of them, a banner prompting verification. Driven entirely by the
+  # persisted gate confidence (page.needs_review).
+  attr :pages, :list, required: true
+  attr :cur, :integer, required: true
+
+  defp review_flag(assigns) do
+    assigns =
+      assign(assigns,
+        flagged: Enum.count(assigns.pages, & &1[:needs_review]),
+        cur_flagged?: match?(%{needs_review: true}, Enum.at(assigns.pages, assigns.cur))
+      )
+
+    ~H"""
+    <div :if={@flagged > 0} style="margin-bottom:0.4rem">
+      <span
+        :if={@cur_flagged?}
+        title="The extraction gate had low confidence in this page (two reads disagreed and the adversarial check left residual defects). Verify it against the PDF and fix the text if needed."
+        style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;padding:0.2rem 0.55rem;border-radius:0.3rem;border:1px solid var(--amber-border, #d4a017);background:var(--amber-bg, rgba(212,160,23,0.12));color:var(--amber-text, #b8860b)"
+      >⚠ Low-confidence extraction — verify or fix this page.</span>
+      <span
+        :if={not @cur_flagged?}
+        style="font-size:0.68rem;color:var(--text-muted)"
+      >⚠ {@flagged} page(s) flagged for review — navigate to them to verify.</span>
     </div>
     """
   end
@@ -2394,6 +2424,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                     pages={entry.pages}
                     page_one={@page_one_input[entry.id]}
                   />
+                  <.review_flag pages={entry.pages} cur={cur} />
                   <%!-- Edits feed socket state via edit_page (layer encoded in the
                         name), so this stays in sync with the expanded reader. --%>
                   <textarea
@@ -2568,6 +2599,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                       <%= if @reader_mode == "paginated" do %>
                         <%= if cur_page do %>
                           <div style={page_head}>— {page_label.(cur_page)} —</div>
+                          <.review_flag pages={pages} cur={cur} />
                           <textarea
                             name={"pgm_#{reader.id}_#{cur}_#{layer_field(layer)}"}
                             phx-change="edit_page"

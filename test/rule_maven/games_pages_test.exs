@@ -47,9 +47,9 @@ defmodule RuleMaven.GamesPagesTest do
       # Sheets 1-4 -> printed 1-4 (offset 0). A 2-sheet unnumbered insert. Then
       # printed continues 5-8 on sheets 7-10 (offset 2).
       raw =
-        (for n <- 1..4, do: "body\n#{n}") ++
+        for(n <- 1..4, do: "body\n#{n}") ++
           ["insert art", "insert art"] ++
-          (for n <- 5..8, do: "body\n#{n}")
+          for n <- 5..8, do: "body\n#{n}"
 
       assert printed(raw) == [1, 2, 3, 4, nil, nil, 5, 6, 7, 8]
     end
@@ -196,6 +196,21 @@ defmodule RuleMaven.GamesPagesTest do
 
       assert length(doc.pages) == 2
       assert Enum.map(doc.pages, & &1.text) == ["rule one", "rule two"]
+    end
+  end
+
+  describe "page_needs_review?/1 and review_page_count/1" do
+    test "flags low confidence, ignores nil/high" do
+      refute Games.page_needs_review?(%{confidence: nil})
+      refute Games.page_needs_review?(%{confidence: 0.9})
+      refute Games.page_needs_review?(%{confidence: 0.6})
+      assert Games.page_needs_review?(%{confidence: 0.5})
+      assert Games.page_needs_review?(%{confidence: 0.0})
+    end
+
+    test "counts flagged pages in a list" do
+      pages = [%{confidence: 0.9}, %{confidence: 0.5}, %{confidence: nil}, %{confidence: 0.3}]
+      assert Games.review_page_count(pages) == 2
     end
   end
 end

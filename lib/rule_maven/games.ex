@@ -754,6 +754,24 @@ defmodule RuleMaven.Games do
     updated
   end
 
+  # Confidence at/below this → the extraction gate wasn't sure about the page;
+  # surface it for human review. Picks up critic-residual pages (0.5) but not
+  # blank/agreed pages (0.6+).
+  @review_threshold 0.6
+
+  @doc """
+  True when an extracted page's gate confidence is low enough to warrant review.
+  Pages with no confidence (native/clean-layer/legacy) are never flagged.
+  """
+  def page_needs_review?(page) do
+    c = Map.get(page, :confidence)
+    is_number(c) and c < @review_threshold
+  end
+
+  @doc "Count of pages on a document (or page list) flagged for review."
+  def review_page_count(%Document{pages: pages}), do: review_page_count(pages)
+  def review_page_count(pages) when is_list(pages), do: Enum.count(pages, &page_needs_review?/1)
+
   defp page_attrs(p) do
     %{
       index: p.index,
