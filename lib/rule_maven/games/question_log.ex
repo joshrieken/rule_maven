@@ -17,6 +17,7 @@ defmodule RuleMaven.Games.QuestionLog do
     field :visibility, :string, default: "private"
     field :refused, :boolean, default: false
     field :blocked, :boolean, default: false
+    field :verdict, :string
     field :cleaned_question, :string
     field :raw_response, :string
     field :followups, {:array, :string}, default: []
@@ -58,6 +59,7 @@ defmodule RuleMaven.Games.QuestionLog do
       :parent_question_id,
       :refused,
       :blocked,
+      :verdict,
       :cleaned_question,
       :raw_response,
       :followups,

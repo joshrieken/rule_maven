@@ -658,6 +658,10 @@ defmodule RuleMaven.Games do
         set: [needs_review: true]
       )
 
+    # Drop cached persona restyles too — they render stale prose once the
+    # underlying answer can change.
+    RuleMaven.Voices.clear_for_game(game_id)
+
     demoted + flagged
   end
 
@@ -896,6 +900,9 @@ defmodule RuleMaven.Games do
     |> QuestionLog.changeset(attrs)
     |> Repo.update()
   end
+
+  @doc "Fetch one question_log row by id, or nil."
+  def get_question_log(id), do: Repo.get(QuestionLog, id)
 
   def question_count(%Game{} = game) do
     Repo.aggregate(from(q in QuestionLog, where: q.game_id == ^game.id), :count)
@@ -1841,6 +1848,34 @@ defmodule RuleMaven.Games do
   computed upstream (avoids a redundant embedding API call); otherwise embeds
   here. `:limit` caps returned chunks (default 6).
   """
+  @doc """
+  Returns one random published rulebook chunk for the given games — the source
+  for the "Did you know?" rule card. Prefers a readable, sentence-sized chunk;
+  falls back to any chunk if none land in that band. Returns
+  `%{content, page_number}` or `nil` when no published rules exist.
+  """
+  def random_rule_chunk(game_ids) when is_list(game_ids) do
+    random_rule_chunk(game_ids, true) || random_rule_chunk(game_ids, false)
+  end
+
+  defp random_rule_chunk(game_ids, sized?) do
+    query =
+      from c in Chunk,
+        join: d in Document,
+        on: c.document_id == d.id,
+        where: d.game_id in ^game_ids and d.status == "published",
+        order_by: fragment("RANDOM()"),
+        limit: 1,
+        select: %{content: c.content, page_number: c.page_number}
+
+    query =
+      if sized?,
+        do: where(query, [c], fragment("char_length(?) between 140 and 700", c.content)),
+        else: query
+
+    Repo.one(query)
+  end
+
   def retrieve_chunks_for_games(game_ids, question, opts \\ []) when is_list(game_ids) do
     limit = Keyword.get(opts, :limit, 6)
 

@@ -36,7 +36,17 @@ defmodule RuleMavenWeb.GameLive.Show do
        refresh: 0,
        show_onboarding: false,
        stale_timer: nil,
-       question_categories: %{}
+       question_categories: %{},
+       # Persona voices: per-answer selected voice, lazily-loaded restyle cache
+       # keyed by {question_log_id, voice}, and in-flight restyle requests.
+       voice_sel: %{},
+       voice_cache: %{},
+       voice_pending: MapSet.new(),
+       rule_card: nil,
+       # Setup checklist (durable, per-game) + per-session checked items.
+       setup_status: nil,
+       setup_checklist: nil,
+       checklist_done: MapSet.new()
      )}
   end
 
@@ -47,6 +57,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.Setup.topic(game.id))
     end
 
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
@@ -108,7 +119,10 @@ defmodule RuleMavenWeb.GameLive.Show do
         community_vote_counts: cv_counts,
         community_user_votes: cv_user,
         question_categories: question_categories,
-        show_onboarding: conversation == [] && sources != [] && pending_count == 0
+        show_onboarding: conversation == [] && sources != [] && pending_count == 0,
+        rule_card: if(sources != [], do: Games.random_rule_chunk(rule_card_game_ids(game, expansions))),
+        setup_status: RuleMaven.Setup.status(game.id),
+        setup_checklist: RuleMaven.Setup.stored_checklist(game.id)
       )
 
     suggestions =
@@ -210,6 +224,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         content: g.primary.answer,
         cited_passage: g.primary.cited_passage,
         cited_page: g.primary.cited_page,
+        verdict: g.primary.verdict,
         llm_provider: g.primary.llm_provider,
         llm_model: g.primary.llm_model,
         pinned: g.primary.pinned,
@@ -235,6 +250,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             content: h.answer,
             cited_passage: h.cited_passage,
             cited_page: h.cited_page,
+            verdict: h.verdict,
             llm_provider: h.llm_provider,
             llm_model: h.llm_model,
             pinned: h.pinned,
@@ -265,6 +281,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             content: f.answer,
             cited_passage: f.cited_passage,
             cited_page: f.cited_page,
+            verdict: f.verdict,
             llm_provider: f.llm_provider,
             llm_model: f.llm_model,
             pinned: f.pinned,
@@ -333,6 +350,65 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def handle_event("toggle_refused", _params, socket) do
     {:noreply, assign(socket, show_refused: !socket.assigns.show_refused)}
+  end
+
+  def handle_event("shuffle_rule", _params, socket) do
+    game_ids = rule_card_game_ids(socket.assigns.game, socket.assigns[:expansions] || [])
+    {:noreply, assign(socket, rule_card: Games.random_rule_chunk(game_ids))}
+  end
+
+  def handle_event("generate_setup", _params, socket) do
+    RuleMaven.Setup.generate_async(socket.assigns.game)
+    {:noreply, assign(socket, setup_status: "generating")}
+  end
+
+  def handle_event("toggle_step", %{"key" => key}, socket) do
+    done = socket.assigns.checklist_done
+
+    done =
+      if MapSet.member?(done, key),
+        do: MapSet.delete(done, key),
+        else: MapSet.put(done, key)
+
+    {:noreply, assign(socket, checklist_done: done)}
+  end
+
+  def handle_event("reset_checklist", _params, socket) do
+    {:noreply, assign(socket, checklist_done: MapSet.new())}
+  end
+
+  # Switch one answer to a persona voice. Neutral and already-cached voices swap
+  # instantly (no cost); an uncached voice enqueues a durable restyle job and
+  # shows a spinner until {:voice_ready, ...} arrives over PubSub.
+  def handle_event("set_voice", %{"id" => id_str, "voice" => voice}, socket) do
+    {id, _} = Integer.parse(id_str)
+
+    if not RuleMaven.Voices.valid?(voice) do
+      {:noreply, socket}
+    else
+      sel = Map.put(socket.assigns.voice_sel, id, voice)
+
+      cond do
+        voice == "neutral" ->
+          {:noreply, assign(socket, voice_sel: sel)}
+
+        Map.has_key?(socket.assigns.voice_cache, {id, voice}) ->
+          {:noreply, assign(socket, voice_sel: sel)}
+
+        cached = RuleMaven.Voices.get(id, voice) ->
+          # In DB but not in this session's cache — load it, still free.
+          cache = Map.put(socket.assigns.voice_cache, {id, voice}, cached)
+          {:noreply, assign(socket, voice_sel: sel, voice_cache: cache)}
+
+        true ->
+          %{question_log_id: id, voice: voice, game_id: socket.assigns.game.id}
+          |> RuleMaven.Workers.VoiceWorker.new()
+          |> Oban.insert()
+
+          pending = MapSet.put(socket.assigns.voice_pending, {id, voice})
+          {:noreply, assign(socket, voice_sel: sel, voice_pending: pending)}
+      end
+    end
   end
 
   def handle_event("community_vote", %{"id" => id_str, "vote" => value}, socket) do
@@ -684,7 +760,34 @@ defmodule RuleMavenWeb.GameLive.Show do
   def handle_event("regenerate_answer", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
     # Discard a provisional/cached answer and force a fresh rulebook-grounded one.
+    # Reset this answer's voice back to plain — old restyles no longer apply.
+    socket =
+      assign(socket,
+        voice_sel: Map.delete(socket.assigns.voice_sel, id),
+        voice_cache: Map.reject(socket.assigns.voice_cache, fn {{qid, _v}, _} -> qid == id end),
+        voice_pending:
+          socket.assigns.voice_pending
+          |> Enum.reject(fn {qid, _v} -> qid == id end)
+          |> MapSet.new()
+      )
+
     resubmit_question(id, socket, skip_pool: true)
+  end
+
+  @impl true
+  def handle_event("regenerate_html", %{"id" => id_str}, socket) do
+    # Admin-only: re-render the source's "View as HTML" file from its current text.
+    if socket.assigns.is_admin do
+      with {id, _} <- Integer.parse(id_str),
+           %Games.Document{} = doc <- Games.get_document(id),
+           :ok <- Games.regenerate_document_html(doc) do
+        {:noreply, put_flash(socket, :info, "Rulebook HTML regenerated.")}
+      else
+        _ -> {:noreply, put_flash(socket, :error, "Could not regenerate that rulebook.")}
+      end
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -713,6 +816,9 @@ defmodule RuleMavenWeb.GameLive.Show do
     if question != "" do
       case Games.check_rate_limit(socket.assigns.current_user) do
         :ok ->
+          # The answer is about to change — drop any cached persona restyles.
+          RuleMaven.Voices.clear_for_question(id)
+
           %{game: game, included_expansions: included} = socket.assigns
           expansion_ids = Map.keys(included)
 
@@ -919,6 +1025,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 |> Map.put(:content, ql.answer)
                 |> Map.put(:cited_passage, ql.cited_passage)
                 |> Map.put(:cited_page, data[:cited_page] || ql.cited_page)
+                |> Map.put(:verdict, data[:verdict] || ql.verdict)
                 |> Map.put(:followups, data[:followups] || ql.followups)
                 |> Map.put(:also_asked, data[:also_asked] || ql.also_asked)
                 |> Map.put(:refused, ql.refused)
@@ -955,6 +1062,33 @@ defmodule RuleMavenWeb.GameLive.Show do
     else
       {:noreply, socket}
     end
+  end
+
+  def handle_info({:setup_done, game_id}, socket) do
+    if socket.assigns.game && socket.assigns.game.id == game_id do
+      {:noreply,
+       assign(socket,
+         setup_status: RuleMaven.Setup.status(game_id),
+         setup_checklist: RuleMaven.Setup.stored_checklist(game_id)
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:voice_ready, ql_id, voice, content}, socket) do
+    cache = Map.put(socket.assigns.voice_cache, {ql_id, voice}, content)
+    pending = MapSet.delete(socket.assigns.voice_pending, {ql_id, voice})
+    {:noreply, assign(socket, voice_cache: cache, voice_pending: pending)}
+  end
+
+  def handle_info({:voice_failed, ql_id, voice}, socket) do
+    pending = MapSet.delete(socket.assigns.voice_pending, {ql_id, voice})
+
+    {:noreply,
+     socket
+     |> assign(voice_pending: pending)
+     |> put_flash(:error, "Couldn't apply that voice — showing the plain answer.")}
   end
 
   def handle_info({:ask_error, data}, socket) do
@@ -1459,6 +1593,131 @@ defmodule RuleMavenWeb.GameLive.Show do
                 Ask a rules question
               </p>
               <p>Type your question below. Answers cite the exact rulebook passage.</p>
+
+              <%= if @rule_card do %>
+                <div style="margin:1.5rem auto 0;max-width:30rem;text-align:left;background:linear-gradient(135deg,var(--bg-subtle),var(--bg-surface));border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+                    <span style="font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent)">
+                      💡 Did you know?
+                    </span>
+                    <button
+                      type="button"
+                      phx-click="shuffle_rule"
+                      title="Another rule"
+                      style="background:none;border:1px solid var(--border);border-radius:999px;font-size:0.65rem;cursor:pointer;padding:0.12rem 0.5rem;color:var(--text-muted);font-weight:600"
+                    >🔀 Shuffle</button>
+                  </div>
+                  <p style="font-size:0.85rem;line-height:1.55;color:var(--text);margin:0">
+                    {clean_rule_text(@rule_card.content)}
+                  </p>
+                  <%= if @rule_card.page_number do %>
+                    <div style="margin-top:0.5rem;font-size:0.65rem;font-weight:600;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-muted)">
+                      📎 Rulebook · p.{@rule_card.page_number}
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+
+              <%= if @source_count > 0 do %>
+                <div style="margin:1.25rem auto 0;max-width:30rem;text-align:left">
+                  <%= cond do %>
+                    <% @setup_checklist && (@setup_checklist["components"] != [] || @setup_checklist["setup"] != []) -> %>
+                      <% total =
+                        length(@setup_checklist["components"]) + length(@setup_checklist["setup"]) %>
+                      <% done = MapSet.size(@checklist_done) %>
+                      <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+                          <span style="font-size:0.78rem;font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--text)">
+                            🧩 Setup checklist
+                          </span>
+                          <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">
+                            {done}/{total} done
+                          </span>
+                        </div>
+
+                        <%= if @setup_checklist["components"] != [] do %>
+                          <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.3rem 0 0.3rem">
+                            Gather
+                          </div>
+                          <%= for {item, i} <- Enum.with_index(@setup_checklist["components"]) do %>
+                            <% key = "c-#{i}" %>
+                            <% checked = MapSet.member?(@checklist_done, key) %>
+                            <button
+                              type="button"
+                              phx-click="toggle_step"
+                              phx-value-key={key}
+                              style={"display:flex;gap:0.5rem;align-items:flex-start;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:0.2rem 0;font-size:0.82rem;line-height:1.4;color:#{if checked, do: "var(--text-muted)", else: "var(--text)"}"}
+                            >
+                              <span aria-hidden="true">{if checked, do: "☑️", else: "⬜"}</span>
+                              <span style={if checked, do: "text-decoration:line-through", else: ""}>
+                                {item}
+                              </span>
+                            </button>
+                          <% end %>
+                        <% end %>
+
+                        <%= if @setup_checklist["setup"] != [] do %>
+                          <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.6rem 0 0.3rem">
+                            Steps
+                          </div>
+                          <%= for {step, i} <- Enum.with_index(@setup_checklist["setup"]) do %>
+                            <% key = "s-#{i}" %>
+                            <% checked = MapSet.member?(@checklist_done, key) %>
+                            <button
+                              type="button"
+                              phx-click="toggle_step"
+                              phx-value-key={key}
+                              style={"display:flex;gap:0.5rem;align-items:flex-start;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:0.3rem 0;font-size:0.82rem;line-height:1.4;color:#{if checked, do: "var(--text-muted)", else: "var(--text)"}"}
+                            >
+                              <span aria-hidden="true">{if checked, do: "☑️", else: "⬜"}</span>
+                              <span>
+                                <span style={"font-weight:600;#{if checked, do: "text-decoration:line-through", else: ""}"}>
+                                  {step["title"]}
+                                </span>
+                                <%= if step["detail"] not in [nil, "", "nil"] do %>
+                                  <span style="display:block;font-size:0.74rem;color:var(--text-muted)">
+                                    {step["detail"]}
+                                  </span>
+                                <% end %>
+                              </span>
+                            </button>
+                          <% end %>
+                        <% end %>
+
+                        <button
+                          type="button"
+                          phx-click="reset_checklist"
+                          style="margin-top:0.6rem;background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted);font-weight:600"
+                        >↺ Reset</button>
+                      </div>
+
+                    <% @setup_status == "generating" -> %>
+                      <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.6rem;padding:0.75rem 1rem;font-size:0.8rem;color:var(--text-muted)">
+                        🧩 Building your setup checklist…
+                      </div>
+
+                    <% @setup_status == "error" -> %>
+                      <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.6rem;padding:0.75rem 1rem;font-size:0.8rem;color:var(--text-muted)">
+                        Couldn't build the checklist.
+                        <button
+                          type="button"
+                          phx-click="generate_setup"
+                          style="margin-left:0.4rem;background:var(--accent);color:#fff;border:none;border-radius:0.3rem;font-size:0.72rem;cursor:pointer;padding:0.2rem 0.6rem;font-weight:600"
+                        >Retry</button>
+                      </div>
+
+                    <% true -> %>
+                      <button
+                        type="button"
+                        phx-click="generate_setup"
+                        style="background:var(--bg-surface);border:1px dashed var(--border);border-radius:0.6rem;padding:0.6rem 1rem;font-size:0.82rem;cursor:pointer;color:var(--text);font-weight:600;width:100%"
+                      >
+                        🧩 Generate setup checklist
+                      </button>
+                  <% end %>
+                </div>
+              <% end %>
+
               <%= if @suggestions != [] && !Enum.any?(@conversation, & &1[:refused]) do %>
                 <div style="margin-top:1.5rem;text-align:left;max-width:28rem;margin-left:auto;margin-right:auto">
                   <div style="font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:0.75rem">
@@ -1512,7 +1771,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <%= if is_followup do %>
                     <div style="font-size:0.6rem;opacity:0.6;margin-bottom:0.15rem">↳ followup</div>
                   <% end %>
-                  <%= if msg.role == :assistant && msg[:refused] do %>
+                  <% stamp =
+                    msg.role == :assistant && msg.content != "Thinking..." &&
+                      verdict_stamp(msg[:verdict]) %>
+                  <%= if stamp do %>
+                    <% {emoji, label, color, bg} = stamp %>
+                    <div style={"display:inline-flex;align-items:center;gap:0.3rem;margin-bottom:0.5rem;padding:0.2rem 0.55rem;border-radius:999px;background:#{bg};color:#{color};font-weight:800;font-size:0.7rem;letter-spacing:0.04em;text-transform:uppercase"}>
+                      <span aria-hidden="true">{emoji}</span> {label}
+                    </div>
+                  <% end %>
+                  <%= if msg.role == :assistant && msg[:refused] && is_nil(msg[:verdict]) do %>
                     <div style="font-size:0.6rem;opacity:0.55;margin-bottom:0.15rem;color:var(--text-muted)">
                       ⚐ not covered
                     </div>
@@ -1529,7 +1797,20 @@ defmodule RuleMavenWeb.GameLive.Show do
                         </div>
                       <% end %>
                     <% else %>
-                      {render_markdown(msg.content)}
+                      <% v_sel =
+                        (msg.role == :assistant && Map.get(@voice_sel, msg[:id], "neutral")) ||
+                          "neutral" %>
+                      <% v_content =
+                        if v_sel == "neutral",
+                          do: nil,
+                          else: Map.get(@voice_cache, {msg[:id], v_sel}) %>
+                      <% v_pending = MapSet.member?(@voice_pending, {msg[:id], v_sel}) %>
+                      <%= if v_pending && is_nil(v_content) do %>
+                        <div style="font-size:0.68rem;opacity:0.7;font-style:italic;margin-bottom:0.3rem;color:var(--text-muted)">
+                          🎭 putting it in character…
+                        </div>
+                      <% end %>
+                      {render_markdown(v_content || msg.content)}
                     <% end %>
                   </div>
 
@@ -1554,6 +1835,26 @@ defmodule RuleMavenWeb.GameLive.Show do
                         </div>
                       <% end %>
                     </figure>
+                  <% end %>
+
+                  <!-- Citation confidence meter -->
+                  <%= if msg.role == :assistant && !msg[:refused] &&
+                         msg.content != "Thinking..." && !msg[:pending] &&
+                         not String.starts_with?(to_string(msg.content), "⚠️") do %>
+                    <% {conf_label, conf_pct, conf_color} = answer_confidence(msg) %>
+                    <div
+                      style="margin-top:0.6rem"
+                      title={"Confidence: #{conf_label}"}
+                    >
+                      <div style="display:flex;align-items:center;justify-content:space-between;font-size:0.62rem;font-weight:600;color:var(--text-muted);margin-bottom:0.2rem">
+                        <span>{conf_label}</span>
+                        <span style={"color:#{conf_color}"}>{conf_pct}%</span>
+                      </div>
+                      <div style="height:4px;border-radius:999px;background:var(--border);overflow:hidden">
+                        <div style={"height:100%;width:#{conf_pct}%;background:#{conf_color};border-radius:999px"}>
+                        </div>
+                      </div>
+                    </div>
                   <% end %>
 
                   <!-- Followup suggestions -->
@@ -1647,6 +1948,35 @@ defmodule RuleMavenWeb.GameLive.Show do
                     🔎 Unverified answer &mdash; single source, not yet community-reviewed.
                     Vote below to help, or regenerate a fresh answer.
                   </div>
+                </div>
+
+                <!-- Persona voice switcher -->
+                <div
+                  :if={
+                    msg.role == :assistant && !msg[:refused] &&
+                      msg.content != "Thinking..." && !msg[:pending] &&
+                      not String.starts_with?(to_string(msg.content), "⚠️")
+                  }
+                  style="display:flex;flex-wrap:wrap;gap:0.25rem;align-items:center;padding:0.4rem 0.25rem 0"
+                >
+                  <span style="font-size:0.6rem;color:var(--text-muted);font-weight:600;margin-right:0.15rem">
+                    🎭 Voice:
+                  </span>
+                  <% cur_voice = Map.get(@voice_sel, msg[:id], "neutral") %>
+                  <%= for v <- RuleMaven.Voices.all() do %>
+                    <% active = cur_voice == v.id %>
+                    <button
+                      type="button"
+                      phx-click="set_voice"
+                      phx-value-id={msg[:id]}
+                      phx-value-voice={v.id}
+                      title={v.label}
+                      style={"display:inline-flex;align-items:center;gap:0.2rem;border-radius:999px;font-size:0.65rem;cursor:pointer;padding:0.12rem 0.45rem;font-weight:600;border:1px solid #{if active, do: "var(--accent)", else: "var(--border)"};background:#{if active, do: "var(--accent)", else: "var(--bg-surface)"};color:#{if active, do: "#fff", else: "var(--text-muted)"}"}
+                    >
+                      <span aria-hidden="true">{v.emoji}</span>
+                      <span>{v.label}</span>
+                    </button>
+                  <% end %>
                 </div>
 
                 <!-- Answer actions (copy + vote) -->
@@ -2012,6 +2342,16 @@ defmodule RuleMavenWeb.GameLive.Show do
             >
               {if @visibility == "private", do: "🔒", else: "🌐"}
             </button>
+            <button
+              type="button"
+              id="voice-ask-btn"
+              phx-hook="VoiceDictation"
+              data-target="ask-input"
+              data-autosubmit="true"
+              title="Ask by voice"
+              disabled={@pending_count >= @max_concurrent || @source_count == 0}
+              style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:2rem;padding:0.4rem 0.6rem;cursor:pointer;font-size:0.85rem;color:var(--text-muted)"
+            >🎤</button>
             <input
               type="text"
               name="question"
@@ -2081,6 +2421,52 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> String.replace(~r/\*\*(.+?)\*\*/, "\\1")
     |> String.replace(~r/\*(.+?)\*/, "\\1")
     |> String.replace(~r/^[-*]\s+/m, "")
+  end
+
+  # ── Verdict stamp ──
+  # Maps the persisted verdict to {emoji, label, color, bg}. `nil` = no stamp.
+  defp verdict_stamp("legal"), do: {"✅", "LEGAL MOVE", "#15803d", "#dcfce7"}
+  defp verdict_stamp("illegal"), do: {"❌", "NOT ALLOWED", "#b91c1c", "#fee2e2"}
+  defp verdict_stamp("silent"), do: {"🤔", "RULES SILENT", "#92400e", "#fef3c7"}
+  defp verdict_stamp("info"), do: {"📖", "IN THE RULES", "#1e40af", "#dbeafe"}
+  defp verdict_stamp(_), do: nil
+
+  # ── Answer confidence meter ──
+  # Pure heuristic from existing signals — no stored confidence column.
+  # Returns {label, percent, color}.
+  defp answer_confidence(msg) do
+    cond do
+      msg[:pool_hit] && msg[:pool_provisional] ->
+        {"Unverified — single source", 45, "#d97706"}
+
+      msg[:pool_hit] ->
+        {"Community-verified", 96, "#15803d"}
+
+      present?(msg[:cited_passage]) && msg[:cited_page] ->
+        {"Cited from rulebook", 88, "#15803d"}
+
+      present?(msg[:cited_passage]) ->
+        {"Cited passage, page unconfirmed", 68, "#2563eb"}
+
+      true ->
+        {"No direct citation", 38, "#d97706"}
+    end
+  end
+
+  defp present?(s), do: is_binary(s) and String.trim(s) != ""
+
+  # ── Random rule card ──
+  defp rule_card_game_ids(game, expansions) do
+    [game.id | Enum.map(expansions || [], & &1.id)]
+  end
+
+  # Strip [Page N] markers and collapse whitespace for friendly card display.
+  defp clean_rule_text(text) do
+    text
+    |> to_string()
+    |> String.replace(~r/\[Page\s*\d+\]/i, "")
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
   end
 
   # ── Markdown rendering ──

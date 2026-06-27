@@ -59,6 +59,7 @@ defmodule RuleMaven.LLM do
            answer: row.canonical_answer || row.answer,
            cited_passage: row.cited_passage,
            cited_page: row.cited_page,
+           verdict: row.verdict,
            provider: "pool",
            # Encode tier in the model field so it survives a page reload
            # (the served row has no trust_score of its own to derive from).
@@ -102,6 +103,7 @@ defmodule RuleMaven.LLM do
            answer: answer,
            cited_passage: passage,
            cited_page: llm_result[:cited_page],
+           verdict: llm_result[:verdict],
            provider: provider_name,
            model: model_name,
            question_embedding: question_embedding,
@@ -613,6 +615,7 @@ defmodule RuleMaven.LLM do
     {
       "cleaned_question": string,  // the user's question rephrased as a standalone question: fix pronouns, add missing context, under 12 words, NEVER include the game name. WRONG: "How do turns work in Catan?" RIGHT: "How do turns work?"
       "answer": string,            // the answer in plain English. Use markdown (**bold**, bullet lists). Concise: 1-3 sentences plus optional list. On refusal this is exactly: "The rulebook does not cover this question."
+      "verdict": string,           // classify the answer for a verdict stamp. Exactly one of: "legal" (the asked action/move IS permitted by the rules), "illegal" (the asked action/move is NOT permitted / forbidden), "silent" (use ONLY when refusing — rulebook does not cover it), "info" (a factual/explanatory answer that is not a yes/no legality question, e.g. "how does scoring work"). If the question is not about whether something is allowed, use "info". On refusal always "silent".
       "citation": string,          // verbatim supporting prose — follow CITATION RULES above exactly. Empty string only when refusing.
       "page": integer,             // page number of the citation per CITATION RULES. Required for every non-refusal answer; use null only when refusing.
       "followup": boolean,         // true if this question is a followup to the recent conversation (references a prior exchange, uses pronouns like "it"/"that"/"they"), else false
@@ -648,6 +651,7 @@ defmodule RuleMaven.LLM do
           answer: trimmed_string(map["answer"]),
           cited_passage: nilable_string(map["citation"]),
           cited_page: coerce_page(map["page"]),
+          verdict: coerce_verdict(map["verdict"]),
           followup: map["followup"] == true,
           followups: string_list(map["followups"]),
           cleaned_question: nilable_string(map["cleaned_question"]),
@@ -659,6 +663,7 @@ defmodule RuleMaven.LLM do
           answer: String.trim(content),
           cited_passage: nil,
           cited_page: nil,
+          verdict: nil,
           followup: false,
           followups: [],
           cleaned_question: nil,
@@ -715,6 +720,19 @@ defmodule RuleMaven.LLM do
   end
 
   defp coerce_page(_), do: nil
+
+  # Normalize the model's verdict to the fixed vocabulary; unknown/missing -> nil.
+  defp coerce_verdict(v) when is_binary(v) do
+    case v |> String.trim() |> String.downcase() do
+      "legal" -> "legal"
+      "illegal" -> "illegal"
+      "silent" -> "silent"
+      "info" -> "info"
+      _ -> nil
+    end
+  end
+
+  defp coerce_verdict(_), do: nil
 
   defp api_url do
     provider_name = provider()

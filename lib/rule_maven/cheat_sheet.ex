@@ -593,93 +593,20 @@ defmodule RuleMaven.CheatSheet do
     |> String.replace("\"", "&quot;")
   end
 
+  # Render the cheatsheet markdown with MDEx (the same engine the rest of the app
+  # uses) instead of the former hand-rolled regex pass. MDEx handles GFM tables,
+  # nested/ordered lists, blockquotes, and inline formatting correctly; the
+  # wrap_html CSS targets the standard tags MDEx emits (h2/h3/table/blockquote/…),
+  # so styling carries over. Falls back to escaped text if rendering fails.
   defp markdown_to_html(md) do
-    md
-    |> convert_tables()
-    |> String.replace(~r/^### (.+)$/m, "<h3>\\1</h3>")
-    |> String.replace(~r/^## (.+)$/m, "<h2>\\1</h2>")
-    |> String.replace(~r/^# (.+)$/m, "<h1>\\1</h1>")
-    |> String.replace(~r/\*\*(.+?)\*\*/, "<strong>\\1</strong>")
-    |> String.replace(~r/\*(.+?)\*/, "<em>\\1</em>")
-    |> String.replace(~r/`([^`]+)`/, "<code>\\1</code>")
-    |> String.replace(~r/^> (.+)$/m, "<blockquote><p>\\1</p></blockquote>")
-    |> String.replace(~r/^- (.+)$/m, "<li>\\1</li>")
-    |> String.replace(~r/^\d+\.\s+(.+)$/m, "<li>\\1</li>")
-    |> wrap_lists()
-    |> String.replace(~r/\n{2,}/, "</p>\n<p>")
-    |> then(&"<p>#{&1}</p>")
-    |> String.replace(~r/\n/, "<br>\n")
-    |> String.replace(~r{<p>\s*</p>}, "")
-    |> String.replace(~r{<br>\s*<br>}, "<br>")
-  end
+    case MDEx.to_html(md,
+           extension: [table: true, strikethrough: true, autolink: true, tasklist: true]
+         ) do
+      {:ok, html} ->
+        html
 
-  defp convert_tables(md) do
-    lines = String.split(md, "\n")
-
-    {result, _state} =
-      Enum.reduce(lines, {[], :none}, fn line, {acc, state} ->
-        trimmed = String.trim(line)
-
-        cond do
-          String.match?(trimmed, ~r/^\|[-:\s|]+\|$/) ->
-            {["</thead><tbody>" | acc], :tbody}
-
-          String.match?(trimmed, ~r/^\|.+\|$/) ->
-            case state do
-              :none ->
-                cells = parse_table_row(trimmed)
-
-                row =
-                  "<thead><tr>#{Enum.map_join(cells, "", &"<th>#{&1}</th>")}</tr></thead>"
-
-                {[row | acc], :thead}
-
-              _ ->
-                cells = parse_table_row(trimmed)
-                row = "<tr>#{Enum.map_join(cells, "", &"<td>#{&1}</td>")}</tr>"
-                {[row | acc], :tbody}
-            end
-
-          state in [:thead, :tbody] ->
-            {["</tbody></table>", line | acc], :none}
-
-          true ->
-            {[line | acc], :none}
-        end
-      end)
-
-    # Close trailing table if last line was a table row
-    {result, _} =
-      case List.first(result) do
-        nil ->
-          {result, :none}
-
-        line ->
-          if String.contains?(line, "<tr>") and
-               not String.contains?(line, "</table>") do
-            {[line <> "</tbody></table>" | tl(result)], :none}
-          else
-            {result, :none}
-          end
-      end
-
-    result
-    |> Enum.reverse()
-    |> Enum.map_join("\n", fn
-      "<thead>" <> _ = line -> "<table>\n#{line}"
-      line -> line
-    end)
-  end
-
-  defp parse_table_row(line) do
-    line
-    |> String.trim("|")
-    |> String.split("|")
-    |> Enum.map(&String.trim/1)
-  end
-
-  defp wrap_lists(html) do
-    html
-    |> String.replace(~r/((?:^<li>.*<\/li>\n?)+)/m, "<ul>\n\\1</ul>\n")
+      {:error, _} ->
+        md |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+    end
   end
 end

@@ -118,6 +118,7 @@ defmodule RuleMaven.Workers.AskWorker do
               cited_passage: passage,
               cited_page: cited_page,
               refused: refused?,
+              verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
               followups: if(refused?, do: [], else: llm_result[:followups] || []),
               also_asked: if(refused?, do: [], else: llm_result[:also_asked] || []),
               cleaned_question: llm_result[:cleaned_question],
@@ -163,6 +164,7 @@ defmodule RuleMaven.Workers.AskWorker do
                      also_asked: if(refused?, do: [], else: llm_result[:also_asked] || []),
                      cited_page: cited_page,
                      refused: refused?,
+                     verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
                      raw_response: llm_result[:raw_response]
                    }}
                 )

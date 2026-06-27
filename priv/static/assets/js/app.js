@@ -266,6 +266,83 @@ Hooks.ClipboardCopy = {
   }
 };
 
+// Voice dictation for the ask box. Click to speak; the transcript fills the
+// target input and (on a final result) submits the form hands-free. Uses the
+// browser Web Speech API; the button hides itself where it's unsupported.
+Hooks.VoiceDictation = {
+  mounted() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      this.el.style.display = "none";
+      return;
+    }
+
+    const targetId = this.el.getAttribute("data-target");
+    const autoSubmit = this.el.getAttribute("data-autosubmit") === "true";
+    const idleHTML = this.el.innerHTML;
+
+    this.listening = false;
+    this.rec = new SR();
+    this.rec.lang = navigator.language || "en-US";
+    this.rec.interimResults = true;
+    this.rec.continuous = false;
+
+    const input = () => document.getElementById(targetId);
+
+    const stop = () => {
+      this.listening = false;
+      this.el.innerHTML = idleHTML;
+      this.el.style.color = "var(--text-muted)";
+    };
+
+    this.rec.onresult = (e) => {
+      const transcript = Array.from(e.results)
+        .map((r) => r[0].transcript)
+        .join("")
+        .trim();
+      const el = input();
+      if (el) {
+        el.value = transcript;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      if (e.results[e.results.length - 1].isFinal && autoSubmit && transcript !== "") {
+        const form = el && el.closest("form");
+        if (form) form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      }
+    };
+
+    this.rec.onerror = stop;
+    this.rec.onend = stop;
+
+    this._click = () => {
+      if (this.listening) {
+        this.rec.stop();
+        stop();
+        return;
+      }
+      const el = input();
+      if (el && el.disabled) return;
+      try {
+        this.rec.start();
+        this.listening = true;
+        this.el.innerHTML = "🎙️";
+        this.el.style.color = "var(--accent)";
+        if (el) el.focus();
+      } catch (_e) {
+        stop();
+      }
+    };
+
+    this.el.addEventListener("click", this._click);
+  },
+  destroyed() {
+    if (this.rec) {
+      try { this.rec.abort(); } catch (_e) {}
+    }
+    if (this._click) this.el.removeEventListener("click", this._click);
+  }
+};
+
 Hooks.InfiniteScroll = {
   mounted() {
     this.observer = new IntersectionObserver(([entry]) => {
