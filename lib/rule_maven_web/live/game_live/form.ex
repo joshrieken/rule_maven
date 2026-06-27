@@ -3130,14 +3130,14 @@ defmodule RuleMavenWeb.GameLive.Form do
             </div>
 
             <%!-- Suggested questions (compact, per-category collapsible) --%>
-            <div style="margin-top:1.25rem">
-              <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.4rem">
-                <span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">
-                  Suggested questions
-                  <%= if @suggestions != [] do %>
-                    ({Enum.reduce(@suggestions, 0, fn c, acc -> acc + length(c.questions) end)})
-                  <% end %>
-                </span>
+            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open>
+              <summary style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
+                Suggested questions
+                <%= if @suggestions != [] do %>
+                  ({Enum.reduce(@suggestions, 0, fn c, acc -> acc + length(c.questions) end)})
+                <% end %>
+              </summary>
+              <div style="display:flex;align-items:center;gap:0.75rem;margin:0.5rem 0 0.4rem">
                 <button
                   type="button"
                   phx-click="regenerate_suggestions"
@@ -3175,17 +3175,17 @@ defmodule RuleMavenWeb.GameLive.Form do
                   <% end %>
                 </div>
               <% end %>
-            </div>
+            </details>
 
             <%!-- "Did you know?" facts (shown on the game's empty state) --%>
-            <div style="margin-top:1.25rem">
-              <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
-                <span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">
-                  💡 Did you know?
-                  <%= if @dyk_facts != [] do %>
-                    ({length(@dyk_facts)})
-                  <% end %>
-                </span>
+            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open>
+              <summary style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
+                💡 Did you know?
+                <%= if @dyk_facts != [] do %>
+                  ({length(@dyk_facts)})
+                <% end %>
+              </summary>
+              <div style="display:flex;align-items:center;gap:0.5rem;margin:0.5rem 0 0.4rem">
                 <button
                   type="button"
                   phx-click="regenerate_dyk"
@@ -3221,7 +3221,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                   Generate short, friendly rule facts shown on this game's page.
                 </p>
               <% end %>
-            </div>
+            </details>
 
             <%!-- Setup checklist (shown on the game's empty state) --%>
             <% setup_count =
@@ -3230,14 +3230,14 @@ defmodule RuleMavenWeb.GameLive.Form do
                   length(@setup_checklist["components"] || []) +
                     length(@setup_checklist["setup"] || []),
                 else: 0 %>
-            <div style="margin-top:1.25rem">
-              <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
-                <span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">
-                  🧩 Setup checklist
-                  <%= if setup_count > 0 do %>
-                    ({setup_count})
-                  <% end %>
-                </span>
+            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open>
+              <summary style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
+                🧩 Setup checklist
+                <%= if setup_count > 0 do %>
+                  ({setup_count})
+                <% end %>
+              </summary>
+              <div style="display:flex;align-items:center;gap:0.5rem;margin:0.5rem 0 0.4rem">
                 <button
                   type="button"
                   phx-click="regenerate_setup"
@@ -3291,17 +3291,17 @@ defmodule RuleMavenWeb.GameLive.Form do
                   Generate a setup checklist (components to gather + ordered steps) shown on this game's page.
                 </p>
               <% end %>
-            </div>
+            </details>
 
             <%!-- Categories section --%>
-            <div style="margin-top:1.25rem">
-              <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
-                <span style="font-size:0.68rem;font-weight:600;color:var(--text-secondary)">
-                  Question categories
-                  <%= if @saved_categories != [] do %>
-                    ({length(@saved_categories)})
-                  <% end %>
-                </span>
+            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open>
+              <summary style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
+                Question categories
+                <%= if @saved_categories != [] do %>
+                  ({length(@saved_categories)})
+                <% end %>
+              </summary>
+              <div style="display:flex;align-items:center;gap:0.5rem;margin:0.5rem 0 0.4rem">
                 <button
                   type="button"
                   phx-click="regenerate_categories"
@@ -3367,7 +3367,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                   <% end %>
                 </div>
               <% end %>
-            </div>
+            </details>
           </div>
 
           <%!-- Danger tab --%>
