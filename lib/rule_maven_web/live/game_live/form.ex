@@ -56,6 +56,10 @@ defmodule RuleMavenWeb.GameLive.Form do
         regenerating_dyk: false,
         setup_checklist: nil,
         regenerating_setup: false,
+        # Which Generated-tab sections are expanded. Server-controlled so a
+        # re-render (e.g. clicking Generate) doesn't re-assert a hardcoded `open`
+        # and reopen sections the user collapsed. All open by default.
+        open_sections: MapSet.new(["suggestions", "dyk", "setup", "categories"]),
         # Per-source HTML-regen result for inline feedback: source_id => :ok | :error.
         regen_html_status: %{},
         regenerating_suggestions: false,
@@ -489,6 +493,17 @@ defmodule RuleMavenWeb.GameLive.Form do
     # the result arrives over Setup.topic as {:setup_done, game_id}.
     RuleMaven.Setup.generate_async(game)
     {:noreply, assign(socket, setup_checklist: nil, regenerating_setup: true)}
+  end
+
+  def handle_event("toggle_section", %{"section" => key}, socket) do
+    open = socket.assigns.open_sections
+
+    open =
+      if MapSet.member?(open, key),
+        do: MapSet.delete(open, key),
+        else: MapSet.put(open, key)
+
+    {:noreply, assign(socket, open_sections: open)}
   end
 
   def handle_event("finalize_game", _params, socket) do
@@ -3130,8 +3145,8 @@ defmodule RuleMavenWeb.GameLive.Form do
             </div>
 
             <%!-- Suggested questions (compact, per-category collapsible) --%>
-            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open>
-              <summary style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
+            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open={MapSet.member?(@open_sections, "suggestions")}>
+              <summary phx-click="toggle_section" phx-value-section="suggestions" style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
                 Suggested questions
                 <%= if @suggestions != [] do %>
                   ({Enum.reduce(@suggestions, 0, fn c, acc -> acc + length(c.questions) end)})
@@ -3178,8 +3193,8 @@ defmodule RuleMavenWeb.GameLive.Form do
             </details>
 
             <%!-- "Did you know?" facts (shown on the game's empty state) --%>
-            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open>
-              <summary style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
+            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open={MapSet.member?(@open_sections, "dyk")}>
+              <summary phx-click="toggle_section" phx-value-section="dyk" style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
                 💡 Did you know?
                 <%= if @dyk_facts != [] do %>
                   ({length(@dyk_facts)})
@@ -3230,8 +3245,8 @@ defmodule RuleMavenWeb.GameLive.Form do
                   length(@setup_checklist["components"] || []) +
                     length(@setup_checklist["setup"] || []),
                 else: 0 %>
-            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open>
-              <summary style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
+            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open={MapSet.member?(@open_sections, "setup")}>
+              <summary phx-click="toggle_section" phx-value-section="setup" style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
                 🧩 Setup checklist
                 <%= if setup_count > 0 do %>
                   ({setup_count})
@@ -3294,8 +3309,8 @@ defmodule RuleMavenWeb.GameLive.Form do
             </details>
 
             <%!-- Categories section --%>
-            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open>
-              <summary style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
+            <details style="margin-top:1.25rem;border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.75rem" open={MapSet.member?(@open_sections, "categories")}>
+              <summary phx-click="toggle_section" phx-value-section="categories" style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none">
                 Question categories
                 <%= if @saved_categories != [] do %>
                   ({length(@saved_categories)})
