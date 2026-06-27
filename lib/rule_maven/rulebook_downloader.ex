@@ -18,6 +18,13 @@ defmodule RuleMaven.RulebookDownloader do
   @pdftoppm_timeout 180_000
   @tesseract_timeout 90_000
 
+  # Page-image render resolution for both vision transcription and OCR. 300 dpi
+  # grayscale resolves small/decorative glyphs without bloating image-token cost.
+  @render_dpi 300
+  # Max concurrent vision calls (remote LLM, not local CPU) when transcribing a
+  # book page-by-page.
+  @vision_concurrency 4
+
   # No-op progress sink used when a caller doesn't care about stage updates.
   defp noop_progress(_stage), do: :ok
 
@@ -388,6 +395,46 @@ defmodule RuleMaven.RulebookDownloader do
 
   defp extract_text_with_source(pdf_path, on_progress) do
     full_path = Application.app_dir(:rule_maven, "priv/static/#{pdf_path}")
+
+    case extract_mode() do
+      "vision" ->
+        case vision_first_extract(full_path, on_progress) do
+          {:ok, _text, _from_ocr} = ok ->
+            ok
+
+          {:error, reason} ->
+            require Logger
+
+            Logger.info(
+              "Vision-first extraction unavailable (#{inspect(reason)}); using OCR path"
+            )
+
+            legacy_extract(full_path, on_progress)
+        end
+
+      _ ->
+        legacy_extract(full_path, on_progress)
+    end
+  rescue
+    e ->
+      {:error, "PDF extraction error: #{Exception.message(e)}"}
+  end
+
+  # Extraction mode: "vision" renders every page and transcribes it with the
+  # vision model — highest accuracy on graphic-heavy, multi-column, hard-to-read
+  # rulebooks. "ocr" uses pdftotext with OCR + vision fallback only on junk pages
+  # (cheaper). Defaults to vision.
+  defp extract_mode do
+    case RuleMaven.Settings.get("rulebook_extract_mode") do
+      m when m in ["vision", "ocr"] -> m
+      _ -> "vision"
+    end
+  end
+
+  # Original path: trust a good text layer, else OCR. Used as the fallback when
+  # vision-first can't run (no renderer / vision unavailable) and as the "ocr"
+  # mode itself.
+  defp legacy_extract(full_path, on_progress) do
     on_progress.(:extracting)
 
     case cmd("pdftotext", [full_path, "-"], @pdftotext_timeout) do
@@ -404,9 +451,112 @@ defmodule RuleMaven.RulebookDownloader do
       {:error, :timeout} ->
         {:error, "PDF text extraction timed out — the file may be corrupt or too complex"}
     end
-  rescue
-    e ->
-      {:error, "PDF extraction error: #{Exception.message(e)}"}
+  end
+
+  # Vision-first: render each sheet to an image and transcribe it to Markdown via
+  # the vision model, preserving sheet order (so downstream pagination/printed-page
+  # detection works unchanged). Each page is read by the default vision model; a
+  # page that comes back empty/garbled is re-read by the escalation model. Joins
+  # pages with "\f" exactly like the OCR path, so the marker/paginate pipeline is
+  # untouched. Returns {:ok, text, true} (true = not from a native text layer).
+  defp vision_first_extract(full_path, on_progress) do
+    if System.find_executable("pdftoppm") do
+      on_progress.(:extracting)
+
+      case render_pages(full_path) do
+        {:ok, []} ->
+          {:error, "PDF produced no pages to transcribe"}
+
+        {:ok, images} ->
+          on_progress.(:ocr)
+
+          text =
+            images
+            |> Task.async_stream(&vision_page/1,
+              max_concurrency: @vision_concurrency,
+              ordered: true,
+              timeout: :infinity
+            )
+            |> Enum.map(fn
+              {:ok, t} -> t
+              _ -> ""
+            end)
+            |> Enum.join("\f")
+
+          Enum.each(images, &File.rm/1)
+
+          if String.trim(text) == "" do
+            {:error, "Vision extraction produced no readable text"}
+          else
+            {:ok, text, true}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:error, :no_renderer}
+    end
+  end
+
+  # Transcribe one page image with the default vision model; if it comes back
+  # empty or garbled (the escalation trigger), re-read with the stronger/higher-res
+  # escalation model and keep whichever output is richer. "" on total failure.
+  defp vision_page(image_path) do
+    case RuleMaven.LLM.transcribe_page_image(image_path) do
+      {:ok, text} ->
+        if ocr_junk?(text), do: escalate_page(image_path, text), else: text
+
+      {:error, _reason} ->
+        escalate_page(image_path, "")
+    end
+  end
+
+  # Re-read a page with the escalation vision model; keep the longer of the new
+  # and fallback texts (never replace usable text with nothing).
+  defp escalate_page(image_path, fallback) do
+    opts = [model: RuleMaven.LLM.vision_model(:escalate), max_tokens: 8192]
+
+    case RuleMaven.LLM.transcribe_page_image(image_path, opts) do
+      {:ok, text} ->
+        if String.length(String.trim(text)) >= String.length(String.trim(fallback)),
+          do: text,
+          else: fallback
+
+      {:error, _reason} ->
+        fallback
+    end
+  end
+
+  # Renders each PDF sheet to a grayscale PNG at @render_dpi under tmp/ocr,
+  # returning {:ok, sorted_image_paths}. Caller deletes the images. Shared by the
+  # vision and OCR paths so both get identical page rendering.
+  defp render_pages(pdf_path) do
+    tmp_dir = Application.app_dir(:rule_maven, "tmp/ocr")
+    File.mkdir_p!(tmp_dir)
+    prefix = Path.join(tmp_dir, "#{System.system_time(:millisecond)}_page")
+
+    case cmd(
+           "pdftoppm",
+           ["-png", "-gray", "-r", to_string(@render_dpi), pdf_path, prefix],
+           @pdftoppm_timeout
+         ) do
+      {:ok, {_, 0}} ->
+        images =
+          tmp_dir
+          |> File.ls!()
+          |> Enum.filter(&String.starts_with?(&1, Path.basename(prefix)))
+          |> Enum.sort()
+          |> Enum.map(&Path.join(tmp_dir, &1))
+
+        {:ok, images}
+
+      {:ok, {_, _}} ->
+        {:error, "pdftoppm failed — cannot convert PDF to images"}
+
+      {:error, :timeout} ->
+        {:error, "PDF→image conversion timed out — the file is too large or complex"}
+    end
   end
 
   defp run_ocr(full_path, on_progress) do
@@ -434,19 +584,11 @@ defmodule RuleMaven.RulebookDownloader do
 
   defp ocr_text(pdf_path) do
     if System.find_executable("tesseract") do
-      tmp_dir = Application.app_dir(:rule_maven, "tmp/ocr")
-      File.mkdir_p!(tmp_dir)
-      prefix = Path.join(tmp_dir, "#{System.system_time(:millisecond)}_page")
+      case render_pages(pdf_path) do
+        {:ok, []} ->
+          {:error, "OCR produced no text — PDF may be image-based with no readable content"}
 
-      case cmd("pdftoppm", ["-png", "-r", "200", pdf_path, prefix], @pdftoppm_timeout) do
-        {:ok, {_, 0}} ->
-          images =
-            tmp_dir
-            |> File.ls!()
-            |> Enum.filter(&String.starts_with?(&1, Path.basename(prefix)))
-            |> Enum.sort()
-            |> Enum.map(&Path.join(tmp_dir, &1))
-
+        {:ok, images} ->
           # OCR pages in parallel across cores (tesseract is single-threaded per
           # invocation), preserving page order. Cuts an N-page scan from N×t to
           # roughly N/cores × t.
@@ -454,10 +596,10 @@ defmodule RuleMaven.RulebookDownloader do
             images
             |> Task.async_stream(
               fn img ->
-                case cmd("tesseract", [img, "stdout", "-l", "eng", "--psm", "6"],
-                       @tesseract_timeout,
-                       stderr_to_stdout: true
-                     ) do
+                case cmd(
+                       "tesseract",
+                       [img, "stdout", "-l", "eng", "--psm", "6"],
+                       @tesseract_timeout, stderr_to_stdout: true) do
                   {:ok, {t, _}} -> t
                   {:error, :timeout} -> ""
                 end
@@ -481,7 +623,7 @@ defmodule RuleMaven.RulebookDownloader do
               fn {img, ocr} ->
                 if ocr_junk?(ocr), do: vision_or_ocr(img, ocr), else: ocr
               end,
-              max_concurrency: 4,
+              max_concurrency: @vision_concurrency,
               ordered: true,
               timeout: :infinity
             )
@@ -500,11 +642,8 @@ defmodule RuleMaven.RulebookDownloader do
             {:ok, text}
           end
 
-        {:ok, {_, _}} ->
-          {:error, "pdftoppm failed — cannot convert PDF to images for OCR"}
-
-        {:error, :timeout} ->
-          {:error, "OCR image conversion timed out — PDF is too large or complex"}
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       {:error, "PDF has no text layer. Install tesseract for OCR: brew install tesseract"}

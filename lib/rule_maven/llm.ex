@@ -261,20 +261,27 @@ defmodule RuleMaven.LLM do
   defp min_kept_ratio(_), do: 0.5
 
   @vision_extract_prompt """
-  You are transcribing one page of a board-game rulebook from an image — a page
-  OCR could not read (heavy graphics, decorative or overlaid text).
+  You are transcribing one page of a board-game rulebook from an image. These
+  pages mix multiple columns, sidebars, callout boxes, tables, iconography, and
+  text overlaid on artwork — transcribe ALL of it accurately.
 
-  Output every piece of READABLE RULES TEXT exactly as written: headings,
-  paragraphs, numbered/bulleted steps, component names with their counts, and any
-  printed page number. Preserve reading order; for multi-column layouts read each
-  column top-to-bottom. Keep component lists as lines like "- 64 base cards".
+  Rules:
+  - Transcribe every piece of readable rules text exactly as printed: headings,
+    body paragraphs, numbered/bulleted steps, sidebars and callout boxes,
+    component names with their counts, captions on diagrams, and any icon/symbol
+    legend.
+  - Preserve reading order. For multi-column layouts, read each column fully
+    top-to-bottom before the next; transcribe sidebars and boxes where they read.
+  - Render tables as Markdown tables. Keep component lists as lines like
+    "- 64 base cards".
+  - If a printed page number is visible on the page, put it on its own first
+    line as "Page N".
+  - Ignore purely decorative art, background textures, and illustration-only
+    regions with no text. Do NOT describe images, do NOT summarize, do NOT invent
+    rules, numbers, or components that aren't visibly printed. If the page has no
+    readable text at all, output nothing.
 
-  Ignore purely decorative art, background textures, and illustration-only
-  regions that contain no text. Do NOT describe the images, do NOT summarize, do
-  NOT invent rules, numbers, or components that aren't visibly printed. If the
-  page has no readable text at all, output nothing.
-
-  Output only the transcribed text — no commentary, no code fences.
+  Output only the transcribed text as Markdown — no commentary, no code fences.
   """
 
   @doc """
@@ -647,11 +654,23 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
-  The multimodal model used to re-read pages OCR mangled (`llm_vision_model_<provider>`
-  if set, else the provider default). Separate from `model(:cleanup)` because the
-  cleanup model is frequently a text-only model that can't take image input.
+  The multimodal model used to transcribe rulebook page images. `:default`
+  (`llm_vision_model_<provider>`, else the provider default) reads every page;
+  `:escalate` (`llm_vision_escalate_model_<provider>`, else the default vision
+  model) is a stronger/higher-res model used only to re-read pages the default
+  model failed on. Separate from `model(:cleanup)` because the cleanup model is
+  frequently a text-only model that can't take image input.
   """
-  def vision_model do
+  def vision_model(purpose \\ :default)
+
+  def vision_model(:escalate) do
+    case RuleMaven.Settings.get("llm_vision_escalate_model_#{provider()}") do
+      m when is_binary(m) and m != "" -> m
+      _ -> vision_model(:default)
+    end
+  end
+
+  def vision_model(_default) do
     case RuleMaven.Settings.get("llm_vision_model_#{provider()}") do
       m when is_binary(m) and m != "" -> m
       _ -> model(:default)

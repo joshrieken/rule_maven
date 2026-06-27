@@ -86,11 +86,23 @@ defmodule RuleMavenWeb.SettingsLive do
        llm_cleanup_model_ollama: (admin? && Settings.get("llm_cleanup_model_ollama")) || "",
        # Optional per-provider override for vision OCR (re-reading graphic pages).
        # Blank = use the answering model above; it MUST be multimodal.
-       llm_vision_model_openrouter:
-         (admin? && Settings.get("llm_vision_model_openrouter")) || "",
+       llm_vision_model_openrouter: (admin? && Settings.get("llm_vision_model_openrouter")) || "",
        llm_vision_model_groq: (admin? && Settings.get("llm_vision_model_groq")) || "",
        llm_vision_model_gemini: (admin? && Settings.get("llm_vision_model_gemini")) || "",
        llm_vision_model_ollama: (admin? && Settings.get("llm_vision_model_ollama")) || "",
+       # Stronger/higher-res model used only to re-read pages the default vision
+       # model failed on. Blank = reuse the vision model above; MUST be multimodal.
+       llm_vision_escalate_model_openrouter:
+         (admin? && Settings.get("llm_vision_escalate_model_openrouter")) || "",
+       llm_vision_escalate_model_groq:
+         (admin? && Settings.get("llm_vision_escalate_model_groq")) || "",
+       llm_vision_escalate_model_gemini:
+         (admin? && Settings.get("llm_vision_escalate_model_gemini")) || "",
+       llm_vision_escalate_model_ollama:
+         (admin? && Settings.get("llm_vision_escalate_model_ollama")) || "",
+       # Rulebook extraction mode: "vision" (transcribe every page image — highest
+       # accuracy) or "ocr" (pdftotext + OCR, vision only on junk pages).
+       rulebook_extract_mode: (admin? && Settings.get("rulebook_extract_mode")) || "vision",
        embedding_provider: (admin? && Settings.get("embedding_provider")) || "openrouter",
        embedding_model:
          (admin? && Settings.get("embedding_model")) || "openai/text-embedding-3-small",
@@ -206,6 +218,11 @@ defmodule RuleMavenWeb.SettingsLive do
         "llm_vision_model_groq" => params["llm_vision_model_groq"],
         "llm_vision_model_gemini" => params["llm_vision_model_gemini"],
         "llm_vision_model_ollama" => params["llm_vision_model_ollama"],
+        "llm_vision_escalate_model_openrouter" => params["llm_vision_escalate_model_openrouter"],
+        "llm_vision_escalate_model_groq" => params["llm_vision_escalate_model_groq"],
+        "llm_vision_escalate_model_gemini" => params["llm_vision_escalate_model_gemini"],
+        "llm_vision_escalate_model_ollama" => params["llm_vision_escalate_model_ollama"],
+        "rulebook_extract_mode" => params["rulebook_extract_mode"],
         "embedding_provider" => params["embedding_provider"],
         "embedding_model" => params["embedding_model"],
         "embedding_api_key_openrouter" => params["embedding_key"],
@@ -226,7 +243,8 @@ defmodule RuleMavenWeb.SettingsLive do
       # save_setting/2 can't express — so delete those keys explicitly when blank.
       Enum.each(
         ~w(llm_cleanup_model_openrouter llm_cleanup_model_groq llm_cleanup_model_gemini llm_cleanup_model_ollama
-           llm_vision_model_openrouter llm_vision_model_groq llm_vision_model_gemini llm_vision_model_ollama),
+           llm_vision_model_openrouter llm_vision_model_groq llm_vision_model_gemini llm_vision_model_ollama
+           llm_vision_escalate_model_openrouter llm_vision_escalate_model_groq llm_vision_escalate_model_gemini llm_vision_escalate_model_ollama),
         fn key ->
           if trim(params[key]) == "", do: Settings.delete(key)
         end
@@ -253,6 +271,12 @@ defmodule RuleMavenWeb.SettingsLive do
          llm_vision_model_groq: fields["llm_vision_model_groq"] |> trim(),
          llm_vision_model_gemini: fields["llm_vision_model_gemini"] |> trim(),
          llm_vision_model_ollama: fields["llm_vision_model_ollama"] |> trim(),
+         llm_vision_escalate_model_openrouter:
+           fields["llm_vision_escalate_model_openrouter"] |> trim(),
+         llm_vision_escalate_model_groq: fields["llm_vision_escalate_model_groq"] |> trim(),
+         llm_vision_escalate_model_gemini: fields["llm_vision_escalate_model_gemini"] |> trim(),
+         llm_vision_escalate_model_ollama: fields["llm_vision_escalate_model_ollama"] |> trim(),
+         rulebook_extract_mode: fields["rulebook_extract_mode"] |> trim(),
          embedding_provider: fields["embedding_provider"] |> trim(),
          embedding_model: fields["embedding_model"] |> trim(),
          embedding_key: fields["embedding_api_key_openrouter"] |> trim(),
@@ -510,7 +534,8 @@ defmodule RuleMavenWeb.SettingsLive do
 
                 <div :if={@llm_provider == "openrouter"}>
                   <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">
-                    Cleanup model <span style="font-weight:400;color:var(--text-muted)">— optional, blank = use Model above</span>
+                    Cleanup model
+                    <span style="font-weight:400;color:var(--text-muted)">— optional, blank = use Model above</span>
                   </label>
                   <select
                     name="llm_cleanup_model_openrouter"
@@ -526,7 +551,8 @@ defmodule RuleMavenWeb.SettingsLive do
 
                 <div :if={@llm_provider == "openrouter"}>
                   <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">
-                    Vision model <span style="font-weight:400;color:var(--text-muted)">— re-reads graphic pages OCR can't; must be multimodal. Blank = use Answer model</span>
+                    Vision model
+                    <span style="font-weight:400;color:var(--text-muted)">— re-reads graphic pages OCR can't; must be multimodal. Blank = use Answer model</span>
                   </label>
                   <select
                     name="llm_vision_model_openrouter"
@@ -537,6 +563,45 @@ defmodule RuleMavenWeb.SettingsLive do
                       Use Answer model
                     </option>
                     <.or_model_options selected={@llm_vision_model_openrouter} vision_only={true} />
+                  </select>
+                </div>
+
+                <div :if={@llm_provider == "openrouter"}>
+                  <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">
+                    Vision escalation model
+                    <span style="font-weight:400;color:var(--text-muted)">— stronger/higher-res re-read for pages the Vision model fails on; must be multimodal. Blank = use Vision model</span>
+                  </label>
+                  <select
+                    name="llm_vision_escalate_model_openrouter"
+                    id="llm_vision_escalate_model_openrouter"
+                    style="width:100%;border:1px solid var(--border-strong);border-radius:0.375rem;padding:0.5rem 0.75rem;font-size:0.85rem;background:var(--bg);color:var(--text)"
+                  >
+                    <option value="" selected={@llm_vision_escalate_model_openrouter == ""}>
+                      Use Vision model
+                    </option>
+                    <.or_model_options
+                      selected={@llm_vision_escalate_model_openrouter}
+                      vision_only={true}
+                    />
+                  </select>
+                </div>
+
+                <div>
+                  <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">
+                    Rulebook extraction
+                    <span style="font-weight:400;color:var(--text-muted)">— how page text is read from the PDF</span>
+                  </label>
+                  <select
+                    name="rulebook_extract_mode"
+                    id="rulebook_extract_mode"
+                    style="width:100%;border:1px solid var(--border-strong);border-radius:0.375rem;padding:0.5rem 0.75rem;font-size:0.85rem;background:var(--bg);color:var(--text)"
+                  >
+                    <option value="vision" selected={@rulebook_extract_mode == "vision"}>
+                      Vision — transcribe every page image (highest accuracy)
+                    </option>
+                    <option value="ocr" selected={@rulebook_extract_mode == "ocr"}>
+                      OCR — text layer + OCR, vision only on bad pages (cheaper)
+                    </option>
                   </select>
                 </div>
 
@@ -581,7 +646,8 @@ defmodule RuleMavenWeb.SettingsLive do
 
                 <div :if={@llm_provider == "groq"}>
                   <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">
-                    Cleanup model <span style="font-weight:400;color:var(--text-muted)">— optional, blank = use Model above</span>
+                    Cleanup model
+                    <span style="font-weight:400;color:var(--text-muted)">— optional, blank = use Model above</span>
                   </label>
                   <select
                     name="llm_cleanup_model_groq"
@@ -647,7 +713,8 @@ defmodule RuleMavenWeb.SettingsLive do
 
                 <div :if={@llm_provider == "gemini"}>
                   <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">
-                    Cleanup model <span style="font-weight:400;color:var(--text-muted)">— optional, blank = use Model above</span>
+                    Cleanup model
+                    <span style="font-weight:400;color:var(--text-muted)">— optional, blank = use Model above</span>
                   </label>
                   <select
                     name="llm_cleanup_model_gemini"
@@ -699,7 +766,8 @@ defmodule RuleMavenWeb.SettingsLive do
 
                 <div :if={@llm_provider == "ollama"}>
                   <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">
-                    Cleanup model <span style="font-weight:400;color:var(--text-muted)">— optional, blank = use Model above</span>
+                    Cleanup model
+                    <span style="font-weight:400;color:var(--text-muted)">— optional, blank = use Model above</span>
                   </label>
                   <select
                     name="llm_cleanup_model_ollama"
