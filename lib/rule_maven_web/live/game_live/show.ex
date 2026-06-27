@@ -1585,8 +1585,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                               phx-value-key={key}
                               style={"display:flex;gap:0.5rem;align-items:flex-start;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:0.2rem 0;font-size:0.82rem;line-height:1.4;color:#{if checked, do: "var(--text-muted)", else: "var(--text)"}"}
                             >
-                              <span aria-hidden="true">{if checked, do: "☑️", else: "⬜"}</span>
-                              <span style={if checked, do: "text-decoration:line-through", else: ""}>
+                              <span aria-hidden="true" style="flex-shrink:0">
+                                {if checked, do: "☑️", else: "⬜"}
+                              </span>
+                              <span style={"flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere;#{if checked, do: "text-decoration:line-through", else: ""}"}>
                                 {item}
                               </span>
                             </button>
@@ -1606,8 +1608,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                               phx-value-key={key}
                               style={"display:flex;gap:0.5rem;align-items:flex-start;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:0.3rem 0;font-size:0.82rem;line-height:1.4;color:#{if checked, do: "var(--text-muted)", else: "var(--text)"}"}
                             >
-                              <span aria-hidden="true">{if checked, do: "☑️", else: "⬜"}</span>
-                              <span>
+                              <span aria-hidden="true" style="flex-shrink:0">
+                                {if checked, do: "☑️", else: "⬜"}
+                              </span>
+                              <span style="flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere">
                                 <span style={"font-weight:600;#{if checked, do: "text-decoration:line-through", else: ""}"}>
                                   {step["title"]}
                                 </span>
