@@ -846,9 +846,13 @@ defmodule RuleMavenWeb.GameLive.Index do
                   type="button"
                   phx-click="toggle_collection"
                   phx-value-id={game.id}
-                  title={if in_collection, do: "Remove from your collection", else: "Add to your collection"}
-                  style={"background:#{if in_collection, do: "color-mix(in srgb,var(--accent) 14%,transparent)", else: "var(--bg-subtle)"};color:#{if in_collection, do: "var(--accent)", else: "var(--text-muted)"};border:1px solid var(--border);font-size:0.75rem;font-weight:600;cursor:pointer;padding:0.2rem 0.45rem;border-radius:0.3rem;line-height:1.2"}
-                >{if in_collection, do: "★", else: "☆"}</button>
+                  title={
+                    if in_collection,
+                      do: "In your collection — click to remove",
+                      else: "Add to your collection (games you own)"
+                  }
+                  style={"background:#{if in_collection, do: "color-mix(in srgb,var(--accent) 14%,transparent)", else: "var(--bg-subtle)"};color:#{if in_collection, do: "var(--accent)", else: "var(--text-muted)"};border:1px solid #{if in_collection, do: "var(--accent)", else: "var(--border)"};font-size:0.75rem;font-weight:600;cursor:pointer;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2;white-space:nowrap"}
+                >{if in_collection, do: "✓ Collection", else: "+ Collection"}</button>
                 <button
                   type="button"
                   phx-click="toggle_favorite"
