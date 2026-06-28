@@ -695,6 +695,17 @@ defmodule RuleMavenWeb.GameLive.Show do
     {id, _} = Integer.parse(id_str)
     game = socket.assigns.game
 
+    # Promoting a row to community marks it unconditionally trusted and served
+    # cross-user, so this is admin-only. The button is admin-gated in the
+    # template, but LiveView events are forgeable, so re-check on the server.
+    if socket.assigns.is_admin do
+      do_toggle_question_visibility(socket, game, id)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  defp do_toggle_question_visibility(socket, game, id) do
     case find_question_log(game, id) do
       nil ->
         {:noreply, socket}
@@ -965,7 +976,13 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
-  defp find_question_log(_game, id), do: get_question_log_by_id(id)
+  # Scope the lookup to the current game so an id from another game can't be
+  # acted on through this game-scoped LiveView (cross-game IDOR).
+  defp find_question_log(game, id) do
+    import Ecto.Query
+    alias RuleMaven.Games.QuestionLog
+    RuleMaven.Repo.one(from q in QuestionLog, where: q.id == ^id and q.game_id == ^game.id)
+  end
 
   defp get_question_log_by_id(id) do
     import Ecto.Query
