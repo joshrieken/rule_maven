@@ -15,14 +15,14 @@ defmodule RuleMaven.Users.User do
     timestamps(type: :utc_datetime)
   end
 
-  @all_roles ["player", "game_master"]
+  @all_roles ["player", "admin"]
 
   # Capabilities granted to each role. To add a role: add it to @all_roles and
   # give it an entry here. To grant/revoke a power: edit its capability list.
   # All authorization flows through can?/2 so nothing is tied to a role name.
   @role_capabilities %{
     "player" => [],
-    "game_master" => [:admin]
+    "admin" => [:admin]
   }
 
   def all_roles, do: @all_roles
@@ -95,8 +95,8 @@ defmodule RuleMaven.Users.User do
 
   def suspension_changeset(user, false), do: change(user, suspended_at: nil)
 
-  # Back-compat alias: a game master is anyone with the :admin capability.
-  def game_master?(user), do: can?(user, :admin)
+  @doc "True for anyone with the :admin capability."
+  def admin?(user), do: can?(user, :admin)
 
   defp put_password_hash(changeset) do
     case changeset do

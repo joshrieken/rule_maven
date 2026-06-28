@@ -250,7 +250,7 @@ defmodule RuleMaven.TrustTest do
     end
 
     test "admins may self-vote and unvote their own rows", %{game: game, author: author} do
-      {:ok, admin} = Users.update_user_role(author, "game_master")
+      {:ok, admin} = Users.update_user_role(author, "admin")
       q = log(game, admin, %{cited_passage: "p.1", pooled: true})
 
       # admin? = true bypasses the self-vote guard.

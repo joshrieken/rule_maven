@@ -22,7 +22,7 @@ defmodule RuleMavenWeb.GameLive.Import do
   def handle_params(_params, _uri, socket) do
     # Any authenticated user may sync their own BGG collection. Imported games
     # are upserted into the shared catalog and added to the user's collection;
-    # this is not game authoring, which stays game-master only (see Form).
+    # this is not game authoring, which stays admin only (see Form).
     {:noreply, socket}
   end
 

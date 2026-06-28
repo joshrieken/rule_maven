@@ -76,7 +76,7 @@ defmodule RuleMavenWeb.Feature.FlowTest do
   end
 
   feature "login succeeds and shows game list", %{session: session} do
-    user = create_user("e2e_flow_user", "game_master")
+    user = create_user("e2e_flow_user", "admin")
     published_game_fixture(%{name: "E2E Test Game", bgg_id: 9999})
 
     session
@@ -92,8 +92,8 @@ defmodule RuleMavenWeb.Feature.FlowTest do
     |> assert_has(css(".nav-link", text: "Log in"))
   end
 
-  feature "game master sees admin nav links", %{session: session} do
-    user = create_user("e2e_gm_visible", "game_master")
+  feature "admin sees admin nav links", %{session: session} do
+    user = create_user("e2e_gm_visible", "admin")
 
     session
     |> login(user.username)
@@ -126,7 +126,7 @@ defmodule RuleMavenWeb.Feature.FlowTest do
   end
 
   feature "game list shows game metadata when logged in", %{session: session} do
-    user = create_user("e2e_meta_user", "game_master")
+    user = create_user("e2e_meta_user", "admin")
 
     published_game_fixture(%{
       name: "Meta Test Game",

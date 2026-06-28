@@ -9,7 +9,7 @@ defmodule RuleMaven.InviteCodesTest do
         username: "invite_gm",
         email: "invite_gm@test.com",
         password: "testpass1234",
-        role: "game_master"
+        role: "admin"
       })
 
     %{gm: gm}

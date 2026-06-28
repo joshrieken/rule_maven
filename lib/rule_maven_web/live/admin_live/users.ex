@@ -35,13 +35,13 @@ defmodule RuleMavenWeb.AdminLive.Users do
         {:noreply, put_flash(socket, :error, "User not found.")}
 
       user ->
-        {:ok, _} = Users.update_user_role(user, "game_master")
-        audit(socket, "role.promote", user, %{to: "game_master"})
+        {:ok, _} = Users.update_user_role(user, "admin")
+        audit(socket, "role.promote", user, %{to: "admin"})
         users = Users.list_users()
 
         {:noreply,
          assign(socket, users: users)
-         |> put_flash(:info, "#{user.username} promoted to game master.")}
+         |> put_flash(:info, "#{user.username} promoted to admin.")}
     end
   end
 
@@ -190,7 +190,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
                 style="border:1px solid var(--border);border-radius:0.25rem;padding:0.3rem 0.4rem;font-size:0.78rem;background:var(--bg);color:var(--text);cursor:pointer"
               >
                 <option value="player">Player</option>
-                <option value="game_master">Game Master</option>
+                <option value="admin">Admin</option>
               </select>
             </div>
             <button
@@ -207,7 +207,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
       <% end %>
 
       <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">
-        Promote players to game masters, or demote them back. ({length(@users)} users)
+        Promote players to admins, or demote them back. ({length(@users)} users)
       </p>
 
       <div style="overflow-x:auto;border:1px solid var(--border);border-radius:0.5rem">
@@ -240,7 +240,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
                   <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted);font-size:0.78rem">{user.email}</span>
                 </td>
                 <td style="padding:0.45rem 0.75rem;font-weight:600;font-size:0.78rem">
-                  <span style={"#{if user.role == "game_master", do: "color:var(--accent)", else: "color:var(--text-muted)"}"}>
+                  <span style={"#{if user.role == "admin", do: "color:var(--accent)", else: "color:var(--text-muted)"}"}>
                     {user.role}
                   </span>
                 </td>
@@ -261,7 +261,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
                         type="button"
                         phx-click="demote_user"
                         phx-value-id={user.id}
-                        data-confirm={"Remove game-master access from #{user.username}?"}
+                        data-confirm={"Remove admin access from #{user.username}?"}
                         style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;font-weight:600;cursor:pointer"
                       >Demote</button>
                     <% end %>

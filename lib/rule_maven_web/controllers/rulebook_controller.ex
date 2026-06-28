@@ -1,6 +1,6 @@
 defmodule RuleMavenWeb.RulebookController do
   @moduledoc """
-  Serves the extracted-text HTML view of a rulebook to game masters only.
+  Serves the extracted-text HTML view of a rulebook to admins only.
 
   Rulebooks may be copyrighted, so the original PDF is never served over HTTP
   (the `uploads` dir is no longer in `static_paths`), and the extracted-text

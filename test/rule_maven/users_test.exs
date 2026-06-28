@@ -19,7 +19,7 @@ defmodule RuleMaven.UsersTest do
           username: "gm1",
           email: "gm1@test.com",
           password: "testpass1234",
-          role: "game_master"
+          role: "admin"
         })
 
       %{player: player, gm: gm}
@@ -59,9 +59,9 @@ defmodule RuleMaven.UsersTest do
     end
 
     test "update_user/2 changes role", %{player: player} do
-      {:ok, updated} = Users.update_user(player, %{role: "game_master"})
-      assert updated.role == "game_master"
-      assert Users.game_master?(updated)
+      {:ok, updated} = Users.update_user(player, %{role: "admin"})
+      assert updated.role == "admin"
+      assert Users.admin?(updated)
     end
 
     test "update_user/2 rejects invalid role", %{player: player} do
@@ -110,19 +110,19 @@ defmodule RuleMaven.UsersTest do
     end
 
     test "update_user_role/2 is a convenience for role-only updates", %{player: player} do
-      {:ok, updated} = Users.update_user_role(player, "game_master")
-      assert updated.role == "game_master"
+      {:ok, updated} = Users.update_user_role(player, "admin")
+      assert updated.role == "admin"
     end
 
-    test "game_master?/1 returns true for game_master role", %{gm: gm} do
-      assert Users.game_master?(gm)
+    test "admin?/1 returns true for admin role", %{gm: gm} do
+      assert Users.admin?(gm)
     end
 
-    test "game_master?/1 returns false for player role", %{player: player} do
-      refute Users.game_master?(player)
+    test "admin?/1 returns false for player role", %{player: player} do
+      refute Users.admin?(player)
     end
 
-    test "can?/2 grants :admin to game_master, denies to player", %{gm: gm, player: player} do
+    test "can?/2 grants :admin to admin, denies to player", %{gm: gm, player: player} do
       assert Users.can?(gm, :admin)
       refute Users.can?(player, :admin)
     end
@@ -152,10 +152,10 @@ defmodule RuleMaven.UsersTest do
         Users.create_user_with_temp_password(%{
           username: "new_gm",
           email: "new_gm@test.com",
-          role: "game_master"
+          role: "admin"
         })
 
-      assert user.role == "game_master"
+      assert user.role == "admin"
     end
 
     test "generated password is usable for login" do

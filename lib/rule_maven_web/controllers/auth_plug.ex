@@ -12,7 +12,7 @@ defmodule RuleMavenWeb.AuthPlug do
     assign(conn, :current_user, user)
   end
 
-  def require_game_master(conn, _opts) do
+  def require_admin(conn, _opts) do
     user = conn.assigns[:current_user]
 
     cond do

@@ -188,7 +188,7 @@ defmodule RuleMaven.Users do
   @doc "Whether the user's role grants the given capability (see User.can?/2)."
   def can?(user, capability), do: User.can?(user, capability)
 
-  def game_master?(user), do: User.game_master?(user)
+  def admin?(user), do: User.admin?(user)
 
   @doc "List of valid role strings."
   def roles, do: User.all_roles()

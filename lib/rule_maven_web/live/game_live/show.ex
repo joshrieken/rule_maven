@@ -1336,7 +1336,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       </div>
                       <%!-- Rulebooks may be copyrighted, so regular users see
                             only the source name — no PDF, no full text. Admins
-                            (game masters) get the extracted-text HTML view. --%>
+                            get the extracted-text HTML view. --%>
                       <div :if={@is_admin and src.html_path} style="display:flex;gap:0.5rem">
                         <.link
                           href={~p"/rulebooks/#{src.id}/html"}

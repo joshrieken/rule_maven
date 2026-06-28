@@ -1,6 +1,6 @@
 defmodule RuleMavenWeb.ObanAuthHook do
   @moduledoc """
-  LiveView on_mount hook for Oban dashboard. Only allows game_master users.
+  LiveView on_mount hook for Oban dashboard. Only allows admin users.
   Reads user from browser session (set by AuthPlug).
   """
   import Phoenix.LiveView

@@ -13,13 +13,13 @@ if is_nil(Repo.get_by(User, username: username)) do
       username: username,
       email: email,
       password: password,
-      role: "game_master"
+      role: "admin"
     })
   )
 
-  IO.puts("Seeded game_master user: #{username} / #{password}")
+  IO.puts("Seeded admin user: #{username} / #{password}")
 else
-  IO.puts("game_master user already exists: #{username}")
+  IO.puts("admin user already exists: #{username}")
 end
 
 # --- Player User ---
