@@ -2381,7 +2381,10 @@ defmodule RuleMavenWeb.GameLive.Show do
       </div>
 
       <!-- Input -->
-      <div style="flex-shrink:0;padding:0.5rem 1rem 0.75rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface)">
+      <div
+        class="chat-input"
+        style="flex-shrink:0;padding:0.5rem 1rem 0.75rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface)"
+      >
         <%= if @suggestions != [] do %>
           <details
             style="margin-bottom:0.75rem;max-width:48rem;margin-left:auto;margin-right:auto;font-size:0.8rem"

@@ -806,6 +806,12 @@ body {
   .game-card::before {
     transition: none !important;
   }
+  .chat-layout,
+  .chat-layout .chat-header,
+  .chat-layout .chat-messages,
+  .chat-layout .chat-input {
+    animation: none !important;
+  }
 }
 
 /* Manual ambient-animation off switch (data-motion="off" on <html>). Same set
@@ -954,6 +960,36 @@ a:not([class]):hover {
 @keyframes content-rise {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Q&A screen entrance. The whole fixed panel fades up, then its three sections
+   stagger in. No animation-fill-mode:forwards anywhere — every animation ends
+   at transform:none so the fixed .chat-layout never keeps a transform that
+   would make it a containing block for itself (see the .main-content note). */
+.chat-layout {
+  animation: qa-panel-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.chat-layout .chat-header {
+  animation: qa-drop-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
+}
+.chat-layout .chat-messages {
+  animation: qa-rise-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
+}
+.chat-layout .chat-input {
+  animation: qa-rise-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.22s both;
+}
+
+@keyframes qa-panel-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes qa-drop-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes qa-rise-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* ===== Header ===== */
