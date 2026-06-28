@@ -32,6 +32,7 @@ defmodule RuleMavenWeb.GameLive.Show do
        show_refused: false,
        community_vote_counts: %{},
        community_user_votes: %{},
+       flagged_ids: MapSet.new(),
        included_expansions: %{},
        visibility: "private",
        search_query: "",
@@ -133,6 +134,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         community_count: community_count,
         community_vote_counts: cv_counts,
         community_user_votes: cv_user,
+        flagged_ids: Games.user_flagged_ids(socket.assigns.current_user.id),
         question_categories: question_categories,
         dyk_facts: dyk_facts,
         # Seed the pick with the per-load dyk_seed so the dead render and the
@@ -485,7 +487,25 @@ defmodule RuleMavenWeb.GameLive.Show do
             conversation_answer_ids(socket.assigns.conversation)
 
         {cv_counts, cv_user} = Games.community_vote_maps(vote_ids, uid)
-        {:noreply, assign(socket, community_vote_counts: cv_counts, community_user_votes: cv_user)}
+
+        {:noreply,
+         assign(socket, community_vote_counts: cv_counts, community_user_votes: cv_user)}
+    end
+  end
+
+  def handle_event("flag_question", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    uid = socket.assigns.current_user.id
+
+    case Games.flag_question(id, uid) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> assign(flagged_ids: MapSet.put(socket.assigns.flagged_ids, id))
+         |> put_flash(:info, "Reported — thanks. A moderator will take a look.")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Couldn't submit that report.")}
     end
   end
 
@@ -1648,80 +1668,80 @@ defmodule RuleMavenWeb.GameLive.Show do
                     data-game-id={@game.id}
                     style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem"
                   >
-                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
-                          <span style="font-size:0.78rem;font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--text)">
-                            🧩 Setup checklist
-                          </span>
-                          <div style="display:flex;align-items:center;gap:0.5rem">
-                            <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">
-                              {done}/{total} done
-                            </span>
-                            <button
-                              type="button"
-                              phx-click="reset_checklist"
-                              style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted);font-weight:600"
-                            >🗑️ Clear</button>
-                          </div>
-                        </div>
-
-                        <%= if @setup_checklist["components"] != [] do %>
-                          <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.3rem 0 0.3rem">
-                            Gather
-                          </div>
-                          <%= for {item, i} <- Enum.with_index(@setup_checklist["components"]) do %>
-                            <% key = "c-#{i}" %>
-                            <% checked = MapSet.member?(@checklist_done, key) %>
-                            <button
-                              type="button"
-                              phx-click="toggle_step"
-                              phx-value-key={key}
-                              style={"display:flex;gap:0.5rem;align-items:flex-start;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:0.2rem 0;font-size:0.82rem;line-height:1.4;color:#{if checked, do: "var(--text-muted)", else: "var(--text)"}"}
-                            >
-                              <span aria-hidden="true" style="flex-shrink:0">
-                                {if checked, do: "☑️", else: "⬜"}
-                              </span>
-                              <span style={"flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere;#{if checked, do: "text-decoration:line-through", else: ""}"}>
-                                {item}
-                              </span>
-                            </button>
-                          <% end %>
-                        <% end %>
-
-                        <%= if @setup_checklist["setup"] != [] do %>
-                          <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.6rem 0 0.3rem">
-                            Steps
-                          </div>
-                          <%= for {step, i} <- Enum.with_index(@setup_checklist["setup"]) do %>
-                            <% key = "s-#{i}" %>
-                            <% checked = MapSet.member?(@checklist_done, key) %>
-                            <button
-                              type="button"
-                              phx-click="toggle_step"
-                              phx-value-key={key}
-                              style={"display:flex;gap:0.5rem;align-items:flex-start;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:0.3rem 0;font-size:0.82rem;line-height:1.4;color:#{if checked, do: "var(--text-muted)", else: "var(--text)"}"}
-                            >
-                              <span aria-hidden="true" style="flex-shrink:0">
-                                {if checked, do: "☑️", else: "⬜"}
-                              </span>
-                              <span style="flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere">
-                                <span style={"font-weight:600;#{if checked, do: "text-decoration:line-through", else: ""}"}>
-                                  {step["title"]}
-                                </span>
-                                <%= if step["detail"] not in [nil, "", "nil"] do %>
-                                  <span style="display:block;font-size:0.74rem;color:var(--text-muted)">
-                                    {step["detail"]}
-                                  </span>
-                                <% end %>
-                              </span>
-                            </button>
-                          <% end %>
-                        <% end %>
-
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+                      <span style="font-size:0.78rem;font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--text)">
+                        🧩 Setup checklist
+                      </span>
+                      <div style="display:flex;align-items:center;gap:0.5rem">
+                        <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">
+                          {done}/{total} done
+                        </span>
                         <button
                           type="button"
                           phx-click="reset_checklist"
-                          style="margin-top:0.6rem;background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted);font-weight:600"
+                          style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted);font-weight:600"
                         >🗑️ Clear</button>
+                      </div>
+                    </div>
+
+                    <%= if @setup_checklist["components"] != [] do %>
+                      <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.3rem 0 0.3rem">
+                        Gather
+                      </div>
+                      <%= for {item, i} <- Enum.with_index(@setup_checklist["components"]) do %>
+                        <% key = "c-#{i}" %>
+                        <% checked = MapSet.member?(@checklist_done, key) %>
+                        <button
+                          type="button"
+                          phx-click="toggle_step"
+                          phx-value-key={key}
+                          style={"display:flex;gap:0.5rem;align-items:flex-start;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:0.2rem 0;font-size:0.82rem;line-height:1.4;color:#{if checked, do: "var(--text-muted)", else: "var(--text)"}"}
+                        >
+                          <span aria-hidden="true" style="flex-shrink:0">
+                            {if checked, do: "☑️", else: "⬜"}
+                          </span>
+                          <span style={"flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere;#{if checked, do: "text-decoration:line-through", else: ""}"}>
+                            {item}
+                          </span>
+                        </button>
+                      <% end %>
+                    <% end %>
+
+                    <%= if @setup_checklist["setup"] != [] do %>
+                      <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.6rem 0 0.3rem">
+                        Steps
+                      </div>
+                      <%= for {step, i} <- Enum.with_index(@setup_checklist["setup"]) do %>
+                        <% key = "s-#{i}" %>
+                        <% checked = MapSet.member?(@checklist_done, key) %>
+                        <button
+                          type="button"
+                          phx-click="toggle_step"
+                          phx-value-key={key}
+                          style={"display:flex;gap:0.5rem;align-items:flex-start;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:0.3rem 0;font-size:0.82rem;line-height:1.4;color:#{if checked, do: "var(--text-muted)", else: "var(--text)"}"}
+                        >
+                          <span aria-hidden="true" style="flex-shrink:0">
+                            {if checked, do: "☑️", else: "⬜"}
+                          </span>
+                          <span style="flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere">
+                            <span style={"font-weight:600;#{if checked, do: "text-decoration:line-through", else: ""}"}>
+                              {step["title"]}
+                            </span>
+                            <%= if step["detail"] not in [nil, "", "nil"] do %>
+                              <span style="display:block;font-size:0.74rem;color:var(--text-muted)">
+                                {step["detail"]}
+                              </span>
+                            <% end %>
+                          </span>
+                        </button>
+                      <% end %>
+                    <% end %>
+
+                    <button
+                      type="button"
+                      phx-click="reset_checklist"
+                      style="margin-top:0.6rem;background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted);font-weight:600"
+                    >🗑️ Clear</button>
                   </div>
                 </div>
               <% end %>
@@ -1837,12 +1857,15 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <figure style={"margin:0.75rem 0 0;border-radius:0.5rem;overflow:hidden;border:1px solid #{if on_user, do: "rgba(255,255,255,0.25)", else: "var(--border)"};background:#{if on_user, do: "rgba(255,255,255,0.1)", else: "var(--bg-subtle)"}"}>
                       <%= if msg[:cited_page] do %>
                         <figcaption style={"display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.6rem;font-size:0.66rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;border-bottom:1px solid #{if on_user, do: "rgba(255,255,255,0.15)", else: "var(--border-subtle)"};color:#{if on_user, do: "rgba(255,255,255,0.85)", else: "var(--text-muted)"}"}>
-                          <span aria-hidden="true">&#128206;</span> Rulebook &middot; p.{msg.cited_page}
+                          <span aria-hidden="true">&#128206;</span>
+                          Rulebook &middot; p.{msg.cited_page}
                         </figcaption>
                       <% end %>
-                      <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "rgba(255,255,255,0.5)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:#{if on_user, do: "rgba(255,255,255,0.92)", else: "var(--text)"}"}>{String.trim(msg.cited_passage)}</blockquote>
+                      <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "rgba(255,255,255,0.5)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:#{if on_user, do: "rgba(255,255,255,0.92)", else: "var(--text)"}"}>
+                        {String.trim(msg.cited_passage)}
+                      </blockquote>
                       <%= if msg[:cited_html_link] do %>
-                        <div style={"padding:0 0.7rem 0.5rem 0.85rem"}>
+                        <div style="padding:0 0.7rem 0.5rem 0.85rem">
                           <.link href={msg.cited_html_link} target="_blank" class="action-link">
                             View in rulebook &rarr;
                           </.link>
@@ -2150,7 +2173,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <summary
                       style="font-size:0.9rem;line-height:1;color:var(--text-muted);padding:0 0.25rem"
                       title="More actions"
-                    >⋯</summary>
+                    >
+                      ⋯
+                    </summary>
                     <div class="card-menu__pop card-menu__pop--right">
                       <button
                         type="button"
@@ -2169,6 +2194,27 @@ defmodule RuleMavenWeb.GameLive.Show do
                         class="card-menu__item"
                         title="Generate a fresh answer from the rulebook"
                       >↻ Regenerate</button>
+                      <% flag_id = msg[:pool_source_id] || msg[:id] %>
+                      <%= if flag_id && msg.content != "Thinking..." do %>
+                        <%= if MapSet.member?(@flagged_ids, flag_id) do %>
+                          <button
+                            type="button"
+                            disabled
+                            class="card-menu__item"
+                            style="opacity:0.6;cursor:default"
+                            title="You reported this answer"
+                          >✓ Reported</button>
+                        <% else %>
+                          <button
+                            type="button"
+                            phx-click="flag_question"
+                            phx-value-id={flag_id}
+                            data-confirm="Report this answer as wrong or unhelpful? A moderator will review it."
+                            class="card-menu__item"
+                            title="Report a wrong or unhelpful answer"
+                          >🚩 Report</button>
+                        <% end %>
+                      <% end %>
                     </div>
                   </details>
                 </div>
@@ -2470,7 +2516,6 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> Enum.take(-2)
   end
 
-
   defp find_question_for_answer(conversation, assistant_msg) do
     {_, question} =
       Enum.reduce(conversation, {false, ""}, fn msg, {found, q} ->
@@ -2508,6 +2553,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   # otherwise it tells the user how to reach the next, more-trusted level.
   @conf_max 6
   defp conf_max, do: @conf_max
+
   defp answer_confidence(msg) do
     cond do
       # Admin-verified is the absolute ceiling: an admin explicitly signed off on

@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.AdminLive.Moderation do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Audit, Users, Games, Moderation}
+  alias RuleMaven.{Audit, Users, Games, Moderation, Repo}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -15,7 +15,8 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
   defp load(socket) do
     assign(socket,
       signals: Moderation.user_signals(),
-      collusion: Moderation.collusion_pairs()
+      collusion: Moderation.collusion_pairs(),
+      flagged: Games.list_flagged_questions()
     )
   end
 
@@ -79,6 +80,49 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
 
       {:error, msg} ->
         {:noreply, put_flash(socket, :error, msg)}
+    end
+  end
+
+  defp do_event("resolve_flags", %{"id" => id}, socket) do
+    case Integer.parse(to_string(id)) do
+      {qid, _} ->
+        n = Games.resolve_flags(qid)
+
+        Audit.log(socket.assigns.current_user, "flag.resolve",
+          target_type: "question",
+          target_id: qid,
+          metadata: %{count: n}
+        )
+
+        {:noreply, socket |> put_flash(:info, "Resolved #{n} flag(s).") |> load()}
+
+      :error ->
+        {:noreply, put_flash(socket, :error, "Invalid answer.")}
+    end
+  end
+
+  defp do_event("delete_flagged", %{"id" => id}, socket) do
+    case Integer.parse(to_string(id)) do
+      {qid, _} ->
+        case Repo.get(RuleMaven.Games.QuestionLog, qid) do
+          nil ->
+            {:noreply, put_flash(socket, :error, "Answer not found.")}
+
+          q ->
+            Games.delete_question(q)
+
+            Audit.log(socket.assigns.current_user, "question.delete",
+              target_type: "question",
+              target_id: qid,
+              target_label: q.question,
+              metadata: %{via: "moderation_flags"}
+            )
+
+            {:noreply, socket |> put_flash(:info, "Deleted the flagged answer.") |> load()}
+        end
+
+      :error ->
+        {:noreply, put_flash(socket, :error, "Invalid answer.")}
     end
   end
 
@@ -204,6 +248,57 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
           </tbody>
         </table>
       </div>
+
+      <h2 style="font-size:1.1rem;font-weight:700;margin:1.75rem 0 0.35rem">
+        Reported answers
+        <span
+          :if={@flagged != []}
+          style="margin-left:0.4rem;font-size:0.7rem;font-weight:700;color:#fff;background:var(--danger,#c0392b);border-radius:999px;padding:0.05rem 0.45rem;vertical-align:middle"
+        >{length(@flagged)}</span>
+      </h2>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">
+        Answers users flagged as wrong or unhelpful, most-flagged first. Resolve to dismiss the
+        flags, or delete the answer outright.
+      </p>
+
+      <%= if @flagged == [] do %>
+        <p style="font-size:0.8rem;color:var(--text-muted)">No open reports.</p>
+      <% else %>
+        <div style="display:flex;flex-direction:column;gap:0.6rem;margin-bottom:0.5rem">
+          <%= for f <- @flagged do %>
+            <div style="border:1px solid var(--border);border-radius:0.5rem;padding:0.6rem 0.75rem">
+              <div style="display:flex;gap:0.5rem;align-items:baseline;justify-content:space-between">
+                <span style="font-weight:600;font-size:0.85rem">{f.question.question}</span>
+                <span style={pill("var(--danger,#c0392b)")}>{f.flag_count} flag(s)</span>
+              </div>
+              <p style="font-size:0.78rem;color:var(--text-muted);margin:0.3rem 0">
+                {String.slice(f.question.answer || "", 0, 240)}
+              </p>
+              <p
+                :if={f.reasons != []}
+                style="font-size:0.72rem;color:var(--text-muted);margin:0.2rem 0"
+              >
+                Reasons: {Enum.join(f.reasons, "; ")}
+              </p>
+              <div style="display:flex;gap:0.3rem;margin-top:0.35rem">
+                <button
+                  type="button"
+                  phx-click="resolve_flags"
+                  phx-value-id={f.question_log_id}
+                  style={btn("var(--green)")}
+                >Resolve</button>
+                <button
+                  type="button"
+                  phx-click="delete_flagged"
+                  phx-value-id={f.question_log_id}
+                  data-confirm="Delete this answer? This can't be undone."
+                  style={btn("var(--danger,#c0392b)")}
+                >Delete answer</button>
+              </div>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
 
       <h2 style="font-size:1.1rem;font-weight:700;margin:1.75rem 0 0.35rem">Possible vote rings</h2>
       <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">

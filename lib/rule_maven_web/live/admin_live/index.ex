@@ -6,7 +6,12 @@ defmodule RuleMavenWeb.AdminLive.Index do
   @impl true
   def mount(_params, _session, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
-      {:ok, assign(socket, page_title: "Admin", review_backlog: Games.needs_review_count())}
+      {:ok,
+       assign(socket,
+         page_title: "Admin",
+         review_backlog: Games.needs_review_count(),
+         flag_backlog: Games.count_pending_flags()
+       )}
     else
       {:ok, push_navigate(socket, to: ~p"/")}
     end
@@ -60,8 +65,15 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
         <.link
           navigate={~p"/admin/moderation"}
-          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:1.25rem;text-decoration:none;display:block"
+          style="position:relative;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:1.25rem;text-decoration:none;display:block"
         >
+          <span
+            :if={@flag_backlog > 0}
+            title="Answers users reported as wrong or unhelpful, awaiting review"
+            style="position:absolute;top:0.6rem;right:0.6rem;background:var(--danger,#c0392b);color:#fff;font-size:0.7rem;font-weight:700;border-radius:999px;padding:0.1rem 0.45rem"
+          >
+            {@flag_backlog} reported
+          </span>
           <div style="font-size:1.5rem;margin-bottom:0.4rem">🚩</div>
           <div style="font-weight:700;font-size:0.9rem;color:var(--text);margin-bottom:0.2rem">
             Moderation

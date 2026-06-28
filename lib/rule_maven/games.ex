@@ -9,6 +9,7 @@ defmodule RuleMaven.Games do
   alias RuleMaven.Games.Game
   alias RuleMaven.Games.QuestionLog
   alias RuleMaven.Games.QuestionVote
+  alias RuleMaven.Games.QuestionFlag
   alias RuleMaven.Games.GameCategory
   alias RuleMaven.Games.QuestionCategoryTag
   alias RuleMaven.Games.Document
@@ -701,6 +702,91 @@ defmodule RuleMaven.Games do
       from(q in QuestionLog, where: q.needs_review == true and q.visibility == "community"),
       :count
     )
+  end
+
+  # ── User answer flags ──
+
+  @doc """
+  Records a user's report that an answer is wrong/bad. One flag per user per
+  answer (re-flagging re-opens a resolved flag and updates the reason). The flag
+  is community signal for moderators — it does not change what the answer serves.
+  """
+  def flag_question(question_log_id, user_id, reason \\ nil)
+
+  def flag_question(_question_log_id, nil, _reason), do: {:error, "Not logged in."}
+
+  def flag_question(question_log_id, user_id, reason) do
+    %QuestionFlag{}
+    |> QuestionFlag.changeset(%{
+      question_log_id: question_log_id,
+      user_id: user_id,
+      reason: reason,
+      resolved: false
+    })
+    |> Repo.insert(
+      on_conflict: [set: [reason: reason, resolved: false, updated_at: DateTime.utc_now()]],
+      conflict_target: [:user_id, :question_log_id]
+    )
+  end
+
+  @doc "Set of question_log ids this user has an open (unresolved) flag on."
+  def user_flagged_ids(nil), do: MapSet.new()
+
+  def user_flagged_ids(user_id) do
+    Repo.all(
+      from f in QuestionFlag,
+        where: f.user_id == ^user_id and f.resolved == false,
+        select: f.question_log_id
+    )
+    |> MapSet.new()
+  end
+
+  @doc "Count of distinct answers with at least one open flag (admin badge)."
+  def count_pending_flags do
+    Repo.one(
+      from f in QuestionFlag,
+        where: f.resolved == false,
+        select: count(f.question_log_id, :distinct)
+    ) || 0
+  end
+
+  @doc """
+  Flagged answers awaiting moderator review, most-flagged first. Each entry is
+  the question row plus its open-flag count and the distinct reasons given.
+  """
+  def list_flagged_questions do
+    agg =
+      Repo.all(
+        from f in QuestionFlag,
+          where: f.resolved == false,
+          group_by: f.question_log_id,
+          select: %{
+            question_log_id: f.question_log_id,
+            flag_count: count(f.id),
+            reasons: fragment("array_remove(array_agg(DISTINCT ?), NULL)", f.reason)
+          }
+      )
+
+    ids = Enum.map(agg, & &1.question_log_id)
+    questions = Repo.all(from q in QuestionLog, where: q.id in ^ids) |> Map.new(&{&1.id, &1})
+
+    agg
+    |> Enum.map(fn a -> Map.put(a, :question, Map.get(questions, a.question_log_id)) end)
+    |> Enum.filter(& &1.question)
+    |> Enum.sort_by(& &1.flag_count, :desc)
+  end
+
+  @doc "Resolves (dismisses) all open flags on an answer. Returns the count cleared."
+  def resolve_flags(question_log_id) do
+    {n, _} =
+      Repo.update_all(
+        from(f in QuestionFlag,
+          where: f.question_log_id == ^question_log_id and f.resolved == false
+        ),
+        set: [resolved: true, updated_at: DateTime.utc_now()]
+      )
+
+    n
   end
 
   @doc """
