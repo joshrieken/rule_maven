@@ -1290,14 +1290,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             <.link navigate={~p"/"} class="action-link" style="flex-shrink:0">
               &larr;
             </.link>
-            <.link
-              patch={~p"/games/#{@game.id}?start=1"}
-              title="Back to the start screen"
-              style="flex-shrink:0;text-decoration:none;display:inline-flex;align-items:center;gap:0.25rem;color:inherit"
-            >
-              <span aria-hidden="true" style="font-size:0.9rem;line-height:1">🏠</span>
-              <h1 class="text-sm font-bold truncate" style="max-width:300px">{@game.name}</h1>
-            </.link>
+            <h1 class="text-sm font-bold truncate" style="max-width:300px">{@game.name}</h1>
             <%= if @game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category) do %>
               <.link
                 href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
@@ -1417,6 +1410,14 @@ defmodule RuleMavenWeb.GameLive.Show do
           class={"question-sidebar #{if @sidebar_open, do: "", else: "sidebar-closed"}"}
           style="flex-shrink:0;width:16rem;overflow-y:auto;border-right:1px solid var(--border);background:var(--bg-surface);padding:0.5rem 0;font-size:0.9rem;display:flex;flex-direction:column"
         >
+          <div style="padding:0.4rem 0.75rem 0.1rem">
+            <.link
+              patch={~p"/games/#{@game.id}?start=1"}
+              style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;font-weight:600;color:var(--accent);text-decoration:none"
+            >
+              ← Start screen
+            </.link>
+          </div>
           <div style="padding:0.35rem 0.75rem;font-size:0.78rem;font-weight:600;color:var(--text);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center">
             <span>
               Questions
