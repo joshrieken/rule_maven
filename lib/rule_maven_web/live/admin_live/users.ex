@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.AdminLive.Users do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.Users
+  alias RuleMaven.{Audit, Users}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -36,6 +36,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
 
       user ->
         {:ok, _} = Users.update_user_role(user, "game_master")
+        audit(socket, "role.promote", user, %{to: "game_master"})
         users = Users.list_users()
 
         {:noreply,
@@ -53,6 +54,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
 
       user ->
         {:ok, _} = Users.update_user_role(user, "player")
+        audit(socket, "role.demote", user, %{to: "player"})
         users = Users.list_users()
 
         {:noreply,
@@ -71,6 +73,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
            role: role
          }) do
       {:ok, user, password} ->
+        audit(socket, "user.create", user, %{role: user.role})
         users = Users.list_users()
 
         {:noreply,
@@ -106,6 +109,15 @@ defmodule RuleMavenWeb.AdminLive.Users do
       end)
 
     {:noreply, socket}
+  end
+
+  defp audit(socket, action, user, metadata) do
+    Audit.log(socket.assigns.current_user, action,
+      target_type: "user",
+      target_id: user.id,
+      target_label: user.username,
+      metadata: metadata
+    )
   end
 
   @impl true
@@ -201,15 +213,17 @@ defmodule RuleMavenWeb.AdminLive.Users do
       <div style="overflow-x:auto;border:1px solid var(--border);border-radius:0.5rem">
         <table style="width:100%;border-collapse:collapse;font-size:0.8rem;table-layout:fixed">
           <colgroup>
-            <col style="width:9rem">
-            <col>
-            <col style="width:7rem">
-            <col style="width:6rem">
-            <col style="width:9rem">
+            <col style="width:9rem" />
+            <col />
+            <col style="width:7rem" />
+            <col style="width:6rem" />
+            <col style="width:9rem" />
           </colgroup>
           <thead>
             <tr style="background:var(--bg-subtle);text-align:left">
-              <th style="padding:0.45rem 0.75rem;font-weight:600;color:var(--text-muted)">Username</th>
+              <th style="padding:0.45rem 0.75rem;font-weight:600;color:var(--text-muted)">
+                Username
+              </th>
               <th style="padding:0.45rem 0.75rem;font-weight:600;color:var(--text-muted)">Email</th>
               <th style="padding:0.45rem 0.75rem;font-weight:600;color:var(--text-muted)">Role</th>
               <th style="padding:0.45rem 0.75rem;font-weight:600;color:var(--text-muted)">Joined</th>

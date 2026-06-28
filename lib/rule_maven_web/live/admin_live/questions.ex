@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.AdminLive.Questions do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Games, Users}
+  alias RuleMaven.{Audit, Games, Users}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -121,6 +121,14 @@ defmodule RuleMavenWeb.AdminLive.Questions do
 
       q ->
         Games.delete_question(q)
+
+        Audit.log(socket.assigns.current_user, "question.delete",
+          target_type: "question",
+          target_id: q.id,
+          target_label: q.question,
+          metadata: %{game_id: q.game_id, author_id: q.user_id}
+        )
+
         {:noreply, reload(socket)}
     end
   end
@@ -134,6 +142,14 @@ defmodule RuleMavenWeb.AdminLive.Questions do
 
       q ->
         Games.update_question_visibility(q, vis)
+
+        Audit.log(socket.assigns.current_user, "question.set_visibility",
+          target_type: "question",
+          target_id: q.id,
+          target_label: q.question,
+          metadata: %{from: q.visibility, to: vis}
+        )
+
         {:noreply, reload(socket)}
     end
   end
@@ -303,7 +319,9 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                 title="Cache-eligible; trust score drives ranking/promotion"
               >
                 {if q.visibility == "community" or q.verified, do: "✓ trusted", else: "◌ provisional"} &middot; {:erlang.float_to_binary(
-                  q.trust_score || 0.0, decimals: 1)}
+                  q.trust_score || 0.0,
+                  decimals: 1
+                )}
               </span>
               <span
                 :if={q.needs_review}

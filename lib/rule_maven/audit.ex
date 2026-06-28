@@ -1,0 +1,81 @@
+defmodule RuleMaven.Audit do
+  @moduledoc """
+  Append-only audit trail for sensitive admin/moderation actions. Feeds the
+  `/admin/audit` browse page and gives moderation forensics (who did what, to
+  whom, when) for the signals on the moderation dashboard.
+
+  Logging is best-effort: a failure to record must never break the action being
+  audited, so `log/3` rescues and warns rather than raising.
+  """
+
+  import Ecto.Query, warn: false
+  require Logger
+
+  alias RuleMaven.Repo
+  alias RuleMaven.Audit.AuditLog
+
+  @doc """
+  Records an action. `actor` is the acting user (or nil for system actions),
+  `action` a dotted verb like `"user.suspend"`. Opts:
+
+    * `:target_type` / `:target_id` / `:target_label` — what was acted on
+    * `:metadata` — extra context map
+
+  Returns `:ok` regardless of outcome.
+  """
+  def log(actor, action, opts \\ []) do
+    attrs = %{
+      actor_id: actor && actor.id,
+      actor_username: actor && actor.username,
+      action: action,
+      target_type: opts[:target_type],
+      target_id: opts[:target_id],
+      target_label: truncate(opts[:target_label]),
+      metadata: opts[:metadata] || %{}
+    }
+
+    %AuditLog{}
+    |> AuditLog.changeset(attrs)
+    |> Repo.insert()
+    |> case do
+      {:ok, _} -> :ok
+      {:error, cs} -> Logger.error("audit log failed: #{inspect(cs.errors)}")
+    end
+
+    :ok
+  rescue
+    e ->
+      Logger.error("audit log crashed: #{Exception.message(e)}")
+      :ok
+  end
+
+  @doc """
+  Lists audit entries newest-first. Opts: `:action`, `:actor_id`,
+  `:target_type`, `:target_id`, `:limit` (default 200).
+  """
+  def list(opts \\ []) do
+    limit = opts[:limit] || 200
+
+    AuditLog
+    |> filter(:action, opts[:action])
+    |> filter(:actor_id, opts[:actor_id])
+    |> filter(:target_type, opts[:target_type])
+    |> filter(:target_id, opts[:target_id])
+    |> order_by([l], desc: l.inserted_at, desc: l.id)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  @doc "Distinct action verbs present in the log, for filter dropdowns."
+  def actions do
+    Repo.all(from l in AuditLog, distinct: true, select: l.action, order_by: l.action)
+  end
+
+  defp filter(query, _field, nil), do: query
+  defp filter(query, _field, ""), do: query
+  defp filter(query, field, value), do: where(query, [l], field(l, ^field) == ^value)
+
+  defp truncate(nil), do: nil
+  defp truncate(s) when is_binary(s), do: String.slice(s, 0, 160)
+  defp truncate(s), do: s |> to_string() |> String.slice(0, 160)
+end

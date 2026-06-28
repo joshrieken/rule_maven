@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.AdminLive.Moderation do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Users, Games, Moderation}
+  alias RuleMaven.{Audit, Users, Games, Moderation}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -34,6 +34,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
     with {:ok, user} <- fetch(id),
          :ok <- guard_target(user, socket) do
       {:ok, _} = Users.suspend_user(user)
+      audit(socket, "user.suspend", user)
 
       {:noreply, socket |> put_flash(:info, "Suspended #{user.username}.") |> load()}
     else
@@ -45,6 +46,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
     case fetch(id) do
       {:ok, user} ->
         {:ok, _} = Users.unsuspend_user(user)
+        audit(socket, "user.unsuspend", user)
         {:noreply, socket |> put_flash(:info, "Lifted suspension on #{user.username}.") |> load()}
 
       {:error, msg} ->
@@ -56,6 +58,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
     case fetch(id) do
       {:ok, user} ->
         n = Games.demote_user_answers(user.id)
+        audit(socket, "user.demote_answers", user, %{count: n})
 
         {:noreply,
          socket
@@ -71,6 +74,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
     case fetch(id) do
       {:ok, user} ->
         {:ok, _} = Users.reset_reputation(user)
+        audit(socket, "user.reset_reputation", user)
         {:noreply, socket |> put_flash(:info, "Reset reputation for #{user.username}.") |> load()}
 
       {:error, msg} ->
@@ -89,6 +93,15 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
       :error ->
         {:error, "Invalid user."}
     end
+  end
+
+  defp audit(socket, action, user, metadata \\ %{}) do
+    Audit.log(socket.assigns.current_user, action,
+      target_type: "user",
+      target_id: user.id,
+      target_label: user.username,
+      metadata: metadata
+    )
   end
 
   # Don't let an admin suspend themselves or another admin (lockout guard).
