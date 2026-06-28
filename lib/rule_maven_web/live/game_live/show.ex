@@ -2520,7 +2520,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             <button
               type="submit"
               disabled={@pending_count >= @max_concurrent || @source_count == 0}
-              style="background:var(--accent);color:white;border:none;padding:0.5rem 1.25rem;border-radius:2rem;font-weight:600;font-size:0.85rem;cursor:pointer"
+              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.5rem 1.25rem;border-radius:2rem;font-weight:600;font-size:0.85rem;cursor:pointer"
             >
               {if @pending_count >= @max_concurrent, do: "Wait…", else: "Send"}
             </button>

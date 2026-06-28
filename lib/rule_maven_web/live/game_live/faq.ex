@@ -132,7 +132,7 @@ defmodule RuleMavenWeb.GameLive.Faq do
               type="button"
               phx-click="filter_category"
               phx-value-id={cat.id}
-              style={"font-size:0.65rem;padding:0.2rem 0.55rem;border-radius:1rem;border:1px solid #{if @filter_category == cat.id, do: "var(--accent)", else: "var(--border)"};background:#{if @filter_category == cat.id, do: "var(--accent)", else: "var(--bg-subtle)"};color:#{if @filter_category == cat.id, do: "white", else: "var(--text-secondary)"};cursor:pointer"}
+              style={"font-size:0.65rem;padding:0.2rem 0.55rem;border-radius:1rem;border:1px solid #{if @filter_category == cat.id, do: "var(--accent)", else: "var(--border)"};background:#{if @filter_category == cat.id, do: "var(--accent)", else: "var(--bg-subtle)"};color:#{if @filter_category == cat.id, do: "var(--accent-text,#fff)", else: "var(--text-secondary)"};cursor:pointer"}
             >
               {cat.name}
             </button>
