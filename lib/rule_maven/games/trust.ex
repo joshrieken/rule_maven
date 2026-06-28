@@ -56,23 +56,26 @@ defmodule RuleMaven.Games.Trust do
   Recomputes and persists `trust_score` for a question row from its weighted
   votes + citation bonus, with a `verified` override. Returns the new score.
 
-  Vote weights are derived from each voter's *current* reputation at recompute
-  time rather than the weight stored when the vote was cast, so the score never
-  drifts from the live reputation model.
+  Vote weights are a **snapshot**: each vote stores the caster's weight at the
+  time it was cast (refreshed if they re-vote). The score therefore depends only
+  on this row's own votes, so it is fully recomputed whenever those votes change
+  and never goes stale from a *different* row's activity. (Deriving weights from
+  live reputation instead would couple every row to global reputation state and
+  require re-scoring every row a user ever voted on each time their reputation
+  moved — not worth it.)
   """
   def recompute_trust(%QuestionLog{} = q) do
-    net =
-      Repo.all(
+    {up, down} =
+      Repo.one(
         from v in QuestionVote,
-          left_join: u in User,
-          on: u.id == v.user_id,
           where: v.question_log_id == ^q.id,
-          select: {v.value, u.reputation}
-      )
-      |> Enum.reduce(0.0, fn {value, rep}, acc ->
-        w = vote_weight(rep || 0)
-        if value == "up", do: acc + w, else: acc - w
-      end)
+          select: {
+            sum(fragment("CASE WHEN ? = 'up' THEN ? ELSE 0 END", v.value, v.weight)),
+            sum(fragment("CASE WHEN ? = 'down' THEN ? ELSE 0 END", v.value, v.weight))
+          }
+      ) || {nil, nil}
+
+    net = (up || 0.0) - (down || 0.0)
 
     # Bonus only for a citation that's actually grounded in the source, not one
     # that's merely present (which a hallucination can fake).
