@@ -1845,7 +1845,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       verdict_stamp(msg[:verdict]) %>
                   <%= if stamp do %>
                     <% {emoji, label, color, bg} = stamp %>
-                    <div style={"display:inline-flex;align-items:center;gap:0.3rem;margin-bottom:0.5rem;padding:0.2rem 0.55rem;border-radius:999px;background:#{bg};color:#{color};font-weight:800;font-size:0.7rem;letter-spacing:0.04em;text-transform:uppercase"}>
+                    <div class="verdict-stamp" style={"display:inline-flex;align-items:center;gap:0.3rem;margin-bottom:0.5rem;padding:0.2rem 0.55rem;border-radius:999px;background:#{bg};color:#{color};font-weight:800;font-size:0.7rem;letter-spacing:0.04em;text-transform:uppercase"}>
                       <span aria-hidden="true">{emoji}</span> {label}
                     </div>
                   <% end %>
@@ -1889,12 +1889,14 @@ defmodule RuleMavenWeb.GameLive.Show do
                           do: nil,
                           else: Map.get(@voice_cache, {msg[:id], v_sel}) %>
                       <% v_pending = MapSet.member?(@voice_pending, {msg[:id], v_sel}) %>
-                      <%= if v_pending && is_nil(v_content) do %>
-                        <div style="font-size:0.68rem;opacity:0.7;font-style:italic;margin-bottom:0.3rem;color:var(--text-muted)">
-                          🎭 putting it in character…
-                        </div>
-                      <% end %>
-                      {render_markdown(v_content || msg.content)}
+                      <div class="answer-in">
+                        <%= if v_pending && is_nil(v_content) do %>
+                          <div style="font-size:0.68rem;opacity:0.7;font-style:italic;margin-bottom:0.3rem;color:var(--text-muted)">
+                            🎭 putting it in character…
+                          </div>
+                        <% end %>
+                        {render_markdown(v_content || msg.content)}
+                      </div>
                     <% end %>
                   </div>
 

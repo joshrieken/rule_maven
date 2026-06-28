@@ -813,7 +813,11 @@ body {
   .chat-layout,
   .chat-layout .chat-header,
   .chat-layout .chat-messages,
-  .chat-layout .chat-input {
+  .chat-layout .chat-input,
+  .chat-msg,
+  .chat-msg-user,
+  .answer-in,
+  .verdict-stamp {
     animation: none !important;
   }
 }
@@ -1412,6 +1416,47 @@ h1 span.subtitle {
 .typing-indicator span { display:inline-block; width:6px; height:6px; border-radius:50%; background:currentColor; opacity:0.4; animation:typing-dot 1.2s infinite ease-in-out; }
 .typing-indicator span:nth-child(2) { animation-delay:0.2s; }
 .typing-indicator span:nth-child(3) { animation-delay:0.4s; }
+
+/* ===== Q&A interaction animations =====
+   A freshly-rendered message bubble slides in — from the right for the user's
+   own question, from the left for the assistant. LiveView keeps existing nodes
+   (stable ids) across diffs, so only newly-appended bubbles animate, never the
+   whole list on every update. */
+.chat-msg { animation: msg-in-left 0.32s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.chat-msg-user { animation: msg-in-right 0.32s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@keyframes msg-in-left {
+  from { opacity: 0; transform: translate3d(-14px, 6px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes msg-in-right {
+  from { opacity: 0; transform: translate3d(14px, 6px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+/* The answer body is a fresh node when it replaces the "Thinking…" indicator,
+   so it fades up in place while the assistant bubble itself stays put. */
+.answer-in { animation: answer-rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes answer-rise {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+/* The verdict stamp pops in once, after the answer settles. */
+.verdict-stamp { animation: stamp-pop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) 0.12s both; }
+@keyframes stamp-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  60%  { opacity: 1; transform: scale(1.06); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Honor the ambient-motion off switch and OS reduced-motion. */
+[data-motion="off"] .chat-msg,
+[data-motion="off"] .chat-msg-user,
+[data-motion="off"] .answer-in,
+[data-motion="off"] .verdict-stamp {
+  animation: none !important;
+}
 
 /* ===== Spacing ===== */
 .mt-1 { margin-top: 0.25rem; }
