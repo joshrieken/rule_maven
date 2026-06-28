@@ -2030,9 +2030,33 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </div>
                 </div>
 
-                <!-- Answer actions: voice switcher + vote + overflow, one row -->
                 <% is_community_msg =
                   MapSet.member?(MapSet.new(@community_questions, & &1.id), msg[:id]) %>
+
+                <!-- Category pills: categories live in the (community) FAQ, so only
+                     show them on community questions — except admins, who can see
+                     them on any answer to audit tagging before it goes community.
+                     Placed above the action toolbar so the question's tags read as
+                     answer metadata, kept clear of the interactive controls. -->
+                <% msg_cats =
+                  if (is_community_msg || @is_admin) && msg.role == :assistant && msg[:id],
+                    do: Map.get(@question_categories, msg[:id], []),
+                    else: [] %>
+                <div
+                  :if={msg_cats != []}
+                  style="display:flex;flex-wrap:wrap;gap:0.25rem;padding:0.4rem 0.25rem 0.15rem"
+                >
+                  <%= for cat <- msg_cats do %>
+                    <.link
+                      navigate={~p"/games/#{@game.id}/faq?category=#{cat.id}"}
+                      style="font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:1rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);text-decoration:none"
+                    >
+                      {cat.name}
+                    </.link>
+                  <% end %>
+                </div>
+
+                <!-- Answer actions: voice switcher + vote + overflow, one row -->
                 <div
                   :if={
                     msg.role == :assistant && !msg[:refused] &&
@@ -2218,27 +2242,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <% end %>
                     </div>
                   </details>
-                </div>
-
-                <!-- Category pills: categories live in the (community) FAQ, so only
-                     show them on community questions — except admins, who can see
-                     them on any answer to audit tagging before it goes community. -->
-                <% msg_cats =
-                  if (is_community_msg || @is_admin) && msg.role == :assistant && msg[:id],
-                    do: Map.get(@question_categories, msg[:id], []),
-                    else: [] %>
-                <div
-                  :if={msg_cats != []}
-                  style="display:flex;flex-wrap:wrap;gap:0.25rem;padding:0.15rem 0.25rem 0"
-                >
-                  <%= for cat <- msg_cats do %>
-                    <.link
-                      navigate={~p"/games/#{@game.id}/faq?category=#{cat.id}"}
-                      style="font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:1rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);text-decoration:none"
-                    >
-                      {cat.name}
-                    </.link>
-                  <% end %>
                 </div>
 
                 <!-- Message actions (admin only) -->
