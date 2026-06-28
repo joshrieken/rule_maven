@@ -1909,9 +1909,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                           Rulebook &middot; p.{msg.cited_page}
                         </figcaption>
                       <% end %>
-                      <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 50%,transparent)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 92%,transparent)", else: "var(--text)"}"}>
-                        {String.trim(msg.cited_passage)}
-                      </blockquote>
+                      <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 50%,transparent)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 92%,transparent)", else: "var(--text)"}"} phx-no-format>{String.trim(msg.cited_passage)}</blockquote>
                       <%= if msg[:cited_html_link] do %>
                         <div style="padding:0 0.7rem 0.5rem 0.85rem">
                           <.link href={msg.cited_html_link} target="_blank" class="action-link">
