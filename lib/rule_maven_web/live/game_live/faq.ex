@@ -160,7 +160,10 @@ defmodule RuleMavenWeb.GameLive.Faq do
             <h2 style="font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-secondary);margin-bottom:0.6rem">
               {current_cat.name}
             </h2>
-            <p :if={current_cat.description} style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.75rem">
+            <p
+              :if={current_cat.description}
+              style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin-bottom:0.9rem;padding:0.6rem 0.75rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0.4rem"
+            >
               {current_cat.description}
             </p>
           <% end %>
