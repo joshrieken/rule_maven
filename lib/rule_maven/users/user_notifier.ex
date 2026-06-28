@@ -34,4 +34,19 @@ defmodule RuleMaven.Users.UserNotifier do
     If you didn't create this account, ignore this email.
     """)
   end
+
+  @doc "Sends the password-reset link."
+  def deliver_reset_password_instructions(user, url) do
+    deliver(user.email, "Reset your Rule Maven password", """
+
+    Hi #{user.username},
+
+    Someone asked to reset the password for your Rule Maven account. Use this
+    link to choose a new one (it expires in 24 hours):
+
+    #{url}
+
+    If you didn't request this, ignore this email — your password won't change.
+    """)
+  end
 end

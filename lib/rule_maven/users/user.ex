@@ -63,6 +63,15 @@ defmodule RuleMaven.Users.User do
     |> unique_constraint(:email)
   end
 
+  @doc "Validates and hashes a new password (used by password reset)."
+  def password_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:password])
+    |> validate_required([:password])
+    |> validate_length(:password, min: 4, max: 128)
+    |> put_password_hash()
+  end
+
   @doc "Stamps the account as email-confirmed (no-op shape if already set)."
   def confirm_changeset(user) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)

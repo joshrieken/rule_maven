@@ -1,0 +1,47 @@
+<div style="max-width:32rem;margin:2rem auto;text-align:center">
+  <div style="font-size:3rem;margin-bottom:0.5rem">◆</div>
+  <h1 style="font-size:1.75rem;font-weight:700;margin-bottom:0.5rem">Reset password</h1>
+
+  <div class="card text-left" style="max-width:24rem;margin:0 auto">
+    <%= if @sent do %>
+      <p style="font-size:0.85rem;color:var(--text)">
+        If that email is registered, a reset link is on its way. Check your inbox
+        (and spam folder) — the link expires in 24 hours.
+      </p>
+    <% else %>
+      <h2 style="font-size:1.1rem;font-weight:600;margin-bottom:1rem">Forgot your password?</h2>
+      <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1rem">
+        Enter your account email and we'll send a reset link.
+      </p>
+
+      <.form for={%{}} action={~p"/reset-password"} as={:reset} class="space-y-4">
+        <div>
+          <label for="reset_email" class="block text-sm font-medium mb-1">Email</label>
+          <input
+            type="email"
+            id="reset_email"
+            name="reset[email]"
+            value={@email}
+            class="w-full border rounded px-3 py-2"
+            autofocus
+            required
+          />
+        </div>
+
+        <button
+          type="submit"
+          class="w-full"
+          style="background:var(--accent);color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
+        >
+          Send reset link
+        </button>
+      </.form>
+    <% end %>
+
+    <div style="margin-top:1rem;text-align:center">
+      <a href="/login" style="color:var(--text-muted);font-size:0.78rem;text-decoration:none">
+        Back to log in
+      </a>
+    </div>
+  </div>
+</div>

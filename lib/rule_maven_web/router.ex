@@ -32,6 +32,10 @@ defmodule RuleMavenWeb.Router do
     get "/login", SessionController, :new
     post "/login", SessionController, :create
     get "/logout", AuthController, :logout
+    get "/reset-password", PasswordResetController, :new
+    post "/reset-password", PasswordResetController, :create
+    get "/reset-password/:token", PasswordResetController, :edit
+    post "/reset-password/:token", PasswordResetController, :update
     get "/auto-login", AuthController, :auto_login
     get "/confirm/:token", ConfirmationController, :confirm
     get "/games/:id/cheatsheet", CheatSheetController, :show

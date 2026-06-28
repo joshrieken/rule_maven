@@ -13,6 +13,13 @@ defmodule RuleMaven.Users do
     Repo.get_by(User, username: username)
   end
 
+  def get_user_by_email(email) when is_binary(email) do
+    normalized = email |> String.trim() |> String.downcase()
+    Repo.one(from u in User, where: fragment("lower(?)", u.email) == ^normalized)
+  end
+
+  def get_user_by_email(_), do: nil
+
   def list_users do
     Repo.all(from u in User, order_by: [desc: u.inserted_at])
   end
@@ -112,6 +119,49 @@ defmodule RuleMaven.Users do
       :tokens,
       UserToken.by_user_and_contexts_query(user, ["confirm"])
     )
+  end
+
+  # --- password reset --------------------------------------------------------
+
+  @doc """
+  Sends a password-reset link to the account with this email, if one exists.
+  `url_fun` receives the raw token and returns the absolute reset URL. Returns
+  `:ok` when no account matches; the caller (controller) renders the same
+  response either way, so this never reveals over HTTP whether the email exists.
+  """
+  def deliver_password_reset_instructions(email, url_fun) when is_function(url_fun, 1) do
+    case get_user_by_email(email) do
+      %User{} = user ->
+        {encoded, token} = UserToken.build_email_token(user, "reset")
+        Repo.insert!(token)
+        UserNotifier.deliver_reset_password_instructions(user, url_fun.(encoded))
+
+      _ ->
+        :ok
+    end
+  end
+
+  @doc """
+  Resets a password from an encoded reset token. Updates the hash and burns all
+  of the user's reset tokens in one transaction. Returns `{:ok, user}`,
+  `{:error, changeset}` on a weak password, or `:error` for a bad/expired token.
+  """
+  def reset_password(encoded_token, new_password) do
+    with {:ok, query} <- UserToken.verify_email_token_query(encoded_token, "reset"),
+         %User{} = user <- Repo.one(query) do
+      multi =
+        Ecto.Multi.new()
+        |> Ecto.Multi.update(:user, User.password_changeset(user, %{password: new_password}))
+        |> Ecto.Multi.delete_all(:tokens, UserToken.by_user_and_contexts_query(user, ["reset"]))
+
+      case Repo.transaction(multi) do
+        {:ok, %{user: user}} -> {:ok, user}
+        {:error, :user, changeset, _} -> {:error, changeset}
+        _ -> :error
+      end
+    else
+      _ -> :error
+    end
   end
 
   def authenticate(username, password) do

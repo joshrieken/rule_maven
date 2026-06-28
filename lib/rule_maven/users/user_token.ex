@@ -1,17 +1,23 @@
 defmodule RuleMaven.Users.UserToken do
   @moduledoc """
-  Hashed, expiring tokens for email-address confirmation.
+  Hashed, expiring tokens for transactional email flows.
 
-  The raw token is mailed to the user; only its SHA-256 hash is stored. A token
-  is valid for `@confirm_validity_days`. Currently the only context is
-  `"confirm"`.
+  The raw token is mailed to the user; only its SHA-256 hash is stored. Validity
+  depends on the context: `"confirm"` (email confirmation) lasts a week, while
+  `"reset"` (password reset) is short-lived.
   """
   use Ecto.Schema
   import Ecto.Query
 
   @hash_algorithm :sha256
   @rand_size 32
-  @confirm_validity_days 7
+
+  # Token lifetimes in seconds, by context.
+  @validity_seconds %{
+    "confirm" => 7 * 24 * 3600,
+    "reset" => 24 * 3600
+  }
+  @default_validity 24 * 3600
 
   schema "user_tokens" do
     field :token, :binary
@@ -42,13 +48,13 @@ defmodule RuleMaven.Users.UserToken do
     case Base.url_decode64(encoded_token, padding: false) do
       {:ok, raw} ->
         hashed = :crypto.hash(@hash_algorithm, raw)
-        cutoff = DateTime.add(DateTime.utc_now(), -@confirm_validity_days * 24 * 3600, :second)
+        validity = Map.get(@validity_seconds, context, @default_validity)
+        cutoff = DateTime.add(DateTime.utc_now(), -validity, :second)
 
         query =
           from t in __MODULE__,
             join: u in assoc(t, :user),
-            where:
-              t.token == ^hashed and t.context == ^context and t.inserted_at >= ^cutoff,
+            where: t.token == ^hashed and t.context == ^context and t.inserted_at >= ^cutoff,
             select: u
 
         {:ok, query}
