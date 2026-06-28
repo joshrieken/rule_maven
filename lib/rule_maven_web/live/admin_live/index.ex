@@ -100,12 +100,6 @@ defmodule RuleMavenWeb.AdminLive.Index do
           title="DMCA Takedowns"
           desc="Remove games on copyright complaint; reason + complainant logged."
         />
-        <.card
-          navigate={~p"/admin/threads"}
-          icon="🧵"
-          title="Review Threads"
-          desc="Review Q&A threads with followups. Merge into FAQ entries."
-        />
       </.section>
 
       <.section title="Manage">

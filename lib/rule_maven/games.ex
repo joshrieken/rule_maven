@@ -1372,6 +1372,27 @@ defmodule RuleMaven.Games do
     end
   end
 
+  @doc """
+  Sets the admin-curated canonical question/answer on a row (the FAQ text that
+  serves and embeds in place of the raw Q&A). Blank strings clear back to nil.
+  Re-embeds via EmbedQuestionWorker so search reflects the new canonical text.
+  Does NOT change visibility — promotion stays a separate, explicit action.
+  """
+  def update_canonical(%QuestionLog{} = q, canonical_question, canonical_answer) do
+    attrs = %{
+      canonical_question: blank_to_nil(canonical_question),
+      canonical_answer: blank_to_nil(canonical_answer)
+    }
+
+    with {:ok, updated} <- q |> QuestionLog.changeset(attrs) |> Repo.update() do
+      RuleMaven.Workers.EmbedQuestionWorker.enqueue(updated.id)
+      {:ok, updated}
+    end
+  end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: s)
+
   def set_question_visibility(id, visibility) when is_integer(id) do
     set = [visibility: visibility]
     set = if visibility == "community", do: Keyword.put(set, :pooled, true), else: set
@@ -1720,33 +1741,10 @@ defmodule RuleMaven.Games do
     1.0 - sim
   end
 
-  @doc """
-  Returns question threads (root questions with their followups) grouped by game,
-  suitable for admin review and consolidation.
-  """
-  def question_threads(%Game{} = game) do
-    recent_questions(game, 200)
-    |> Enum.reject(fn r -> String.contains?(r.answer || "", "Thinking...") end)
-    |> Enum.map(fn root -> %{root: root, followups: []} end)
-    |> Enum.sort_by(& &1.root.inserted_at, {:desc, DateTime})
-  end
 
   # Shared base for admin question listings — single source for ordering.
   defp base_question_query do
     from q in QuestionLog, order_by: [desc: q.inserted_at]
-  end
-
-  @doc """
-  Returns all question threads across all games.
-  """
-  def all_question_threads do
-    Repo.all(
-      from q in base_question_query(),
-        where: q.answer != "Thinking...",
-        limit: 200,
-        preload: [:game]
-    )
-    |> Enum.map(fn root -> %{root: root, followups: []} end)
   end
 
   # ── Chunking (RAG) ──

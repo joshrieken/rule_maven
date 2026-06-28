@@ -19,7 +19,10 @@ defmodule RuleMavenWeb.AdminLive.Questions do
          filter_status: nil,
          search: "",
          confirm_delete_id: nil,
-         expanded_id: nil
+         expanded_id: nil,
+         editing_canonical_id: nil,
+         canon_q: "",
+         canon_a: ""
        )}
     else
       {:ok,
@@ -186,6 +189,65 @@ defmodule RuleMavenWeb.AdminLive.Questions do
     end
   end
 
+  # ── Canonical (curated FAQ text) editing ──
+
+  def handle_event("edit_canonical", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+
+    case Enum.find(socket.assigns.questions, &(&1.id == id)) do
+      nil ->
+        {:noreply, socket}
+
+      q ->
+        {:noreply,
+         assign(socket,
+           editing_canonical_id: id,
+           canon_q: q.canonical_question || q.question,
+           canon_a: q.canonical_answer || q.answer || ""
+         )}
+    end
+  end
+
+  def handle_event("cancel_canonical", _params, socket) do
+    {:noreply, assign(socket, editing_canonical_id: nil, canon_q: "", canon_a: "")}
+  end
+
+  def handle_event("canonical_change", params, socket) do
+    {:noreply,
+     assign(socket,
+       canon_q: params["canon_q"] || socket.assigns.canon_q,
+       canon_a: params["canon_a"] || socket.assigns.canon_a
+     )}
+  end
+
+  def handle_event("save_canonical", _params, socket) do
+    id = socket.assigns.editing_canonical_id
+
+    case id && Enum.find(socket.assigns.questions, &(&1.id == id)) do
+      nil ->
+        {:noreply, assign(socket, editing_canonical_id: nil)}
+
+      q ->
+        case Games.update_canonical(q, socket.assigns.canon_q, socket.assigns.canon_a) do
+          {:ok, _} ->
+            Audit.log(socket.assigns.current_user, "question.set_canonical",
+              target_type: "question",
+              target_id: q.id,
+              target_label: socket.assigns.canon_q
+            )
+
+            {:noreply,
+             socket
+             |> assign(editing_canonical_id: nil, canon_q: "", canon_a: "")
+             |> put_flash(:info, "Saved curated FAQ text.")
+             |> reload()}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Couldn't save the curated text.")}
+        end
+    end
+  end
+
   defp status_of(q) do
     cond do
       q.answer == "Thinking..." -> :pending
@@ -347,11 +409,6 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                 style="font-size:0.65rem;font-weight:600;padding:0.1rem 0.4rem;border-radius:0.25rem;background:rgba(212,160,23,0.15);border:1px solid #d4a017;color:#b8860b"
                 title="A rulebook change may have made this answer stale. It won't serve from the cache until re-approved."
               >⚠ stale — review</span>
-              <a
-                href={"/admin/threads#thread-#{q.parent_question_id || q.id}"}
-                class="action-link"
-                title="View this question's thread in Review Threads"
-              >thread →</a>
               <div style="margin-left:auto;display:flex;align-items:center;gap:0.5rem">
                 <button
                   :if={q.needs_review}
@@ -434,6 +491,53 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                   <p style="margin-top:0.5rem;padding:0.4rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem;font-size:0.7rem;color:var(--text-muted);font-style:italic;line-height:1.4">
                     {q.cited_passage}
                   </p>
+                <% end %>
+
+                <%!-- Curated FAQ text editor (replaces the old Threads merge) --%>
+                <%= if @editing_canonical_id == q.id do %>
+                  <form
+                    phx-change="canonical_change"
+                    phx-submit="save_canonical"
+                    style="margin-top:0.6rem;padding-top:0.6rem;border-top:1px solid var(--border-subtle)"
+                  >
+                    <label style="display:block;font-size:0.68rem;font-weight:600;color:var(--text-muted);margin-bottom:0.15rem">
+                      Curated question
+                    </label>
+                    <textarea
+                      name="canon_q"
+                      rows="2"
+                      style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:0.25rem;padding:0.3rem 0.5rem;font-size:0.78rem;background:var(--bg-surface);color:var(--text);resize:vertical"
+                    >{@canon_q}</textarea>
+                    <label style="display:block;font-size:0.68rem;font-weight:600;color:var(--text-muted);margin:0.4rem 0 0.15rem">
+                      Curated answer (markdown)
+                    </label>
+                    <textarea
+                      name="canon_a"
+                      rows="6"
+                      style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:0.25rem;padding:0.3rem 0.5rem;font-size:0.78rem;background:var(--bg-surface);color:var(--text);resize:vertical"
+                    >{@canon_a}</textarea>
+                    <p style="font-size:0.65rem;color:var(--text-muted);margin:0.3rem 0 0.4rem">
+                      Serves and embeds in place of the raw Q&amp;A. Clear both fields to revert to the original. Promote to Community separately with the dropdown above.
+                    </p>
+                    <div style="display:flex;gap:0.4rem">
+                      <button
+                        type="submit"
+                        style="background:var(--accent);color:#fff;border:none;padding:0.3rem 0.9rem;border-radius:0.3rem;font-size:0.72rem;font-weight:600;cursor:pointer"
+                      >Save</button>
+                      <button
+                        type="button"
+                        phx-click="cancel_canonical"
+                        style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.3rem 0.9rem;border-radius:0.3rem;font-size:0.72rem;cursor:pointer"
+                      >Cancel</button>
+                    </div>
+                  </form>
+                <% else %>
+                  <button
+                    type="button"
+                    phx-click="edit_canonical"
+                    phx-value-id={q.id}
+                    style="margin-top:0.5rem;background:none;border:1px solid var(--border);color:var(--text-secondary);padding:0.2rem 0.6rem;border-radius:0.3rem;font-size:0.7rem;font-weight:600;cursor:pointer"
+                  >{if q.canonical_question, do: "✎ Edit curated FAQ text", else: "✎ Curate FAQ text"}</button>
                 <% end %>
               </div>
             <% end %>
