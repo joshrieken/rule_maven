@@ -37,16 +37,18 @@ defmodule RuleMaven.Auth.LoginThrottle do
 
   @doc "Records a failed attempt, opening or extending the current window."
   def record_failure(key) do
-    case lookup(key) do
-      {count, window_start} ->
-        if within_window?(window_start) do
-          :ets.insert(@table, {key, count + 1, window_start})
-        else
-          :ets.insert(@table, {key, 1, now()})
-        end
+    if table_ready?() do
+      case lookup(key) do
+        {count, window_start} ->
+          if within_window?(window_start) do
+            :ets.insert(@table, {key, count + 1, window_start})
+          else
+            :ets.insert(@table, {key, 1, now()})
+          end
 
-      nil ->
-        :ets.insert(@table, {key, 1, now()})
+        nil ->
+          :ets.insert(@table, {key, 1, now()})
+      end
     end
 
     :ok
@@ -54,7 +56,7 @@ defmodule RuleMaven.Auth.LoginThrottle do
 
   @doc "Clears a key's counter (call on a successful auth)."
   def clear(key) do
-    :ets.delete(@table, key)
+    if table_ready?(), do: :ets.delete(@table, key)
     :ok
   end
 
@@ -85,10 +87,19 @@ defmodule RuleMaven.Auth.LoginThrottle do
 
   # --- helpers ---
 
+  # Fail open: if the table isn't up (process not started yet, or this is an
+  # already-running node that hasn't restarted after the child was added), never
+  # block auth — a throttle outage must not become a login outage.
+  defp table_ready?, do: :ets.whereis(@table) != :undefined
+
   defp lookup(key) do
-    case :ets.lookup(@table, key) do
-      [{^key, count, window_start}] -> {count, window_start}
-      [] -> nil
+    if table_ready?() do
+      case :ets.lookup(@table, key) do
+        [{^key, count, window_start}] -> {count, window_start}
+        [] -> nil
+      end
+    else
+      nil
     end
   end
 
