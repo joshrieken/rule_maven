@@ -1580,7 +1580,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                empty-state card is gone, so keep a slim sticky version pinned
                above the answers (a fast reply otherwise steals the fact). -->
           <%= if @rule_card && @conversation != [] do %>
-            <div style="position:sticky;top:0;z-index:5;margin:-1rem -1rem 0;padding:0.55rem 1rem;background:var(--bg-subtle);border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:0.5rem;font-size:0.78rem;line-height:1.45;color:var(--text)">
+            <div style="position:sticky;top:-1rem;z-index:5;margin:-1rem -1rem 1.25rem;padding:0.6rem 1rem;background:var(--bg-surface);border-bottom:1px solid var(--border);box-shadow:0 3px 8px rgba(0,0,0,0.07);display:flex;align-items:flex-start;gap:0.5rem;font-size:0.78rem;line-height:1.45;color:var(--text)">
               <span style="font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--accent);white-space:nowrap;flex-shrink:0">💡 Did you know?</span>
               <span style="flex:1;min-width:0">
                 {clean_rule_text(@rule_card.content)}
