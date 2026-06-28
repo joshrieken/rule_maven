@@ -21,11 +21,12 @@ defmodule RuleMavenWeb.Feature.SmokeTest do
   end
 
   feature "theme selector exists with light and dark options", %{session: session} do
+    # "light"/"dark" were renamed to "lavender"/"midnight" in the theme rework.
     session
     |> visit("/")
     |> assert_has(css("select#theme-select"))
-    |> assert_has(css("select#theme-select option[value='light']"))
-    |> assert_has(css("select#theme-select option[value='dark']"))
+    |> assert_has(css("select#theme-select option[value='lavender']"))
+    |> assert_has(css("select#theme-select option[value='midnight']"))
   end
 
   feature "theme CSS custom properties are defined on :root", %{session: session} do
