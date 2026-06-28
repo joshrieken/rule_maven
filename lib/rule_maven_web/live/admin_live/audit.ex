@@ -3,24 +3,40 @@ defmodule RuleMavenWeb.AdminLive.Audit do
 
   alias RuleMaven.{Audit, Users}
 
+  @page_size 100
+
   @impl true
   def mount(_params, _session, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
       {:ok,
        assign(socket, page_title: "Audit Log", action_filter: "", actions: Audit.actions())
-       |> load()}
+       |> reset()}
     else
       {:ok, push_navigate(socket, to: ~p"/")}
     end
   end
 
-  defp load(socket) do
-    assign(socket, entries: Audit.list(action: socket.assigns.action_filter))
+  # Fetches one page, replacing the list. Resets paging (used on mount + filter).
+  defp reset(socket) do
+    entries = Audit.list(action: socket.assigns.action_filter, limit: @page_size)
+    assign(socket, entries: entries, has_more: length(entries) == @page_size)
   end
 
   @impl true
   def handle_event("filter", %{"action" => action}, socket) do
-    {:noreply, socket |> assign(action_filter: action) |> load()}
+    {:noreply, socket |> assign(action_filter: action) |> reset()}
+  end
+
+  def handle_event("load_more", _params, socket) do
+    more =
+      Audit.list(
+        action: socket.assigns.action_filter,
+        limit: @page_size,
+        offset: length(socket.assigns.entries)
+      )
+
+    {:noreply,
+     assign(socket, entries: socket.assigns.entries ++ more, has_more: length(more) == @page_size)}
   end
 
   @impl true
@@ -31,7 +47,7 @@ defmodule RuleMavenWeb.AdminLive.Audit do
 
       <h1 style="font-size:1.5rem;font-weight:700;margin:0.25rem 0 0.5rem">Audit Log</h1>
       <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 1rem">
-        Append-only record of sensitive admin actions (newest first, last 200).
+        Append-only record of sensitive admin actions (newest first).
       </p>
 
       <form phx-change="filter" style="margin-bottom:0.75rem">
@@ -84,6 +100,16 @@ defmodule RuleMavenWeb.AdminLive.Audit do
               <% end %>
             </tbody>
           </table>
+        </div>
+
+        <div :if={@has_more} style="text-align:center;margin-top:0.75rem">
+          <button
+            type="button"
+            phx-click="load_more"
+            style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.78rem;font-weight:600;cursor:pointer"
+          >
+            Load older
+          </button>
         </div>
       <% end %>
     </div>

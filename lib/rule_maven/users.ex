@@ -59,6 +59,28 @@ defmodule RuleMaven.Users do
     update_user(user, %{role: role})
   end
 
+  @doc """
+  Demotes an admin to a regular user, refusing to remove the last remaining
+  admin. The count + update run in one transaction with the admin rows locked
+  `FOR UPDATE`, so two concurrent demotions can't both pass the check and strand
+  the app with zero admins. Returns {:ok, user} | {:error, :last_admin} |
+  {:error, :not_admin}.
+  """
+  def demote_admin(%User{} = user) do
+    Repo.transaction(fn ->
+      # Lock all admin rows for the duration so a concurrent demotion serializes
+      # behind this one and re-reads the post-update count. (Postgres rejects
+      # FOR UPDATE alongside an aggregate, so select the rows and count them.)
+      admin_ids = Repo.all(from u in User, where: u.role == "admin", select: u.id, lock: "FOR UPDATE")
+
+      cond do
+        not User.can?(user, :admin) -> Repo.rollback(:not_admin)
+        length(admin_ids) <= 1 -> Repo.rollback(:last_admin)
+        true -> Repo.update!(User.changeset(user, %{role: "user"}))
+      end
+    end)
+  end
+
   def delete_user(%User{} = user) do
     Repo.delete(user)
   end

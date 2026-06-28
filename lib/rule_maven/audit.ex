@@ -51,10 +51,12 @@ defmodule RuleMaven.Audit do
 
   @doc """
   Lists audit entries newest-first. Opts: `:action`, `:actor_id`,
-  `:target_type`, `:target_id`, `:limit` (default 200).
+  `:target_type`, `:target_id`, `:limit` (default 200), `:offset` (default 0)
+  for paging into older history.
   """
   def list(opts \\ []) do
     limit = opts[:limit] || 200
+    offset = opts[:offset] || 0
 
     AuditLog
     |> filter(:action, opts[:action])
@@ -63,6 +65,7 @@ defmodule RuleMaven.Audit do
     |> filter(:target_id, opts[:target_id])
     |> order_by([l], desc: l.inserted_at, desc: l.id)
     |> limit(^limit)
+    |> offset(^offset)
     |> Repo.all()
   end
 

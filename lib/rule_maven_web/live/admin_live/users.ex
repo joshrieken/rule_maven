@@ -53,17 +53,12 @@ defmodule RuleMavenWeb.AdminLive.Users do
         {:noreply, put_flash(socket, :error, "User not found.")}
 
       user ->
-        case guard_demote(user, socket) do
-          :ok ->
-            {:ok, _} = Users.update_user_role(user, "user")
-            audit(socket, "role.demote", user, %{to: "user"})
-            users = Users.list_users()
+        cond do
+          user.id == socket.assigns.current_user.id ->
+            {:noreply, put_flash(socket, :error, "You can't demote yourself.")}
 
-            {:noreply,
-             assign(socket, users: users) |> put_flash(:info, "#{user.username} demoted to user.")}
-
-          {:error, msg} ->
-            {:noreply, put_flash(socket, :error, msg)}
+          true ->
+            demote(user, socket)
         end
     end
   end
@@ -117,6 +112,24 @@ defmodule RuleMavenWeb.AdminLive.Users do
     {:noreply, socket}
   end
 
+  defp demote(user, socket) do
+    case Users.demote_admin(user) do
+      {:ok, _} ->
+        audit(socket, "role.demote", user, %{to: "user"})
+        users = Users.list_users()
+
+        {:noreply,
+         assign(socket, users: users) |> put_flash(:info, "#{user.username} demoted to user.")}
+
+      {:error, :last_admin} ->
+        {:noreply,
+         put_flash(socket, :error, "Can't demote the last admin. Promote another admin first.")}
+
+      {:error, :not_admin} ->
+        {:noreply, put_flash(socket, :error, "#{user.username} is not an admin.")}
+    end
+  end
+
   defp audit(socket, action, user, metadata) do
     Audit.log(socket.assigns.current_user, action,
       target_type: "user",
@@ -124,21 +137,6 @@ defmodule RuleMavenWeb.AdminLive.Users do
       target_label: user.username,
       metadata: metadata
     )
-  end
-
-  # Block the two ways role demotion can lock everyone out: demoting yourself,
-  # or removing the last remaining admin.
-  defp guard_demote(user, socket) do
-    cond do
-      user.id == socket.assigns.current_user.id ->
-        {:error, "You can't demote yourself."}
-
-      Users.can?(user, :admin) and Users.count_admins() <= 1 ->
-        {:error, "Can't demote the last admin. Promote another admin first."}
-
-      true ->
-        :ok
-    end
   end
 
   @impl true

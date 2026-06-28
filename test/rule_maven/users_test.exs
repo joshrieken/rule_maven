@@ -297,6 +297,54 @@ defmodule RuleMaven.UsersTest do
     end
   end
 
+  describe "demote_admin/1 (transactional last-admin guard)" do
+    test "refuses to demote the last admin" do
+      {:ok, admin} =
+        Users.create_user(%{
+          username: "only_admin",
+          email: "only@test.com",
+          password: "testpass1234",
+          role: "admin"
+        })
+
+      assert {:error, :last_admin} = Users.demote_admin(admin)
+      assert Users.get_user(admin.id).role == "admin"
+    end
+
+    test "demotes when another admin remains" do
+      {:ok, a1} =
+        Users.create_user(%{
+          username: "admin_a",
+          email: "a@test.com",
+          password: "testpass1234",
+          role: "admin"
+        })
+
+      {:ok, _a2} =
+        Users.create_user(%{
+          username: "admin_b",
+          email: "b@test.com",
+          password: "testpass1234",
+          role: "admin"
+        })
+
+      assert {:ok, demoted} = Users.demote_admin(a1)
+      assert demoted.role == "user"
+      assert Users.count_admins() == 1
+    end
+
+    test "rejects a non-admin" do
+      {:ok, plain} =
+        Users.create_user(%{
+          username: "just_a_user",
+          email: "juser@test.com",
+          password: "testpass1234"
+        })
+
+      assert {:error, :not_admin} = Users.demote_admin(plain)
+    end
+  end
+
   describe "session revocation (force logout)" do
     setup do
       {:ok, user} =
