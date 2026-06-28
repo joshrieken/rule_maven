@@ -1281,11 +1281,13 @@ defmodule RuleMavenWeb.GameLive.Show do
       style="display:flex;flex-direction:column;height:calc(100dvh - var(--header-height, 3.125rem));position:fixed;top:var(--header-height, 3.125rem);left:0;right:0;bottom:0;z-index:10;background:var(--bg)"
     >
       <%!-- Faint blurred cover art behind the Q&A. Only while a conversation is
-            open (the Overview screen shows the image sharp instead). --%>
+            open (the Overview screen shows the image sharp instead). Blur a
+            quarter-size surface and scale it 4x: the filter runs over ~1/16 the
+            pixels, so it composites cheaply and doesn't jank the scroll. --%>
       <div
         :if={@conversation != [] && @game.image_url}
         aria-hidden="true"
-        style={"position:absolute;inset:0;z-index:0;background-image:url('#{@game.image_url}');background-size:cover;background-position:center;filter:blur(16px) saturate(1.15);opacity:0.22;pointer-events:none;transform:translateZ(0);will-change:transform;contain:paint;backface-visibility:hidden"}
+        style={"position:absolute;top:0;left:0;width:25%;height:25%;z-index:0;transform-origin:top left;transform:scale(4) translateZ(0);background-image:url('#{@game.image_url}');background-size:cover;background-position:center;filter:blur(5px) saturate(1.15);opacity:0.22;pointer-events:none;will-change:transform;backface-visibility:hidden"}
       >
       </div>
       <!-- Header -->
