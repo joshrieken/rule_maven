@@ -140,6 +140,21 @@ defmodule RuleMaven.TrustTest do
 
       assert Repo.get(User, author.id).reputation >= 1
     end
+
+    test "a single voter's reputation contribution is capped" do
+      game = game_fixture()
+      author = user_fixture("author")
+      voter = user_fixture("voter")
+
+      # One accomplice upvotes many of the author's answers — net contribution
+      # must be clamped to the per-voter cap, not grow unbounded.
+      for i <- 1..10 do
+        q = log(game, author, %{question: "q#{i}", cited_passage: "p.#{i}", pooled: true})
+        Games.set_community_vote(q.id, voter.id, "up")
+      end
+
+      assert Repo.get(User, author.id).reputation == Trust.per_voter_rep_cap()
+    end
   end
 
   describe "mark_pooled/1" do

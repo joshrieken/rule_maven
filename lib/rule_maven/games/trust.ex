@@ -36,6 +36,9 @@ defmodule RuleMaven.Games.Trust do
   @citation_bonus 1.0
   @verified_floor 100.0
   @promotion_rep_bonus 5
+  # Max net reputation a single distinct voter can confer on an author. Caps the
+  # reputation↔vote-weight feedback loop so a colluding pair can't ratchet.
+  @default_per_voter_rep_cap 3
 
   @doc """
   Vote weight for a user: new users weigh ~1.0, higher reputation weighs more
@@ -76,18 +79,27 @@ defmodule RuleMaven.Games.Trust do
   end
 
   @doc """
-  Recomputes and persists `reputation` for a user: net (unweighted) votes across
-  rows they authored + a bonus per row promoted to the community pool.
+  Recomputes and persists `reputation` for a user: per-voter-capped net votes
+  across rows they authored + a bonus per row promoted to the community pool.
+
+  Each *distinct* voter's net contribution to an author is clamped to
+  `±per_voter_rep_cap`. This breaks the reputation↔vote-weight feedback loop: a
+  single accomplice can no longer pump an author's reputation (and thus their
+  vote weight) by mass-upvoting their answers. Self-votes are excluded.
   """
   def recompute_reputation(user_id) when is_integer(user_id) do
+    cap = per_voter_rep_cap()
+
     net =
-      Repo.one(
+      Repo.all(
         from q in QuestionLog,
           join: v in QuestionVote,
           on: v.question_log_id == q.id,
-          where: q.user_id == ^user_id,
+          where: q.user_id == ^user_id and v.user_id != ^user_id,
+          group_by: v.user_id,
           select: sum(fragment("CASE WHEN ? = 'up' THEN 1 ELSE -1 END", v.value))
-      ) || 0
+      )
+      |> Enum.reduce(0, fn voter_net, acc -> acc + clamp(voter_net, -cap, cap) end)
 
     promotions =
       Repo.aggregate(
@@ -140,6 +152,9 @@ defmodule RuleMaven.Games.Trust do
   def vote_weight_cap, do: get_float("vote_weight_cap", @default_vote_weight_cap)
   def promotion_quorum, do: round(get_float("promotion_quorum", @default_promotion_quorum))
   def vote_min_age_hours, do: get_float("vote_min_account_age_hours", @default_vote_min_age_hours)
+  def per_voter_rep_cap, do: round(get_float("per_voter_rep_cap", @default_per_voter_rep_cap))
+
+  defp clamp(n, lo, hi), do: n |> max(lo) |> min(hi)
 
   defp get_float(key, default) do
     case RuleMaven.Settings.get(key) do
