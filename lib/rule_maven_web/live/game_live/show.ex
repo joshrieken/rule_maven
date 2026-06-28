@@ -656,9 +656,14 @@ defmodule RuleMavenWeb.GameLive.Show do
     uid = socket.assigns.current_user.id
 
     case find_question_log(game, id) do
-      %{user_id: author_id} = q when author_id == uid -> Games.delete_question(q)
-      q when not is_nil(q) -> if socket.assigns.is_admin, do: Games.delete_question(q)
-      nil -> :ok
+      %{user_id: author_id} = q when author_id == uid ->
+        Games.delete_question(q)
+
+      q when not is_nil(q) ->
+        if RuleMaven.Users.can?(socket.assigns.current_user, :admin), do: Games.delete_question(q)
+
+      nil ->
+        :ok
     end
 
     # Rebuild threads and conversation from DB
@@ -704,7 +709,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     # Promoting a row to community marks it unconditionally trusted and served
     # cross-user, so this is admin-only. The button is admin-gated in the
     # template, but LiveView events are forgeable, so re-check on the server.
-    if socket.assigns.is_admin do
+    if RuleMaven.Users.can?(socket.assigns.current_user, :admin) do
       do_toggle_question_visibility(socket, game, id)
     else
       {:noreply, socket}
@@ -2273,7 +2278,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         title="Re-ask"
                       >↻</button>
                       <button
-                        :if={!msg[:history] && !msg[:pool_hit]}
+                        :if={@is_admin && !msg[:history] && !msg[:pool_hit]}
                         type="button"
                         phx-click="toggle_question_visibility"
                         phx-value-id={msg.id}

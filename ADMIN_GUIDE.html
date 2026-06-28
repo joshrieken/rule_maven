@@ -126,15 +126,19 @@
 
 <h2 id="moderate">Moderating Q&amp;A</h2>
 <p>Users ask questions and vote on answers. Your job is to keep the good ones visible and the bad ones out of circulation.</p>
-<p>On <code>/admin/questions</code> and <code>/admin/threads</code> you can review what's being asked and answered across every game. Each answer carries a <b>confidence level</b> (Low → Verified) and community <b>vote tallies</b> to help you triage — start with high-traffic questions that have low confidence or split votes.</p>
+<p>On <code>/admin/questions</code> and <code>/admin/threads</code> you can review what's being asked and answered across every game. Each answer carries a <b>confidence level</b> and community <b>vote tallies</b> to help you triage — start with high-traffic questions that have low confidence or split votes.</p>
 <table>
   <tr><th>Signal</th><th>What it tells you</th></tr>
-  <tr><td><b>Verified</b> (5/5)</td><td>Community-confirmed via upvotes. Usually safe.</td></tr>
-  <tr><td><b>Strong</b> (4/5)</td><td>Quotes the rulebook with a page. Trustworthy but unconfirmed.</td></tr>
-  <tr><td><b>Good / Fair</b> (3–2)</td><td>Partial citation or single-source reuse. Spot-check these.</td></tr>
-  <tr><td><b>Low</b> (1/5)</td><td>No matched passage — the model reasoned. Verify before promoting.</td></tr>
+  <tr><td><b>Admin-verified</b></td><td>An admin signed off on this exact answer — the top tier. See "Verifying an answer" below.</td></tr>
+  <tr><td><b>Community-verified</b></td><td>Confirmed by a quorum of distinct, email-confirmed voters. Usually safe.</td></tr>
+  <tr><td><b>Cited from rulebook</b></td><td>Quotes the rulebook with a page. Trustworthy but unconfirmed.</td></tr>
+  <tr><td><b>Cited passage, page unconfirmed</b></td><td>Quotes rulebook text but the page couldn't be pinned. Spot-check.</td></tr>
+  <tr><td><b>Unverified — single source</b></td><td>Single-source reuse with no citation. Spot-check before it spreads.</td></tr>
+  <tr><td><b>No direct citation</b></td><td>No matched passage — the model reasoned. Verify before promoting.</td></tr>
   <tr><td>Split votes</td><td>Users disagree. Read it against the rulebook and decide.</td></tr>
 </table>
+<h3>Verifying an answer</h3>
+<p>The strongest curation action is <b>verifying</b> an answer: you've checked it against the rulebook and signed off. A verified answer sits at the top confidence tier and overrides vote-based scoring. There's at most <b>one verified answer per question</b> — verifying a new one automatically steps the old one down. (Verifying replaced the old per-answer "pin".)</p>
 
 <h2 id="faqpromo">Promoting to the FAQ</h2>
 <p>The FAQ page (<code>/games/:id/faq</code>) is the curated, community-facing Q&amp;A for a game. From review you can <b>promote</b> a good answer into the canonical FAQ or <b>reject</b> one that shouldn't spread. Promotion makes an answer more trusted and more likely to be reused for similar future questions.</p>
