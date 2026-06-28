@@ -650,9 +650,15 @@ defmodule RuleMavenWeb.GameLive.Show do
     {id, _} = Integer.parse(id_str)
     game = socket.assigns.game
 
+    # Only the author (or an admin) may delete a row. The delete button renders
+    # only on the user's own threads, but LiveView events are forgeable, so the
+    # ownership check has to happen on the server.
+    uid = socket.assigns.current_user.id
+
     case find_question_log(game, id) do
+      %{user_id: author_id} = q when author_id == uid -> Games.delete_question(q)
+      q when not is_nil(q) -> if socket.assigns.is_admin, do: Games.delete_question(q)
       nil -> :ok
-      q -> Games.delete_question(q)
     end
 
     # Rebuild threads and conversation from DB
