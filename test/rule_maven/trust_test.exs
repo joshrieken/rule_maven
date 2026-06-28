@@ -249,6 +249,19 @@ defmodule RuleMaven.TrustTest do
       assert is_nil(Games.get_user_community_vote(q.id, author.id))
     end
 
+    test "admins may self-vote and unvote their own rows", %{game: game, author: author} do
+      {:ok, admin} = Users.update_user_role(author, "game_master")
+      q = log(game, admin, %{cited_passage: "p.1", pooled: true})
+
+      # admin? = true bypasses the self-vote guard.
+      assert "up" = Games.set_community_vote(q.id, admin.id, "up", true)
+      assert %{value: "up"} = Games.get_user_community_vote(q.id, admin.id)
+
+      # Re-casting the same vote toggles it off (unvote).
+      assert is_nil(Games.set_community_vote(q.id, admin.id, "up", true))
+      assert is_nil(Games.get_user_community_vote(q.id, admin.id))
+    end
+
     test "rejects votes on non-votable (private, uncited) rows", %{
       game: game,
       author: author,

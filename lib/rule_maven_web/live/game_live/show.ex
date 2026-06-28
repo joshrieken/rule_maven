@@ -483,7 +483,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     {id, _} = Integer.parse(id_str)
     uid = socket.assigns.current_user.id
 
-    case Games.set_community_vote(id, uid, value) do
+    case Games.set_community_vote(id, uid, value, socket.assigns.is_admin) do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, vote_error_message(reason))}
 
@@ -2154,7 +2154,12 @@ defmodule RuleMavenWeb.GameLive.Show do
                         :if={!msg[:pool_hit]}
                         style="display:inline-flex;align-items:center;gap:0.15rem"
                       >
+                        <%!-- This branch is always the asker's own question, so the
+                              thumb would be a self-vote: only admins may cast it
+                              (seeding/curation). Everyone else sees a read-only
+                              tally with a static, non-clickable thumb. --%>
                         <button
+                          :if={@is_admin}
                           type="button"
                           phx-click="community_vote"
                           phx-value-id={msg[:id]}
@@ -2162,6 +2167,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                           style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
                           title={if cv == "up", do: "Remove vote", else: "Helpful"}
                         >👍</button>
+                        <span
+                          :if={!@is_admin}
+                          style="line-height:1;font-size:1rem;opacity:0.3;cursor:default"
+                          title="You can't vote on your own question"
+                        >👍</span>
                         <span
                           style="font-size:0.65rem;color:var(--text-muted)"
                           title="Total helpful votes"

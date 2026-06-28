@@ -2446,7 +2446,7 @@ defmodule RuleMaven.Games do
     Repo.get_by(QuestionVote, question_log_id: question_log_id, user_id: user_id)
   end
 
-  def set_community_vote(question_log_id, user_id, value) do
+  def set_community_vote(question_log_id, user_id, value, admin? \\ false) do
     q = Repo.get(QuestionLog, question_log_id)
 
     cond do
@@ -2454,7 +2454,9 @@ defmodule RuleMaven.Games do
       # so an out-of-range value (e.g. a forged event) would raise mid-write.
       value not in ["up", "down"] -> {:error, :invalid_value}
       is_nil(q) -> {:error, :not_found}
-      q.user_id == user_id -> {:error, :self_vote}
+      # Admins may vote (and unvote) their own rows — useful for seeding/curation.
+      # Everyone else is blocked from self-voting.
+      q.user_id == user_id and not admin? -> {:error, :self_vote}
       not votable?(q) -> {:error, :not_votable}
       true -> do_set_community_vote(q, user_id, value)
     end
