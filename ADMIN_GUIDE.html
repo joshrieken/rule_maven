@@ -145,6 +145,7 @@
 
 <h2 id="staleness">After you edit a rulebook</h2>
 <div class="note warn"><b>Important.</b> Cached answers were written against specific rulebook text. When you add, edit, clean, or delete rulebook content, the app <b>invalidates the answer pool</b> for that game: auto-generated cached answers are demoted, and community answers are flagged <code>needs_review</code> and skipped until you re-approve them. So after a meaningful edit, expect to revisit the affected community answers and re-approve the ones that still hold.</div>
+<p>You don't have to hunt for them: <code>/admin/questions</code> shows a <b>review-backlog badge</b> with the count of <code>needs_review</code> answers, and clicking it deep-links straight to that filter. Work the list down to clear the backlog.</p>
 
 <h2 id="users">Users &amp; invites</h2>
 <ul>
@@ -152,6 +153,7 @@
   <li><b><code>/admin/invites</code></b> — registration can require an invite code. Issue codes to onboard people and revoke ones you no longer want used.</li>
 </ul>
 <p class="muted">Voter influence scales with reputation: contributors whose answers earn net upvotes have their votes weighted more heavily (up to a cap), so established users help surface good answers faster.</p>
+<div class="note"><b>Who can vote.</b> Only users who have <b>confirmed their email</b> count toward verifying an answer (and in prod, accounts must clear a minimum age). Promotion to community-verified also needs a <b>quorum</b> of distinct eligible voters, and each voter's effect on another user's reputation is capped — together these stop throwaway or colluding accounts from rigging the tally. Users can't vote on their own answers.</div>
 
 <h2 id="catalog">Catalog &amp; requests</h2>
 <ul>

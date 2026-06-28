@@ -106,7 +106,7 @@
 <h1>Rule Maven — Developer &amp; Architect Guide</h1>
 <p class="lead">A RAG-based board-game rules Q&amp;A app. Upload a rulebook, ask plain-English questions, get answers that quote the exact page. This guide is for the people building and operating it — the why behind the structure, not just the what.</p>
 
-<div class="note">There are three guides in this repo. <b>This one</b> is for developers and architects. <code>ADMIN_GUIDE.html</code> is a task guide for admins, and <code>USERS_GUIDE.html</code> is for regular users. The latter two are prototypes destined for an in-app help section.</div>
+<div class="note">There are three guides in this repo. <b>This one</b> (<code>DEV_GUIDE.html</code>) is for developers and architects. <code>ADMIN_GUIDE.html</code> is a task guide for admins, and <code>USERS_GUIDE.html</code> is for regular users. The latter two are prototypes destined for an in-app help section.</div>
 
 <h2 id="what">What it is</h2>
 <p>Rule Maven turns tabletop rulebooks into a searchable knowledge base. A user builds a <b>library of games</b>, attaches each game's <b>rulebook sources</b> (PDF, Word, HTML, spreadsheet, image, or pasted text), and asks questions like <i>"Can I build on someone else's road?"</i>. The app answers with <b>retrieval-augmented generation</b>: embed the question, retrieve the most relevant rulebook chunks, have an LLM answer <em>only</em> from those chunks, and cite the page it used.</p>
@@ -146,7 +146,7 @@
   <tr><td><b>Document (Source)</b></td><td>One rulebook attached to a game. Stored <b>page-by-page</b>; each page carries raw <code>text</code>, optional <code>cleaned</code> text, a printed page number, and an extraction-<b>confidence</b> score. A <code>published</code> flag gates retrievability.</td></tr>
   <tr><td><b>Chunk</b></td><td>A small slice of a page's <em>effective</em> text (<code>cleaned || text</code>), embedded into a 768-dim vector. The unit retrieval searches over.</td></tr>
   <tr><td><b>QuestionLog</b></td><td>One asked question and its answer, plus <code>cited_passage</code>/<code>cited_page</code>, verdict, embeddings, pooling/trust fields, threading (<code>parent_question_id</code>), and visibility.</td></tr>
-  <tr><td><b>QuestionVote</b></td><td>A community up/down vote (<code>"up"</code>/<code>"down"</code>) on a QuestionLog, weighted by voter reputation. Unique per (question, user).</td></tr>
+  <tr><td><b>QuestionVote</b></td><td>A community up/down vote (<code>"up"</code>/<code>"down"</code>) on a QuestionLog. Stores the caster's reputation-derived <code>weight</code> as a snapshot at cast time. Unique per (question, user).</td></tr>
   <tr><td><b>User</b></td><td>Account with a <code>role</code> and an earned <code>reputation</code> that weights their votes.</td></tr>
 </table>
 <p class="seealso">Effective text rule: anywhere the app uses page text — chunking, embedding, citations — it reads <code>cleaned || text</code>. Cleaning is optional and reversible; it never destroys the raw extraction.</p>
@@ -216,12 +216,14 @@ def can?(%{role: role}, capability),
 <h2 id="trust">Trust &amp; confidence model</h2>
 <p>Two distinct signals, often confused — keep them separate:</p>
 <h3>Trust score (ranking / promotion)</h3>
-<p><code>Games.Trust</code> computes a per-question <code>trust_score</code> from <b>reputation-weighted net votes + a citation bonus</b>, with <code>pinned</code> as an override. A user's <code>reputation</code> (earned from the net votes their authored answers receive) sets their <b>vote weight</b>: <code>min(1 + ln(1 + rep), cap)</code>, so a brand-new user weighs ~1.0 and trusted contributors weigh more, up to a cap. Private favorites are deliberately excluded from trust.</p>
+<p><code>Games.Trust</code> computes a per-question <code>trust_score</code> from <b>weighted net votes + a citation bonus</b>, with an admin <code>verified</code> sign-off as an override that floors the score at the top tier. A user's <code>reputation</code> (earned from the net votes their authored answers receive, plus a per-promotion bonus) sets their <b>vote weight</b>: <code>min(1 + ln(1 + rep), cap)</code>, so a brand-new user weighs ~1.0 and trusted contributors weigh more, up to a cap. Private favorites are deliberately excluded from trust.</p>
+<p>Each vote stores the caster's weight as a <b>snapshot</b> at cast time, so a row's score depends only on its own votes and never drifts when an unrelated voter's reputation later changes. Several hardening rules guard the loop: votes are gated to <b>confirmed-email</b>, non-author voters; promotion and the trusted serving label require a <b>quorum</b> of distinct eligible voters (plus a prod-only minimum account age to raise sybil cost); the citation bonus only applies when the citation is <b>grounded</b> in source chunks (<code>Citations.valid?/3</code>); and each distinct voter's net contribution to an author's reputation is <b>capped</b> to break the reputation↔weight feedback loop.</p>
 <h3>Confidence meter (per-answer UI signal)</h3>
-<p>A pure heuristic over existing signals — there is no stored confidence column. It maps each answer to one of five levels shown as a segmented meter:</p>
+<p>A pure heuristic over existing signals — there is no stored confidence column. It maps each answer to one of six levels shown as a segmented meter:</p>
 <table>
   <tr><th>Level</th><th>Label</th><th>When</th></tr>
-  <tr><td>5 · Verified</td><td>Community-verified</td><td>Trusted (non-provisional) pool hit.</td></tr>
+  <tr><td>6 · Admin-verified</td><td>Admin-verified</td><td>An admin signed off on this exact answer (<code>verified</code>). Checked first, outranks votes.</td></tr>
+  <tr><td>5 · Community-verified</td><td>Community-verified</td><td>Trusted (non-provisional) pool hit.</td></tr>
   <tr><td>4 · Strong</td><td>Cited from rulebook</td><td>Has both a cited passage and a page.</td></tr>
   <tr><td>3 · Good</td><td>Cited passage, page unconfirmed</td><td>Has a passage but no confirmed page.</td></tr>
   <tr><td>2 · Fair</td><td>Unverified — single source</td><td>Provisional pool hit with no citation.</td></tr>
@@ -254,6 +256,7 @@ def can?(%{role: role}, capability),
 mix phx.server       # start the server
 iex -S mix phx.server  # with a console</code></pre>
 <p>Open <a class="inline" href="http://localhost:4000">localhost:4000</a>. Server logs land in <code>tmp/phoenix.log</code> / <code>var/log/phoenix.log</code>. You need: PostgreSQL with <b>pgvector</b>, and API keys for your chosen LLM, vision, and embedding providers. Provider/model selection lives in <code>/settings</code>.</p>
+<div class="note warn"><b>Mail in prod.</b> Email confirmation gates voting eligibility, so production must send mail. Set <code>MAIL_API_KEY</code> (SendGrid, wired via Finch in <code>runtime.exs</code>) and a verified sender in <code>MAIL_FROM</code>. Without <code>MAIL_API_KEY</code> the app falls back to the in-memory Local adapter and logs a warning — fine for dev (see <code>/dev/mailbox</code>), but no prod user could confirm and therefore no one could become a trusted voter.</div>
 <div class="note danger">The embedding model's dimensionality is pinned to 768 to match the search index. Changing it corrupts existing vectors — only do it as part of a full re-embed.</div>
 
 <h2 id="extend">Extending the app</h2>
