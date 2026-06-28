@@ -56,7 +56,6 @@ defmodule RuleMavenWeb.Router do
       live "/games/import", GameLive.Import, :index
       live "/games/:id", GameLive.Show, :show
       live "/games/:id/edit", GameLive.Form, :edit
-      live "/games/:id/review", GameLive.Review, :index
       live "/games/:id/faq", GameLive.Faq, :index
       live "/settings", SettingsLive, :index
       live "/settings/usage", SettingsLive, :usage
@@ -65,6 +64,10 @@ defmodule RuleMavenWeb.Router do
     live_session :admin,
       on_mount: [{RuleMavenWeb.UserLiveAuth, :admin}],
       session: {RuleMavenWeb.UserLiveAuth, :get_session, []} do
+      # Admin-only review surface. Kept in the :admin session so the on_mount
+      # hook halts non-admins before mount — the in-mount redirect alone is
+      # client-side and does not stop forged events on a raw socket.
+      live "/games/:id/review", GameLive.Review, :index
       live "/admin", AdminLive.Index, :index
       live "/admin/db", AdminLive.Db, :index
       live "/admin/security", AdminLive.Security, :index
