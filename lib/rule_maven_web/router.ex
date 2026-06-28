@@ -33,6 +33,7 @@ defmodule RuleMavenWeb.Router do
     post "/login", SessionController, :create
     get "/logout", AuthController, :logout
     get "/auto-login", AuthController, :auto_login
+    get "/confirm/:token", ConfirmationController, :confirm
     get "/games/:id/cheatsheet", CheatSheetController, :show
     get "/games/:id/cheatsheet/:version_id", CheatSheetController, :show_version
     # Extracted-text HTML view, admin-gated (rulebooks may be copyrighted; the
@@ -81,5 +82,14 @@ defmodule RuleMavenWeb.Router do
     pipe_through [:browser]
 
     oban_dashboard("/oban", on_mount: [RuleMavenWeb.ObanAuthHook])
+  end
+
+  # Preview sent emails in dev (Local adapter stores them in memory).
+  if Application.compile_env(:rule_maven, :dev_routes) do
+    scope "/dev" do
+      pipe_through :browser
+
+      forward "/mailbox", Plug.Swoosh.MailboxPreview
+    end
   end
 end

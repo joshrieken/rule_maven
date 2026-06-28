@@ -17,7 +17,13 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
     u
   end
 
-  defp pooled_row(game, author, trust, embedding) do
+  # A voter eligible to count toward a promotion quorum: email confirmed.
+  defp confirmed_user(name) do
+    {:ok, u} = user_fixture(name) |> User.confirm_changeset() |> Repo.update()
+    u
+  end
+
+  defp pooled_row(game, author, embedding) do
     {:ok, q} =
       Games.log_question(%{
         game_id: game.id,
@@ -26,8 +32,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
         answer: "Score like so.",
         cited_passage: "p.3",
         visibility: "private",
-        pooled: true,
-        trust_score: trust
+        pooled: true
       })
 
     Repo.update_all(
@@ -43,11 +48,13 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
     %{game: game_fixture(), author: user_fixture("author")}
   end
 
-  test "promotes a pooled row above the floor and rewards the author", %{
-    game: game,
-    author: author
-  } do
-    row = pooled_row(game, author, 5.0, Enum.to_list(1..768))
+  test "promotes a pooled row that clears the floor with a quorum of eligible voters",
+       %{game: game, author: author} do
+    row = pooled_row(game, author, Enum.to_list(1..768))
+
+    # Two confirmed, distinct, non-author upvotes + citation bonus = 3.0 >= floor.
+    Games.set_community_vote(row.id, confirmed_user("v1").id, "up")
+    Games.set_community_vote(row.id, confirmed_user("v2").id, "up")
 
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
 
@@ -55,11 +62,37 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
     assert Repo.get(User, author.id).reputation > 0
   end
 
-  test "leaves a below-floor row private", %{game: game, author: author} do
-    row = pooled_row(game, author, 1.0, Enum.to_list(1..768))
+  test "does not promote without a voter quorum even above the floor",
+       %{game: game, author: author} do
+    row = pooled_row(game, author, Enum.to_list(1..768))
+
+    # One high-rep confirmed voter can clear the floor alone, but quorum (2) is
+    # not met, so it must stay private.
+    {:ok, voter} = confirmed_user("solo") |> Ecto.Changeset.change(reputation: 50) |> Repo.update()
+    Games.set_community_vote(row.id, voter.id, "up")
+
+    assert Repo.get(QuestionLog, row.id).trust_score >= 3.0
+    assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
+    assert Repo.get(QuestionLog, row.id).visibility == "private"
+  end
+
+  test "unconfirmed voters do not count toward quorum",
+       %{game: game, author: author} do
+    row = pooled_row(game, author, Enum.to_list(1..768))
+
+    # Two votes, but neither voter has confirmed their email → quorum unmet.
+    Games.set_community_vote(row.id, user_fixture("u1").id, "up")
+    Games.set_community_vote(row.id, user_fixture("u2").id, "up")
 
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
+    assert Repo.get(QuestionLog, row.id).visibility == "private"
+  end
 
+  test "leaves a below-floor row private", %{game: game, author: author} do
+    row = pooled_row(game, author, Enum.to_list(1..768))
+    Games.set_community_vote(row.id, confirmed_user("v1").id, "up")
+
+    assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
     assert Repo.get(QuestionLog, row.id).visibility == "private"
   end
 end

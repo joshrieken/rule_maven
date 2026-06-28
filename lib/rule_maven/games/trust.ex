@@ -25,6 +25,13 @@ defmodule RuleMaven.Games.Trust do
   @default_trusted_floor 3.0
   @default_promotion_floor 3.0
   @default_vote_weight_cap 4.0
+  # Minimum distinct, eligible, non-author voters a row must have before it can
+  # be promoted to the community pool. Stops a single (or single high-rep) vote
+  # from auto-promoting an answer.
+  @default_promotion_quorum 2
+  # Accounts younger than this (hours) don't count toward a promotion quorum.
+  # Raises the cost of sybil voting. 0 disables the age gate (set in prod).
+  @default_vote_min_age_hours 0
 
   @citation_bonus 1.0
   @verified_floor 100.0
@@ -98,11 +105,39 @@ defmodule RuleMaven.Games.Trust do
     (is_binary(p) and String.trim(p) != "") or not is_nil(pg)
   end
 
+  @doc """
+  Count of distinct, promotion-eligible voters on a row, excluding the answer's
+  author. A voter is eligible if their email is confirmed AND their account is at
+  least `vote_min_age_hours` old. This is the quorum signal — votes still affect
+  `trust_score`/labels even from ineligible voters, but only eligible distinct
+  voters gate promotion.
+  """
+  def eligible_voter_count(%QuestionLog{id: id, user_id: author_id}),
+    do: eligible_voter_count(id, author_id)
+
+  def eligible_voter_count(question_log_id, author_id) do
+    cutoff = DateTime.add(DateTime.utc_now(), -round(vote_min_age_hours() * 3600), :second)
+    exclude = author_id || -1
+
+    Repo.one(
+      from v in QuestionVote,
+        join: u in User,
+        on: u.id == v.user_id,
+        where: v.question_log_id == ^question_log_id,
+        where: v.user_id != ^exclude,
+        where: not is_nil(u.email_confirmed_at),
+        where: u.inserted_at <= ^cutoff,
+        select: count(v.user_id, :distinct)
+    ) || 0
+  end
+
   # --- settings floors -------------------------------------------------------
 
   def trusted_floor, do: get_float("trusted_floor", @default_trusted_floor)
   def promotion_floor, do: get_float("promotion_floor", @default_promotion_floor)
   def vote_weight_cap, do: get_float("vote_weight_cap", @default_vote_weight_cap)
+  def promotion_quorum, do: round(get_float("promotion_quorum", @default_promotion_quorum))
+  def vote_min_age_hours, do: get_float("vote_min_account_age_hours", @default_vote_min_age_hours)
 
   defp get_float(key, default) do
     case RuleMaven.Settings.get(key) do

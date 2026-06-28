@@ -1303,10 +1303,19 @@ defmodule RuleMaven.Games do
   def pool_tier(%QuestionLog{} = q, floor \\ nil) do
     floor = floor || RuleMaven.Games.Trust.trusted_floor()
 
-    if q.visibility == "community" or q.verified or (q.trust_score || 0.0) >= floor do
-      :trusted
-    else
-      :provisional
+    cond do
+      # Admin-curated tiers are unconditionally trusted.
+      q.visibility == "community" or q.verified ->
+        :trusted
+
+      # Earning trust by votes also requires a quorum of distinct, eligible
+      # voters — so a single (or sybil) vote can't flip the label to trusted.
+      (q.trust_score || 0.0) >= floor and
+          RuleMaven.Games.Trust.eligible_voter_count(q) >= RuleMaven.Games.Trust.promotion_quorum() ->
+        :trusted
+
+      true ->
+        :provisional
     end
   end
 
@@ -2221,6 +2230,24 @@ defmodule RuleMaven.Games do
   end
 
   def set_community_vote(question_log_id, user_id, value) do
+    q = Repo.get(QuestionLog, question_log_id)
+
+    cond do
+      is_nil(q) -> {:error, :not_found}
+      q.user_id == user_id -> {:error, :self_vote}
+      not votable?(q) -> {:error, :not_votable}
+      true -> do_set_community_vote(q, user_id, value)
+    end
+  end
+
+  # A row is votable only if it can actually surface to other users: community
+  # rows, pooled rows, or citation-backed rows (which become pool-eligible). This
+  # also blocks voting on arbitrary private/uncited rows by id (IDOR).
+  defp votable?(%QuestionLog{} = q) do
+    q.visibility == "community" or q.pooled or RuleMaven.Games.Trust.has_citation?(q)
+  end
+
+  defp do_set_community_vote(%QuestionLog{id: question_log_id}, user_id, value) do
     existing = get_user_community_vote(question_log_id, user_id)
     weight = RuleMaven.Games.Trust.vote_weight(Repo.get(RuleMaven.Users.User, user_id))
 

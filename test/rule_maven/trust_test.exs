@@ -175,6 +175,75 @@ defmodule RuleMaven.TrustTest do
     end
   end
 
+  describe "set_community_vote/3 guards" do
+    setup do
+      game = game_fixture()
+      %{game: game, author: user_fixture("author"), voter: user_fixture("voter")}
+    end
+
+    test "rejects self-votes", %{game: game, author: author} do
+      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+      assert {:error, :self_vote} = Games.set_community_vote(q.id, author.id, "up")
+      # Rejected before any recompute, so the stored score is untouched.
+      assert Repo.reload!(q).trust_score == 0.0
+      assert is_nil(Games.get_user_community_vote(q.id, author.id))
+    end
+
+    test "rejects votes on non-votable (private, uncited) rows", %{
+      game: game,
+      author: author,
+      voter: voter
+    } do
+      q = log(game, author, %{cited_passage: nil, cited_page: nil, visibility: "private"})
+      assert {:error, :not_votable} = Games.set_community_vote(q.id, voter.id, "up")
+    end
+
+    test "rejects votes on a missing row", %{voter: voter} do
+      assert {:error, :not_found} = Games.set_community_vote(-1, voter.id, "up")
+    end
+
+    test "allows a normal vote on a citation-backed row", %{
+      game: game,
+      author: author,
+      voter: voter
+    } do
+      q = log(game, author, %{cited_passage: "p.1"})
+      assert "up" = Games.set_community_vote(q.id, voter.id, "up")
+    end
+  end
+
+  describe "eligible_voter_count/1" do
+    setup do
+      game = game_fixture()
+      %{game: game, author: user_fixture("author")}
+    end
+
+    defp confirm(user) do
+      {:ok, u} = user |> RuleMaven.Users.User.confirm_changeset() |> Repo.update()
+      u
+    end
+
+    test "counts only confirmed, non-author voters", %{game: game, author: author} do
+      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+      confirmed = confirm(user_fixture("confirmed"))
+      unconfirmed = user_fixture("unconfirmed")
+
+      Games.set_community_vote(q.id, confirmed.id, "up")
+      Games.set_community_vote(q.id, unconfirmed.id, "up")
+
+      assert Trust.eligible_voter_count(Repo.reload!(q)) == 1
+    end
+
+    test "excludes the author even when the author somehow has a vote row", %{
+      game: game,
+      author: author
+    } do
+      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+      # author self-votes are blocked at the API; count must still exclude them.
+      assert Trust.eligible_voter_count(q) == 0
+    end
+  end
+
   describe "privacy boundary" do
     test "a pooled private row never appears in browse/list surfaces" do
       game = game_fixture()

@@ -285,6 +285,10 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> mark_pending_thinking()
   end
 
+  defp vote_error_message(:self_vote), do: "You can't vote on your own answer."
+  defp vote_error_message(:not_votable), do: "This answer isn't open for voting."
+  defp vote_error_message(_), do: "Couldn't record your vote."
+
   # Source rows behind pool hits in the current thread — so their vote
   # counts/state load alongside the community list.
   defp conversation_source_ids(conversation) do
@@ -469,15 +473,20 @@ defmodule RuleMavenWeb.GameLive.Show do
   def handle_event("community_vote", %{"id" => id_str, "vote" => value}, socket) do
     {id, _} = Integer.parse(id_str)
     uid = socket.assigns.current_user.id
-    Games.set_community_vote(id, uid, value)
 
-    vote_ids =
-      Enum.map(socket.assigns.community_questions, & &1.id) ++
-        conversation_source_ids(socket.assigns.conversation) ++
-        conversation_answer_ids(socket.assigns.conversation)
+    case Games.set_community_vote(id, uid, value) do
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, vote_error_message(reason))}
 
-    {cv_counts, cv_user} = Games.community_vote_maps(vote_ids, uid)
-    {:noreply, assign(socket, community_vote_counts: cv_counts, community_user_votes: cv_user)}
+      _ ->
+        vote_ids =
+          Enum.map(socket.assigns.community_questions, & &1.id) ++
+            conversation_source_ids(socket.assigns.conversation) ++
+            conversation_answer_ids(socket.assigns.conversation)
+
+        {cv_counts, cv_user} = Games.community_vote_maps(vote_ids, uid)
+        {:noreply, assign(socket, community_vote_counts: cv_counts, community_user_votes: cv_user)}
+    end
   end
 
   @impl true

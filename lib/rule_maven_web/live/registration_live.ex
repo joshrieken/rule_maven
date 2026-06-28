@@ -44,6 +44,7 @@ defmodule RuleMavenWeb.RegistrationLive do
       case Users.create_user(%{username: username, email: email, password: password}) do
         {:ok, user} ->
           InviteCodes.use_code(code)
+          send_confirmation_email(user)
           token = Phoenix.Token.sign(socket, "auto-login", user.id)
 
           {:noreply,
@@ -61,6 +62,17 @@ defmodule RuleMavenWeb.RegistrationLive do
     else
       {:noreply, assign(socket, errors: errors, invite_code: code, username: username, email: email)}
     end
+  end
+
+  # Mail the email-confirmation link. Best-effort: a mail failure must not block
+  # registration (the user can re-request confirmation later).
+  defp send_confirmation_email(user) do
+    Users.deliver_user_confirmation_instructions(
+      user,
+      &(RuleMavenWeb.Endpoint.url() <> "/confirm/" <> &1)
+    )
+  rescue
+    _ -> :ok
   end
 
   @impl true

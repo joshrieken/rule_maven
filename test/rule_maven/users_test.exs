@@ -25,6 +25,32 @@ defmodule RuleMaven.UsersTest do
       %{player: player, gm: gm}
     end
 
+    test "email confirmation: deliver, confirm, and idempotency", %{player: player} do
+      refute Users.email_confirmed?(player)
+
+      # The notifier returns the built email; pull the token straight out of it.
+      {:ok, email} =
+        Users.deliver_user_confirmation_instructions(player, fn t -> "http://x/confirm/" <> t end)
+
+      [_, token] = Regex.run(~r{/confirm/(\S+)}, email.text_body)
+
+      assert {:ok, confirmed} = Users.confirm_user(token)
+      assert Users.email_confirmed?(confirmed)
+      # Token is burned — second use fails.
+      assert :error = Users.confirm_user(token)
+    end
+
+    test "deliver is a no-op once already confirmed", %{player: player} do
+      {:ok, confirmed} = player |> User.confirm_changeset() |> Repo.update()
+
+      assert {:error, :already_confirmed} =
+               Users.deliver_user_confirmation_instructions(confirmed, fn t -> t end)
+    end
+
+    test "confirm_user/1 rejects a garbage token" do
+      assert :error = Users.confirm_user("not-a-real-token")
+    end
+
     test "list_users/0 returns all users", %{player: player, gm: gm} do
       users = Users.list_users()
       ids = Enum.map(users, & &1.id)

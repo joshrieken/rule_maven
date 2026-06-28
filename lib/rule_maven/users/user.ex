@@ -9,6 +9,7 @@ defmodule RuleMaven.Users.User do
     field :password, :string, virtual: true
     field :password_hash, :string
     field :reputation, :integer, default: 0
+    field :email_confirmed_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end
@@ -60,6 +61,17 @@ defmodule RuleMaven.Users.User do
     |> unique_constraint(:username)
     |> unique_constraint(:email)
   end
+
+  @doc "Stamps the account as email-confirmed (no-op shape if already set)."
+  def confirm_changeset(user) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    change(user, email_confirmed_at: now)
+  end
+
+  @doc "True once the account's email address has been confirmed."
+  def email_confirmed?(%__MODULE__{email_confirmed_at: nil}), do: false
+  def email_confirmed?(%__MODULE__{email_confirmed_at: _}), do: true
+  def email_confirmed?(_), do: false
 
   # Back-compat alias: a game master is anyone with the :admin capability.
   def game_master?(user), do: can?(user, :admin)

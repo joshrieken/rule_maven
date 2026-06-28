@@ -56,6 +56,17 @@ if config_env() == :prod do
 
   config :rule_maven, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
+  # TODO(mail): wire a real mail adapter for prod. Email confirmation gates
+  # vote eligibility, so without this no production user can become a trusted
+  # voter. Example (SendGrid via Finch) — uncomment and set MAIL_API_KEY:
+  #
+  #     config :rule_maven, RuleMaven.Mailer,
+  #       adapter: Swoosh.Adapters.Sendgrid,
+  #       api_key: System.fetch_env!("MAIL_API_KEY")
+  #
+  #     config :swoosh, :api_client, Swoosh.ApiClient.Finch
+  #     config :swoosh, Swoosh.ApiClient.Finch, name: RuleMaven.Finch
+
   config :rule_maven, RuleMavenWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [

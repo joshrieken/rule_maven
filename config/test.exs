@@ -42,6 +42,9 @@ config :phoenix,
 # Disable Oban in test — conflicts with Ecto Sandbox
 config :rule_maven, Oban, testing: :manual
 
+# Capture sent emails in-process so tests can assert on them.
+config :rule_maven, RuleMaven.Mailer, adapter: Swoosh.Adapters.Test
+
 # Wallaby E2E tests — run on port 4003 to avoid conflict with ConnTest (port 4002)
 # Chrome/chromedriver paths set in test_helper.exs (platform-dependent)
 config :wallaby,

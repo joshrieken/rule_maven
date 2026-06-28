@@ -9,6 +9,9 @@ defmodule RuleMaven.Application do
       RuleMaven.Repo,
       {DNSCluster, query: Application.get_env(:rule_maven, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: RuleMaven.PubSub},
+      # HTTP pool for Swoosh API mail adapters (prod). Harmless under the
+      # Local/Test adapters used in dev/test.
+      {Finch, name: RuleMaven.Finch},
       RuleMavenWeb.Endpoint
     ]
 

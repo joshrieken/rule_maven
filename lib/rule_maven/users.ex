@@ -5,7 +5,7 @@ defmodule RuleMaven.Users do
 
   import Ecto.Query, warn: false
   alias RuleMaven.Repo
-  alias RuleMaven.Users.User
+  alias RuleMaven.Users.{User, UserToken, UserNotifier}
 
   def get_user(id), do: Repo.get(User, id)
 
@@ -52,6 +52,50 @@ defmodule RuleMaven.Users do
   end
 
   def delete_user(nil), do: {:error, :not_found}
+
+  # --- email confirmation ----------------------------------------------------
+
+  @doc "True once this user has confirmed their email address."
+  def email_confirmed?(user), do: User.email_confirmed?(user)
+
+  @doc """
+  Generates a confirmation token, persists its hash, and mails the link.
+  `url_fun` receives the raw token and returns the absolute confirm URL.
+  No-op (returns `{:error, :already_confirmed}`) if already confirmed.
+  """
+  def deliver_user_confirmation_instructions(%User{} = user, url_fun)
+      when is_function(url_fun, 1) do
+    if User.email_confirmed?(user) do
+      {:error, :already_confirmed}
+    else
+      {encoded, token} = UserToken.build_email_token(user)
+      Repo.insert!(token)
+      UserNotifier.deliver_confirmation_instructions(user, url_fun.(encoded))
+    end
+  end
+
+  @doc """
+  Confirms a user from an encoded token. Stamps `email_confirmed_at` and burns
+  all of that user's confirmation tokens. Returns `{:ok, user}` or `:error`.
+  """
+  def confirm_user(encoded_token) do
+    with {:ok, query} <- UserToken.verify_email_token_query(encoded_token),
+         %User{} = user <- Repo.one(query),
+         {:ok, %{user: user}} <- Repo.transaction(confirm_user_multi(user)) do
+      {:ok, user}
+    else
+      _ -> :error
+    end
+  end
+
+  defp confirm_user_multi(user) do
+    Ecto.Multi.new()
+    |> Ecto.Multi.update(:user, User.confirm_changeset(user))
+    |> Ecto.Multi.delete_all(
+      :tokens,
+      UserToken.by_user_and_contexts_query(user, ["confirm"])
+    )
+  end
 
   def authenticate(username, password) do
     user = get_user_by_username(username)

@@ -40,12 +40,21 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
 
   defp promote_clusters(rows) do
     floor = RuleMaven.Games.Trust.promotion_floor()
+    quorum = RuleMaven.Games.Trust.promotion_quorum()
 
     rows
     |> cluster_by_similarity()
     |> Enum.each(fn cluster ->
       max_trust = cluster |> Enum.map(&(&1.trust_score || 0.0)) |> Enum.max()
-      if max_trust >= floor, do: promote_representative(cluster)
+      best = representative(cluster)
+
+      # Promote only when the trust floor is crossed AND the representative has a
+      # quorum of distinct, eligible, non-author voters — so a single (or single
+      # high-rep / sybil) vote can't auto-promote.
+      if max_trust >= floor and
+           RuleMaven.Games.Trust.eligible_voter_count(best.id, best.user_id) >= quorum do
+        promote(best)
+      end
     end)
   end
 
@@ -72,15 +81,16 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
   end
 
   # Prefer an admin-curated row, then highest trust, then most recent.
-  defp promote_representative(cluster) do
-    best =
-      cluster
-      |> Enum.sort_by(
-        fn r -> {r.has_canonical, r.trust_score || 0.0, r.inserted_at} end,
-        :desc
-      )
-      |> List.first()
+  defp representative(cluster) do
+    cluster
+    |> Enum.sort_by(
+      fn r -> {r.has_canonical, r.trust_score || 0.0, r.inserted_at} end,
+      :desc
+    )
+    |> List.first()
+  end
 
+  defp promote(best) do
     Repo.update_all(
       from(q in QuestionLog, where: q.id == ^best.id),
       set: [visibility: "community", pooled: true]
