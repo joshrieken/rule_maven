@@ -31,45 +31,34 @@ function showVoteThanks() {
 }
 window.addEventListener("phx:vote_thanks", showVoteThanks);
 
-// Make open <details class="card-menu"> dropdowns behave like a modal: a
-// transparent full-screen backdrop sits just under the open menu, so a tap
-// anywhere outside closes the menu and is swallowed (it doesn't also activate
-// whatever was underneath). The next tap then interacts normally.
+// Make open <details class="card-menu"> dropdowns behave like a modal: a click
+// anywhere outside the open menu closes it and is swallowed (it does NOT also
+// activate whatever is underneath), so the next click interacts normally.
+//
+// A full-screen backdrop element can't work here because the menu lives inside
+// .chat-messages (z-index:1), a stacking context the popup can't escape — a
+// body-level backdrop would always paint over it. Instead we swallow the
+// outside click directly in the capture phase, before it reaches its target or
+// LiveView's delegated handler.
 (function () {
-  let backdrop = null;
   let owner = null;
 
-  function hide() {
-    if (backdrop) backdrop.remove();
-    if (owner) {
-      const pop = owner.querySelector(".card-menu__pop");
-      if (pop) pop.style.zIndex = "";
-    }
-    backdrop = null;
-    owner = null;
+  function insideOpenMenu(target) {
+    if (!owner) return false;
+    const pop = owner.querySelector(".card-menu__pop");
+    const sum = owner.querySelector("summary");
+    return (pop && pop.contains(target)) || (sum && sum.contains(target));
   }
 
-  function show(det) {
-    hide();
-    owner = det;
-    // Lift this menu's popup above the backdrop; backdrop covers everything else.
-    const pop = det.querySelector(".card-menu__pop");
-    if (pop) pop.style.zIndex = "9001";
-    backdrop = document.createElement("div");
-    backdrop.className = "card-menu-backdrop";
-    backdrop.style.cssText =
-      "position:fixed;inset:0;z-index:9000;background:transparent";
-    // The backdrop is the topmost element, so the tap targets it (never the
-    // content underneath). Closing + stopping the event means "just dismiss".
-    const dismiss = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      det.open = false; // fires toggle -> hide()
-    };
-    backdrop.addEventListener("click", dismiss, true);
-    backdrop.addEventListener("touchstart", dismiss, { capture: true, passive: false });
-    document.body.appendChild(backdrop);
+  function swallowOutside(e) {
+    if (!owner || insideOpenMenu(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    owner.open = false; // fires toggle -> owner = null
   }
+  // Capture on window: runs before the target and before LiveView's listeners.
+  window.addEventListener("click", swallowOutside, true);
 
   // toggle doesn't bubble; capture phase still reaches a document listener.
   document.addEventListener(
@@ -80,15 +69,12 @@ window.addEventListener("phx:vote_thanks", showVoteThanks);
         return;
       }
       if (det.open) {
-        // Only one card-menu open at a time.
-        document
-          .querySelectorAll("details.card-menu[open]")
-          .forEach((d) => {
-            if (d !== det) d.open = false;
-          });
-        show(det);
+        document.querySelectorAll("details.card-menu[open]").forEach((d) => {
+          if (d !== det) d.open = false;
+        });
+        owner = det;
       } else if (owner === det) {
-        hide();
+        owner = null;
       }
     },
     true
