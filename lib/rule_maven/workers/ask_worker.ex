@@ -111,11 +111,22 @@ defmodule RuleMaven.Workers.AskWorker do
                 ""
               end
 
+            # Validate the citation against the chunks the answer was generated
+            # from — a merely-present (possibly hallucinated) citation must not
+            # earn pooling or the trust bonus.
+            citation_valid =
+              RuleMaven.Games.Citations.valid?(
+                passage,
+                cited_page,
+                llm_result[:source_chunks]
+              )
+
             update_attrs = %{
               answer: answer,
               question: if(cleaned != "", do: cleaned, else: question),
               cited_passage: passage,
               cited_page: cited_page,
+              citation_valid: citation_valid,
               refused: refused?,
               verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
               followups: if(refused?, do: [], else: llm_result[:followups] || []),

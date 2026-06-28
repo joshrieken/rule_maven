@@ -1015,7 +1015,8 @@ defmodule RuleMaven.Games do
     attrs = %{
       verified: false,
       visibility: "private",
-      pooled: RuleMaven.Games.Trust.has_citation?(q)
+      # Stay pooled only if the citation is grounded (not merely present).
+      pooled: q.citation_valid
     }
 
     with {:ok, updated} <- Repo.update(QuestionLog.changeset(q, attrs)) do
@@ -1320,12 +1321,15 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Marks a row cache-eligible when it carries a citation and was not refused.
-  No-op if `pooled` was explicitly turned off (a per-account opt-out can set
-  `pooled = false`). Returns the (possibly updated) row.
+  Marks a row cache-eligible when it carries a *grounded* citation
+  (`citation_valid`) and was not refused. No-op if `pooled` was explicitly
+  turned off (a per-account opt-out can set `pooled = false`). Returns the
+  (possibly updated) row.
   """
   def mark_pooled(%QuestionLog{pooled: false, refused: false} = q) do
-    if RuleMaven.Games.Trust.has_citation?(q) do
+    # Pool only when the citation is grounded in the source (not merely present),
+    # so a hallucinated citation can't earn cross-user serving.
+    if q.citation_valid do
       case log_question_update(q, %{pooled: true}) do
         {:ok, updated} -> updated
         _ -> q
@@ -2241,10 +2245,10 @@ defmodule RuleMaven.Games do
   end
 
   # A row is votable only if it can actually surface to other users: community
-  # rows, pooled rows, or citation-backed rows (which become pool-eligible). This
-  # also blocks voting on arbitrary private/uncited rows by id (IDOR).
+  # rows (browse/FAQ) or pooled rows (served as fast-path answers). This blocks
+  # voting on rows that never surface — e.g. arbitrary private rows by id (IDOR).
   defp votable?(%QuestionLog{} = q) do
-    q.visibility == "community" or q.pooled or RuleMaven.Games.Trust.has_citation?(q)
+    q.visibility == "community" or q.pooled
   end
 
   defp do_set_community_vote(%QuestionLog{id: question_log_id}, user_id, value) do

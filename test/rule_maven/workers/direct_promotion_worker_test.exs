@@ -31,6 +31,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
         question: "How does scoring work?",
         answer: "Score like so.",
         cited_passage: "p.3",
+        citation_valid: true,
         visibility: "private",
         pooled: true
       })

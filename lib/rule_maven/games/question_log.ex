@@ -25,6 +25,7 @@ defmodule RuleMaven.Games.QuestionLog do
     field :canonical_question, :string
     field :canonical_answer, :string
     field :trust_score, :float, default: 0.0
+    field :citation_valid, :boolean, default: false
     field :pooled, :boolean, default: false
     field :pool_source_id, :integer
     # Set when a rulebook content change may have invalidated a community answer.
@@ -67,6 +68,7 @@ defmodule RuleMaven.Games.QuestionLog do
       :canonical_question,
       :canonical_answer,
       :trust_score,
+      :citation_valid,
       :pooled,
       :pool_source_id,
       :needs_review,

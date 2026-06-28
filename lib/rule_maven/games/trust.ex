@@ -65,7 +65,9 @@ defmodule RuleMaven.Games.Trust do
       ) || {nil, nil}
 
     net = (up || 0.0) - (down || 0.0)
-    citation = if has_citation?(q), do: @citation_bonus, else: 0.0
+    # Bonus only for a citation that's actually grounded in the source, not one
+    # that's merely present (which a hallucination can fake).
+    citation = if q.citation_valid, do: @citation_bonus, else: 0.0
     base = net + citation
     score = if q.verified, do: max(base, @verified_floor), else: base
 

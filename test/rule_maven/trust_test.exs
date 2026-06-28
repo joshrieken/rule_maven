@@ -54,12 +54,15 @@ defmodule RuleMaven.TrustTest do
       %{game: game, author: author, voter: voter}
     end
 
-    test "citation bonus applies only with a citation", %{game: game, author: author} do
+    test "citation bonus applies only with a grounded citation", %{game: game, author: author} do
       uncited = log(game, author, %{cited_passage: nil, cited_page: nil})
-      cited = log(game, author, %{cited_passage: "see p.4", cited_page: 4})
+      ungrounded = log(game, author, %{cited_passage: "see p.4", cited_page: 4})
+      grounded = log(game, author, %{cited_passage: "see p.4", cited_page: 4, citation_valid: true})
 
       assert Trust.recompute_trust(uncited) == 0.0
-      assert Trust.recompute_trust(cited) == 1.0
+      # Citation present but not validated → no bonus.
+      assert Trust.recompute_trust(ungrounded) == 0.0
+      assert Trust.recompute_trust(grounded) == 1.0
     end
 
     test "upvotes raise and downvotes lower the score", %{
@@ -67,7 +70,7 @@ defmodule RuleMaven.TrustTest do
       author: author,
       voter: voter
     } do
-      q = log(game, author, %{cited_passage: "see p.4"})
+      q = log(game, author, %{cited_passage: "see p.4", citation_valid: true, pooled: true})
 
       Games.set_community_vote(q.id, voter.id, "up")
       assert Repo.reload!(q).trust_score > 1.0
@@ -132,7 +135,7 @@ defmodule RuleMaven.TrustTest do
       author = user_fixture("author")
       voter = user_fixture("voter")
 
-      q = log(game, author, %{cited_passage: "p.1"})
+      q = log(game, author, %{cited_passage: "p.1", pooled: true})
       Games.set_community_vote(q.id, voter.id, "up")
 
       assert Repo.get(User, author.id).reputation >= 1
@@ -144,9 +147,21 @@ defmodule RuleMaven.TrustTest do
       %{game: game_fixture(), author: user_fixture("a")}
     end
 
-    test "pools a citation-backed, non-refused row", %{game: game, author: author} do
-      q = log(game, author, %{cited_passage: "see p.2", pooled: false, refused: false})
+    test "pools a grounded-citation, non-refused row", %{game: game, author: author} do
+      q =
+        log(game, author, %{
+          cited_passage: "see p.2",
+          citation_valid: true,
+          pooled: false,
+          refused: false
+        })
+
       assert Games.mark_pooled(q).pooled == true
+    end
+
+    test "does not pool a present-but-ungrounded citation", %{game: game, author: author} do
+      q = log(game, author, %{cited_passage: "see p.2", citation_valid: false, pooled: false})
+      assert Games.mark_pooled(q).pooled == false
     end
 
     test "does not pool an uncited row", %{game: game, author: author} do
@@ -202,12 +217,12 @@ defmodule RuleMaven.TrustTest do
       assert {:error, :not_found} = Games.set_community_vote(-1, voter.id, "up")
     end
 
-    test "allows a normal vote on a citation-backed row", %{
+    test "allows a normal vote on a pooled row", %{
       game: game,
       author: author,
       voter: voter
     } do
-      q = log(game, author, %{cited_passage: "p.1"})
+      q = log(game, author, %{cited_passage: "p.1", pooled: true})
       assert "up" = Games.set_community_vote(q.id, voter.id, "up")
     end
   end
