@@ -1369,22 +1369,27 @@ defmodule RuleMavenWeb.GameLive.Show do
                 Cheat Sheet
               </.link>
             <% end %>
-            <.link
+            <details
               :if={RuleMaven.Users.can?(@current_user, :admin)}
-              navigate={~p"/games/#{@game.id}/edit"}
-              class="action-link"
+              class="card-menu"
               style="flex-shrink:0"
             >
-              Edit
-            </.link>
-            <.link
-              :if={RuleMaven.Users.can?(@current_user, :admin)}
-              navigate={~p"/games/#{@game.id}/review"}
-              class="action-link"
-              style="flex-shrink:0"
-            >
-              Review
-            </.link>
+              <summary
+                class="action-link"
+                style="display:inline-flex;align-items:center;gap:0.2rem"
+                title="Admin actions"
+              >
+                Admin <span style="font-size:0.6rem;opacity:0.6">▾</span>
+              </summary>
+              <div class="card-menu__pop card-menu__pop--right">
+                <.link navigate={~p"/games/#{@game.id}/edit"} class="card-menu__item">
+                  ✏️ Edit
+                </.link>
+                <.link navigate={~p"/games/#{@game.id}/review"} class="card-menu__item">
+                  🔍 Review
+                </.link>
+              </div>
+            </details>
           </div>
         </div>
       </div>
@@ -1881,81 +1886,71 @@ defmodule RuleMavenWeb.GameLive.Show do
                     </figure>
                   <% end %>
 
-                  <!-- Citation confidence meter -->
+                  <!-- Citation confidence pill (compact) -->
                   <%= if msg.role == :assistant && !msg[:refused] &&
                          msg.content != "Thinking..." && !msg[:pending] &&
                          not String.starts_with?(to_string(msg.content), "⚠️") do %>
                     <% {conf_label, conf_level, conf_color, conf_help, conf_next} =
                       answer_confidence(msg) %>
-                    <div style="margin-top:0.6rem">
-                      <div style="display:flex;align-items:center;justify-content:space-between;font-size:0.62rem;font-weight:600;color:var(--text-muted);margin-bottom:0.2rem">
-                        <span style="display:inline-flex;align-items:center;gap:0.3rem">
-                          {conf_label}
-                          <span class="conf-help">
-                            <button
-                              type="button"
-                              class="conf-help__btn"
-                              aria-label={"What \"#{conf_label}\" means"}
-                            >?</button>
-                            <span class="conf-help__pop" role="tooltip">
-                              {conf_help}
-                              <span
-                                :if={conf_next}
-                                style="display:block;margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid rgba(255,255,255,0.2)"
-                              >
-                                <span style="font-weight:700">Next level:</span> {conf_next}
-                              </span>
-                            </span>
-                          </span>
-                        </span>
-                        <span style={"color:#{conf_color}"}>{conf_word(conf_level)}</span>
-                      </div>
-                      <div
-                        style="display:flex;gap:3px"
-                        aria-label={"Confidence: #{conf_word(conf_level)} (#{conf_level} of #{conf_max()})"}
-                      >
+                    <div
+                      class="conf-pill"
+                      aria-label={"Confidence: #{conf_word(conf_level)} (#{conf_level} of #{conf_max()})"}
+                    >
+                      <span class="conf-pill__dots" aria-hidden="true">
                         <span
                           :for={seg <- 1..conf_max()}
-                          style={"flex:1;height:4px;border-radius:999px;background:#{if seg <= conf_level, do: conf_color, else: "var(--border)"}"}
+                          class="conf-pill__dot"
+                          style={if seg <= conf_level, do: "background:#{conf_color}"}
                         />
-                      </div>
+                      </span>
+                      <span style={"color:#{conf_color};font-weight:700"}>{conf_word(conf_level)}</span>
+                      <span style="opacity:0.75">· {conf_label}</span>
+                      <span class="conf-help">
+                        <button
+                          type="button"
+                          class="conf-help__btn"
+                          aria-label={"What \"#{conf_label}\" means"}
+                        >?</button>
+                        <span class="conf-help__pop" role="tooltip">
+                          {conf_help}
+                          <span
+                            :if={conf_next}
+                            style="display:block;margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid rgba(255,255,255,0.2)"
+                          >
+                            <span style="font-weight:700">Next level:</span> {conf_next}
+                          </span>
+                        </span>
+                      </span>
                     </div>
                   <% end %>
 
-                  <!-- Followup suggestions -->
-                  <%= if msg.role == :assistant && msg[:followups] != nil && msg[:followups] != [] do %>
+                  <!-- Related questions: followups (refine) + also-asked (separate) merged -->
+                  <% has_followups = msg.role == :assistant && msg[:followups] not in [nil, []] %>
+                  <% has_also = msg.role == :assistant && msg[:also_asked] not in [nil, []] %>
+                  <%= if has_followups || has_also do %>
                     <div style="margin-top:0.75rem;padding:0.6rem 0.75rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.5rem">
                       <div style="color:var(--text-muted);font-weight:600;margin-bottom:0.4rem;font-size:0.72rem">
-                        You might also ask:
+                        Related questions
                       </div>
                       <div style="display:flex;flex-direction:column;gap:0.3rem">
-                        <%= for q <- msg[:followups] do %>
+                        <%= if has_followups do %>
                           <button
+                            :for={q <- msg[:followups]}
                             type="button"
                             phx-click="ask_suggestion"
                             phx-value-q={q}
                             disabled={@pending_count >= @max_concurrent}
-                            style="text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.35rem;padding:0.3rem 0.5rem;font-size:0.82rem;color:var(--text);cursor:pointer;line-height:1.35"
+                            style="text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.35rem;padding:0.3rem 0.5rem;font-size:0.8rem;color:var(--text);cursor:pointer;line-height:1.35"
                           >{q}</button>
                         <% end %>
-                      </div>
-                    </div>
-                  <% end %>
-
-                  <!-- Also asked: other questions from same message, answered separately -->
-                  <%= if msg.role == :assistant && msg[:also_asked] != nil && msg[:also_asked] != [] do %>
-                    <div style="margin-top:0.75rem;padding:0.6rem 0.75rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.5rem;font-size:0.72rem">
-                      <div style="color:var(--text-muted);font-weight:600;margin-bottom:0.4rem">
-                        You also asked — tap to ask separately:
-                      </div>
-                      <div style="display:flex;flex-direction:column;gap:0.3rem">
-                        <%= for q <- msg[:also_asked] do %>
+                        <%= if has_also do %>
                           <button
+                            :for={q <- msg[:also_asked]}
                             type="button"
                             phx-click="quick_ask"
                             phx-value-question={q}
                             disabled={@pending_count >= @max_concurrent}
-                            style="text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.35rem;padding:0.3rem 0.5rem;font-size:0.72rem;color:var(--text);cursor:pointer;line-height:1.35"
+                            style="text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.35rem;padding:0.3rem 0.5rem;font-size:0.8rem;color:var(--text);cursor:pointer;line-height:1.35"
                           >{q}</button>
                         <% end %>
                       </div>
@@ -2015,48 +2010,53 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </div>
                 </div>
 
-                <!-- Persona voice switcher -->
-                <div
-                  :if={
-                    msg.role == :assistant && !msg[:refused] &&
-                      msg.content != "Thinking..." && !msg[:pending] &&
-                      not String.starts_with?(to_string(msg.content), "⚠️")
-                  }
-                  style="display:flex;flex-wrap:wrap;gap:0.25rem;align-items:center;padding:0.4rem 0.25rem 0"
-                >
-                  <span style="font-size:0.6rem;color:var(--text-muted);font-weight:600;margin-right:0.15rem">
-                    🎭 Voice:
-                  </span>
+                <!-- Persona voice switcher (collapsed into a dropdown) -->
+                <% show_voice =
+                  msg.role == :assistant && !msg[:refused] &&
+                    msg.content != "Thinking..." && !msg[:pending] &&
+                    not String.starts_with?(to_string(msg.content), "⚠️") %>
+                <%= if show_voice do %>
                   <% cur_voice = Map.get(@voice_sel, msg[:id], @default_voice) %>
-                  <%= for v <- RuleMaven.Voices.all() do %>
-                    <% active = cur_voice == v.id %>
-                    <button
-                      type="button"
-                      phx-click="set_voice"
-                      phx-value-id={msg[:id]}
-                      phx-value-voice={v.id}
-                      title={v.label}
-                      style={"display:inline-flex;align-items:center;gap:0.2rem;border-radius:999px;font-size:0.65rem;cursor:pointer;padding:0.12rem 0.45rem;font-weight:600;border:1px solid #{if active, do: "var(--accent)", else: "var(--border)"};background:#{if active, do: "var(--accent)", else: "var(--bg-surface)"};color:#{if active, do: "#fff", else: "var(--text-muted)"}"}
-                    >
-                      <span aria-hidden="true">{v.emoji}</span>
-                      <span>{v.label}</span>
-                    </button>
-                  <% end %>
+                  <% cur =
+                    Enum.find(RuleMaven.Voices.all(), &(&1.id == cur_voice)) ||
+                      hd(RuleMaven.Voices.all()) %>
                   <% is_default = cur_voice == @default_voice %>
-                  <button
-                    type="button"
-                    phx-click="set_default_voice"
-                    phx-value-voice={cur_voice}
-                    title={
-                      if is_default,
-                        do: "This voice is your default on every answer",
-                        else: "Use this voice by default on every answer"
-                    }
-                    style={"margin-left:0.25rem;display:inline-flex;align-items:center;gap:0.2rem;border-radius:999px;font-size:0.62rem;cursor:pointer;padding:0.12rem 0.45rem;font-weight:600;border:1px dashed var(--border);background:none;color:#{if is_default, do: "var(--accent)", else: "var(--text-muted)"}"}
-                  >
-                    {if is_default, do: "★ Default", else: "☆ Set default"}
-                  </button>
-                </div>
+                  <details class="card-menu" style="padding:0.4rem 0.25rem 0">
+                    <summary style="font-size:0.65rem;color:var(--text-muted);font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.12rem 0.5rem;background:var(--bg-surface)">
+                      <span aria-hidden="true">🎭</span>
+                      <span>{cur.label}</span>
+                      <span style="opacity:0.6">▾</span>
+                    </summary>
+                    <div class="card-menu__pop">
+                      <button
+                        :for={v <- RuleMaven.Voices.all()}
+                        type="button"
+                        phx-click="set_voice"
+                        phx-value-id={msg[:id]}
+                        phx-value-voice={v.id}
+                        class="card-menu__item"
+                        style={if cur_voice == v.id, do: "background:var(--accent);color:#fff"}
+                      >
+                        <span aria-hidden="true">{v.emoji}</span>
+                        <span>{v.label}</span>
+                      </button>
+                      <button
+                        type="button"
+                        phx-click="set_default_voice"
+                        phx-value-voice={cur_voice}
+                        class="card-menu__item"
+                        style="border-top:1px solid var(--border);border-radius:0;margin-top:0.15rem;padding-top:0.35rem;color:var(--text-muted)"
+                        title={
+                          if is_default,
+                            do: "This voice is your default on every answer",
+                            else: "Use this voice by default on every answer"
+                        }
+                      >
+                        {if is_default, do: "★ Default voice", else: "☆ Set as default"}
+                      </button>
+                    </div>
+                  </details>
+                <% end %>
 
                 <!-- Answer actions (copy + vote) -->
                 <% is_community_msg =
@@ -2071,16 +2071,24 @@ defmodule RuleMavenWeb.GameLive.Show do
                 >
                   <% q_text = find_question_for_answer(@conversation, msg) %>
                   <% plain_text = strip_markdown(msg.content) %>
-                  <button
-                    type="button"
-                    id={"copy-btn-#{idx}"}
-                    phx-hook="ClipboardCopy"
-                    data-clipboard-text={"Q: #{q_text}\n\nA: #{plain_text}"}
-                    style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
-                    title="Copy question and answer"
-                  >Copy</button>
+                  <% can_regen =
+                    cond do
+                      is_community_msg ->
+                        false
 
-                  <!-- Community vote buttons -->
+                      msg[:pool_hit] && msg[:pool_source_id] ->
+                        msg[:pool_provisional] &&
+                          (@is_admin or
+                             Map.get(@community_user_votes, msg[:pool_source_id]) != "up")
+
+                      !msg[:pool_hit] ->
+                        @is_admin or msg[:feedback] != "up"
+
+                      true ->
+                        false
+                    end %>
+
+                  <!-- Community vote buttons (primary action, kept inline) -->
                   <%= if is_community_msg do %>
                     <% cv = Map.get(@community_user_votes, msg[:id]) %>
                     <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
@@ -2139,15 +2147,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                         style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem"
                         title="Total not-helpful votes"
                       >{Map.get(counts, :down, 0)}</span>
-                      <button
-                        :if={msg[:pool_provisional] && (@is_admin or cv != "up")}
-                        type="button"
-                        phx-click="regenerate_answer"
-                        phx-value-id={msg.id}
-                        data-confirm="Regenerate this answer? The current one will be replaced."
-                        style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
-                        title="Generate a fresh answer from the rulebook"
-                      >Regenerate</button>
                     <% else %>
                       <!-- LLM feedback (own questions only) -->
                       <% own_counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
@@ -2175,17 +2174,35 @@ defmodule RuleMavenWeb.GameLive.Show do
                         style="font-size:0.65rem;color:var(--text-muted)"
                         title="Votes from other players who were served this answer"
                       >· {Map.get(own_counts, :up, 0)} 👍 {Map.get(own_counts, :down, 0)} 👎</span>
+                    <% end %>
+                  <% end %>
+
+                  <!-- Overflow: secondary actions (copy, regenerate) -->
+                  <details class="card-menu" style="margin-left:auto">
+                    <summary
+                      style="font-size:0.9rem;line-height:1;color:var(--text-muted);padding:0 0.25rem"
+                      title="More actions"
+                    >⋯</summary>
+                    <div class="card-menu__pop card-menu__pop--right">
                       <button
-                        :if={!msg[:pool_hit] && (@is_admin or msg[:feedback] != "up")}
+                        type="button"
+                        id={"copy-btn-#{idx}"}
+                        phx-hook="ClipboardCopy"
+                        data-clipboard-text={"Q: #{q_text}\n\nA: #{plain_text}"}
+                        class="card-menu__item"
+                        title="Copy question and answer"
+                      >📋 Copy Q&amp;A</button>
+                      <button
+                        :if={can_regen}
                         type="button"
                         phx-click="regenerate_answer"
                         phx-value-id={msg.id}
                         data-confirm="Regenerate this answer? The current one will be replaced."
-                        style="background:none;border:1px solid var(--border);border-radius:0.25rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.4rem;color:var(--text-muted);font-weight:500"
+                        class="card-menu__item"
                         title="Generate a fresh answer from the rulebook"
-                      >Regenerate</button>
-                    <% end %>
-                  <% end %>
+                      >↻ Regenerate</button>
+                    </div>
+                  </details>
                 </div>
 
                 <!-- Category pills (community questions only) -->

@@ -2041,6 +2041,80 @@ textarea {
   transform: translateY(0);
 }
 
+/* ===== Collapsible menus on answer cards ===== */
+.card-menu {
+  position: relative;
+}
+.card-menu > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+.card-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.card-menu__pop {
+  position: absolute;
+  z-index: 30;
+  margin-top: 0.3rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  padding: 0.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 160px;
+}
+.card-menu__pop--right {
+  right: 0;
+}
+/* generic small row button inside a card menu */
+.card-menu__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0.3rem;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.card-menu__item:hover {
+  background: var(--bg-subtle);
+}
+
+/* ===== Compact confidence pill ===== */
+.conf-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.conf-pill__dots {
+  display: inline-flex;
+  gap: 2px;
+}
+.conf-pill__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border);
+}
+
 /* ===== Prose-like Answer ===== */
 .prose {
   max-width: none;
