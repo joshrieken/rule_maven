@@ -1320,6 +1320,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                 class="pill-link"
               >View on BGG</.link>
             <% end %>
+          </div>
+          <div class="flex items-center gap-1" style="flex-wrap:wrap">
+            <%!-- Sidebar toggle: kept first so it is the leftmost control on
+                  whichever row this group wraps onto on narrow screens. --%>
+            <button
+              type="button"
+              phx-click="toggle_sidebar"
+              class="sidebar-toggle"
+              style="background:none;border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.4rem;font-size:0.8rem;cursor:pointer;color:var(--text)"
+            >☰</button>
             <%!-- Rulebook sources dropdown --%>
             <details
               :if={@sources != []}
@@ -1361,14 +1371,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <% end %>
                 </div>
             </details>
-          </div>
-          <div class="flex items-center gap-1" style="flex-wrap:wrap">
-            <button
-              type="button"
-              phx-click="toggle_sidebar"
-              class="sidebar-toggle"
-              style="background:none;border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.4rem;font-size:0.8rem;cursor:pointer;color:var(--text)"
-            >☰</button>
             <%!-- Community --%>
             <%= if @community_count > 0 do %>
               <.link
@@ -1632,9 +1634,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                empty-state card is gone, so keep a slim sticky version pinned
                above the answers (a fast reply otherwise steals the fact). -->
           <%= if @rule_card && @conversation != [] do %>
-            <div style="position:sticky;top:-1rem;z-index:5;margin:-1rem -1rem 1.25rem;padding:0.6rem 1rem;background:var(--bg-surface);border-bottom:1px solid var(--border);box-shadow:0 3px 8px rgba(0,0,0,0.07);display:flex;align-items:flex-start;gap:0.5rem;font-size:0.78rem;line-height:1.45;color:var(--text)">
+            <div style="position:sticky;top:-1rem;z-index:5;margin:-1rem -1rem 1rem;padding:0.4rem 0.75rem;background:var(--bg-surface);border-bottom:1px solid var(--border);box-shadow:0 3px 8px rgba(0,0,0,0.07);display:flex;align-items:flex-start;gap:0.5rem;font-size:0.72rem;line-height:1.35;color:var(--text)">
               <span style="font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--accent-ink,var(--accent));white-space:nowrap;flex-shrink:0">💡 Did you know?</span>
-              <span style="flex:1;min-width:0">
+              <span style="flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
                 {clean_rule_text(@rule_card.content)}
                 <span :if={@rule_card.page_number} style="color:var(--text-muted);white-space:nowrap">· p.{@rule_card.page_number}</span>
               </span>
