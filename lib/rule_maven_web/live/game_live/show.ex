@@ -741,31 +741,6 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
-  defp do_toggle_question_visibility(socket, game, id) do
-    case find_question_log(game, id) do
-      nil ->
-        {:noreply, socket}
-
-      q ->
-        new_vis = if q.visibility == "community", do: "private", else: "community"
-        Games.update_question_visibility(q, new_vis)
-
-        grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-        conversation = build_conversation_for_thread(grouped, socket.assigns.active_thread_id)
-        threads = build_thread_summaries(grouped)
-        community = Games.community_questions(game, socket.assigns.current_user.id)
-
-        {:noreply,
-         assign(socket,
-           conversation: conversation,
-           threads: threads,
-           community_questions: community,
-           pending_count: Enum.count(threads, & &1.pending),
-           refresh: socket.assigns.refresh + 1
-         )}
-    end
-  end
-
   @impl true
   def handle_event("search", %{"query" => query}, socket) do
     {:noreply, assign(socket, search_query: query)}
@@ -890,6 +865,31 @@ defmodule RuleMavenWeb.GameLive.Show do
       end
     else
       {:noreply, socket}
+    end
+  end
+
+  defp do_toggle_question_visibility(socket, game, id) do
+    case find_question_log(game, id) do
+      nil ->
+        {:noreply, socket}
+
+      q ->
+        new_vis = if q.visibility == "community", do: "private", else: "community"
+        Games.update_question_visibility(q, new_vis)
+
+        grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
+        conversation = build_conversation_for_thread(grouped, socket.assigns.active_thread_id)
+        threads = build_thread_summaries(grouped)
+        community = Games.community_questions(game, socket.assigns.current_user.id)
+
+        {:noreply,
+         assign(socket,
+           conversation: conversation,
+           threads: threads,
+           community_questions: community,
+           pending_count: Enum.count(threads, & &1.pending),
+           refresh: socket.assigns.refresh + 1
+         )}
     end
   end
 
