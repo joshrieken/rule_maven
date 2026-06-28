@@ -1272,9 +1272,25 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
+  # Inline `[data-theme="game"]` variable block, scoped to this page. Honors the
+  # viewer's light/dark preference via a `prefers-color-scheme` query. Only the
+  # values we generated (hex/rgba) are interpolated — no user input — so raw/1 is
+  # safe. Absent until the ThemePaletteWorker has produced a palette.
+  defp game_theme_block(%{game: %{theme_palette: %{"light" => light, "dark" => dark}}})
+       when is_map(light) and is_map(dark) do
+    css =
+      ~s|[data-theme="game"]{#{RuleMaven.ThemePalette.to_css(light)}}| <>
+        ~s|@media (prefers-color-scheme: dark){[data-theme="game"]{#{RuleMaven.ThemePalette.to_css(dark)}}}|
+
+    Phoenix.HTML.raw(~s(<style id="game-theme">#{css}</style>))
+  end
+
+  defp game_theme_block(_), do: Phoenix.HTML.raw("")
+
   @impl true
   def render(assigns) do
     ~H"""
+    {game_theme_block(assigns)}
     <div
       class="chat-layout"
       data-refresh={@refresh}

@@ -36,6 +36,15 @@ defmodule RuleMaven.Metrics do
     {"void", "Void"}
   ]
 
+  # The dynamic per-game theme. Not a static `[data-theme]` block in app.css —
+  # its variables are injected inline on a game page from `games.theme_palette`.
+  # Kept out of `@themes` (which drives the global picker + CSS blocks) but valid
+  # for selection logging. See RuleMaven.ThemePalette / ThemePaletteWorker.
+  @game_theme {"game", "Game-Specific"}
+
+  @doc "The `{slug, label}` for the dynamic per-game theme."
+  def game_theme, do: @game_theme
+
   @doc "Default theme slug for users who prefer light / dark color schemes."
   def default_theme(:dark), do: "midnight"
   def default_theme(_), do: "lavender"
@@ -43,8 +52,8 @@ defmodule RuleMaven.Metrics do
   @doc "Ordered list of `{slug, label}` for every selectable theme."
   def themes, do: @themes
 
-  @doc "Allowlist of valid theme slugs."
-  def theme_slugs, do: Enum.map(@themes, &elem(&1, 0))
+  @doc "Allowlist of valid theme slugs (includes the dynamic `game` theme)."
+  def theme_slugs, do: [elem(@game_theme, 0) | Enum.map(@themes, &elem(&1, 0))]
 
   @doc "Map of slug => label."
   def theme_labels, do: Map.new(@themes)

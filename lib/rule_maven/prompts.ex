@@ -227,6 +227,30 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
+  # Vars: game_name. Paired with the cover image as a vision message.
+  @theme_palette """
+  You are a color designer. Look at the cover art for the board game "{{game_name}}" and design a UI color theme that evokes the game's mood and art.
+
+  Return ONLY a JSON object — no prose, no code fences — with this exact shape:
+
+  {
+    "light": { "accent": "#RRGGBB", "bg": "#RRGGBB", "surface": "#RRGGBB", "text": "#RRGGBB" },
+    "dark":  { "accent": "#RRGGBB", "bg": "#RRGGBB", "surface": "#RRGGBB", "text": "#RRGGBB" }
+  }
+
+  Anchor meanings:
+  - accent  — the signature brand color pulled from the cover (buttons, links). Vivid, recognizable.
+  - bg      — the page background. In "light" a near-white tinted toward the cover; in "dark" a near-black tinted toward the cover.
+  - surface — the card background, a small step from bg (lighter than bg in dark, brighter/whiter in light).
+  - text    — the main body text color; high contrast against bg/surface.
+
+  Rules:
+  - Every value MUST be a 6-digit hex string starting with "#".
+  - "light" must read as a light theme (bright bg, dark text); "dark" as a dark theme (dark bg, light text).
+  - Pull the accent from the cover's most distinctive color so the theme feels like the game.
+  - Keep text strongly contrasting against bg — readability first.
+  """
+
   # Vars: game_name, rulebook
   @categories """
   Based on the rulebook text below for "{{game_name}}", generate 8-15 topic categories that cover the main rules areas.
@@ -318,6 +342,14 @@ defmodule RuleMaven.Prompts do
       description: "Generates the topic categories used to group questions.",
       vars: ~w(game_name rulebook),
       default: @categories
+    },
+    %{
+      key: "theme_palette",
+      group: "Content generation",
+      label: "Game theme palette",
+      description: "Designs a per-game color theme from the BGG cover art (vision).",
+      vars: ~w(game_name),
+      default: @theme_palette
     }
   ]
 

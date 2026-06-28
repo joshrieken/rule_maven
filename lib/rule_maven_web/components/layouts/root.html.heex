@@ -101,6 +101,8 @@
           <div class="header-right">
             <div class="header-controls">
               <select class="theme-select" id="theme-select" aria-label="Theme">
+                <% {gslug, glabel} = RuleMaven.Metrics.game_theme() %>
+                <option value={gslug} id="game-theme-option" hidden>✨ {glabel}</option>
                 <option :for={{slug, label} <- RuleMaven.Metrics.themes()} value={slug}>{label}</option>
               </select>
               <button
@@ -195,25 +197,63 @@
         var select = document.getElementById('theme-select');
         var html = document.documentElement;
 
+        // True when the current page exposes a per-game palette (the show page
+        // injects `#game-theme`). The "Game-Specific" option only works here.
+        function gameThemeAvailable() {
+          return !!document.getElementById('game-theme');
+        }
+
+        // The user's last real (static) theme — the fallback used on pages that
+        // have no game palette. "game" is never stored here, so non-game pages
+        // can never end up on a broken/undefined theme.
+        function baseTheme() {
+          var s = localStorage.getItem('theme');
+          if (s) {
+            var migrate = window.__themeMigrate || {};
+            return migrate[s] || s;
+          }
+          return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'midnight' : 'lavender';
+        }
+
         function apply(value) {
-          html.setAttribute('data-theme', value);
+          if (value === 'game') {
+            localStorage.setItem('themeGameMatch', '1');
+            if (gameThemeAvailable()) {
+              html.setAttribute('data-theme', 'game');
+              select.value = 'game';
+            }
+            return;
+          }
+          localStorage.setItem('themeGameMatch', '0');
           localStorage.setItem('theme', value);
+          html.setAttribute('data-theme', value);
           select.value = value;
         }
 
-        var saved = localStorage.getItem('theme');
-        if (saved) {
-          var migrate = window.__themeMigrate || {};
-          saved = migrate[saved] || saved;
-          localStorage.setItem('theme', saved);
-          html.setAttribute('data-theme', saved);
-          select.value = saved;
-        } else {
-          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-          var theme = prefersDark ? 'midnight' : 'lavender';
-          html.setAttribute('data-theme', theme);
-          select.value = theme;
+        // Sync the active theme to the current page: prefer the game theme when
+        // the user opted in AND this page offers one; otherwise fall back to the
+        // saved static theme. Re-run after LiveView navigations because the
+        // per-game `#game-theme` style block comes and goes with the page.
+        function syncTheme() {
+          var base = baseTheme();
+          localStorage.setItem('theme', base);
+          var opt = document.getElementById('game-theme-option');
+          var available = gameThemeAvailable();
+          if (opt) opt.hidden = !available;
+
+          if (available && localStorage.getItem('themeGameMatch') === '1') {
+            html.setAttribute('data-theme', 'game');
+            select.value = 'game';
+          } else {
+            html.setAttribute('data-theme', base);
+            select.value = base;
+          }
         }
+
+        syncTheme();
+        // LiveView swaps page content without a full reload; re-sync so leaving a
+        // game page can't strand us on the now-undefined "game" theme.
+        window.addEventListener('phx:page-loading-stop', syncTheme);
 
         function track(value) {
           var meta = document.querySelector('meta[name="csrf-token"]');

@@ -37,8 +37,13 @@ defmodule RuleMaven.Workers.BggEnrichWorker do
 
     status =
       case RuleMaven.BGG.enrich_game(game, force: true) do
-        {:ok, _updated} -> :ok
-        {:error, reason} -> {:error, reason}
+        {:ok, updated} ->
+          # Cover may have just landed — derive the per-game theme (durable, async).
+          RuleMaven.Workers.ThemePaletteWorker.enqueue(updated)
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
       end
 
     Phoenix.PubSub.broadcast(RuleMaven.PubSub, topic(game_id), {:bgg_enriched, game_id, status})

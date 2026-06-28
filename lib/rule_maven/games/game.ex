@@ -13,6 +13,9 @@ defmodule RuleMaven.Games.Game do
     field :image_url, :string
     field :bgg_data, :string
     field :category, :string, default: "board_game"
+    # Per-game theme derived from the BGG cover image. See ThemePaletteWorker.
+    # %{"light" => %{"--bg" => "#…", …}, "dark" => %{…}}
+    field :theme_palette, :map
 
     belongs_to :parent_game, RuleMaven.Games.Game, foreign_key: :parent_game_id
     has_many :expansions, RuleMaven.Games.Game, foreign_key: :parent_game_id
@@ -34,7 +37,8 @@ defmodule RuleMaven.Games.Game do
       :image_url,
       :parent_game_id,
       :bgg_data,
-      :category
+      :category,
+      :theme_palette
     ])
     |> validate_required([:name])
   end

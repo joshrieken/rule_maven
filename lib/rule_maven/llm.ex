@@ -955,6 +955,87 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  @doc """
+  Designs a per-game color theme from the game's cover art. Returns
+  `{:ok, %{"light" => anchors, "dark" => anchors}}` where each anchors map has
+  string keys `accent`/`bg`/`surface`/`text` (hex strings) — feed straight into
+  `RuleMaven.ThemePalette.build/1`. `{:error, reason}` on fetch/LLM/parse failure.
+  """
+  def generate_theme_palette(game_name, image_url) when is_binary(image_url) do
+    with {:ok, data_url} <- fetch_image_data_url(image_url),
+         prompt = RuleMaven.Prompts.render("theme_palette", %{game_name: game_name}),
+         messages = [
+           %{
+             role: "user",
+             content: [
+               %{type: "text", text: prompt},
+               %{type: "image_url", image_url: %{url: data_url}}
+             ]
+           }
+         ],
+         body = %{model: vision_model(), max_tokens: 600, messages: messages},
+         {:ok, %{answer: text}} <- do_request(body, 1, operation: "theme_palette") do
+      parse_theme_anchors(text)
+    end
+  end
+
+  def generate_theme_palette(_game_name, _), do: {:error, :no_image}
+
+  # Pull the cover bytes and inline them as a data URL (BGG URLs can be flaky /
+  # hotlink-protected; inlining keeps the vision call self-contained + durable).
+  defp fetch_image_data_url(url) do
+    case Req.get(url, decode_body: false, max_retries: 2, receive_timeout: 20_000) do
+      {:ok, %{status: 200, body: bin, headers: headers}} when is_binary(bin) ->
+        mime =
+          case headers["content-type"] || headers["Content-Type"] do
+            [ct | _] -> ct
+            ct when is_binary(ct) -> ct
+            _ -> guess_mime(url)
+          end
+          |> to_string()
+          |> String.split(";")
+          |> List.first()
+
+        mime = if mime in ["image/jpeg", "image/png", "image/webp", "image/gif"], do: mime, else: guess_mime(url)
+        {:ok, "data:#{mime};base64," <> Base.encode64(bin)}
+
+      {:ok, %{status: status}} ->
+        {:error, {:image_http, status}}
+
+      {:error, reason} ->
+        {:error, {:image_fetch, reason}}
+    end
+  end
+
+  defp guess_mime(url) do
+    cond do
+      String.match?(url, ~r/\.png(\?|$)/i) -> "image/png"
+      String.match?(url, ~r/\.webp(\?|$)/i) -> "image/webp"
+      true -> "image/jpeg"
+    end
+  end
+
+  # The model is asked for raw JSON; tolerate ```fences``` and surrounding prose
+  # by extracting the first {...} block before decoding.
+  defp parse_theme_anchors(text) do
+    json =
+      case Regex.run(~r/\{.*\}/s, text || "") do
+        [match] -> match
+        _ -> text
+      end
+
+    case Jason.decode(json || "") do
+      {:ok, %{"light" => l, "dark" => d}} when is_map(l) and is_map(d) ->
+        {:ok, %{"light" => l, "dark" => d}}
+
+      {:ok, _} ->
+        {:error, :bad_palette_shape}
+
+      {:error, _} ->
+        {:error, :palette_parse_failed}
+    end
+  end
+
   defp api_key do
     provider = RuleMaven.Settings.get("llm_provider") || "openrouter"
 
