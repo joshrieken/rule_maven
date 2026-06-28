@@ -124,7 +124,12 @@ defmodule RuleMaven.TrustTest do
       {:ok, _} = Games.toggle_verified(a)
       {:ok, _} = Games.toggle_verified(b)
 
-      refute Repo.reload!(a).verified
+      # The superseded row must fully step down, not just lose the flag: it
+      # leaves the community tier and sheds the verified trust_score floor.
+      reloaded_a = Repo.reload!(a)
+      refute reloaded_a.verified
+      refute reloaded_a.visibility == "community"
+      assert reloaded_a.trust_score < 100.0
       assert Repo.reload!(b).verified
     end
 
@@ -264,6 +269,17 @@ defmodule RuleMaven.TrustTest do
     } do
       q = log(game, author, %{cited_passage: "p.1", pooled: true})
       assert "up" = Games.set_community_vote(q.id, voter.id, "up")
+    end
+
+    test "rejects an out-of-range value before touching the DB", %{
+      game: game,
+      author: author,
+      voter: voter
+    } do
+      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+      # A forged vote value must not reach the insert!/update! and crash.
+      assert {:error, :invalid_value} = Games.set_community_vote(q.id, voter.id, "sideways")
+      assert is_nil(Games.get_user_community_vote(q.id, voter.id))
     end
   end
 
