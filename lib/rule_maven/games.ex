@@ -2365,7 +2365,10 @@ defmodule RuleMaven.Games do
             limit: 2,
             select: {c.id, fragment("cosine_distance(?, ?::vector)", c.name_embedding, ^q_vec)}
         )
-        |> Enum.filter(fn {_, dist} -> dist <= 0.5 end)
+        # Category-name vs question-phrasing embeddings rarely land below 0.5, so
+        # that bar left many questions untagged. 0.62 still rejects unrelated
+        # categories while catching genuine-but-loose matches.
+        |> Enum.filter(fn {_, dist} -> dist <= 0.62 end)
 
       Enum.each(top2, fn {cat_id, _} ->
         %QuestionCategoryTag{}
@@ -2375,6 +2378,13 @@ defmodule RuleMaven.Games do
         })
         |> Repo.insert(on_conflict: :nothing)
       end)
+
+      # Let an open Q&A page show the new pills without a remount.
+      Phoenix.PubSub.broadcast(
+        RuleMaven.PubSub,
+        "game:#{game_id}",
+        {:question_tagged, question_log_id}
+      )
 
       :ok
     end

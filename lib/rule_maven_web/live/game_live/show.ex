@@ -1140,6 +1140,12 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
+  def handle_info({:question_tagged, ql_id}, socket) do
+    cats = Games.categories_for_questions([ql_id])
+    merged = Map.merge(socket.assigns.question_categories, cats)
+    {:noreply, assign(socket, question_categories: merged, refresh: socket.assigns.refresh + 1)}
+  end
+
   def handle_info({:setup_done, game_id}, socket) do
     if socket.assigns.game && socket.assigns.game.id == game_id do
       {:noreply,
@@ -2214,9 +2220,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </details>
                 </div>
 
-                <!-- Category pills (community questions only) -->
+                <!-- Category pills for any answered question (yours or community) -->
                 <% msg_cats =
-                  if is_community_msg && msg[:id],
+                  if msg.role == :assistant && msg[:id],
                     do: Map.get(@question_categories, msg[:id], []),
                     else: [] %>
                 <div
