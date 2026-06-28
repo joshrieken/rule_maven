@@ -130,7 +130,7 @@ defmodule RuleMavenWeb.GameLive.Faq do
       >
         <span style="font-size:1.1rem;line-height:1">📖</span>
         <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
-          These answers are <strong>drawn from the official rules</strong> and surfaced by the community as the most helpful. Always double-check the rulebook for anything that matters.
+          These answers are <strong>drawn from the official rules</strong> and surfaced by admins or the community as the most helpful. Always double-check the rulebook for anything that matters.
         </p>
       </div>
 
