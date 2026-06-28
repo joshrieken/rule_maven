@@ -101,8 +101,14 @@
           <div class="header-right">
             <div class="header-controls">
               <select class="theme-select" id="theme-select" aria-label="Theme">
-                <% {gslug, glabel} = RuleMaven.Metrics.game_theme() %>
-                <option value={gslug} id="game-theme-option" hidden>✨ {glabel}</option>
+                <option
+                  :for={{slug, label} <- RuleMaven.Metrics.game_themes()}
+                  value={slug}
+                  class="game-theme-option"
+                  hidden
+                >
+                  ✨ {label}
+                </option>
                 <option :for={{slug, label} <- RuleMaven.Metrics.themes()} value={slug}>{label}</option>
               </select>
               <button
@@ -215,12 +221,18 @@
           return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'midnight' : 'lavender';
         }
 
+        function isGameTheme(v) {
+          return v === 'game-light' || v === 'game-dark';
+        }
+
         function apply(value) {
-          if (value === 'game') {
-            localStorage.setItem('themeGameMatch', '1');
+          if (isGameTheme(value)) {
+            // Remember which game variant the user chose, separately from their
+            // static fallback theme, so non-game pages never land on it.
+            localStorage.setItem('themeGameMatch', value);
             if (gameThemeAvailable()) {
-              html.setAttribute('data-theme', 'game');
-              select.value = 'game';
+              html.setAttribute('data-theme', value);
+              select.value = value;
             }
             return;
           }
@@ -230,20 +242,23 @@
           select.value = value;
         }
 
-        // Sync the active theme to the current page: prefer the game theme when
-        // the user opted in AND this page offers one; otherwise fall back to the
-        // saved static theme. Re-run after LiveView navigations because the
-        // per-game `#game-theme` style block comes and goes with the page.
+        // Sync the active theme to the current page: prefer the chosen game
+        // variant when the user opted in AND this page offers one; otherwise fall
+        // back to the saved static theme. Re-run after LiveView navigations
+        // because the per-game `#game-theme` style block comes and goes.
         function syncTheme() {
           var base = baseTheme();
           localStorage.setItem('theme', base);
-          var opt = document.getElementById('game-theme-option');
           var available = gameThemeAvailable();
-          if (opt) opt.hidden = !available;
+          Array.prototype.forEach.call(
+            document.querySelectorAll('.game-theme-option'),
+            function(o) { o.hidden = !available; }
+          );
 
-          if (available && localStorage.getItem('themeGameMatch') === '1') {
-            html.setAttribute('data-theme', 'game');
-            select.value = 'game';
+          var match = localStorage.getItem('themeGameMatch');
+          if (available && isGameTheme(match)) {
+            html.setAttribute('data-theme', match);
+            select.value = match;
           } else {
             html.setAttribute('data-theme', base);
             select.value = base;

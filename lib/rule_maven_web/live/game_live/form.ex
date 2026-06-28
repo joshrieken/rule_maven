@@ -54,6 +54,7 @@ defmodule RuleMavenWeb.GameLive.Form do
         suggestions: [],
         dyk_facts: [],
         regenerating_dyk: false,
+        regenerating_theme: false,
         setup_checklist: nil,
         regenerating_setup: false,
         # Which Generated-tab sections are expanded. Server-controlled so a
@@ -212,6 +213,11 @@ defmodule RuleMavenWeb.GameLive.Form do
                 RuleMaven.Workers.BggEnrichWorker.topic(game.id)
               )
 
+              Phoenix.PubSub.subscribe(
+                RuleMaven.PubSub,
+                RuleMaven.Workers.ThemePaletteWorker.topic(game.id)
+              )
+
               assign(socket, cleanup_subscribed: true)
             else
               socket
@@ -264,6 +270,7 @@ defmodule RuleMavenWeb.GameLive.Form do
               suggestions: suggestions,
               dyk_facts: dyk_facts,
               regenerating_dyk: RuleMaven.Workers.DidYouKnowWorker.running?(game.id),
+              regenerating_theme: RuleMaven.Workers.ThemePaletteWorker.running?(game.id),
               setup_checklist: RuleMaven.Setup.stored_checklist(game.id),
               regenerating_setup: RuleMaven.Setup.status(game.id) == "generating"
             )
@@ -457,6 +464,14 @@ defmodule RuleMavenWeb.GameLive.Form do
     |> Oban.insert()
 
     {:noreply, assign(socket, generating: true)}
+  end
+
+  @impl true
+  def handle_event("regenerate_theme", _params, socket) do
+    # Durable + non-blocking: re-derive the per-game palette from the cover. The
+    # worker broadcasts {:theme_palette, ...} when done (subscribed in mount).
+    RuleMaven.Workers.ThemePaletteWorker.enqueue(socket.assigns.game)
+    {:noreply, assign(socket, regenerating_theme: true)}
   end
 
   @impl true
@@ -1576,6 +1591,23 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   @impl true
+  def handle_info({:theme_palette, game_id, :ok}, socket) do
+    game = if socket.assigns.game, do: Games.get_game!(game_id), else: nil
+
+    {:noreply,
+     socket
+     |> assign(regenerating_theme: false, game: game)
+     |> put_flash(:info, "Game theme regenerated from cover art!")}
+  end
+
+  def handle_info({:theme_palette, _game_id, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(regenerating_theme: false)
+     |> put_flash(:error, "Theme generation failed: #{inspect(reason)}")}
+  end
+
+  @impl true
   def handle_async(:search_bgg, {:ok, {cookies, result}}, socket) do
     require Logger
 
@@ -2291,6 +2323,17 @@ defmodule RuleMavenWeb.GameLive.Form do
             style={"color:var(--accent);background:none;border:none;font-size:0.75rem;font-weight:600;margin-left:0.5rem;cursor:#{if @generating, do: "default", else: "pointer"};opacity:#{if @generating, do: "0.6", else: "1"}"}
           >
             {if @generating, do: "⟳ Refreshing…", else: "Refresh info"}
+          </button>
+        <% end %>
+        <%= if @game && @game.image_url do %>
+          <button
+            type="button"
+            phx-click="regenerate_theme"
+            disabled={@regenerating_theme}
+            title="Regenerate the Game-Specific theme from the cover art"
+            style={"color:var(--accent);background:none;border:none;font-size:0.75rem;font-weight:600;margin-left:0.5rem;cursor:#{if @regenerating_theme, do: "default", else: "pointer"};opacity:#{if @regenerating_theme, do: "0.6", else: "1"}"}
+          >
+            {if @regenerating_theme, do: "🎨 Generating…", else: "🎨 Regen theme"}
           </button>
         <% end %>
       </h1>

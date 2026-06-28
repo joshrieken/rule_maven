@@ -15,9 +15,23 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
     max_attempts: 3,
     unique: [keys: [:game_id], states: [:available, :scheduled, :executing, :retryable, :suspended]]
 
+  import Ecto.Query
   alias RuleMaven.{Games, LLM, ThemePalette}
 
+  @worker "RuleMaven.Workers.ThemePaletteWorker"
+  @active_states ~w(available scheduled executing retryable)
+
   def topic(game_id), do: "theme:#{game_id}"
+
+  @doc "True when theme generation for this game is queued or running (survives a refresh)."
+  def running?(game_id) do
+    RuleMaven.Repo.exists?(
+      from j in Oban.Job,
+        where:
+          j.worker == ^@worker and j.state in ^@active_states and
+            fragment("?->>'game_id' = ?", j.args, ^to_string(game_id))
+    )
+  end
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"game_id" => game_id}}) do
