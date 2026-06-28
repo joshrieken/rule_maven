@@ -1020,32 +1020,42 @@ defmodule RuleMaven.Games do
   end
 
   defp unverify_duplicates(%QuestionLog{question_embedding: nil} = q) do
-    Repo.update_all(
-      from(ql in QuestionLog,
-        where:
-          ql.game_id == ^q.game_id and ql.id != ^q.id and
-            ql.question == ^q.question and ql.verified == true
-      ),
-      set: [verified: false]
+    from(ql in QuestionLog,
+      where:
+        ql.game_id == ^q.game_id and ql.id != ^q.id and
+          ql.question == ^q.question and ql.verified == true
     )
+    |> Repo.all()
+    |> Enum.each(&demote_verified_duplicate/1)
   end
 
   defp unverify_duplicates(%QuestionLog{} = q) do
     threshold = pool_distance_threshold()
 
-    Repo.update_all(
-      from(ql in QuestionLog,
-        where:
-          ql.game_id == ^q.game_id and ql.id != ^q.id and ql.verified == true and
-            not is_nil(ql.question_embedding) and
-            fragment(
-              "cosine_distance(?, ?::vector)",
-              ql.question_embedding,
-              ^q.question_embedding
-            ) <= ^threshold
-      ),
-      set: [verified: false]
+    from(ql in QuestionLog,
+      where:
+        ql.game_id == ^q.game_id and ql.id != ^q.id and ql.verified == true and
+          not is_nil(ql.question_embedding) and
+          fragment(
+            "cosine_distance(?, ?::vector)",
+            ql.question_embedding,
+            ^q.question_embedding
+          ) <= ^threshold
     )
+    |> Repo.all()
+    |> Enum.each(&demote_verified_duplicate/1)
+  end
+
+  # Fully demote a superseded verified row instead of just flipping the flag:
+  # clearing `verified` alone left the row at visibility "community" with the
+  # verified trust_score floor (100), so it stayed in the trusted tier. Mirror
+  # do_unverify so the old answer actually steps down and is re-scored.
+  defp demote_verified_duplicate(%QuestionLog{} = dup) do
+    attrs = %{verified: false, visibility: "private", pooled: dup.citation_valid}
+
+    with {:ok, updated} <- Repo.update(QuestionLog.changeset(dup, attrs)) do
+      finalize_verify_toggle(updated)
+    end
   end
 
   defp do_unverify(%QuestionLog{} = q) do
