@@ -110,6 +110,12 @@ defmodule RuleMaven.ThemePalette do
       # text when used as a fill. Defaults to #fff in static themes via
       # `var(--accent-text, #fff)`, so only generated themes need this.
       "--accent-text" => hex(readable_on(accent)),
+      # Accent used AS text/icons on the page background (labels, links, the
+      # "Overview" pill). A vivid light accent (yellow) is illegible as text on a
+      # light surface, so darken/lighten it until it reads. Defaults to --accent
+      # in static themes (whose accents already contrast), so only generated
+      # themes shift. Borders/fills keep the vivid --accent.
+      "--accent-ink" => hex(readable_text(accent, surface, 4.5)),
       "--accent-dark" => hex(darken(accent, 0.18)),
       "--accent-light" => hex(lighten(accent, 0.20)),
       "--accent-subtle" => hex(mix(bg, accent, 0.12)),
@@ -138,6 +144,14 @@ defmodule RuleMaven.ThemePalette do
     dark = {26, 26, 26}
     light = {255, 255, 255}
     if contrast(dark, color) >= contrast(light, color), do: dark, else: light
+  end
+
+  # Nudge `color` toward black (on a light bg) or white (on a dark bg) until it
+  # reads as text against `bg` at `ratio`. Keeps the hue, just deepens/lightens
+  # it — a light yellow accent becomes a dark gold that's legible as a label.
+  defp readable_text(color, bg, ratio) do
+    target = if luminance(bg) > 0.5, do: {0, 0, 0}, else: {255, 255, 255}
+    step_toward(color, bg, target, ratio, 0)
   end
 
   # Headings should be a touch stronger than body: darker on light, lighter on dark.

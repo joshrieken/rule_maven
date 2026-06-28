@@ -35,6 +35,10 @@
      themes use white; generated per-game themes override with black/white chosen
      for contrast. Referenced as var(--accent-text, #fff) so this default wins. */
   --accent-text: #FFFFFF;
+  /* Accent used as text/icons on the page (labels, links, the Overview pill).
+     Defaults to the accent itself; generated light-accent themes override it
+     with a darker, legible shade. Fills/borders still use --accent. */
+  --accent-ink: var(--accent);
   --yellow: #B8960F;
   --red: #C83030;
   --red-bg: #FFF0F0;
@@ -842,7 +846,7 @@ body {
 }
 .border.rounded-lg:hover {
   box-shadow: 0 4px 12px var(--shadow-hover);
-  border-color: var(--accent);
+  border-color: var(--accent-ink, var(--accent));
 }
 
 /* Game cards in list */
@@ -900,7 +904,7 @@ body {
 .game-card:hover {
   transform: translateY(-3px);
   box-shadow: 0 10px 24px var(--shadow-hover);
-  border-color: var(--accent);
+  border-color: var(--accent-ink, var(--accent));
 }
 .game-card:hover::before {
   transform: scaleX(1);
@@ -927,7 +931,7 @@ h1, h2, h3 {
 
 /* Links */
 a:not([class]) {
-  color: var(--accent);
+  color: var(--accent-ink, var(--accent));
   text-decoration: none;
   transition: color 0.15s;
 }
@@ -1230,7 +1234,7 @@ a:not([class]):hover {
 }
 .user-dropdown-link:hover {
   background: var(--bg-subtle);
-  color: var(--accent);
+  color: var(--accent-ink, var(--accent));
 }
 
 .user-dropdown-section {
@@ -1333,12 +1337,12 @@ button.motion-toggle:hover {
 .pill-link:hover {
   color: var(--accent-text, #fff);
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: var(--accent-ink, var(--accent));
   box-shadow: 0 2px 8px var(--shadow-hover);
 }
 .pill-link-accent {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--accent-ink, var(--accent));
+  border-color: var(--accent-ink, var(--accent));
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .pill-link-accent:hover {
@@ -1367,8 +1371,8 @@ button.motion-toggle:hover {
 
 .alert-info {
   background: var(--bg-subtle);
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent-ink, var(--accent));
+  color: var(--accent-ink, var(--accent));
 }
 
 .alert-error {
@@ -1640,7 +1644,7 @@ button:disabled, .btn:disabled, [type="button"]:disabled, [type="submit"]:disabl
 }
 
 .btn-primary:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-ink, var(--accent));
   box-shadow: 0 4px 14px var(--shadow-hover);
 }
 
@@ -1708,7 +1712,7 @@ a[href*="new"]:hover {
 .btn-add-source {
   background: none;
   border: 2px dashed var(--accent-light);
-  color: var(--accent);
+  color: var(--accent-ink, var(--accent));
   font-size: 0.85rem;
   font-weight: 600;
   padding: 0.4rem 1rem;
@@ -1721,7 +1725,7 @@ a[href*="new"]:hover {
 
 .btn-add-source:hover {
   background: var(--accent-subtle);
-  border-color: var(--accent);
+  border-color: var(--accent-ink, var(--accent));
   border-style: solid;
   color: var(--accent-dark);
 }
@@ -1754,7 +1758,7 @@ a[href*="new"]:hover {
 }
 
 .txt-link:hover {
-  color: var(--accent);
+  color: var(--accent-ink, var(--accent));
 }
 
 .txt-link-green {
@@ -1799,7 +1803,7 @@ input[type="number"]:focus,
 textarea:focus,
 select:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-ink, var(--accent));
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
@@ -1936,7 +1940,7 @@ textarea {
 .citation-label {
   font-weight: 700;
   font-size: 0.75rem;
-  color: var(--accent);
+  color: var(--accent-ink, var(--accent));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 0.35rem;
@@ -2066,7 +2070,7 @@ textarea {
   gap: 0.3rem;
   font-weight: 600;
   font-size: 0.82rem;
-  color: var(--accent);
+  color: var(--accent-ink, var(--accent));
   background: var(--bg-surface);
   border: 1.5px solid var(--accent);
   border-radius: 0.5rem;
@@ -2080,7 +2084,7 @@ textarea {
 .back-link:hover {
   background: var(--accent);
   color: var(--accent-text, #fff);
-  border-color: var(--accent);
+  border-color: var(--accent-ink, var(--accent));
   box-shadow: 0 2px 8px var(--shadow-hover);
 }
 
@@ -2093,7 +2097,7 @@ textarea {
   font-weight: 600;
   font-size: 0.75rem;
   line-height: 1.2;
-  color: var(--accent);
+  color: var(--accent-ink, var(--accent));
   background: var(--bg-surface);
   border: 1.5px solid var(--accent);
   border-radius: 0.4rem;
@@ -2107,7 +2111,7 @@ textarea {
 .action-link:hover {
   background: var(--accent);
   color: var(--accent-text, #fff);
-  border-color: var(--accent);
+  border-color: var(--accent-ink, var(--accent));
 }
 
 /* ===== Confidence help bubble ===== */
@@ -2502,7 +2506,7 @@ body:has([data-phx-main].phx-connected)::after {
   font-size: 0.8rem; color: var(--text);
   text-decoration: none; font-weight: 500;
 }
-.drawer-link:hover { background: var(--bg-subtle); color: var(--accent); }
+.drawer-link:hover { background: var(--bg-subtle); color: var(--accent-ink, var(--accent)); }
 
 /* ===== User dropdown (reused) ===== */
 .user-dropdown { position: relative; display: inline-flex; }
@@ -2531,7 +2535,7 @@ body:has([data-phx-main].phx-connected)::after {
   display: block; padding: 0.4rem 0.75rem; font-size: 0.75rem;
   color: var(--text); text-decoration: none; border-radius: 5px;
 }
-.user-dropdown-link:hover { background: var(--bg-subtle); color: var(--accent); }
+.user-dropdown-link:hover { background: var(--bg-subtle); color: var(--accent-ink, var(--accent)); }
 
 @media (max-width: 768px) {
   .header-nav { display: none; }

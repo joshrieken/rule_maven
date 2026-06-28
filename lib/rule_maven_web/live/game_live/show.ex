@@ -1521,7 +1521,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <%= if t.pending do %>
                       <span
                         class="animate-pulse"
-                        style="color:var(--accent);font-size:0.45rem;flex-shrink:0"
+                        style="color:var(--accent-ink,var(--accent));font-size:0.45rem;flex-shrink:0"
                       >●</span>
                     <% end %>
                     <%= if !t.pending && is_binary(t.answer) && String.starts_with?(t.answer, "⚠️") do %>
@@ -1620,7 +1620,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                above the answers (a fast reply otherwise steals the fact). -->
           <%= if @rule_card && @conversation != [] do %>
             <div style="position:sticky;top:-1rem;z-index:5;margin:-1rem -1rem 1.25rem;padding:0.6rem 1rem;background:var(--bg-surface);border-bottom:1px solid var(--border);box-shadow:0 3px 8px rgba(0,0,0,0.07);display:flex;align-items:flex-start;gap:0.5rem;font-size:0.78rem;line-height:1.45;color:var(--text)">
-              <span style="font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--accent);white-space:nowrap;flex-shrink:0">💡 Did you know?</span>
+              <span style="font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--accent-ink,var(--accent));white-space:nowrap;flex-shrink:0">💡 Did you know?</span>
               <span style="flex:1;min-width:0">
                 {clean_rule_text(@rule_card.content)}
                 <span :if={@rule_card.page_number} style="color:var(--text-muted);white-space:nowrap">· p.{@rule_card.page_number}</span>
@@ -1654,7 +1654,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 <%= if @community_count > 0 do %>
                   <.link
                     navigate={~p"/games/#{@game.id}/faq"}
-                    style="color:var(--accent);font-weight:600;white-space:nowrap"
+                    style="color:var(--accent-ink,var(--accent));font-weight:600;white-space:nowrap"
                   >Or browse {@community_count} community answers →</.link>
                 <% end %>
               </p>
@@ -1662,7 +1662,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               <%= if @rule_card do %>
                 <div style="margin:1.5rem auto 0;max-width:30rem;text-align:left;background:linear-gradient(135deg,var(--bg-subtle),var(--bg-surface));border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
-                    <span style="font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent)">
+                    <span style="font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
                       💡 Did you know?
                     </span>
                     <button
@@ -1842,7 +1842,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         </span>
                         <%= if @rule_card do %>
                           <div style="margin-top:0.65rem;padding-top:0.6rem;border-top:1px solid var(--border)">
-                            <div style="font-size:0.62rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent);margin-bottom:0.25rem">
+                            <div style="font-size:0.62rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent));margin-bottom:0.25rem">
                               💡 Did you know?
                             </div>
                             <p style="font-size:0.8rem;line-height:1.5;color:var(--text-secondary);margin:0">
@@ -2328,7 +2328,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                             do: "Make private",
                             else: "Make community-visible"
                         }
-                        style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:visibility] == "community", do: "color:var(--accent)", else: "color:var(--text-muted)"}"}
+                        style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:visibility] == "community", do: "color:var(--accent-ink,var(--accent))", else: "color:var(--text-muted)"}"}
                       >{if msg[:visibility] == "community", do: "🌐", else: "🔒"}</button>
                       <button
                         :if={!msg[:history]}
