@@ -2284,6 +2284,9 @@ defmodule RuleMaven.Games do
     q = Repo.get(QuestionLog, question_log_id)
 
     cond do
+      # Reject unknown values up front: do_set_community_vote uses insert!/update!,
+      # so an out-of-range value (e.g. a forged event) would raise mid-write.
+      value not in ["up", "down"] -> {:error, :invalid_value}
       is_nil(q) -> {:error, :not_found}
       q.user_id == user_id -> {:error, :self_vote}
       not votable?(q) -> {:error, :not_votable}
