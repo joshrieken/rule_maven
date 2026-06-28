@@ -2420,7 +2420,11 @@ body:has([data-phx-main].phx-connected)::after {
     top: 0;
     left: 0;
     bottom: 0;
-    z-index: 50;
+    /* !important: the element carries an inline z-index:1 (to sit above the
+       blurred cover art on desktop). Without !important that inline value wins
+       over this rule, leaving the sidebar below its own z-index:49 backdrop —
+       so opening it on mobile shows only the dim overlay, nothing slides in. */
+    z-index: 50 !important;
     box-shadow: 2px 0 8px rgba(0,0,0,0.15);
   }
   .sidebar-closed { display: none !important; }
