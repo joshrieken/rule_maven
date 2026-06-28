@@ -82,6 +82,50 @@ defmodule RuleMaven.TrustTest do
     end
   end
 
+  describe "toggle_verified/1" do
+    setup do
+      %{game: game_fixture(), author: user_fixture("ver_author")}
+    end
+
+    test "verifying an uncited answer publishes it to community + pool", %{
+      game: game,
+      author: author
+    } do
+      q = log(game, author, %{cited_passage: nil, cited_page: nil, visibility: "private"})
+      {:ok, v} = Games.toggle_verified(q)
+
+      assert v.verified
+      assert v.visibility == "community"
+      assert v.pooled
+      assert Repo.reload!(v).trust_score >= 100.0
+    end
+
+    test "un-verifying reverts to private and citation-gated pooling", %{
+      game: game,
+      author: author
+    } do
+      q = log(game, author, %{cited_passage: nil, cited_page: nil})
+      {:ok, v} = Games.toggle_verified(q)
+      {:ok, u} = Games.toggle_verified(v)
+
+      refute u.verified
+      assert u.visibility == "private"
+      # No citation → not pool-eligible once the verify override is gone.
+      refute u.pooled
+    end
+
+    test "only one verified row per question text", %{game: game, author: author} do
+      a = log(game, author, %{answer: "first"})
+      b = log(game, author, %{answer: "second"})
+
+      {:ok, _} = Games.toggle_verified(a)
+      {:ok, _} = Games.toggle_verified(b)
+
+      refute Repo.reload!(a).verified
+      assert Repo.reload!(b).verified
+    end
+  end
+
   describe "recompute_reputation/1" do
     test "net votes on authored rows + promotion bonus" do
       game = game_fixture()

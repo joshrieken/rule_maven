@@ -977,32 +977,56 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Toggles an admin "verified" sign-off on a question. Verifying clears the flag
-  from any other row with the same question text (one verified answer per
-  question) and floors its trust_score to the top tier so it wins the pool.
+  Toggles an admin "verified" sign-off — a single publish/unpublish action.
+
+  Verifying is the strongest trust signal, so it bypasses the usual citation
+  gate and nightly promotion: the row is immediately made community-visible and
+  pool-eligible, its trust_score floored to the top tier, and the author's
+  reputation rewarded — citation or not. Any other verified row with the same
+  question text is cleared (one verified answer per question).
+
+  Un-verifying reverts it: back to private, pool-eligibility falls back to the
+  citation gate, and trust/reputation are recomputed. (A row that independently
+  earned community status by votes can be re-published via the visibility toggle.)
   """
   def toggle_verified(%QuestionLog{} = q) do
-    if q.verified do
-      with {:ok, updated} <- Repo.update(QuestionLog.changeset(q, %{verified: false})) do
-        RuleMaven.Games.Trust.recompute_trust(updated)
-        {:ok, updated}
-      end
-    else
-      Repo.update_all(
-        from(ql in QuestionLog,
-          where:
-            ql.game_id == ^q.game_id and
-              ql.question == ^q.question and
-              ql.verified == true
-        ),
-        set: [verified: false]
-      )
+    if q.verified, do: do_unverify(q), else: do_verify(q)
+  end
 
-      with {:ok, updated} <- Repo.update(QuestionLog.changeset(q, %{verified: true})) do
-        RuleMaven.Games.Trust.recompute_trust(updated)
-        {:ok, updated}
-      end
+  defp do_verify(%QuestionLog{} = q) do
+    Repo.update_all(
+      from(ql in QuestionLog,
+        where:
+          ql.game_id == ^q.game_id and
+            ql.question == ^q.question and
+            ql.verified == true
+      ),
+      set: [verified: false]
+    )
+
+    attrs = %{verified: true, visibility: "community", pooled: true}
+
+    with {:ok, updated} <- Repo.update(QuestionLog.changeset(q, attrs)) do
+      finalize_verify_toggle(updated)
     end
+  end
+
+  defp do_unverify(%QuestionLog{} = q) do
+    attrs = %{
+      verified: false,
+      visibility: "private",
+      pooled: RuleMaven.Games.Trust.has_citation?(q)
+    }
+
+    with {:ok, updated} <- Repo.update(QuestionLog.changeset(q, attrs)) do
+      finalize_verify_toggle(updated)
+    end
+  end
+
+  defp finalize_verify_toggle(%QuestionLog{} = updated) do
+    RuleMaven.Games.Trust.recompute_trust(updated)
+    if updated.user_id, do: RuleMaven.Games.Trust.recompute_reputation(updated.user_id)
+    {:ok, updated}
   end
 
   def update_question_visibility(%QuestionLog{} = q, visibility) do

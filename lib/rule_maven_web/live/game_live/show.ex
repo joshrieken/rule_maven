@@ -2272,8 +2272,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                         style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:verified], do: "color:#15803d", else: "color:var(--text-muted)"}"}
                         title={
                           if msg[:verified],
-                            do: "Admin-verified — click to remove",
-                            else: "Verify this answer (admin)"
+                            do: "Admin-verified & published — click to unpublish",
+                            else: "Verify & publish to community (admin)"
                         }
                       >{if msg[:verified], do: "✔", else: "✓"}</button>
                       <%= if @confirm_delete_id == msg.id do %>
