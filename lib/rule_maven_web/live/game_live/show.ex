@@ -131,7 +131,10 @@ defmodule RuleMavenWeb.GameLive.Show do
         community_user_votes: cv_user,
         question_categories: question_categories,
         dyk_facts: dyk_facts,
-        rule_card: fact_card(dyk_facts),
+        # Pick the random fact only on the connected mount. The static (disconnected)
+        # HTTP render would otherwise pick a different fact, so the card visibly
+        # shuffled the instant the WS connected. nil on static = single clean appear.
+        rule_card: if(connected?(socket), do: fact_card(dyk_facts), else: nil),
         setup_status: setup_status,
         setup_checklist: setup_checklist
       )
@@ -1935,18 +1938,24 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </div>
                 </div>
 
-                <!-- Persona voice switcher (collapsed into a dropdown) -->
-                <% show_voice =
-                  msg.role == :assistant && !msg[:refused] &&
-                    msg.content != "Thinking..." && !msg[:pending] &&
-                    not String.starts_with?(to_string(msg.content), "⚠️") %>
-                <%= if show_voice do %>
+                <!-- Answer actions: voice switcher + vote + overflow, one row -->
+                <% is_community_msg =
+                  MapSet.member?(MapSet.new(@community_questions, & &1.id), msg[:id]) %>
+                <div
+                  :if={
+                    msg.role == :assistant && !msg[:refused] &&
+                      msg.content != "Thinking..." && !msg[:pending] &&
+                      not String.starts_with?(msg.content, "⚠️")
+                  }
+                  style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;padding:0.25rem 0.25rem 0"
+                >
+                  <!-- Persona voice switcher (collapsed into a dropdown) -->
                   <% cur_voice = Map.get(@voice_sel, msg[:id], @default_voice) %>
                   <% cur =
                     Enum.find(RuleMaven.Voices.all(), &(&1.id == cur_voice)) ||
                       hd(RuleMaven.Voices.all()) %>
                   <% is_default = cur_voice == @default_voice %>
-                  <details class="card-menu" style="padding:0.4rem 0.25rem 0">
+                  <details class="card-menu">
                     <summary style="font-size:0.65rem;color:var(--text-muted);font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.12rem 0.5rem;background:var(--bg-surface)">
                       <span aria-hidden="true">🎭</span>
                       <span>{cur.label}</span>
@@ -1981,19 +1990,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       </button>
                     </div>
                   </details>
-                <% end %>
 
-                <!-- Answer actions (copy + vote) -->
-                <% is_community_msg =
-                  MapSet.member?(MapSet.new(@community_questions, & &1.id), msg[:id]) %>
-                <div
-                  :if={
-                    msg.role == :assistant && !msg[:refused] &&
-                      msg.content != "Thinking..." && !msg[:pending] &&
-                      not String.starts_with?(msg.content, "⚠️")
-                  }
-                  style="display:flex;gap:0.5rem;align-items:center;padding:0.25rem 0.25rem 0"
-                >
                   <% q_text = find_question_for_answer(@conversation, msg) %>
                   <% plain_text = strip_markdown(msg.content) %>
                   <% can_regen =
