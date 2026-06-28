@@ -137,6 +137,12 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="Blocked questions and injection pattern management."
         />
         <.card
+          navigate={~p"/admin/usage"}
+          icon="📊"
+          title="Usage & Cost"
+          desc="LLM token spend per user, with a daily budget cap."
+        />
+        <.card
           navigate={~p"/admin/db"}
           icon="🗄️"
           title="DB Admin"

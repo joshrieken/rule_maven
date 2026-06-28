@@ -703,6 +703,72 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
+  Per-user LLM cost (USD estimate) over the last N days, highest spend first.
+  Costs are derived from logged token counts via `RuleMaven.LLM.Pricing`.
+  """
+  def cost_by_user(days \\ 30) do
+    alias RuleMaven.Repo
+    alias RuleMaven.LLM.Pricing
+    import Ecto.Query
+
+    since = DateTime.add(DateTime.utc_now(), -days, :day)
+
+    rows =
+      Repo.all(
+        from l in RuleMaven.LLM.Log,
+          where: l.inserted_at >= ^since and not is_nil(l.user_id),
+          group_by: [l.user_id, l.model],
+          select: {
+            l.user_id,
+            l.model,
+            sum(l.prompt_tokens),
+            sum(l.completion_tokens),
+            count(l.id)
+          }
+      )
+
+    names =
+      Repo.all(from u in RuleMaven.Users.User, select: {u.id, u.username}) |> Map.new()
+
+    rows
+    |> Enum.group_by(fn {uid, _, _, _, _} -> uid end)
+    |> Enum.map(fn {uid, model_rows} ->
+      {cost, tokens, requests} =
+        Enum.reduce(model_rows, {0.0, 0, 0}, fn {_uid, model, p, c, n}, {cost, tok, req} ->
+          {cost + Pricing.cost(model, p, c), tok + (p || 0) + (c || 0), req + n}
+        end)
+
+      %{
+        user_id: uid,
+        username: Map.get(names, uid, "#" <> to_string(uid)),
+        cost: cost,
+        tokens: tokens,
+        requests: requests
+      }
+    end)
+    |> Enum.sort_by(& &1.cost, :desc)
+  end
+
+  @doc "USD cost estimate of a single user's LLM usage since UTC midnight today."
+  def user_cost_today(user_id) when is_integer(user_id) do
+    alias RuleMaven.Repo
+    alias RuleMaven.LLM.Pricing
+    import Ecto.Query
+
+    since = DateTime.utc_now() |> DateTime.to_date() |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+
+    Repo.all(
+      from l in RuleMaven.LLM.Log,
+        where: l.user_id == ^user_id and l.inserted_at >= ^since,
+        group_by: l.model,
+        select: {l.model, sum(l.prompt_tokens), sum(l.completion_tokens)}
+    )
+    |> Enum.reduce(0.0, fn {model, p, c}, acc -> acc + Pricing.cost(model, p, c) end)
+  end
+
+  def user_cost_today(_), do: 0.0
+
+  @doc """
   Generates a list of suggested questions for a game based on its rulebook text.
   Returns `{:ok, [question_string]}` or `{:error, reason}`.
   """

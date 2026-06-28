@@ -1247,6 +1247,9 @@ defmodule RuleMaven.Games do
       weekly_limit = parse_limit(Settings.get("rate_limit_weekly"), 200)
       monthly_limit = parse_limit(Settings.get("rate_limit_monthly"), 500)
 
+      # Daily $ budget cap (0 = disabled). Estimated from logged token usage.
+      cost_cap = parse_cost(Settings.get("user_daily_cost_cap"), 0.0)
+
       cond do
         daily_count >= daily_limit ->
           {:error, "Daily question limit reached (#{daily_limit})."}
@@ -1256,6 +1259,9 @@ defmodule RuleMaven.Games do
 
         monthly_count >= monthly_limit ->
           {:error, "Monthly question limit reached (#{monthly_limit})."}
+
+        cost_cap > 0.0 and RuleMaven.LLM.user_cost_today(user.id) >= cost_cap ->
+          {:error, "Daily usage budget reached. Please try again tomorrow."}
 
         true ->
           :ok
@@ -1267,6 +1273,15 @@ defmodule RuleMaven.Games do
 
   defp parse_limit(val, default) do
     case Integer.parse(to_string(val)) do
+      {n, _} -> n
+      :error -> default
+    end
+  end
+
+  defp parse_cost(nil, default), do: default
+
+  defp parse_cost(val, default) do
+    case Float.parse(to_string(val)) do
       {n, _} -> n
       :error -> default
     end

@@ -78,6 +78,7 @@ defmodule RuleMavenWeb.Router do
       live "/admin/questions", AdminLive.Questions, :index
       live "/admin/moderation", AdminLive.Moderation, :index
       live "/admin/audit", AdminLive.Audit, :index
+      live "/admin/usage", AdminLive.Usage, :index
       live "/admin/threads", AdminLive.Threads, :index
       live "/admin/users", AdminLive.Users, :index
       live "/admin/invites", AdminLive.Invites, :index

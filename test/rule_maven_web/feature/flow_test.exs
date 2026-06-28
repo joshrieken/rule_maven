@@ -98,7 +98,9 @@ defmodule RuleMavenWeb.Feature.FlowTest do
     session
     |> login(user.username)
     |> assert_has(css(".nav-link", text: "Dashboard"))
-    |> assert_has(css(".nav-link", text: "Threads"))
+    # The rest of the admin links now live in the "Admin" dropdown.
+    |> click(css(".user-dropdown-toggle", text: "Admin"))
+    |> assert_has(css(".user-dropdown-link", text: "Threads"))
   end
 
   feature "theme persists across page navigation", %{session: session} do
