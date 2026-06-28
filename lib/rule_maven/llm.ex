@@ -768,6 +768,41 @@ defmodule RuleMaven.LLM do
 
   def user_cost_today(_), do: 0.0
 
+  @doc "USD cost estimate of ALL LLM usage since UTC midnight today (whole app)."
+  def cost_today do
+    alias RuleMaven.Repo
+    alias RuleMaven.LLM.Pricing
+    import Ecto.Query
+
+    since = DateTime.utc_now() |> DateTime.to_date() |> DateTime.new!(~T[00:00:00], "Etc/UTC")
+
+    Repo.all(
+      from l in RuleMaven.LLM.Log,
+        where: l.inserted_at >= ^since,
+        group_by: l.model,
+        select: {l.model, sum(l.prompt_tokens), sum(l.completion_tokens)}
+    )
+    |> Enum.reduce(0.0, fn {model, p, c}, acc -> acc + Pricing.cost(model, p, c) end)
+  end
+
+  @doc """
+  Error rate over the last `hours` hours: %{requests, errors, rate} where rate
+  is a 0.0–1.0 float (0.0 when no requests).
+  """
+  def error_rate(hours \\ 24) do
+    alias RuleMaven.Repo
+    import Ecto.Query
+
+    since = DateTime.add(DateTime.utc_now(), -hours, :hour)
+    base = from(l in RuleMaven.LLM.Log, where: l.inserted_at >= ^since)
+
+    total = Repo.aggregate(base, :count)
+    errors = Repo.aggregate(from(l in base, where: l.success == false), :count)
+    rate = if total > 0, do: errors / total, else: 0.0
+
+    %{requests: total, errors: errors, rate: rate}
+  end
+
   @doc """
   Generates a list of suggested questions for a game based on its rulebook text.
   Returns `{:ok, [question_string]}` or `{:error, reason}`.

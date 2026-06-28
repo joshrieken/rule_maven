@@ -6,9 +6,18 @@ defmodule RuleMavenWeb.AuthPlug do
 
   def call(conn, _opts) do
     user_id = get_session(conn, :user_id)
+    logged_in_at = get_session(conn, :logged_in_at)
     user = if user_id, do: RuleMaven.Users.get_user(user_id), else: nil
-    # A suspended account is treated as logged out everywhere downstream.
-    user = if user && RuleMaven.Users.suspended?(user), do: nil, else: user
+
+    # A suspended account, or a session revoked by force-logout, is treated as
+    # logged out everywhere downstream.
+    user =
+      cond do
+        user && RuleMaven.Users.suspended?(user) -> nil
+        user && not RuleMaven.Users.session_valid?(user, logged_in_at) -> nil
+        true -> user
+      end
+
     assign(conn, :current_user, user)
   end
 

@@ -17,11 +17,23 @@ defmodule RuleMaven.Games.Game do
     # %{"light" => %{"--bg" => "#…", …}, "dark" => %{…}}
     field :theme_palette, :map
 
+    # Lightweight DMCA takedown. When `taken_down_at` is set the game is hidden
+    # from listings and new asks are blocked; reason + complainant are recorded
+    # for the takedown log. Cleared to restore.
+    field :taken_down_at, :utc_datetime
+    field :takedown_reason, :string
+    field :takedown_complainant, :string
+
     belongs_to :parent_game, RuleMaven.Games.Game, foreign_key: :parent_game_id
     has_many :expansions, RuleMaven.Games.Game, foreign_key: :parent_game_id
 
     timestamps(type: :utc_datetime)
   end
+
+  @doc "True while the game is under a DMCA takedown."
+  def taken_down?(%__MODULE__{taken_down_at: nil}), do: false
+  def taken_down?(%__MODULE__{taken_down_at: _}), do: true
+  def taken_down?(_), do: false
 
   @doc false
   def changeset(game, attrs) do

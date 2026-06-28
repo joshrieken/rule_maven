@@ -95,6 +95,12 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="Append-only record of sensitive admin actions."
         />
         <.card
+          navigate={~p"/admin/takedowns"}
+          icon="⛔"
+          title="DMCA Takedowns"
+          desc="Remove games on copyright complaint; reason + complainant logged."
+        />
+        <.card
           navigate={~p"/admin/threads"}
           icon="🧵"
           title="Review Threads"
@@ -135,6 +141,12 @@ defmodule RuleMavenWeb.AdminLive.Index do
           icon="🛡️"
           title="Security"
           desc="Blocked questions and injection pattern management."
+        />
+        <.card
+          navigate={~p"/admin/health"}
+          icon="❤️‍🩹"
+          title="System Health"
+          desc="Oban queues, LLM error rate, today's spend vs alert."
         />
         <.card
           navigate={~p"/admin/usage"}

@@ -273,4 +273,35 @@ defmodule RuleMaven.UsersTest do
       assert reason =~ "4 characters"
     end
   end
+
+  describe "session revocation (force logout)" do
+    setup do
+      {:ok, user} =
+        Users.create_user(%{
+          username: "revoke_test",
+          email: "revoke@test.com",
+          password: "testpass1234"
+        })
+
+      %{user: user}
+    end
+
+    test "fresh user with no cutoff: any session is valid", %{user: user} do
+      assert Users.session_valid?(user, System.os_time(:second))
+      # Even a legacy session with no recorded login time is fine.
+      assert Users.session_valid?(user, nil)
+    end
+
+    test "force_logout revokes sessions that logged in before the cutoff", %{user: user} do
+      before = System.os_time(:second) - 5
+      {:ok, user} = Users.force_logout(user)
+
+      # Session predating the cutoff is now invalid.
+      refute Users.session_valid?(user, before)
+      # A legacy session (no login time) fails closed once a cutoff exists.
+      refute Users.session_valid?(user, nil)
+      # A login after the cutoff is valid again.
+      assert Users.session_valid?(user, System.os_time(:second) + 5)
+    end
+  end
 end

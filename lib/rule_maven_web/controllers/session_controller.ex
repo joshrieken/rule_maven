@@ -28,6 +28,7 @@ defmodule RuleMavenWeb.SessionController do
 
             conn
             |> put_session(:user_id, user.id)
+            |> put_session(:logged_in_at, System.os_time(:second))
             |> put_flash(:info, "Welcome back!")
             |> redirect(to: ~p"/")
 

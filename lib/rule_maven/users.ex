@@ -73,6 +73,13 @@ defmodule RuleMaven.Users do
   def unsuspend_user(%User{} = user),
     do: user |> User.suspension_changeset(false) |> Repo.update()
 
+  @doc "Revokes all of a user's live sessions (force logout) without suspending."
+  def force_logout(%User{} = user),
+    do: user |> User.force_logout_changeset() |> Repo.update()
+
+  @doc "Whether a session (login time in unix seconds) is still valid for the user."
+  def session_valid?(user, logged_in_at), do: User.session_valid?(user, logged_in_at)
+
   @doc "Sets a user's monthly question quota (admin action)."
   def set_quota(%User{} = user, quota),
     do: user |> User.quota_changeset(quota) |> Repo.update()

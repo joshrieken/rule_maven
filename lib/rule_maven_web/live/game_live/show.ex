@@ -67,6 +67,23 @@ defmodule RuleMavenWeb.GameLive.Show do
     id = params["id"]
     game = Games.get_game!(id)
 
+    # DMCA takedown: non-admins can't reach a taken-down game at all. Admins can
+    # still open it (to review / restore) and see a banner instead of content.
+    if Games.taken_down?(game) and not socket.assigns.is_admin do
+      throw_takedown(socket)
+    else
+      do_handle_params(params, game, socket)
+    end
+  end
+
+  defp throw_takedown(socket) do
+    {:noreply,
+     socket
+     |> put_flash(:error, "This game has been removed.")
+     |> push_navigate(to: ~p"/")}
+  end
+
+  defp do_handle_params(params, game, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")
       Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.Setup.topic(game.id))
@@ -571,6 +588,9 @@ defmodule RuleMavenWeb.GameLive.Show do
     visibility = params["visibility"] || socket.assigns.visibility
 
     cond do
+      Games.taken_down?(socket.assigns.game) ->
+        {:noreply, put_flash(socket, :error, "This game has been removed and can't be asked about.")}
+
       RuleMaven.Settings.asks_disabled?() and not socket.assigns.is_admin ->
         {:noreply, put_flash(socket, :error, RuleMaven.Settings.asks_disabled_message())}
 
@@ -1330,6 +1350,13 @@ defmodule RuleMavenWeb.GameLive.Show do
   def render(assigns) do
     ~H"""
     {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
+    <div
+      :if={@is_admin and RuleMaven.Games.taken_down?(@game)}
+      style="position:fixed;top:var(--header-height,3.125rem);left:0;right:0;z-index:20;background:var(--danger,#c0392b);color:#fff;font-size:0.8rem;font-weight:600;padding:0.4rem 0.9rem;text-align:center"
+    >
+      ⛔ This game is taken down (DMCA) — hidden from users, asks blocked.
+      <.link navigate={~p"/admin/takedowns"} style="color:#fff;text-decoration:underline">Manage</.link>
+    </div>
     <div
       class="chat-layout"
       data-refresh={@refresh}

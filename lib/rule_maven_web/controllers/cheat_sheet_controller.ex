@@ -3,6 +3,11 @@ defmodule RuleMavenWeb.CheatSheetController do
 
   alias RuleMaven.{Games, CheatSheet}
 
+  # Cheatsheets are AI-derived summaries of copyrighted rules, so they're gated
+  # to logged-in users (lighter than the admin-only rulebook HTML, but not open
+  # to anonymous scraping).
+  plug :require_login
+
   def show(conn, %{"id" => id}) do
     game = Games.get_game!(id)
     serve_active_cheatsheet(conn, game)
@@ -12,6 +17,17 @@ defmodule RuleMavenWeb.CheatSheetController do
     game = Games.get_game!(id)
     version = CheatSheet.get_version!(version_id)
     serve_content(conn, game.name, version.content)
+  end
+
+  defp require_login(conn, _opts) do
+    if conn.assigns[:current_user] do
+      conn
+    else
+      conn
+      |> put_flash(:error, "Please log in to view cheatsheets.")
+      |> redirect(to: ~p"/login")
+      |> halt()
+    end
   end
 
   defp serve_active_cheatsheet(conn, game) do

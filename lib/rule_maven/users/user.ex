@@ -11,6 +11,9 @@ defmodule RuleMaven.Users.User do
     field :reputation, :integer, default: 0
     field :email_confirmed_at, :utc_datetime
     field :suspended_at, :utc_datetime
+    # Force-logout cutoff: sessions whose login predates this are rejected. An
+    # admin "force logout" stamps this to now, invalidating all live sessions.
+    field :sessions_valid_after, :utc_datetime
     # Per-user monthly question allowance (fresh LLM generations only; cache hits
     # don't count). Replaces the global monthly limit; an admin can raise it.
     field :monthly_quota, :integer, default: 200
@@ -97,6 +100,26 @@ defmodule RuleMaven.Users.User do
   end
 
   def suspension_changeset(user, false), do: change(user, suspended_at: nil)
+
+  @doc "Stamps the force-logout cutoff to now, revoking all existing sessions."
+  def force_logout_changeset(user) do
+    change(user, sessions_valid_after: DateTime.utc_now() |> DateTime.truncate(:second))
+  end
+
+  @doc """
+  True if a session that logged in at `logged_in_at` (unix seconds, or nil for
+  legacy sessions) is still valid for this user. A revocation cutoff with no
+  recorded login time fails closed.
+  """
+  def session_valid?(%__MODULE__{sessions_valid_after: nil}, _logged_in_at), do: true
+  def session_valid?(%__MODULE__{}, nil), do: false
+
+  def session_valid?(%__MODULE__{sessions_valid_after: cutoff}, logged_in_at)
+      when is_integer(logged_in_at) do
+    logged_in_at >= DateTime.to_unix(cutoff)
+  end
+
+  def session_valid?(_, _), do: false
 
   @doc "Admin-set monthly question quota. Clamped to a sane non-negative range."
   def quota_changeset(user, quota) do

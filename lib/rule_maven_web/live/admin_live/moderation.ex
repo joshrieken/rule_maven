@@ -56,6 +56,22 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
     end
   end
 
+  defp do_event("force_logout", %{"id" => id}, socket) do
+    case fetch(id) do
+      {:ok, user} ->
+        {:ok, _} = Users.force_logout(user)
+        audit(socket, "user.force_logout", user)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Revoked all of #{user.username}'s sessions.")
+         |> load()}
+
+      {:error, msg} ->
+        {:noreply, put_flash(socket, :error, msg)}
+    end
+  end
+
   defp do_event("demote_answers", %{"id" => id}, socket) do
     case fetch(id) do
       {:ok, user} ->
@@ -286,6 +302,14 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                       data-confirm={"Pull all of #{s.username}'s answers from the pool? They become private."}
                       style={btn("var(--text-muted)")}
                     >Pull answers</button>
+                    <button
+                      type="button"
+                      phx-click="force_logout"
+                      phx-value-id={s.user_id}
+                      data-confirm={"Force log out #{s.username}? Revokes all their active sessions without suspending the account."}
+                      style={btn("var(--text-muted)")}
+                      title="Revoke all active sessions"
+                    >Force logout</button>
                     <button
                       type="button"
                       phx-click="reset_reputation"

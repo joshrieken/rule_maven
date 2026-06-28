@@ -28,6 +28,41 @@ defmodule RuleMaven.Games do
 
   def count_games, do: Repo.aggregate(Game, :count)
 
+  # ── DMCA takedowns ──
+
+  @doc "True while a game is under a DMCA takedown (hidden + asks blocked)."
+  def taken_down?(%Game{} = game), do: Game.taken_down?(game)
+
+  @doc """
+  Takes a game down: stamps `taken_down_at` now and records the reason +
+  complainant. Hides it from listings and blocks new asks. Reversible.
+  """
+  def take_down_game(%Game{} = game, reason, complainant) do
+    game
+    |> Ecto.Changeset.change(
+      taken_down_at: DateTime.utc_now() |> DateTime.truncate(:second),
+      takedown_reason: reason,
+      takedown_complainant: complainant
+    )
+    |> Repo.update()
+  end
+
+  @doc "Restores a taken-down game, clearing the takedown record."
+  def restore_game(%Game{} = game) do
+    game
+    |> Ecto.Changeset.change(
+      taken_down_at: nil,
+      takedown_reason: nil,
+      takedown_complainant: nil
+    )
+    |> Repo.update()
+  end
+
+  @doc "Games currently under takedown, most recent first."
+  def list_taken_down do
+    Repo.all(from g in Game, where: not is_nil(g.taken_down_at), order_by: [desc: g.taken_down_at])
+  end
+
   def list_games_with_documents do
     # Base games + expansions that have published documents.
     # Returns base games sorted by name.
@@ -38,6 +73,7 @@ defmodule RuleMaven.Games do
           on: d.game_id == g.id,
           where: d.status == "published",
           where: is_nil(g.parent_game_id),
+          where: is_nil(g.taken_down_at),
           distinct: true,
           select: g.id
       )
@@ -160,6 +196,8 @@ defmodule RuleMaven.Games do
   end
 
   def get_game!(id), do: Repo.get!(Game, id)
+
+  def get_game(id), do: Repo.get(Game, id)
 
   def get_game_by_bgg_id(bgg_id) when is_integer(bgg_id), do: Repo.get_by(Game, bgg_id: bgg_id)
 

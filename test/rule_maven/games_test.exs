@@ -271,4 +271,28 @@ defmodule RuleMaven.GamesTest do
 
     q
   end
+
+  describe "DMCA takedowns" do
+    test "take_down_game/3 records the takedown and restore clears it" do
+      game = game_fixture()
+      refute Games.taken_down?(game)
+
+      {:ok, down} = Games.take_down_game(game, "copyright claim", "Acme Rights")
+      assert Games.taken_down?(down)
+      assert down.takedown_reason == "copyright claim"
+      assert down.takedown_complainant == "Acme Rights"
+      assert Enum.any?(Games.list_taken_down(), &(&1.id == game.id))
+
+      {:ok, restored} = Games.restore_game(down)
+      refute Games.taken_down?(restored)
+      assert restored.takedown_reason == nil
+      assert Games.list_taken_down() == []
+    end
+
+    test "list_games_with_documents/0 hides taken-down games" do
+      game = game_fixture()
+      {:ok, _} = Games.take_down_game(game, "claim", "x")
+      refute Enum.any?(Games.list_games_with_documents(), &(&1.id == game.id))
+    end
+  end
 end

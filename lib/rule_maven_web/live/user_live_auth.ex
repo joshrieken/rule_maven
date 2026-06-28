@@ -57,21 +57,34 @@ defmodule RuleMavenWeb.UserLiveAuth do
     end
   end
 
-  # Resolves the session's user, treating a suspended account as logged out.
+  # Resolves the session's user, treating a suspended account or a session
+  # revoked by force-logout as logged out.
   defp active_user(session) do
     case session[:user_id] || session["user_id"] do
       nil ->
         nil
 
       user_id ->
+        logged_in_at = session[:logged_in_at] || session["logged_in_at"]
+
         case RuleMaven.Users.get_user(user_id) do
-          nil -> nil
-          user -> if RuleMaven.Users.suspended?(user), do: nil, else: user
+          nil ->
+            nil
+
+          user ->
+            cond do
+              RuleMaven.Users.suspended?(user) -> nil
+              not RuleMaven.Users.session_valid?(user, logged_in_at) -> nil
+              true -> user
+            end
         end
     end
   end
 
   def get_session(conn) do
-    %{"user_id" => get_session(conn, :user_id)}
+    %{
+      "user_id" => get_session(conn, :user_id),
+      "logged_in_at" => get_session(conn, :logged_in_at)
+    }
   end
 end

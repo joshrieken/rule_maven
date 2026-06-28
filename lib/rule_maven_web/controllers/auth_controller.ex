@@ -13,6 +13,7 @@ defmodule RuleMavenWeb.AuthController do
       {:ok, user_id} ->
         conn
         |> put_session(:user_id, user_id)
+        |> put_session(:logged_in_at, System.os_time(:second))
         |> put_flash(:info, "Welcome! Your account is ready.")
         |> redirect(to: ~p"/")
 
