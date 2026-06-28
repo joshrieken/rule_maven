@@ -2086,18 +2086,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                       style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem"
                       title="Total helpful votes"
                     >{Map.get(counts, :up, 0)}</span>
-                    <button
-                      type="button"
-                      phx-click="community_vote"
-                      phx-value-id={msg[:id]}
-                      phx-value-vote="down"
-                      style={"background:none;border:none;font-size:1rem;cursor:pointer;opacity:#{if cv == "down", do: "1", else: "0.4"}"}
-                      title={if cv == "down", do: "Remove vote", else: "Not helpful"}
-                    >👎</button>
-                    <span
-                      style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem"
-                      title="Total not-helpful votes"
-                    >{Map.get(counts, :down, 0)}</span>
                   <% else %>
                     <%= if msg[:pool_hit] && msg[:pool_source_id] do %>
                       <!-- Pool hit (trusted or provisional): vote accrues to the
@@ -2117,18 +2105,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                         style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem"
                         title="Total helpful votes"
                       >{Map.get(counts, :up, 0)}</span>
-                      <button
-                        type="button"
-                        phx-click="community_vote"
-                        phx-value-id={sid}
-                        phx-value-vote="down"
-                        style={"background:none;border:none;font-size:1rem;cursor:pointer;opacity:#{if cv == "down", do: "1", else: "0.4"}"}
-                        title={if cv == "down", do: "Remove vote", else: "Not helpful"}
-                      >👎</button>
-                      <span
-                        style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem"
-                        title="Total not-helpful votes"
-                      >{Map.get(counts, :down, 0)}</span>
                     <% else %>
                       <!-- Own (non-pool) answer: votes go to the same QuestionVote
                            store as community/pool answers, so the asker's thumb and
@@ -2151,20 +2127,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                         style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem"
                         title="Total helpful votes"
                       >{Map.get(counts, :up, 0)}</span>
-                      <button
-                        :if={!msg[:pool_hit]}
-                        type="button"
-                        phx-click="community_vote"
-                        phx-value-id={msg[:id]}
-                        phx-value-vote="down"
-                        style={"background:none;border:none;font-size:1rem;cursor:pointer;opacity:#{if cv == "down", do: "1", else: "0.4"}"}
-                        title={if cv == "down", do: "Remove vote", else: "Not helpful"}
-                      >👎</button>
-                      <span
-                        :if={!msg[:pool_hit]}
-                        style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem"
-                        title="Total not-helpful votes"
-                      >{Map.get(counts, :down, 0)}</span>
                     <% end %>
                   <% end %>
 
