@@ -74,7 +74,7 @@ defmodule RuleMavenWeb.AdminLive.Invites do
             name="max_uses"
             value="1"
             min="1"
-            max="100"
+            max="1000"
             form="invite-form"
             style="width:5rem;border:1px solid var(--border);border-radius:0.25rem;padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--bg);color:var(--text)"
           />

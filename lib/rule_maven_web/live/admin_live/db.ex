@@ -10,6 +10,9 @@ defmodule RuleMavenWeb.AdminLive.Db do
   #   * schema_migrations — corrupting it breaks migrations / the app.
   #   * oban_*          — the job runtime owns these; hand-editing causes chaos.
   # Reads stay allowed (browsing is useful); writes are refused.
+  # Raw browse caps at this many rows; large tables truncate (newest-first).
+  @row_limit 500
+
   @protected_exact ~w(audit_logs schema_migrations)
   defp writable?(table) do
     table not in @protected_exact and not String.starts_with?(table, "oban")
@@ -33,8 +36,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
          form_errors: %{},
          mode: nil,
          view_mode: :table,
-         page: 1,
-         per_page: 50
+         row_limit: @row_limit
        )}
     else
       {:ok,
@@ -101,17 +103,23 @@ defmodule RuleMavenWeb.AdminLive.Db do
     pk = socket.assigns.pk_col
 
     if writable?(table) do
-      SQL.query!(Repo, "DELETE FROM #{safe(table)} WHERE #{safe(pk)} = $1", [id])
+      try do
+        SQL.query!(Repo, "DELETE FROM #{safe(table)} WHERE #{safe(pk)} = $1", [id])
 
-      Audit.log(socket.assigns.current_user, "db.delete",
-        target_type: "row",
-        target_id: id,
-        target_label: "#{table}.#{pk}=#{id}",
-        metadata: %{"table" => table}
-      )
+        Audit.log(socket.assigns.current_user, "db.delete",
+          target_type: "row",
+          target_id: id,
+          target_label: "#{table}.#{pk}=#{id}",
+          metadata: %{"table" => table}
+        )
 
-      rows = fetch_rows(table, socket.assigns.columns)
-      {:noreply, assign(socket, rows: rows, delete_id: nil)}
+        rows = fetch_rows(table, socket.assigns.columns)
+        {:noreply, assign(socket, rows: rows, delete_id: nil)}
+      rescue
+        e in [Postgrex.Error, DBConnection.ConnectionError] ->
+          {:noreply,
+           socket |> assign(delete_id: nil) |> put_flash(:error, db_error_message(e))}
+      end
     else
       {:noreply,
        socket
@@ -178,38 +186,50 @@ defmodule RuleMavenWeb.AdminLive.Db do
     set_cols = Enum.filter(Map.keys(cols_map), &(&1 != pk))
     vals = Enum.map(set_cols, &parse_for_db(Map.get(data, &1), cols_map[&1]))
 
-    case mode do
-      :new ->
-        placeholders =
-          Enum.map_join(set_cols, ", ", &"$#{Enum.find_index(set_cols, fn c -> c == &1 end) + 1}")
+    try do
+      case mode do
+        :new ->
+          placeholders =
+            Enum.map_join(set_cols, ", ", &"$#{Enum.find_index(set_cols, fn c -> c == &1 end) + 1}")
 
-        cols_str = Enum.map_join(set_cols, ", ", &safe(&1))
+          cols_str = Enum.map_join(set_cols, ", ", &safe(&1))
 
-        sql = "INSERT INTO #{safe(table)} (#{cols_str}) VALUES (#{placeholders})"
-        SQL.query!(Repo, sql, vals)
+          sql = "INSERT INTO #{safe(table)} (#{cols_str}) VALUES (#{placeholders})"
+          SQL.query!(Repo, sql, vals)
 
-      :edit ->
-        sets =
-          Enum.with_index(set_cols, 1)
-          |> Enum.map_join(", ", fn {c, i} -> "#{safe(c)} = $#{i}" end)
+        :edit ->
+          sets =
+            Enum.with_index(set_cols, 1)
+            |> Enum.map_join(", ", fn {c, i} -> "#{safe(c)} = $#{i}" end)
 
-        pk_val = parse_for_db(Map.get(data, pk), cols_map[pk])
-        sql = "UPDATE #{safe(table)} SET #{sets} WHERE #{safe(pk)} = $#{length(set_cols) + 1}"
-        SQL.query!(Repo, sql, vals ++ [pk_val])
+          pk_val = parse_for_db(Map.get(data, pk), cols_map[pk])
+          sql = "UPDATE #{safe(table)} SET #{sets} WHERE #{safe(pk)} = $#{length(set_cols) + 1}"
+          SQL.query!(Repo, sql, vals ++ [pk_val])
+      end
+
+      Audit.log(socket.assigns.current_user, "db.#{mode}",
+        target_type: "row",
+        target_id: socket.assigns.editing_id,
+        target_label:
+          "#{table}#{if mode == :edit, do: ".#{pk}=#{socket.assigns.editing_id}", else: ""}",
+        metadata: %{"table" => table, "columns" => set_cols}
+      )
+
+      rows = fetch_rows(table, columns)
+
+      {:noreply,
+       assign(socket, rows: rows, mode: nil, editing_id: nil, form_data: %{}, form_errors: %{})}
+    rescue
+      # A constraint violation / bad cast used to crash the LiveView; keep the form
+      # open and surface the DB error inline instead.
+      e in [Postgrex.Error, DBConnection.ConnectionError, ArgumentError] ->
+        {:noreply, assign(socket, form_errors: %{base: db_error_message(e)})}
     end
-
-    Audit.log(socket.assigns.current_user, "db.#{mode}",
-      target_type: "row",
-      target_id: socket.assigns.editing_id,
-      target_label: "#{table}#{if mode == :edit, do: ".#{pk}=#{socket.assigns.editing_id}", else: ""}",
-      metadata: %{"table" => table, "columns" => set_cols}
-    )
-
-    rows = fetch_rows(table, columns)
-
-    {:noreply,
-     assign(socket, rows: rows, mode: nil, editing_id: nil, form_data: %{}, form_errors: %{})}
   end
+
+  defp db_error_message(%Postgrex.Error{postgres: %{message: msg}}), do: msg
+  defp db_error_message(%Postgrex.Error{} = e), do: Exception.message(e)
+  defp db_error_message(e), do: Exception.message(e)
 
   # ── DB queries ──
 
@@ -270,7 +290,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
     %{rows: rows, columns: col_names} =
       SQL.query!(
         Repo,
-        "SELECT #{cols} FROM #{safe(table)} ORDER BY 1 DESC LIMIT 500",
+        "SELECT #{cols} FROM #{safe(table)} ORDER BY 1 DESC LIMIT #{@row_limit}",
         []
       )
 
@@ -375,6 +395,9 @@ defmodule RuleMavenWeb.AdminLive.Db do
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;gap:0.4rem">
           <p style="font-size:0.7rem;color:var(--text-muted);margin:0">
             {length(@rows)} rows in <code style="font-size:0.75rem">{@table_name}</code>
+            <span :if={length(@rows) == @row_limit} title={"Browse is capped at #{@row_limit} rows"}>
+              (newest {@row_limit}; capped)
+            </span>
           </p>
           <div style="display:flex;gap:0.35rem;align-items:center">
             <button
@@ -440,6 +463,12 @@ defmodule RuleMavenWeb.AdminLive.Db do
                 </div>
               <% end %>
             </div>
+            <p
+              :if={Map.get(@form_errors, :base)}
+              style="margin:0.6rem 0 0;font-size:0.75rem;color:var(--red);white-space:pre-wrap"
+            >
+              {Map.get(@form_errors, :base)}
+            </p>
             <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
               <button
                 type="button"

@@ -35,7 +35,18 @@ defmodule RuleMavenWeb.AdminLive.Catalog do
          error: "Set the app's BGG username and password in Settings before importing."
        )}
     else
-      send(self(), {:run_import, user, pass})
+      # Run login + multi-MB dump download + upsert off the LiveView process so
+      # the page stays responsive; result comes back via handle_async.
+      socket =
+        start_async(socket, :import_catalog, fn ->
+          # The data-dump page is login-gated and the BGG API token does not
+          # unlock it, so authenticate with the app's stored BGG account first.
+          with {:ok, cookies} <- BGG.login(user, pass),
+               {:ok, csv} <- BGG.fetch_rank_dump(cookies) do
+            {:ok, Games.import_rank_dump(csv)}
+          end
+        end)
+
       {:noreply, assign(socket, importing: true, error: nil, result: nil)}
     end
   end
@@ -71,29 +82,21 @@ defmodule RuleMavenWeb.AdminLive.Catalog do
   end
 
   @impl true
-  def handle_info({:run_import, user, pass}, socket) do
-    # The data-dump page is login-gated and the BGG API token does not unlock it,
-    # so authenticate with the app's stored BGG account to obtain session cookies.
-    result =
-      with {:ok, cookies} <- BGG.login(user, pass),
-           {:ok, csv} <- BGG.fetch_rank_dump(cookies) do
-        {:ok, Games.import_rank_dump(csv)}
-      end
+  def handle_async(:import_catalog, {:ok, {:ok, count}}, socket) do
+    Audit.log(socket.assigns.current_user, "catalog.import", metadata: %{"imported" => count})
 
-    case result do
-      {:ok, count} ->
-        Audit.log(socket.assigns.current_user, "catalog.import",
-          metadata: %{"imported" => count}
-        )
+    {:noreply,
+     socket
+     |> assign(importing: false, result: count, total_games: Games.count_games())
+     |> put_flash(:info, "Imported/updated #{count} games from the BGG catalog.")}
+  end
 
-        {:noreply,
-         socket
-         |> assign(importing: false, result: count, total_games: Games.count_games())
-         |> put_flash(:info, "Imported/updated #{count} games from the BGG catalog.")}
+  def handle_async(:import_catalog, {:ok, {:error, reason}}, socket) do
+    {:noreply, assign(socket, importing: false, error: to_string(reason))}
+  end
 
-      {:error, reason} ->
-        {:noreply, assign(socket, importing: false, error: to_string(reason))}
-    end
+  def handle_async(:import_catalog, {:exit, reason}, socket) do
+    {:noreply, assign(socket, importing: false, error: "Import crashed: #{inspect(reason)}")}
   end
 
   defp blank?(nil), do: true
