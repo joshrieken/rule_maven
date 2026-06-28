@@ -33,6 +33,7 @@ defmodule RuleMavenWeb.GameLive.Show do
        community_vote_counts: %{},
        community_user_votes: %{},
        flagged_ids: MapSet.new(),
+       asks_disabled: false,
        included_expansions: %{},
        visibility: "private",
        search_query: "",
@@ -135,6 +136,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         community_vote_counts: cv_counts,
         community_user_votes: cv_user,
         flagged_ids: Games.user_flagged_ids(socket.assigns.current_user.id),
+        asks_disabled: RuleMaven.Settings.asks_disabled?(),
         question_categories: question_categories,
         dyk_facts: dyk_facts,
         # Seed the pick with the per-load dyk_seed so the dead render and the
@@ -533,6 +535,9 @@ defmodule RuleMavenWeb.GameLive.Show do
     visibility = params["visibility"] || socket.assigns.visibility
 
     cond do
+      RuleMaven.Settings.asks_disabled?() and not socket.assigns.is_admin ->
+        {:noreply, put_flash(socket, :error, RuleMaven.Settings.asks_disabled_message())}
+
       String.length(question) < @min_question_length ->
         {:noreply, put_flash(socket, :error, "Please ask a complete question.")}
 
@@ -2117,7 +2122,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                            combined with other users' votes). -->
                       <% cv = Map.get(@community_user_votes, msg[:id]) %>
                       <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
-                      <span :if={!msg[:pool_hit]} style="display:inline-flex;align-items:center;gap:0.15rem">
+                      <span
+                        :if={!msg[:pool_hit]}
+                        style="display:inline-flex;align-items:center;gap:0.15rem"
+                      >
                         <button
                           type="button"
                           phx-click="community_vote"
@@ -2422,6 +2430,13 @@ defmodule RuleMavenWeb.GameLive.Show do
               <% end %>
             </div>
           <% end %>
+          <div
+            :if={@asks_disabled}
+            style="margin-bottom:0.5rem;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:0.5rem;background:color-mix(in srgb,var(--danger,#c0392b) 8%,transparent);color:var(--text);font-size:0.78rem"
+          >
+            ⏸️ {RuleMaven.Settings.asks_disabled_message()}{if @is_admin,
+              do: " (You can still ask as an admin.)"}
+          </div>
           <form phx-submit="ask" class="flex gap-2" phx-hook="KeyboardSubmit" id="ask-form">
             <button
               type="button"

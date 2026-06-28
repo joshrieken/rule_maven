@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.AdminLive.Index do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Users, Games}
+  alias RuleMaven.{Users, Games, Settings, Audit}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -10,10 +10,31 @@ defmodule RuleMavenWeb.AdminLive.Index do
        assign(socket,
          page_title: "Admin",
          review_backlog: Games.needs_review_count(),
-         flag_backlog: Games.count_pending_flags()
+         flag_backlog: Games.count_pending_flags(),
+         asks_disabled: Settings.asks_disabled?()
        )}
     else
       {:ok, push_navigate(socket, to: ~p"/")}
+    end
+  end
+
+  @impl true
+  def handle_event("toggle_asks", _params, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      disable? = not socket.assigns.asks_disabled
+      Settings.set_asks_disabled(disable?)
+
+      Audit.log(
+        socket.assigns.current_user,
+        if(disable?, do: "asks.disable", else: "asks.enable")
+      )
+
+      {:noreply,
+       socket
+       |> assign(asks_disabled: disable?)
+       |> put_flash(:info, if(disable?, do: "Asks paused.", else: "Asks resumed."))}
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
     end
   end
 
@@ -24,6 +45,27 @@ defmodule RuleMavenWeb.AdminLive.Index do
       <.link navigate={~p"/"} class="back-link">&larr; Back to games</.link>
 
       <h1 style="font-size:1.5rem;font-weight:700;margin:0.25rem 0 1rem">Admin Dashboard</h1>
+
+      <div style={"display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0.75rem 1rem;margin-bottom:1rem;border-radius:0.5rem;border:1px solid #{if @asks_disabled, do: "var(--danger,#c0392b)", else: "var(--border)"};background:var(--bg-surface)"}>
+        <div>
+          <div style="font-weight:700;font-size:0.85rem;color:var(--text)">
+            {if @asks_disabled, do: "⏸️ Asks are paused", else: "▶️ Asks are live"}
+          </div>
+          <div style="font-size:0.75rem;color:var(--text-muted)">
+            Kill switch for new LLM answers. Existing answers keep serving; admins can still ask.
+          </div>
+        </div>
+        <button
+          type="button"
+          phx-click="toggle_asks"
+          data-confirm={
+            if !@asks_disabled, do: "Pause all new question answering for users?", else: false
+          }
+          style={"flex-shrink:0;border:1px solid #{if @asks_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};color:#{if @asks_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};background:none;padding:0.35rem 0.9rem;border-radius:0.375rem;font-size:0.78rem;font-weight:700;cursor:pointer"}
+        >
+          {if @asks_disabled, do: "Resume asks", else: "Pause asks"}
+        </button>
+      </div>
 
       <.section title="Review">
         <.card
