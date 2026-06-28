@@ -1287,7 +1287,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             repaint every frame). Blur a quarter-size surface scaled 4x so the
             filter runs over ~1/16 the pixels, painted once. --%>
       <div
-        :if={@conversation != [] && @game.image_url}
+        :if={@game.image_url}
         aria-hidden="true"
         style={"position:absolute;top:0;left:0;width:25%;height:25%;z-index:0;transform-origin:top left;transform:scale(4);background-image:url('#{@game.image_url}');background-size:cover;background-position:center;filter:blur(5px) saturate(1.15);opacity:0.22;pointer-events:none"}
       >
@@ -1416,7 +1416,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         <div
           id="question-sidebar"
           class={"question-sidebar #{if @sidebar_open, do: "", else: "sidebar-closed"}"}
-          style="flex-shrink:0;width:16rem;overflow-y:auto;border-right:1px solid var(--border);background:var(--bg-surface);padding:0.5rem 0;font-size:0.9rem;display:flex;flex-direction:column;position:relative;z-index:1"
+          style="flex-shrink:0;width:16rem;overflow-y:auto;border-right:1px solid var(--border);background:color-mix(in srgb,var(--bg-surface) 50%,transparent);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);padding:0.5rem 0;font-size:0.9rem;display:flex;flex-direction:column;position:relative;z-index:1"
         >
           <div style="padding:0.35rem 0.75rem;font-size:0.78rem;font-weight:600;color:var(--text);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center">
             <span>
@@ -1473,7 +1473,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                   class="sidebar-item"
                   phx-click="switch_thread"
                   phx-value-id={q.id}
-                  style={"display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.25rem 0.75rem;color:var(--text-secondary);font-size:0.72rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == q.id, do: "var(--accent)", else: "var(--border-subtle)"};width:100%"}
+                  style={"display:block;text-align:left;border:none;cursor:pointer;padding:0.25rem 0.75rem;color:var(--text-secondary);font-size:0.72rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == q.id, do: "var(--accent)", else: "var(--border-subtle)"};width:100%"}
                 >
                   <span style="word-break:break-word;white-space:normal;display:block;line-height:1.3">
                     {q.canonical_question || q.question}
@@ -1512,7 +1512,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                   class="sidebar-item"
                   phx-click="switch_thread"
                   phx-value-id={t.id}
-                  style={"display:block;text-align:left;background:none;border:none;cursor:pointer;padding:0.22rem 0.75rem;font-size:0.73rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == t.id, do: "var(--accent)", else: "transparent"};width:100%;color:var(--text)"}
+                  style={"display:block;text-align:left;border:none;cursor:pointer;padding:0.22rem 0.75rem;font-size:0.73rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == t.id, do: "var(--accent)", else: "transparent"};width:100%;color:var(--text)"}
                 >
                   <div style="display:flex;align-items:baseline;gap:0.2rem">
                     <%= if t.favorited do %>
@@ -1636,7 +1636,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
           <%= if @conversation == [] && @source_count > 0 do %>
             <!-- Empty state: lead with the primary action, suggestions visible immediately -->
-            <div style="text-align:center;padding:2rem 1rem;color:var(--text-secondary);font-size:0.85rem;line-height:1.6">
+            <div class="answer-in" style="text-align:center;padding:2rem 1rem;color:var(--text-secondary);font-size:0.85rem;line-height:1.6;position:relative;z-index:1">
               <%= if @game.image_url do %>
                 <img
                   src={@game.image_url}
@@ -2544,11 +2544,16 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   # ── Verdict stamp ──
   # Maps the persisted verdict to {emoji, label, color, bg}. `nil` = no stamp.
-  defp verdict_stamp("legal"), do: {"✅", "LEGAL MOVE", "#15803d", "#dcfce7"}
-  defp verdict_stamp("illegal"), do: {"❌", "NOT ALLOWED", "#b91c1c", "#fee2e2"}
-  defp verdict_stamp("silent"), do: {"🤔", "RULES SILENT", "#92400e", "#fef3c7"}
-  defp verdict_stamp("info"), do: {"📖", "IN THE RULES", "#1e40af", "#dbeafe"}
+  # Theme-aware verdict stamps: text uses the theme's semantic color, background
+  # a faint tint of it over the surface — so they adapt to light/dark and to the
+  # per-game palette instead of fixed pastels that clash on dark themes.
+  defp verdict_stamp("legal"), do: {"✅", "LEGAL MOVE", "var(--green)", stamp_bg("--green")}
+  defp verdict_stamp("illegal"), do: {"❌", "NOT ALLOWED", "var(--red)", stamp_bg("--red")}
+  defp verdict_stamp("silent"), do: {"🤔", "RULES SILENT", "var(--yellow)", stamp_bg("--yellow")}
+  defp verdict_stamp("info"), do: {"📖", "IN THE RULES", "var(--blue)", stamp_bg("--blue")}
   defp verdict_stamp(_), do: nil
+
+  defp stamp_bg(var), do: "color-mix(in srgb, var(#{var}) 16%, var(--bg-surface))"
 
   # ── Answer confidence meter ──
   # Pure heuristic from existing signals — no stored confidence column.
@@ -2564,7 +2569,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       # Admin-verified is the absolute ceiling: an admin explicitly signed off on
       # this exact answer. Checked first so it outranks community votes.
       msg[:verified] ->
-        {"Admin-verified", 6, "#15803d",
+        {"Admin-verified", 6, "var(--green)",
          "An admin reviewed and confirmed this answer against the rulebook — the highest level of trust.",
          nil}
 
@@ -2573,27 +2578,27 @@ defmodule RuleMavenWeb.GameLive.Show do
       # its citation strength, the same as when freshly asked, rather than
       # dropping a level just because it was served from the pool.
       msg[:pool_hit] && !msg[:pool_provisional] ->
-        {"Community-verified", 5, "#15803d",
+        {"Community-verified", 5, "var(--green)",
          "Other players upvoted this same answer, so it's been confirmed by the community.",
          "Admin-verified — when an admin reviews and confirms this answer."}
 
       present?(msg[:cited_passage]) && msg[:cited_page] ->
-        {"Cited from rulebook", 4, "#15803d",
+        {"Cited from rulebook", 4, "var(--green)",
          "The answer quotes exact rulebook text and points to the page it came from — strong support straight from the rules.",
          "Community-verified — when other players ask the same thing and upvote this answer."}
 
       present?(msg[:cited_passage]) ->
-        {"Cited passage, page unconfirmed", 3, "#2563eb",
+        {"Cited passage, page unconfirmed", 3, "var(--blue)",
          "The answer quotes rulebook text, but the exact page number couldn't be confirmed.",
          "Cited from rulebook — regenerate to try to pin the exact page."}
 
       msg[:pool_hit] && msg[:pool_provisional] ->
-        {"Unverified — single source", 2, "#d97706",
+        {"Unverified — single source", 2, "var(--yellow)",
          "An earlier answer to a similar question with no rulebook citation. It hasn't been confirmed by other players yet.",
          "Community-verified — once other players upvote this answer too."}
 
       true ->
-        {"No direct citation", 1, "#d97706",
+        {"No direct citation", 1, "var(--yellow)",
          "No exact rulebook passage matched. This is the model's best read of the rules — double-check anything important.",
          "Cited from rulebook — regenerate to pull a direct rulebook citation."}
     end

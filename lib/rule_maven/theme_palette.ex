@@ -21,6 +21,8 @@ defmodule RuleMaven.ThemePalette do
   # Near-black the header gradient is built on; accent is mixed in for a hint of
   # the game's hue while staying dark enough for the white-text header design.
   @header_dark {24, 22, 20}
+  # Bright gold for the header icon glow + GM badge background.
+  @header_gold {232, 197, 82}
 
   # Semantic status colors kept constant per scheme so "danger is red" survives
   # whatever the cover's palette is. Tuned to read on the respective backgrounds.
@@ -128,7 +130,10 @@ defmodule RuleMaven.ThemePalette do
       # accent (e.g. yellow) header that looks garish and washes out the text.
       "--header-bg-start" => hex(mix(@header_dark, accent, 0.22)),
       "--header-bg-end" => hex(mix(@header_dark, accent, 0.10)),
-      "--header-border" => @semantic[scheme_key(scheme)]["--yellow"],
+      # Bright gold for the icon glow + GM badge. The header is always dark, so a
+      # vivid gold reads well and gives the badge (dark text on it) real contrast
+      # — the muted semantic yellow was too dark for that.
+      "--header-border" => hex(@header_gold),
       "--focus-ring" => rgba(accent, 0.18)
     }
     |> Map.merge(@semantic[scheme_key(scheme)])
