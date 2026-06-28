@@ -1130,16 +1130,27 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       community = Games.community_questions(game, socket.assigns.current_user.id)
 
+      # When the real answer lands on the active thread, jump the reader to the
+      # top of it so they start at the beginning; while still "Thinking..." just
+      # keep the pending bubble in view at the bottom.
+      answer_ready? =
+        ql.answer != "Thinking..." && socket.assigns.active_thread_id == question_log_id
+
+      socket =
+        socket
+        |> assign(
+          conversation: conversation,
+          threads: threads,
+          pending_count: pending_count,
+          community_questions: community,
+          refresh: socket.assigns.refresh + 1
+        )
+
       {:noreply,
-       socket
-       |> assign(
-         conversation: conversation,
-         threads: threads,
-         pending_count: pending_count,
-         community_questions: community,
-         refresh: socket.assigns.refresh + 1
-       )
-       |> push_event("scroll_bottom", %{})}
+       if(answer_ready?,
+         do: push_event(socket, "scroll_answer_top", %{}),
+         else: push_event(socket, "scroll_bottom", %{})
+       )}
     else
       {:noreply, socket}
     end

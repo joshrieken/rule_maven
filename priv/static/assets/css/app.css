@@ -1463,6 +1463,12 @@ h1 span.subtitle {
    whole list on every update. */
 .chat-msg { animation: msg-in-left 0.32s cubic-bezier(0.16, 1, 0.3, 1) both; }
 .chat-msg-user { animation: msg-in-right 0.32s cubic-bezier(0.16, 1, 0.3, 1) both; }
+/* Pull each question bubble up toward the answer above it, trimming the gap
+   (the chat list uses gap:1rem) so the conversation packs more tightly. */
+.chat-msg-user { margin-top: -0.5rem; }
+/* When scroll_answer_top jumps to an answer, leave room so the sticky
+   "Did you know?" banner pinned at the top doesn't cover its first line. */
+.chat-msg { scroll-margin-top: 2.75rem; }
 
 @keyframes msg-in-left {
   from { opacity: 0; transform: translate3d(-14px, 6px, 0); }

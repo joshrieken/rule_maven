@@ -28,6 +28,70 @@ function showVoteThanks() {
 }
 window.addEventListener("phx:vote_thanks", showVoteThanks);
 
+// Make open <details class="card-menu"> dropdowns behave like a modal: a
+// transparent full-screen backdrop sits just under the open menu, so a tap
+// anywhere outside closes the menu and is swallowed (it doesn't also activate
+// whatever was underneath). The next tap then interacts normally.
+(function () {
+  let backdrop = null;
+  let owner = null;
+
+  function hide() {
+    if (backdrop) backdrop.remove();
+    if (owner) {
+      const pop = owner.querySelector(".card-menu__pop");
+      if (pop) pop.style.zIndex = "";
+    }
+    backdrop = null;
+    owner = null;
+  }
+
+  function show(det) {
+    hide();
+    owner = det;
+    // Lift this menu's popup above the backdrop; backdrop covers everything else.
+    const pop = det.querySelector(".card-menu__pop");
+    if (pop) pop.style.zIndex = "9001";
+    backdrop = document.createElement("div");
+    backdrop.className = "card-menu-backdrop";
+    backdrop.style.cssText =
+      "position:fixed;inset:0;z-index:9000;background:transparent";
+    // The backdrop is the topmost element, so the tap targets it (never the
+    // content underneath). Closing + stopping the event means "just dismiss".
+    const dismiss = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      det.open = false; // fires toggle -> hide()
+    };
+    backdrop.addEventListener("click", dismiss, true);
+    backdrop.addEventListener("touchstart", dismiss, { capture: true, passive: false });
+    document.body.appendChild(backdrop);
+  }
+
+  // toggle doesn't bubble; capture phase still reaches a document listener.
+  document.addEventListener(
+    "toggle",
+    (e) => {
+      const det = e.target;
+      if (!(det instanceof HTMLDetailsElement) || !det.classList.contains("card-menu")) {
+        return;
+      }
+      if (det.open) {
+        // Only one card-menu open at a time.
+        document
+          .querySelectorAll("details.card-menu[open]")
+          .forEach((d) => {
+            if (d !== det) d.open = false;
+          });
+        show(det);
+      } else if (owner === det) {
+        hide();
+      }
+    },
+    true
+  );
+})();
+
 let Hooks = {};
 // Persists the selected game-list view to localStorage when the server
 // pushes "save_view". Restored on connect via the LiveSocket params above.
@@ -87,6 +151,9 @@ Hooks.ChatScroll = {
     // happens on later updates (a new answer arriving) and the scroll_bottom event.
     this.answerCount = this.countAnswers();
     this.handleEvent("scroll_bottom", () => this.scrollToBottom());
+    // Server fires this when a finished answer arrives — jump to its top so the
+    // reader starts at the beginning of the answer.
+    this.handleEvent("scroll_answer_top", () => this.scrollToLatestAnswer());
   },
   updated() {
     // updated() fires on every LiveView patch — voting, toggling the sidebar,
