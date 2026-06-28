@@ -127,6 +127,31 @@ defmodule RuleMaven.TrustTest do
       refute Repo.reload!(a).verified
       assert Repo.reload!(b).verified
     end
+
+    test "verifying a near-duplicate (by embedding) un-verifies the old one", %{
+      game: game,
+      author: author
+    } do
+      embed = fn id, vec ->
+        Repo.update_all(
+          from(q in RuleMaven.Games.QuestionLog, where: q.id == ^id),
+          set: [question_embedding: Pgvector.new(vec)]
+        )
+      end
+
+      a = log(game, author, %{question: "how do i score", answer: "first"})
+      b = log(game, author, %{question: "what is the scoring rule", answer: "second"})
+
+      # Different wording, near-identical embeddings → same question.
+      embed.(a.id, Enum.map(1..768, &(&1 * 1.0)))
+      embed.(b.id, Enum.map(1..768, &(&1 * 1.0 + 0.0001)))
+
+      {:ok, _} = Games.toggle_verified(Repo.reload!(a))
+      {:ok, _} = Games.toggle_verified(Repo.reload!(b))
+
+      refute Repo.reload!(a).verified
+      assert Repo.reload!(b).verified
+    end
   end
 
   describe "recompute_reputation/1" do

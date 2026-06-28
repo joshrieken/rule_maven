@@ -994,21 +994,46 @@ defmodule RuleMaven.Games do
   end
 
   defp do_verify(%QuestionLog{} = q) do
-    Repo.update_all(
-      from(ql in QuestionLog,
-        where:
-          ql.game_id == ^q.game_id and
-            ql.question == ^q.question and
-            ql.verified == true
-      ),
-      set: [verified: false]
-    )
+    # At most one verified answer per question. Clear any existing verified row
+    # for the *same* question — matched by embedding similarity (so paraphrases
+    # don't both stay verified), falling back to exact wording when this row has
+    # no embedding yet.
+    unverify_duplicates(q)
 
     attrs = %{verified: true, visibility: "community", pooled: true}
 
     with {:ok, updated} <- Repo.update(QuestionLog.changeset(q, attrs)) do
       finalize_verify_toggle(updated)
     end
+  end
+
+  defp unverify_duplicates(%QuestionLog{question_embedding: nil} = q) do
+    Repo.update_all(
+      from(ql in QuestionLog,
+        where:
+          ql.game_id == ^q.game_id and ql.id != ^q.id and
+            ql.question == ^q.question and ql.verified == true
+      ),
+      set: [verified: false]
+    )
+  end
+
+  defp unverify_duplicates(%QuestionLog{} = q) do
+    threshold = pool_distance_threshold()
+
+    Repo.update_all(
+      from(ql in QuestionLog,
+        where:
+          ql.game_id == ^q.game_id and ql.id != ^q.id and ql.verified == true and
+            not is_nil(ql.question_embedding) and
+            fragment(
+              "cosine_distance(?, ?::vector)",
+              ql.question_embedding,
+              ^q.question_embedding
+            ) <= ^threshold
+      ),
+      set: [verified: false]
+    )
   end
 
   defp do_unverify(%QuestionLog{} = q) do
