@@ -2170,6 +2170,30 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% end %>
                   <% end %>
 
+                  <!-- Category pills, pushed to the far right of the action row.
+                       Categories live in the (community) FAQ, so only show on
+                       community questions — except admins, who see them on any
+                       answer to audit tagging before it goes community. -->
+                  <% msg_cats =
+                    if (is_community_msg || @is_admin) && msg.role == :assistant && msg[:id],
+                      do: Map.get(@question_categories, msg[:id], []),
+                      else: [] %>
+                  <span
+                    :if={msg_cats != []}
+                    style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.25rem;margin-left:auto"
+                  >
+                    <span style="font-size:0.55rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);font-weight:600">
+                      Categories
+                    </span>
+                    <.link
+                      :for={cat <- msg_cats}
+                      navigate={~p"/games/#{@game.id}/faq?category=#{cat.id}"}
+                      style="font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:1rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);text-decoration:none"
+                    >
+                      {cat.name}
+                    </.link>
+                  </span>
+
                   <!-- Overflow: secondary actions (copy, regenerate) -->
                   <details class="card-menu" style="margin-left:auto">
                     <summary
@@ -2219,32 +2243,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <% end %>
                     </div>
                   </details>
-                </div>
-
-                <!-- Category pills: categories live in the (community) FAQ, so only
-                     show them on community questions — except admins, who can see
-                     them on any answer to audit tagging before it goes community.
-                     Right-aligned under the toolbar, label-prefixed, so the tags
-                     read as metadata kept clear of the interactive controls. -->
-                <% msg_cats =
-                  if (is_community_msg || @is_admin) && msg.role == :assistant && msg[:id],
-                    do: Map.get(@question_categories, msg[:id], []),
-                    else: [] %>
-                <div
-                  :if={msg_cats != []}
-                  style="display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:0.25rem;padding:0.3rem 0.25rem 0"
-                >
-                  <span style="font-size:0.55rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);font-weight:600">
-                    Categories
-                  </span>
-                  <%= for cat <- msg_cats do %>
-                    <.link
-                      navigate={~p"/games/#{@game.id}/faq?category=#{cat.id}"}
-                      style="font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:1rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);text-decoration:none"
-                    >
-                      {cat.name}
-                    </.link>
-                  <% end %>
                 </div>
 
                 <!-- Message actions (admin only) -->
