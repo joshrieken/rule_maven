@@ -1410,10 +1410,10 @@ defmodule RuleMavenWeb.GameLive.Show do
           class={"question-sidebar #{if @sidebar_open, do: "", else: "sidebar-closed"}"}
           style="flex-shrink:0;width:16rem;overflow-y:auto;border-right:1px solid var(--border);background:var(--bg-surface);padding:0.5rem 0;font-size:0.9rem;display:flex;flex-direction:column"
         >
-          <div style="padding:0.4rem 0.75rem 0.1rem">
+          <div style="padding:0.5rem 0.75rem 0.25rem;display:flex;justify-content:center">
             <.link
               patch={~p"/games/#{@game.id}?start=1"}
-              style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;font-weight:600;color:var(--accent);text-decoration:none"
+              style="display:inline-flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:600;color:var(--accent);text-decoration:none;border:1px solid var(--accent);border-radius:0.4rem;padding:0.3rem 0.85rem;background:color-mix(in srgb,var(--accent) 8%,transparent)"
             >
               Start screen
             </.link>
