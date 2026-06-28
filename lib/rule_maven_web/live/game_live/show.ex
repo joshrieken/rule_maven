@@ -1280,10 +1280,18 @@ defmodule RuleMavenWeb.GameLive.Show do
       data-refresh={@refresh}
       style="display:flex;flex-direction:column;height:calc(100dvh - var(--header-height, 3.125rem));position:fixed;top:var(--header-height, 3.125rem);left:0;right:0;bottom:0;z-index:10;background:var(--bg)"
     >
+      <%!-- Faint blurred cover art behind the Q&A. Only while a conversation is
+            open (the Overview screen shows the image sharp instead). --%>
+      <div
+        :if={@conversation != [] && @game.image_url}
+        aria-hidden="true"
+        style={"position:absolute;inset:0;z-index:0;background-image:url('#{@game.image_url}');background-size:cover;background-position:center;filter:blur(30px) saturate(1.1);opacity:0.12;pointer-events:none"}
+      >
+      </div>
       <!-- Header -->
       <div
         class="chat-header"
-        style="flex-shrink:0;padding:0.35rem 0.75rem;border-bottom:1px solid var(--border);background:var(--bg-surface)"
+        style="flex-shrink:0;padding:0.35rem 0.75rem;border-bottom:1px solid var(--border);background:var(--bg-surface);position:relative;z-index:20"
       >
         <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:0.35rem">
           <div class="flex items-center gap-1" style="min-width:0;flex-wrap:wrap">
@@ -1302,15 +1310,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                 href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
                 target="_blank"
                 rel="noopener"
-                style="color:#ea580c;text-decoration:none;font-size:0.65rem;font-weight:600;flex-shrink:0"
-              >BGG</.link>
-            <% end %>
-            <%= if @game.image_url do %>
-              <img
-                src={@game.image_url}
-                alt=""
-                style="width:22px;height:22px;border-radius:4px;object-fit:cover;flex-shrink:0"
-              />
+                style="flex-shrink:0;display:inline-flex;align-items:center;font-size:0.7rem;font-weight:600;color:var(--text-secondary);text-decoration:none;border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.5rem;background:var(--bg-subtle)"
+              >View on BGG</.link>
             <% end %>
             <%!-- Rulebook sources dropdown --%>
             <div :if={@sources != []} style="flex-shrink:0;position:relative">
@@ -1597,7 +1598,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         <div
           id="chat-messages"
           class="chat-messages"
-          style="flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:1rem;background:var(--bg);max-width:48rem;margin:0 auto;width:100%;min-width:0"
+          style="flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:1rem;background:transparent;max-width:48rem;margin:0 auto;width:100%;min-width:0;position:relative;z-index:1"
           phx-hook="ChatScroll"
         >
           <%= if @source_count == 0 do %>
@@ -1635,7 +1636,15 @@ defmodule RuleMavenWeb.GameLive.Show do
           <%= if @conversation == [] && @source_count > 0 do %>
             <!-- Empty state: lead with the primary action, suggestions visible immediately -->
             <div style="text-align:center;padding:2rem 1rem;color:var(--text-secondary);font-size:0.85rem;line-height:1.6">
-              <div style="font-size:1.5rem;margin-bottom:0.4rem">🎲</div>
+              <%= if @game.image_url do %>
+                <img
+                  src={@game.image_url}
+                  alt={@game.name}
+                  style="width:120px;height:120px;object-fit:cover;border-radius:0.75rem;margin:0 auto 0.75rem;box-shadow:0 4px 16px rgba(0,0,0,0.18)"
+                />
+              <% else %>
+                <div style="font-size:1.5rem;margin-bottom:0.4rem">🎲</div>
+              <% end %>
               <p style="font-size:1.15rem;font-weight:700;color:var(--text);margin-bottom:0.4rem">
                 {@game.name} Rules
               </p>
@@ -2394,7 +2403,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       <!-- Input -->
       <div
         class="chat-input"
-        style="flex-shrink:0;padding:0.5rem 1rem 0.75rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface)"
+        style="flex-shrink:0;padding:0.5rem 1rem 0.75rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface);position:relative;z-index:1"
       >
         <%= if @suggestions != [] do %>
           <details
