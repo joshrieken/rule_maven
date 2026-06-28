@@ -2074,18 +2074,20 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <%= if is_community_msg do %>
                     <% cv = Map.get(@community_user_votes, msg[:id]) %>
                     <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
-                    <button
-                      type="button"
-                      phx-click="community_vote"
-                      phx-value-id={msg[:id]}
-                      phx-value-vote="up"
-                      style={"background:none;border:none;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
-                      title={if cv == "up", do: "Remove vote", else: "Helpful"}
-                    >👍</button>
-                    <span
-                      style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem"
-                      title="Total helpful votes"
-                    >{Map.get(counts, :up, 0)}</span>
+                    <span style="display:inline-flex;align-items:center;gap:0.15rem">
+                      <button
+                        type="button"
+                        phx-click="community_vote"
+                        phx-value-id={msg[:id]}
+                        phx-value-vote="up"
+                        style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
+                        title={if cv == "up", do: "Remove vote", else: "Helpful"}
+                      >👍</button>
+                      <span
+                        style="font-size:0.65rem;color:var(--text-muted)"
+                        title="Total helpful votes"
+                      >{Map.get(counts, :up, 0)}</span>
+                    </span>
                   <% else %>
                     <%= if msg[:pool_hit] && msg[:pool_source_id] do %>
                       <!-- Pool hit (trusted or provisional): vote accrues to the
@@ -2093,18 +2095,20 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <% sid = msg[:pool_source_id] %>
                       <% cv = Map.get(@community_user_votes, sid) %>
                       <% counts = Map.get(@community_vote_counts, sid, %{up: 0, down: 0}) %>
-                      <button
-                        type="button"
-                        phx-click="community_vote"
-                        phx-value-id={sid}
-                        phx-value-vote="up"
-                        style={"background:none;border:none;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
-                        title={if cv == "up", do: "Remove vote", else: "Helpful"}
-                      >👍</button>
-                      <span
-                        style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem"
-                        title="Total helpful votes"
-                      >{Map.get(counts, :up, 0)}</span>
+                      <span style="display:inline-flex;align-items:center;gap:0.15rem">
+                        <button
+                          type="button"
+                          phx-click="community_vote"
+                          phx-value-id={sid}
+                          phx-value-vote="up"
+                          style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
+                          title={if cv == "up", do: "Remove vote", else: "Helpful"}
+                        >👍</button>
+                        <span
+                          style="font-size:0.65rem;color:var(--text-muted)"
+                          title="Total helpful votes"
+                        >{Map.get(counts, :up, 0)}</span>
+                      </span>
                     <% else %>
                       <!-- Own (non-pool) answer: votes go to the same QuestionVote
                            store as community/pool answers, so the asker's thumb and
@@ -2113,20 +2117,20 @@ defmodule RuleMavenWeb.GameLive.Show do
                            combined with other users' votes). -->
                       <% cv = Map.get(@community_user_votes, msg[:id]) %>
                       <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
-                      <button
-                        :if={!msg[:pool_hit]}
-                        type="button"
-                        phx-click="community_vote"
-                        phx-value-id={msg[:id]}
-                        phx-value-vote="up"
-                        style={"background:none;border:none;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
-                        title={if cv == "up", do: "Remove vote", else: "Helpful"}
-                      >👍</button>
-                      <span
-                        :if={!msg[:pool_hit]}
-                        style="font-size:0.65rem;color:var(--text-muted);margin-left:-0.25rem"
-                        title="Total helpful votes"
-                      >{Map.get(counts, :up, 0)}</span>
+                      <span :if={!msg[:pool_hit]} style="display:inline-flex;align-items:center;gap:0.15rem">
+                        <button
+                          type="button"
+                          phx-click="community_vote"
+                          phx-value-id={msg[:id]}
+                          phx-value-vote="up"
+                          style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
+                          title={if cv == "up", do: "Remove vote", else: "Helpful"}
+                        >👍</button>
+                        <span
+                          style="font-size:0.65rem;color:var(--text-muted)"
+                          title="Total helpful votes"
+                        >{Map.get(counts, :up, 0)}</span>
+                      </span>
                     <% end %>
                   <% end %>
 
