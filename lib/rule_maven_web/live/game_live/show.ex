@@ -75,9 +75,14 @@ defmodule RuleMavenWeb.GameLive.Show do
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
     threads = build_thread_summaries(grouped)
 
-    # Prefer URL query param ?t=THREAD_ID, then socket assign, then select first
+    # ?start=1 forces the start screen (suggested questions, setup checklist) —
+    # no active thread. Otherwise prefer ?t=THREAD_ID, then socket assign, then
+    # the first thread.
     active_thread_id =
       cond do
+        params["start"] ->
+          nil
+
         t = params["t"] ->
           case Integer.parse(t) do
             {tid, ""} when is_integer(tid) ->
@@ -1285,7 +1290,14 @@ defmodule RuleMavenWeb.GameLive.Show do
             <.link navigate={~p"/"} class="action-link" style="flex-shrink:0">
               &larr;
             </.link>
-            <h1 class="text-sm font-bold truncate" style="max-width:300px">{@game.name}</h1>
+            <.link
+              patch={~p"/games/#{@game.id}?start=1"}
+              title="Back to the start screen"
+              style="flex-shrink:0;text-decoration:none;display:inline-flex;align-items:center;gap:0.25rem;color:inherit"
+            >
+              <span aria-hidden="true" style="font-size:0.9rem;line-height:1">🏠</span>
+              <h1 class="text-sm font-bold truncate" style="max-width:300px">{@game.name}</h1>
+            </.link>
             <%= if @game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category) do %>
               <.link
                 href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
