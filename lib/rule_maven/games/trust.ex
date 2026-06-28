@@ -8,8 +8,8 @@ defmodule RuleMaven.Games.Trust do
       receive, plus a bonus per answer promoted to the community pool. Drives how
       much each of that user's future votes counts.
     * `questions_log.trust_score` — the single ranking/promotion signal for a row:
-      reputation-weighted net votes + a citation bonus, with `pinned` acting as an
-      admin override that floors the score at the top tier.
+      reputation-weighted net votes + a citation bonus, with `verified` acting as
+      an admin override that floors the score at the top tier.
 
   `favorited` is a private bookmark and is deliberately excluded from trust.
   """
@@ -27,7 +27,7 @@ defmodule RuleMaven.Games.Trust do
   @default_vote_weight_cap 4.0
 
   @citation_bonus 1.0
-  @pin_floor 100.0
+  @verified_floor 100.0
   @promotion_rep_bonus 5
 
   @doc """
@@ -60,7 +60,7 @@ defmodule RuleMaven.Games.Trust do
     net = (up || 0.0) - (down || 0.0)
     citation = if has_citation?(q), do: @citation_bonus, else: 0.0
     base = net + citation
-    score = if q.pinned, do: max(base, @pin_floor), else: base
+    score = if q.verified, do: max(base, @verified_floor), else: base
 
     Repo.update_all(from(r in QuestionLog, where: r.id == ^q.id), set: [trust_score: score])
     score

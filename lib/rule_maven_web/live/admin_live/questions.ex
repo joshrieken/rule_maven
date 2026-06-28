@@ -293,7 +293,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                 style="font-size:0.65rem;font-weight:600;padding:0.1rem 0.4rem;border-radius:0.25rem;background:var(--bg-subtle);border:1px solid var(--border-subtle);color:var(--text-secondary)"
                 title="Cache-eligible; trust score drives ranking/promotion"
               >
-                {if q.visibility == "community" or q.pinned, do: "✓ trusted", else: "◌ provisional"} &middot; {:erlang.float_to_binary(
+                {if q.visibility == "community" or q.verified, do: "✓ trusted", else: "◌ provisional"} &middot; {:erlang.float_to_binary(
                   q.trust_score || 0.0, decimals: 1)}
               </span>
               <span

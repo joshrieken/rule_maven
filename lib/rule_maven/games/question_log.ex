@@ -6,7 +6,7 @@ defmodule RuleMaven.Games.QuestionLog do
     field :question, :string
     field :answer, :string
     field :cited_passage, :string
-    field :pinned, :boolean, default: false
+    field :verified, :boolean, default: false
     field :favorited, :boolean, default: false
     field :llm_provider, :string
     field :llm_model, :string
@@ -46,7 +46,7 @@ defmodule RuleMaven.Games.QuestionLog do
       :answer,
       :cited_passage,
       :game_id,
-      :pinned,
+      :verified,
       :llm_provider,
       :llm_model,
       :user_id,

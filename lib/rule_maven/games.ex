@@ -955,7 +955,7 @@ defmodule RuleMaven.Games do
       sorted =
         entries
         |> Enum.sort(fn a, b ->
-          case {a.pinned, b.pinned} do
+          case {a.verified, b.verified} do
             {true, false} -> true
             {false, true} -> false
             _ -> NaiveDateTime.compare(a.inserted_at, b.inserted_at) == :gt
@@ -976,18 +976,33 @@ defmodule RuleMaven.Games do
     q |> QuestionLog.changeset(%{favorited: !q.favorited}) |> Repo.update()
   end
 
-  def pin_question(%QuestionLog{} = q) do
-    Repo.update_all(
-      from(ql in QuestionLog,
-        where:
-          ql.game_id == ^q.game_id and
-            ql.question == ^q.question and
-            ql.pinned == true
-      ),
-      set: [pinned: false]
-    )
+  @doc """
+  Toggles an admin "verified" sign-off on a question. Verifying clears the flag
+  from any other row with the same question text (one verified answer per
+  question) and floors its trust_score to the top tier so it wins the pool.
+  """
+  def toggle_verified(%QuestionLog{} = q) do
+    if q.verified do
+      with {:ok, updated} <- Repo.update(QuestionLog.changeset(q, %{verified: false})) do
+        RuleMaven.Games.Trust.recompute_trust(updated)
+        {:ok, updated}
+      end
+    else
+      Repo.update_all(
+        from(ql in QuestionLog,
+          where:
+            ql.game_id == ^q.game_id and
+              ql.question == ^q.question and
+              ql.verified == true
+        ),
+        set: [verified: false]
+      )
 
-    Repo.update(QuestionLog.changeset(q, %{pinned: true}))
+      with {:ok, updated} <- Repo.update(QuestionLog.changeset(q, %{verified: true})) do
+        RuleMaven.Games.Trust.recompute_trust(updated)
+        {:ok, updated}
+      end
+    end
   end
 
   def update_question_visibility(%QuestionLog{} = q, visibility) do
@@ -1200,7 +1215,7 @@ defmodule RuleMaven.Games do
   Eligibility is `pooled = true` (citation-gated, decoupled from `visibility`),
   so citation-backed *private* answers serve the fast-path too. Results are
   ordered trusted-first, then by trust_score, then cosine distance — so a
-  trusted (community / pinned / above-floor) hit always wins over a provisional
+  trusted (community / verified / above-floor) hit always wins over a provisional
   one. Returns nil or `{question_log, tier}` where tier is `:trusted | :provisional`.
 
   This is the ONLY surface that widens to private rows, and it serves answer
@@ -1231,12 +1246,12 @@ defmodule RuleMaven.Games do
               ^Pgvector.new(question_embedding)
             ) <= ^threshold,
           order_by: [
-            # Trusted rows first (community OR pinned OR above trust floor)...
+            # Trusted rows first (community OR verified OR above trust floor)...
             desc:
               fragment(
                 "(? = 'community' OR ? OR ? >= ?)",
                 q.visibility,
-                q.pinned,
+                q.verified,
                 q.trust_score,
                 ^floor
               ),
@@ -1258,13 +1273,13 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Classifies a pooled row as `:trusted` (community-promoted, admin-pinned, or
+  Classifies a pooled row as `:trusted` (community-promoted, admin-verified, or
   above the trust floor) or `:provisional` (citation-backed but unreviewed).
   """
   def pool_tier(%QuestionLog{} = q, floor \\ nil) do
     floor = floor || RuleMaven.Games.Trust.trusted_floor()
 
-    if q.visibility == "community" or q.pinned or (q.trust_score || 0.0) >= floor do
+    if q.visibility == "community" or q.verified or (q.trust_score || 0.0) >= floor do
       :trusted
     else
       :provisional

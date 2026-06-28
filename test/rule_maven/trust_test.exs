@@ -76,8 +76,8 @@ defmodule RuleMaven.TrustTest do
       assert Repo.reload!(q).trust_score < 1.0
     end
 
-    test "pinned floors the score to the top tier", %{game: game, author: author} do
-      q = log(game, author, %{pinned: true})
+    test "verified floors the score to the top tier", %{game: game, author: author} do
+      q = log(game, author, %{verified: true})
       assert Trust.recompute_trust(q) >= 100.0
     end
   end
@@ -117,16 +117,16 @@ defmodule RuleMaven.TrustTest do
   end
 
   describe "pool_tier/1" do
-    test "community / pinned / above-floor are trusted; else provisional" do
+    test "community / verified / above-floor are trusted; else provisional" do
       game = game_fixture()
       author = user_fixture("a")
 
       community = log(game, author, %{visibility: "community", pooled: true})
-      pinned = log(game, author, %{pinned: true, pooled: true})
+      verified = log(game, author, %{verified: true, pooled: true})
       provisional = log(game, author, %{cited_passage: "p.1", pooled: true, trust_score: 0.0})
 
       assert Games.pool_tier(community) == :trusted
-      assert Games.pool_tier(pinned) == :trusted
+      assert Games.pool_tier(verified) == :trusted
       assert Games.pool_tier(provisional) == :provisional
     end
   end

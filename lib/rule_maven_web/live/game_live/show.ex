@@ -243,7 +243,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         verdict: g.primary.verdict,
         llm_provider: g.primary.llm_provider,
         llm_model: g.primary.llm_model,
-        pinned: g.primary.pinned,
+        verified: g.primary.verified,
         faq_hit: false,
         pool_hit: g.primary.llm_provider == "pool",
         pool_provisional: g.primary.llm_model == "cached-unverified",
@@ -269,7 +269,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             verdict: h.verdict,
             llm_provider: h.llm_provider,
             llm_model: h.llm_model,
-            pinned: h.pinned,
+            verified: h.verified,
             refused: h.refused,
             raw_response: h.raw_response,
             followups: h.followups,
@@ -767,13 +767,15 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
-  def handle_event("pin_question", %{"id" => id_str}, socket) do
+  def handle_event("verify_question", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
     game = socket.assigns.game
 
-    case find_question_log(game, id) do
-      nil -> :ok
-      q -> Games.pin_question(q)
+    if RuleMaven.Users.can?(socket.assigns.current_user, :admin) do
+      case find_question_log(game, id) do
+        nil -> :ok
+        q -> Games.toggle_verified(q)
+      end
     end
 
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
@@ -2265,11 +2267,15 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <button
                         :if={!msg[:history]}
                         type="button"
-                        phx-click="pin_question"
+                        phx-click="verify_question"
                         phx-value-id={msg.id}
-                        style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:pinned], do: "color:var(--text)", else: "color:var(--text-muted)"}"}
-                        title={if msg[:pinned], do: "Pinned", else: "Pin"}
-                      >{if msg[:pinned], do: "◆", else: "◇"}</button>
+                        style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:verified], do: "color:#15803d", else: "color:var(--text-muted)"}"}
+                        title={
+                          if msg[:verified],
+                            do: "Admin-verified — click to remove",
+                            else: "Verify this answer (admin)"
+                        }
+                      >{if msg[:verified], do: "✔", else: "✓"}</button>
                       <%= if @confirm_delete_id == msg.id do %>
                         <span class="text-xs" style="color:var(--red)">{if msg[:pending],
                           do: "Cancel?",
@@ -2463,17 +2469,25 @@ defmodule RuleMavenWeb.GameLive.Show do
   # and drives a segmented meter (a coarse tier reads more honestly than a fake
   # exact percentage). next_step is nil at the top level (Community-verified);
   # otherwise it tells the user how to reach the next, more-trusted level.
-  @conf_max 5
+  @conf_max 6
   defp conf_max, do: @conf_max
   defp answer_confidence(msg) do
     cond do
-      # Community-verified (trusted pool hit) is the ceiling. A provisional pool
-      # hit is *not* checked here — it carries the source row's citation, so it
-      # should read at its citation strength, the same as when freshly asked,
-      # rather than dropping a level just because it was served from the pool.
+      # Admin-verified is the absolute ceiling: an admin explicitly signed off on
+      # this exact answer. Checked first so it outranks community votes.
+      msg[:verified] ->
+        {"Admin-verified", 6, "#15803d",
+         "An admin reviewed and confirmed this answer against the rulebook — the highest level of trust.",
+         nil}
+
+      # Community-verified (trusted pool hit). A provisional pool hit is *not*
+      # checked here — it carries the source row's citation, so it should read at
+      # its citation strength, the same as when freshly asked, rather than
+      # dropping a level just because it was served from the pool.
       msg[:pool_hit] && !msg[:pool_provisional] ->
         {"Community-verified", 5, "#15803d",
-         "Other players upvoted this same answer, so it's been confirmed by the community.", nil}
+         "Other players upvoted this same answer, so it's been confirmed by the community.",
+         "Admin-verified — when an admin reviews and confirms this answer."}
 
       present?(msg[:cited_passage]) && msg[:cited_page] ->
         {"Cited from rulebook", 4, "#15803d",
@@ -2503,6 +2517,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp conf_word(3), do: "Good"
   defp conf_word(4), do: "Strong"
   defp conf_word(5), do: "Verified"
+  defp conf_word(6), do: "Official"
 
   defp present?(s), do: is_binary(s) and String.trim(s) != ""
 
