@@ -1072,8 +1072,11 @@ defmodule RuleMaven.Games do
     attrs = %{visibility: visibility, pooled: visibility == "community" or q.pooled}
 
     with {:ok, updated} <- q |> QuestionLog.changeset(attrs) |> Repo.update() do
-      # Keep trust_score consistent with the new tier (community floors it).
+      # Keep trust_score consistent with the new tier (community floors it), and
+      # the author's reputation consistent with the promotion bonus (reputation
+      # counts community rows × bonus, so a tier change must re-derive it).
       RuleMaven.Games.Trust.recompute_trust(updated)
+      if updated.user_id, do: RuleMaven.Games.Trust.recompute_reputation(updated.user_id)
       {:ok, updated}
     end
   end
@@ -1082,7 +1085,11 @@ defmodule RuleMaven.Games do
     set = [visibility: visibility]
     set = if visibility == "community", do: Keyword.put(set, :pooled, true), else: set
     Repo.update_all(from(q in QuestionLog, where: q.id == ^id), set: set)
-    if q = Repo.get(QuestionLog, id), do: RuleMaven.Games.Trust.recompute_trust(q)
+
+    if q = Repo.get(QuestionLog, id) do
+      RuleMaven.Games.Trust.recompute_trust(q)
+      if q.user_id, do: RuleMaven.Games.Trust.recompute_reputation(q.user_id)
+    end
   end
 
   def check_rate_limit(nil), do: {:error, "Not logged in."}
