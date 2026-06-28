@@ -2165,7 +2165,7 @@ textarea {
   left: 0;
   z-index: 20;
   width: max-content;
-  max-width: 240px;
+  max-width: min(240px, calc(100vw - 2rem));
   padding: 0.45rem 0.6rem;
   border-radius: 0.4rem;
   background: var(--text);
@@ -2414,7 +2414,8 @@ body:has([data-phx-main].phx-connected)::after {
 @media (max-width: 768px) {
   .sidebar-toggle { display: inline-flex; }
   .sidebar-close-btn { display: inline; }
-  .sidebar-backdrop { display: block !important; }
+  /* Backdrop is always in the DOM; only show it while the sidebar is open. */
+  .sidebar-backdrop.open { display: block !important; }
   .question-sidebar {
     position: absolute !important;
     top: 0;

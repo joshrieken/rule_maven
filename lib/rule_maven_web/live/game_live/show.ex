@@ -1414,12 +1414,14 @@ defmodule RuleMavenWeb.GameLive.Show do
       </div>
 
       <div style="display:flex;flex:1;min-height:0">
-        <!-- Sidebar backdrop (mobile only) -->
+        <!-- Sidebar backdrop (mobile only). Always rendered (not :if) so toggling
+             the sidebar doesn't insert/remove a sibling — that sibling shift made
+             LiveView rebuild the adjacent .chat-messages node, replaying its
+             entrance animation every time the menu opened. -->
         <div
-          :if={@sidebar_open}
-          class="sidebar-backdrop"
+          class={"sidebar-backdrop #{if @sidebar_open, do: "open"}"}
           phx-click="toggle_sidebar"
-          style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:49;background:rgba(0,0,0,0.3)"
+          style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:49;background:rgba(0,0,0,0.3)"
         >
         </div>
 
@@ -1610,7 +1612,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         <div
           id="chat-messages"
           class="chat-messages"
-          style="flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:1rem;background:var(--bg);max-width:48rem;margin:0 auto;width:100%;min-width:0;position:relative;z-index:1"
+          style="flex:1;overflow-y:auto;overflow-x:hidden;padding:1rem;display:flex;flex-direction:column;gap:1rem;background:var(--bg);max-width:48rem;margin:0 auto;width:100%;min-width:0;position:relative;z-index:1"
           phx-hook="ChatScroll"
         >
           <%= if @source_count == 0 do %>
@@ -1965,7 +1967,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                             phx-click="ask_suggestion"
                             phx-value-q={q}
                             disabled={@pending_count >= @max_concurrent}
-                            style="text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.35rem;padding:0.3rem 0.5rem;font-size:0.8rem;color:var(--text);cursor:pointer;line-height:1.35"
+                            style="display:block;width:100%;box-sizing:border-box;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.35rem;padding:0.3rem 0.5rem;font-size:0.8rem;color:var(--text);cursor:pointer;line-height:1.35;white-space:normal;overflow-wrap:anywhere"
                           >{q}</button>
                         <% end %>
                         <%= if has_also do %>
@@ -1975,7 +1977,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                             phx-click="quick_ask"
                             phx-value-question={q}
                             disabled={@pending_count >= @max_concurrent}
-                            style="text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.35rem;padding:0.3rem 0.5rem;font-size:0.8rem;color:var(--text);cursor:pointer;line-height:1.35"
+                            style="display:block;width:100%;box-sizing:border-box;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.35rem;padding:0.3rem 0.5rem;font-size:0.8rem;color:var(--text);cursor:pointer;line-height:1.35;white-space:normal;overflow-wrap:anywhere"
                           >{q}</button>
                         <% end %>
                       </div>
@@ -2264,7 +2266,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 <div
                   :if={RuleMaven.Users.can?(@current_user, :admin) && msg.role == :assistant}
                   class="flex items-center gap-1 mt-0.5"
-                  style="padding-left:0.25rem"
+                  style="flex-wrap:wrap;min-width:0;padding-left:0.25rem"
                 >
                   <%= if msg.content == "Thinking..." do %>
                     <button
@@ -2407,7 +2409,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         >✕</button>
                       <% end %>
                       <%= if RuleMaven.Users.can?(@current_user, :admin) && (msg[:llm_provider] || msg[:llm_model]) do %>
-                        <span class="text-xs" style="color:var(--text-muted);margin-left:0.5rem">{msg[
+                        <span class="text-xs" style="color:var(--text-muted);margin-left:0.5rem;min-width:0;overflow-wrap:anywhere;word-break:break-word">{msg[
                           :llm_provider
                         ]} &middot; {msg[:llm_model]}</span>
                       <% end %>
