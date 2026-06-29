@@ -1009,6 +1009,20 @@ a:not([class]):hover {
   from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: none; }
 }
+/* Expansion sublist reveal in the game list (each child cascades slightly). */
+@keyframes exp-reveal {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+.exp-reveal { animation: exp-reveal 0.22s ease-out both; }
+.exp-reveal > * { animation: exp-reveal 0.28s ease-out both; }
+.exp-reveal > *:nth-child(2) { animation-delay: 0.04s; }
+.exp-reveal > *:nth-child(3) { animation-delay: 0.08s; }
+.exp-reveal > *:nth-child(4) { animation-delay: 0.12s; }
+.exp-reveal > *:nth-child(n+5) { animation-delay: 0.16s; }
+@media (prefers-reduced-motion: reduce) {
+  .exp-reveal, .exp-reveal > * { animation: none; }
+}
 
 /* ===== Header ===== */
 .header {

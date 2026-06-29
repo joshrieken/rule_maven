@@ -921,6 +921,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                   do: Games.expansions_for(game),
                   else: Games.expansions_with_documents(game) %>
               <% sync = Map.get(@expansion_sync, game.id) %>
+              <div class="exp-reveal">
               <div
                 :if={sync}
                 style="margin-left:2rem;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;color:var(--accent);font-weight:600"
@@ -1014,6 +1015,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                   </div>
                 </div>
               <% end %>
+              </div>
             <% end %>
           <% end %>
         </div>
