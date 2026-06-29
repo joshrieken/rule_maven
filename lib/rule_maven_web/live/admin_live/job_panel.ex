@@ -182,7 +182,7 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
   defp relative_time(nil), do: ""
 
   defp relative_time(dt) do
-    secs = DateTime.diff(DateTime.utc_now(), dt, :second)
+    secs = age_seconds(dt)
 
     cond do
       secs < 60 -> "#{secs}s ago"
@@ -191,4 +191,11 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
       true -> "#{div(secs, 86_400)}d ago"
     end
   end
+
+  # Ecto timestamps come back as NaiveDateTime (UTC); the PubSub-broadcast runs
+  # carry DateTime. Diff each against a matching "now" — DateTime.diff rejects a
+  # NaiveDateTime, which previously crashed the panel's render whenever any run
+  # row was shown.
+  defp age_seconds(%DateTime{} = dt), do: DateTime.diff(DateTime.utc_now(), dt, :second)
+  defp age_seconds(%NaiveDateTime{} = dt), do: NaiveDateTime.diff(NaiveDateTime.utc_now(), dt, :second)
 end
