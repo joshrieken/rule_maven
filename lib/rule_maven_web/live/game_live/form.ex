@@ -17,6 +17,10 @@ defmodule RuleMavenWeb.GameLive.Form do
         # Source ids with a single-page re-extraction job in flight (=> true), so
         # the review badge can show a busy state until {:reextract_done} arrives.
         reextracting: %{},
+        # Transient per-source re-extraction progress log (sid => [%{inserted_at,
+        # kind, text}]), streamed from the worker. Like the upload log, but kept in
+        # memory since a re-extract is short — the busy flag itself is durable.
+        reextract_log: %{},
         game_changeset: nil,
         download_url: "",
         download_label: "",
@@ -833,7 +837,12 @@ defmodule RuleMavenWeb.GameLive.Form do
 
       {:noreply,
        socket
-       |> assign(reextracting: Map.put(socket.assigns.reextracting, sid, true))
+       |> assign(
+         reextracting: Map.put(socket.assigns.reextracting, sid, true),
+         # Reset the log for a fresh run, seeded with a queued line.
+         reextract_log:
+           Map.put(socket.assigns.reextract_log, sid, [reextract_line("Queued…", "info")])
+       )
        |> put_flash(:info, "Re-extracting page with the strongest model…")}
     else
       _ -> {:noreply, put_flash(socket, :error, "Save the rulebook before re-extracting a page.")}
@@ -1534,6 +1543,14 @@ defmodule RuleMavenWeb.GameLive.Form do
      |> put_flash(:info, "Cleaned up the rulebook text.")}
   end
 
+  # One re-extraction stage line streamed from the worker — append it to that
+  # source's transient log so the panel tracks progress live.
+  def handle_info({:reextract_log, sid, _index, text, kind}, socket) do
+    prev = Map.get(socket.assigns.reextract_log, sid, [])
+    log = Map.put(socket.assigns.reextract_log, sid, prev ++ [reextract_line(text, kind)])
+    {:noreply, assign(socket, reextract_log: log)}
+  end
+
   # A single-page re-extraction finished — reload that source from the DB (the
   # worker persisted the new page) and clear its busy flag.
   def handle_info({:reextract_done, sid, index, outcome}, socket) do
@@ -1863,6 +1880,11 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   defp reload_entry(entry), do: entry
+
+  # One transient re-extraction log line, shaped like an ingest_log row so it can
+  # reuse ingest_log_panel (timestamp + kind colour + text).
+  defp reextract_line(text, kind),
+    do: %{inserted_at: DateTime.utc_now(), kind: kind, text: text}
 
   # Honest re-extract feedback: the strong re-read can fail, or succeed but still
   # come back low-confidence (same flag, ~same text) — which reads as "nothing
@@ -3113,7 +3135,10 @@ defmodule RuleMavenWeb.GameLive.Form do
                     @source_page |> Map.get(entry.id, 0) |> max(0) |> min(max(page_count - 1, 0)) %>
                   <% cur_page = Enum.at(entry.pages, cur) %>
                   <% layer = editor_layer(entry, @editor_tab) %>
-                  <% editable = layer_editable?(entry, layer) and @cleaning[entry.source_id] == nil %>
+                  <% regenerating? = @reextracting[entry.source_id] == true %>
+                  <% editable =
+                    layer_editable?(entry, layer) and @cleaning[entry.source_id] == nil and
+                      not regenerating? %>
                   <.layer_tabs id={entry.id} current={layer} />
                   <.page_nav id={entry.id} pages={entry.pages} cur={cur} />
                   <.page_detection_badge
@@ -3126,7 +3151,24 @@ defmodule RuleMavenWeb.GameLive.Form do
                     pages={entry.pages}
                     cur={cur}
                     can_reextract={reextractable_source?(entry)}
-                    busy={@reextracting[entry.source_id] == true}
+                    busy={regenerating?}
+                  />
+                  <%!-- Live re-extraction progress, streamed from the worker.
+                        Editing is locked while it runs (the worker overwrites the
+                        page on finish), so show why. --%>
+                  <div
+                    :if={regenerating?}
+                    style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;font-size:0.72rem;color:var(--text-secondary)"
+                  >
+                    <span style="display:inline-block;width:0.8rem;height:0.8rem;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:rm-spin 0.7s linear infinite"></span>
+                    <span>Re-extracting this page — editing locked until it finishes.</span>
+                    <style>
+                      @keyframes rm-spin { to { transform: rotate(360deg); } }
+                    </style>
+                  </div>
+                  <.ingest_log_panel
+                    log={Map.get(@reextract_log, entry.source_id, [])}
+                    running={regenerating?}
                   />
                   <%!-- Edits feed socket state via edit_page (layer encoded in the
                         name), so this stays in sync with the expanded reader. --%>
@@ -3315,8 +3357,10 @@ defmodule RuleMavenWeb.GameLive.Form do
                       >✕</button>
                     </div>
 
+                    <% regenerating? = @reextracting[reader.source_id] == true %>
                     <% editable =
-                      layer_editable?(reader, layer) and @cleaning[reader.source_id] == nil %>
+                      layer_editable?(reader, layer) and @cleaning[reader.source_id] == nil and
+                        not regenerating? %>
                     <% edit_style =
                       "width:100%;box-sizing:border-box;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.9rem;line-height:1.6;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:0.4rem;padding:1rem;resize:vertical#{if not editable, do: ";opacity:0.7;background:var(--bg-subtle)"}" %>
                     <div style="overflow:auto;padding:2rem clamp(1.5rem,8vw,8rem);flex:1;min-height:0;display:flex;flex-direction:column">
@@ -3328,7 +3372,11 @@ defmodule RuleMavenWeb.GameLive.Form do
                             pages={pages}
                             cur={cur}
                             can_reextract={reextractable_source?(reader)}
-                            busy={@reextracting[reader.source_id] == true}
+                            busy={regenerating?}
+                          />
+                          <.ingest_log_panel
+                            log={Map.get(@reextract_log, reader.source_id, [])}
+                            running={regenerating?}
                           />
                           <textarea
                             name={"pgm_#{reader.id}_#{cur}_#{layer_field(layer)}"}

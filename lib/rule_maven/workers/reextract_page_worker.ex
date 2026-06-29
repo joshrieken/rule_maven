@@ -57,6 +57,16 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
     doc = Games.get_document!(doc_id)
     topic = "game_cleanup:#{doc.game_id}"
 
+    # Stream a live progress log to the form (transient, mirrors the upload log):
+    # each stage of the re-extraction broadcasts one line on the cleanup topic.
+    log = fn text, kind ->
+      Phoenix.PubSub.broadcast(
+        RuleMaven.PubSub,
+        topic,
+        {:reextract_log, doc_id, index, text, kind}
+      )
+    end
+
     # Always broadcast the outcome (success, failure, or raise) once the topic is
     # known, so the UI never gets stuck on "Re-extracting…" and can tell the user
     # honestly what happened. We swallow the error after reporting it rather than
@@ -68,19 +78,24 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
             :noop
 
           page ->
-            case RulebookDownloader.reextract_page(doc.pdf_path, page.sheet) do
+            log.("Re-extracting page #{page.printed || page.sheet} with the stronger model…", "info")
+
+            case RulebookDownloader.reextract_page(doc.pdf_path, page.sheet, on_log: log) do
               {:ok, result} ->
                 Games.replace_page(doc, index, result)
+                log.("Done — page re-extracted and saved.", "done")
                 :ok
 
               {:error, reason} ->
                 Logger.warning("Re-extract page #{index} failed: #{reason}")
+                log.("Failed — #{reason}.", "error")
                 {:error, to_string(reason)}
             end
         end
       rescue
         e ->
           Logger.error("Re-extract page #{index} crashed: #{Exception.message(e)}")
+          log.("Failed — internal error.", "error")
           {:error, "internal error"}
       end
 

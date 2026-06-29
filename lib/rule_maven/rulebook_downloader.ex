@@ -819,12 +819,13 @@ defmodule RuleMaven.RulebookDownloader do
   the admin "re-extract this page" action. Returns `{:ok, %{text, confidence,
   lane, source}}` or `{:error, reason}`.
   """
-  def reextract_page(doc_path, sheet) when is_integer(sheet) do
+  def reextract_page(doc_path, sheet, opts \\ []) when is_integer(sheet) do
     full = Application.app_dir(:rule_maven, "priv/static/#{doc_path}")
+    log = Keyword.get(opts, :on_log, fn _t, _k -> :ok end)
 
     cond do
       image?(doc_path) ->
-        {:ok, escalate_page(full, "")}
+        {:ok, escalate_page(full, "", on_log: log)}
 
       System.find_executable("pdftoppm") ->
         tmp = Application.app_dir(:rule_maven, "tmp/ocr")
@@ -845,6 +846,8 @@ defmodule RuleMaven.RulebookDownloader do
             prefix
           ]
 
+        log.("Rendering page #{sheet} at #{@reextract_dpi} DPI…", "info")
+
         case cmd("pdftoppm", args, @pdftoppm_timeout) do
           {:ok, {_, 0}} ->
             tmp
@@ -854,9 +857,10 @@ defmodule RuleMaven.RulebookDownloader do
             |> case do
               [img | _] ->
                 path = Path.join(tmp, img)
+                log.("Page rendered.", "info")
                 # try/after so the temp image is removed even if escalate_page raises.
                 try do
-                  {:ok, escalate_page(path, "")}
+                  {:ok, escalate_page(path, "", on_log: log)}
                 after
                   File.rm(path)
                 end
@@ -880,7 +884,11 @@ defmodule RuleMaven.RulebookDownloader do
   # confidence); residual defects are flagged for review. Runs only on
   # disagreement (or drift-sampled) pages, so the costly path stays bounded.
   # `opts[:signals]` (gate signals) + `opts[:drift]` enable calibration logging.
-  defp escalate_page(image, cheap_text, opts \\ []) do
+  defp escalate_page(image, cheap_text, opts) do
+    log = Keyword.get(opts, :on_log, fn _t, _k -> :ok end)
+
+    log.("Reading the page with the stronger model…", "info")
+
     strong =
       case RuleMaven.LLM.transcribe_page_image(image,
              model: RuleMaven.LLM.vision_model(:escalate),
@@ -890,8 +898,23 @@ defmodule RuleMaven.RulebookDownloader do
         {:error, _} -> ""
       end
 
+    if String.trim(strong) == "" do
+      log.("Stronger model returned nothing — keeping the existing read.", "warn")
+    else
+      log.("Stronger model read complete.", "info")
+    end
+
     candidate = richer(strong, cheap_text)
+    log.("Running the adversarial critic check…", "info")
     v = Critic.verify(image, candidate)
+
+    if v.verified? do
+      log.("Critic passed (#{v.rounds} round#{if v.rounds == 1, do: "", else: "s"}).", "done")
+    else
+      n = length(v.residual_defects)
+      log.("Critic left #{n} residual defect#{if n == 1, do: "", else: "s"} — page flagged for review.", "warn")
+    end
+
     log_calibration(strong, cheap_text, opts)
 
     # Decision-log detail: gate signals (when this came from the cross-check path,
