@@ -763,7 +763,13 @@ if (mainEl) {
 // whose connect_info session is captured at connect-time. When the browser
 // later navigates to a page with a LiveView, the same socket is reused with
 // the stale session, causing on_mount to see the wrong auth state.
-if (document.querySelector("[data-phx-main]")) {
+//
+// Match [data-phx-session] too, not just [data-phx-main]: the admin job panel
+// is an independent live_render embedded in the root layout, so on dead
+// (controller) pages it is the only LiveView and carries [data-phx-session]
+// without [data-phx-main]. Without this it rendered statically but never
+// connected, so its phx-click (expand/select) did nothing.
+if (document.querySelector("[data-phx-main], [data-phx-session]")) {
   liveSocket.connect();
 }
 
