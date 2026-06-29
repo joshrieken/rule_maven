@@ -3,7 +3,20 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   import Ecto.Query, only: [from: 2]
 
-  alias RuleMaven.{Users, Games, Readiness, LLM, Jobs, Settings, Setup, CheatSheet, Voices, Repo, Workers}
+  alias RuleMaven.{
+    Users,
+    Games,
+    Readiness,
+    LLM,
+    Jobs,
+    Settings,
+    Setup,
+    CheatSheet,
+    Voices,
+    Repo,
+    Workers
+  }
+
   alias RuleMaven.Games.Chunk
   alias RuleMaven.Readiness.Estimator
 
@@ -13,6 +26,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     extract: ["ocr_vision", "ocr_critic"],
     cleanup: ["cleanup"],
     embed: [],
+    suggestions: ["suggest_questions"],
     categories: ["categories"],
     cheat_sheet: ["cheat_sheet"],
     setup: ["setup"],
@@ -23,12 +37,13 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   # Enrichment steps that can be re-run in place from this page (each maps to a
   # durable Oban worker), and the subset whose cached output can be cleared.
-  @regen_steps ~w(categories cheat_sheet setup did_you_know voices theme bgg)a
-  @clear_steps ~w(cheat_sheet setup did_you_know theme)a
+  @regen_steps ~w(suggestions categories cheat_sheet setup did_you_know voices theme bgg)a
+  @clear_steps ~w(suggestions cheat_sheet setup did_you_know theme)a
 
   # JobRun.kind → step id, so a game-scoped running run lights up its step's
   # "Running…" indicator while the worker is in flight.
   @kind_to_step %{
+    "suggestions" => :suggestions,
     "categories" => :categories,
     "cheat_sheet" => :cheat_sheet,
     "setup_checklist" => :setup,
@@ -184,6 +199,44 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     end
   end
 
+  # Categories are the one enrichment with hand-editing beyond regen/clear:
+  # commit a regenerated draft, delete a single category, or re-tag every
+  # question against the current set. Regenerating an existing set leaves a draft
+  # (see CategoriesWorker) rather than nuking the saved set, so "Save" commits it.
+  def handle_event("save_categories", _params, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      game = socket.assigns.game
+      draft = category_draft(game.id)
+
+      if draft != [] do
+        Games.replace_game_categories(game, draft)
+        Settings.delete("categories_#{game.id}")
+      end
+
+      {:noreply, socket |> reload() |> put_flash(:info, "Categories saved.")}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("delete_category", %{"id" => id}, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      Games.delete_game_category(String.to_integer(id))
+      {:noreply, reload(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("retag_categories", _params, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      count = Games.retag_all_questions(socket.assigns.game)
+      {:noreply, put_flash(socket, :info, "Re-tagging #{count} question(s) in the background.")}
+    else
+      {:noreply, socket}
+    end
+  end
+
   # Resolve the phx-value step name to a known step atom, but only if the user is
   # an admin and the step is in the allowed set for the action. Flashes + returns
   # nil otherwise so the caller no-ops.
@@ -200,6 +253,12 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   defp step_atom(s) when is_binary(s), do: Enum.find(Readiness.all_steps(), &(to_string(&1) == s))
   defp step_atom(_), do: nil
 
+  defp regen_step(:suggestions, g) do
+    # Clear first so a failed/empty run doesn't leave stale questions on screen.
+    Settings.delete("suggestions_#{g.id}")
+    Workers.SuggestionsWorker.enqueue(g.id)
+  end
+
   defp regen_step(:categories, g), do: Workers.CategoriesWorker.enqueue(g.id)
   defp regen_step(:cheat_sheet, g), do: CheatSheet.generate_async(g)
   defp regen_step(:setup, g), do: Setup.generate_async(g)
@@ -215,6 +274,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   defp regen_step(:bgg, g), do: %{game_id: g.id} |> Workers.BggEnrichWorker.new() |> Oban.insert()
   defp regen_step(_, _), do: :ok
 
+  defp clear_step(:suggestions, g), do: Settings.delete("suggestions_#{g.id}")
   defp clear_step(:cheat_sheet, g), do: CheatSheet.clear(g.id)
   defp clear_step(:setup, g), do: Setup.clear(g.id)
   defp clear_step(:did_you_know, g), do: Settings.delete("did_you_know_#{g.id}")
@@ -385,7 +445,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     # hook toggles `data-open` per the per-game expanded set it keeps in
     # localStorage.
     assigns =
-      assign(assigns,
+      assign(
+        assigns,
         :has_body,
         present_preview?(assigns.preview) or step_actions?(assigns.step.id)
       )
@@ -455,6 +516,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       cleanup: doc_page_summary(docs, :cleaned),
       review: review_summary(docs),
       embed: chunk_count(docs),
+      suggestions: load_suggestions(game.id),
       categories: Games.list_game_categories(game),
       cheat_sheet: CheatSheet.stored_content(game.id),
       setup: Setup.stored_checklist(game.id),
@@ -469,14 +531,17 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     Enum.map(docs, fn d ->
       %{
         label: d.label || "Untitled",
-        done: Enum.count(d.pages, fn p -> is_binary(Map.get(p, field)) and Map.get(p, field) != "" end),
+        done:
+          Enum.count(d.pages, fn p -> is_binary(Map.get(p, field)) and Map.get(p, field) != "" end),
         total: length(d.pages)
       }
     end)
   end
 
   defp review_summary(docs) do
-    Enum.map(docs, fn d -> %{label: d.label || "Untitled", remaining: Games.review_page_count(d)} end)
+    Enum.map(docs, fn d ->
+      %{label: d.label || "Untitled", remaining: Games.review_page_count(d)}
+    end)
   end
 
   defp chunk_count([]), do: 0
@@ -484,6 +549,43 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   defp chunk_count(docs) do
     ids = Enum.map(docs, & &1.id)
     Repo.aggregate(from(c in Chunk, where: c.document_id in ^ids), :count)
+  end
+
+  # Suggested questions are stored as a JSON list of %{category, questions}.
+  defp load_suggestions(game_id) do
+    case Settings.get("suggestions_#{game_id}") do
+      json when is_binary(json) ->
+        case Jason.decode(json) do
+          {:ok, list} when is_list(list) ->
+            Enum.map(list, fn c ->
+              %{category: c["category"], questions: c["questions"] || []}
+            end)
+
+          _ ->
+            []
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  # Unsaved category draft left by a regeneration over an existing set, as the
+  # %{name, description} shape `replace_game_categories/2` expects.
+  defp category_draft(game_id) do
+    case Settings.get("categories_#{game_id}") do
+      json when is_binary(json) ->
+        case Jason.decode(json) do
+          {:ok, list} when is_list(list) ->
+            Enum.map(list, fn c -> %{name: c["name"], description: c["description"]} end)
+
+          _ ->
+            []
+        end
+
+      _ ->
+        []
+    end
   end
 
   defp load_did_you_know(game_id) do
@@ -532,18 +634,39 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           </ul>
         <% :embed -> %>
           {fmt_int(@preview)} chunks embedded
+        <% :suggestions -> %>
+          <div :for={c <- @preview} style="margin-bottom:0.5rem">
+            <div style="font-weight:700;font-size:0.66rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin-bottom:0.15rem">
+              {c.category}
+            </div>
+            <ul style="margin:0;padding-left:1.1rem">
+              <li :for={q <- c.questions} style="margin-bottom:0.15rem">{q}</li>
+            </ul>
+          </div>
         <% :categories -> %>
           <div style="display:flex;flex-wrap:wrap;gap:0.3rem">
             <span
               :for={c <- @preview}
               title={c.description}
-              style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:1rem;padding:0.1rem 0.55rem;font-size:0.72rem;font-weight:600"
+              style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:1rem;padding:0.1rem 0.3rem 0.1rem 0.55rem;font-size:0.72rem;font-weight:600"
             >
               {c.name}
+              <button
+                type="button"
+                phx-click="delete_category"
+                phx-value-id={c.id}
+                data-confirm={"Delete the “#{c.name}” category?"}
+                title="Delete category"
+                style="display:inline-flex;align-items:center;justify-content:center;width:1rem;height:1rem;border:none;border-radius:50%;background:none;color:var(--text-muted);font-size:0.8rem;line-height:1;cursor:pointer"
+              >
+                ×
+              </button>
             </span>
           </div>
         <% :cheat_sheet -> %>
-          <div style="white-space:pre-wrap;max-height:16rem;overflow:auto;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.35rem;padding:0.5rem;font-size:0.74rem">{@preview}</div>
+          <div style="white-space:pre-wrap;max-height:16rem;overflow:auto;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.35rem;padding:0.5rem;font-size:0.74rem">
+            {@preview}
+          </div>
         <% :setup -> %>
           <div :if={@preview["components"] != []}>
             <div style="font-weight:700;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin-bottom:0.2rem">
@@ -594,8 +717,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
                   :for={key <- ["--accent", "--bg", "--bg-surface", "--text"]}
                   title={key}
                   style={"width:0.9rem;height:0.9rem;border-radius:0.2rem;border:1px solid var(--border);background:#{v[key]}"}
-                >
-                </span>
+                ></span>
               </div>
             <% end %>
           </div>
@@ -624,24 +746,45 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   attr :running, :boolean, default: false
 
   defp step_actions(assigns) do
+    categories? = assigns.step.id == :categories
+
     assigns =
       assigns
       |> assign(:link, step_link(assigns.step.id, assigns.game))
       |> assign(:regen?, assigns.step.id in @regen_steps)
       |> assign(:clear?, assigns.step.id in @clear_steps)
       |> assign(:done?, assigns.step.state == :done)
+      |> assign(:cat_draft?, categories? and category_draft(assigns.game.id) != [])
+      |> assign(:cat_saved?, categories? and Games.list_game_categories(assigns.game) != [])
 
     ~H"""
     <div
-      :if={@link || @regen? || @clear?}
+      :if={@link || @regen? || @clear? || @cat_draft? || @cat_saved?}
       style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.6rem"
     >
+      <button
+        :if={@cat_draft? && !@running}
+        type="button"
+        phx-click="save_categories"
+        data-confirm="Save the regenerated categories? This replaces the current set and clears existing question tags."
+        style="background:var(--blue);color:#fff;border:none;padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+      >
+        Save draft
+      </button>
+      <button
+        :if={@cat_saved? && !@running}
+        type="button"
+        phx-click="retag_categories"
+        data-confirm="Re-tag every existing question against the current categories?"
+        style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+      >
+        Re-tag all
+      </button>
       <span
         :if={@running}
         style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.74rem;font-weight:600;color:var(--accent)"
       >
-        <span style="display:inline-block;width:0.5rem;height:0.5rem;border-radius:50%;background:var(--accent)">
-        </span>
+        <span style="display:inline-block;width:0.5rem;height:0.5rem;border-radius:50%;background:var(--accent)"></span>
         Running…
       </span>
       <button
@@ -683,7 +826,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # to the live game page; the cheat sheet has its own view; everything in the
   # required ladder is managed on the edit page.
   defp step_link(:cheat_sheet, game), do: %{href: ~p"/games/#{game}/cheatsheet", label: "View"}
-  defp step_link(id, game) when id in [:setup, :did_you_know, :voices, :theme], do: %{href: ~p"/games/#{game}", label: "View on game page"}
+
+  defp step_link(id, game) when id in [:suggestions, :setup, :did_you_know, :voices, :theme],
+    do: %{href: ~p"/games/#{game}", label: "View on game page"}
+
   defp step_link(_id, game), do: %{href: ~p"/games/#{game}/edit", label: "Manage on edit page"}
 
   # bgg_data is an unstructured BGG payload — surface only its scalar fields as a

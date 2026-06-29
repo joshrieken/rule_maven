@@ -39,6 +39,7 @@ defmodule RuleMaven.Readiness.Estimator do
   @setup_out 8000
   @cheat_out 2048
   @categories_out 400
+  @suggestions_out 700
   @did_you_know_out 800
   @voice_out 700
   @theme_io {1200, 1500}
@@ -100,6 +101,9 @@ defmodule RuleMaven.Readiness.Estimator do
     in_toks = chars(docs) |> div(@chars_per_token)
     price("text-embedding-3-small", in_toks, 0)
   end
+
+  defp do_step_cost(:suggestions, _game, docs),
+    do: chat_cost(docs, @suggestions_out)
 
   defp do_step_cost(:categories, _game, docs),
     do: chat_cost(docs, @categories_out)

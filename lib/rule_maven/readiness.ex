@@ -31,10 +31,10 @@ defmodule RuleMaven.Readiness do
   alias RuleMaven.Games.{Game, Document, Chunk}
 
   @required ~w(source extract review cleanup embed)a
-  @enrichment ~w(categories cheat_sheet setup did_you_know voices theme bgg)a
+  @enrichment ~w(suggestions categories cheat_sheet setup did_you_know voices theme bgg)a
 
   # Steps that spend LLM/embedding budget — the ones we estimate + total cost for.
-  @llm_steps ~w(extract cleanup embed categories cheat_sheet setup did_you_know voices theme)a
+  @llm_steps ~w(extract cleanup embed suggestions categories cheat_sheet setup did_you_know voices theme)a
 
   @doc "Ordered required steps (the ones that gate `playable`)."
   def required_steps, do: @required
@@ -57,6 +57,7 @@ defmodule RuleMaven.Readiness do
   def label(:review), do: "Low-confidence pages reviewed"
   def label(:cleanup), do: "Cleaned up"
   def label(:embed), do: "Chunked & embedded"
+  def label(:suggestions), do: "Suggested questions"
   def label(:categories), do: "Categories"
   def label(:cheat_sheet), do: "Cheat sheet"
   def label(:setup), do: "Setup checklist"
@@ -165,6 +166,8 @@ defmodule RuleMaven.Readiness do
   # curated set in the table. First-time generation auto-saves straight to the
   # table and deletes the draft, so checking the cache alone would wrongly leave
   # this step pending after a successful generate.
+  def step_complete?(:suggestions, %Game{id: id}, _docs), do: present?("suggestions_#{id}")
+
   def step_complete?(:categories, %Game{} = game, _docs),
     do: present?("categories_#{game.id}") or Games.list_game_categories(game) != []
 
