@@ -91,21 +91,28 @@ defmodule RuleMaven.Setup do
 
   # Parse the model's two-section bullet text into the stored shape
   # `%{"components" => [string], "setup" => [%{"title", "detail"}]}`. Returns nil
-  # when neither section yields any items.
-  defp parse_sections(content) do
+  # when neither section yields any items. Public only so the parser can be
+  # tested against real model output shapes; not part of the public API.
+  @doc false
+  def parse_sections(content) do
     lines = String.split(to_string(content), ~r/\r?\n/)
 
     {components, steps, _section} =
       Enum.reduce(lines, {[], [], nil}, fn line, {comps, steps, section} ->
         trimmed = String.trim(line)
-        header = trimmed |> String.downcase() |> String.trim_trailing(":")
-        item = bullet_text(trimmed)
+        header = normalize_header(trimmed)
+        item = trimmed |> bullet_text() |> strip_md()
 
         cond do
-          header in ["components", "component"] ->
+          # Section headers are non-bullet lines. Match loosely: the model often
+          # wraps them in markdown (**, ##) or uses synonyms ("Components needed",
+          # "Setup steps", "Game setup"). Guard on is_nil(item) so a bulleted line
+          # like "- Setup the board" isn't mistaken for the "setup" header.
+          is_nil(item) and String.starts_with?(header, "component") ->
             {comps, steps, :components}
 
-          header in ["steps", "step", "setup"] ->
+          is_nil(item) and
+              (String.starts_with?(header, "step") or String.contains?(header, "setup")) ->
             {comps, steps, :steps}
 
           item == nil ->
@@ -130,6 +137,22 @@ defmodule RuleMaven.Setup do
       else: %{"components" => components, "setup" => steps}
   end
 
+  # Normalize a potential section header to bare lowercase words: strip markdown
+  # emphasis/heading marks (*, #, _, `) and a trailing colon so "**Components:**"
+  # and "## Setup Steps" still match.
+  defp normalize_header(line) do
+    line
+    |> String.downcase()
+    |> String.replace(~r/[*#_`]/, "")
+    |> String.trim()
+    |> String.trim_trailing(":")
+    |> String.trim()
+  end
+
+  # Remove surrounding markdown emphasis from item text (e.g. "**Board**").
+  defp strip_md(nil), do: nil
+  defp strip_md(text), do: text |> String.replace(~r/[*_`]/, "") |> String.trim()
+
   # Strip a leading bullet/number marker; nil if the line isn't a list item.
   defp bullet_text(line) do
     case Regex.run(~r/^\s*(?:[-*•]|\d+[.)])\s+(.*\S)\s*$/, line) do
@@ -140,7 +163,7 @@ defmodule RuleMaven.Setup do
 
   # Split a step into title + detail on the first em/en dash, colon, or " - ".
   defp parse_step(item) do
-    case Regex.split(~r/\s+[—–-]\s+|:\s+/, item, parts: 2) do
+    case Regex.split(~r/\s+[—–-]\s+|:\s+/u, item, parts: 2) do
       [title, detail] -> %{"title" => String.trim(title), "detail" => String.trim(detail)}
       [title] -> %{"title" => String.trim(title), "detail" => ""}
     end
