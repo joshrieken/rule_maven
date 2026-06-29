@@ -35,6 +35,8 @@ defmodule RuleMavenWeb.GameLive.Form do
         question_count: 0,
         generating: false,
         bgg_gate_bypassed: false,
+        bgg_refresh_pending: false,
+        expansion_prompt: false,
         exp_syncing: false,
         exp_sync_progress: nil,
         cheat_error: nil,
@@ -492,11 +494,17 @@ defmodule RuleMavenWeb.GameLive.Form do
 
       {:noreply,
        socket
-       |> assign(exp_syncing: true, exp_sync_progress: nil)
+       |> assign(exp_syncing: true, exp_sync_progress: nil, expansion_prompt: false)
        |> put_flash(:info, "Pulling expansions from BGG…")}
     else
       {:noreply, socket}
     end
+  end
+
+  # Dismiss the post-enrich "pull expansions now?" prompt (the admin can still
+  # use the Pull button in the expansions section later).
+  def handle_event("dismiss_expansion_prompt", _params, socket) do
+    {:noreply, assign(socket, expansion_prompt: false)}
   end
 
   def handle_event("refresh_bgg", _params, socket) do
@@ -506,7 +514,9 @@ defmodule RuleMavenWeb.GameLive.Form do
     |> RuleMaven.Workers.BggEnrichWorker.new()
     |> Oban.insert()
 
-    {:noreply, assign(socket, generating: true)}
+    # Mark this as a user-initiated refresh so the enrich result can offer to
+    # pull expansions now (creation-time enrich doesn't set this, so it won't).
+    {:noreply, assign(socket, generating: true, bgg_refresh_pending: true)}
   end
 
   @impl true
@@ -1708,9 +1718,22 @@ defmodule RuleMavenWeb.GameLive.Form do
         socket.assigns[:game_changeset]
       end
 
+    # Offer to pull expansions only after a user-initiated refresh, and only for
+    # base games (an expansion has no expansions of its own) that aren't already
+    # syncing.
+    prompt? =
+      socket.assigns.bgg_refresh_pending and not is_nil(game) and
+        is_nil(game.parent_game_id) and not socket.assigns.exp_syncing
+
     {:noreply,
      socket
-     |> assign(generating: false, game: game, game_changeset: changeset)
+     |> assign(
+       generating: false,
+       game: game,
+       game_changeset: changeset,
+       bgg_refresh_pending: false,
+       expansion_prompt: prompt?
+     )
      |> put_flash(:info, "Game info refreshed from BGG!")}
   end
 
@@ -2577,6 +2600,40 @@ defmodule RuleMavenWeb.GameLive.Form do
   def render(assigns) do
     ~H"""
     <div class="game-form">
+      <div
+        :if={@expansion_prompt}
+        style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;padding:1.5rem"
+      >
+        <div
+          style="background:var(--bg-surface,#fff);border-radius:0.5rem;max-width:26rem;width:100%;padding:1.5rem;box-shadow:0 10px 40px rgba(0,0,0,0.3)"
+          phx-click-away="dismiss_expansion_prompt"
+          phx-window-keydown="dismiss_expansion_prompt"
+          phx-key="Escape"
+        >
+          <h3 style="font-size:1.05rem;font-weight:700;margin:0 0 0.5rem">Pull expansions now?</h3>
+          <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 1.25rem;line-height:1.45">
+            Info for <strong>{@game && @game.name}</strong> is refreshed. Want to find and link
+            this game's expansions from BGG now? This runs in the background — you can keep editing.
+          </p>
+          <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+            <button
+              type="button"
+              phx-click="dismiss_expansion_prompt"
+              style="background:none;border:1px solid var(--border);color:var(--text);padding:0.4rem 0.9rem;border-radius:0.375rem;font-size:0.8rem;font-weight:600;cursor:pointer"
+            >
+              Later
+            </button>
+            <button
+              type="button"
+              phx-click="pull_expansions"
+              style="background:var(--accent);color:#fff;border:none;padding:0.4rem 0.9rem;border-radius:0.375rem;font-size:0.8rem;font-weight:600;cursor:pointer"
+            >
+              Pull expansions now
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div class="mb-4 flex items-center justify-between">
         <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">
           &larr; Back to games
