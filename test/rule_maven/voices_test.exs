@@ -80,6 +80,42 @@ defmodule RuleMaven.VoicesTest do
     end
   end
 
+  describe "loading_phrases/2 for generated voices" do
+    test "generated voice's stored phrases precede the generic pool" do
+      g = game()
+
+      :ok =
+        Voices.replace_generated(g.id, [
+          %{
+            slug: "herald",
+            label: "Woodland Herald",
+            emoji: "🦉",
+            style: "a courtly herald",
+            loading_phrases: ["Sounding the horn…", "Unrolling the scroll…"]
+          }
+        ])
+
+      phrases = Voices.loading_phrases("g:herald", g)
+      assert "Sounding the horn…" in phrases
+      assert "Unrolling the scroll…" in phrases
+      # generic pool still blended
+      assert "Reticulating splines…" in phrases
+    end
+
+    test "generated voice without loading_phrases falls back to generic only" do
+      g = game()
+
+      :ok =
+        Voices.replace_generated(g.id, [
+          %{slug: "plain-gen", label: "Plain Gen", emoji: "🙂", style: "a plain narrator"}
+        ])
+
+      phrases = Voices.loading_phrases("g:plain-gen", g)
+      assert phrases != []
+      assert "Reticulating splines…" in phrases
+    end
+  end
+
   describe "replace_generated stability" do
     test "unchanged style keeps the row id and any cached restyles" do
       g = game()

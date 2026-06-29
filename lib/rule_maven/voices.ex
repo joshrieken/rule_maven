@@ -131,10 +131,22 @@ defmodule RuleMaven.Voices do
       from gv in GameVoice,
         where: gv.game_id == ^game_id,
         order_by: [asc: gv.position, asc: gv.id],
-        select: %{slug: gv.slug, label: gv.label, emoji: gv.emoji, style: gv.style}
+        select: %{
+          slug: gv.slug,
+          label: gv.label,
+          emoji: gv.emoji,
+          style: gv.style,
+          loading_phrases: gv.loading_phrases
+        }
     )
     |> Enum.map(fn gv ->
-      %{id: @game_prefix <> gv.slug, label: gv.label, emoji: gv.emoji, style: gv.style}
+      %{
+        id: @game_prefix <> gv.slug,
+        label: gv.label,
+        emoji: gv.emoji,
+        style: gv.style,
+        loading_phrases: gv.loading_phrases || []
+      }
     end)
   end
 
@@ -277,6 +289,7 @@ defmodule RuleMaven.Voices do
         label: v.label,
         emoji: v.emoji,
         style: v.style,
+        loading_phrases: Map.get(v, :loading_phrases, []),
         source: "generated",
         position: idx
       }
