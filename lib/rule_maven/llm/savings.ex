@@ -89,6 +89,7 @@ defmodule RuleMaven.LLM.Savings do
           group_by: s.kind,
           select: {s.kind, sum(s.estimated_tokens), sum(s.estimated_usd)}
       )
+      # `* 1.0` coerces a possible %Decimal{} from the SQL sum() into a float.
       |> Enum.map(fn {k, t, u} -> %{kind: k, tokens: t || 0, usd: (u || 0.0) * 1.0} end)
 
     headline = Enum.filter(by_kind, &(&1.kind in @headline_kinds))
@@ -110,7 +111,7 @@ defmodule RuleMaven.LLM.Savings do
     model = RuleMaven.LLM.model()
     rows = recent_logs(operation, game_id)
 
-    rows = if length(rows) < @min_same_game, do: recent_logs(operation, nil), else: rows
+    rows = if game_id && length(rows) < @min_same_game, do: recent_logs(operation, nil), else: rows
 
     {p, c} =
       case rows do
@@ -135,7 +136,6 @@ defmodule RuleMaven.LLM.Savings do
     Repo.all(base)
   end
 
-  defp avg([], _fun), do: 0
   defp avg(rows, fun) do
     vals = rows |> Enum.map(fun) |> Enum.map(&(&1 || 0))
     div(Enum.sum(vals), length(vals))
