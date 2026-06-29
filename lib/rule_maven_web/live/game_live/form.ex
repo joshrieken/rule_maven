@@ -683,11 +683,35 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   def handle_event("expand_source", %{"id" => id}, socket) do
-    {:noreply, assign(socket, expanded_source_id: String.to_integer(id))}
+    {:noreply,
+     socket
+     |> assign(expanded_source_id: String.to_integer(id))
+     |> push_event("reader_scroll_top", %{})}
   end
 
   def handle_event("close_source", _params, socket) do
     {:noreply, assign(socket, expanded_source_id: nil)}
+  end
+
+  # j / k in the reader cycle which rulebook source is open (vim-style: h/l page,
+  # j/k switch source). Wraps around; no-op with a single source. Reset the page
+  # to the top of the newly-opened source and scroll the reader up.
+  def handle_event("cycle_source", %{"delta" => delta}, socket) do
+    entries = socket.assigns.source_entries
+    cur = socket.assigns.expanded_source_id
+
+    with d when d in [-1, 1] <- parse_delta(delta),
+         i when is_integer(i) <- Enum.find_index(entries, &(&1.id == cur)),
+         true <- length(entries) > 1 do
+      next = Enum.at(entries, Integer.mod(i + d, length(entries)))
+
+      {:noreply,
+       socket
+       |> assign(expanded_source_id: next.id)
+       |> push_event("reader_scroll_top", %{})}
+    else
+      _ -> {:noreply, socket}
+    end
   end
 
   def handle_event("set_reader_mode", %{"mode" => mode}, socket)
@@ -2126,6 +2150,11 @@ defmodule RuleMavenWeb.GameLive.Form do
       _ -> id_str
     end
   end
+
+  # Normalise a step delta string to -1 or 1 (anything else → nil).
+  defp parse_delta("1"), do: 1
+  defp parse_delta("-1"), do: -1
+  defp parse_delta(_), do: nil
 
   defp resolve_bgg_cookies do
     bgg_user = Settings.get("bgg_user")

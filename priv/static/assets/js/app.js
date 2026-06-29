@@ -518,22 +518,6 @@ Hooks.ReaderKeys = {
   mounted() {
     const isModal = this.el.id === "reader-modal";
 
-    // Opening the expanded reader should start at the top, not wherever the last
-    // view left off. Done here (not a separate hook) so it rides the same hook
-    // the modal already uses. Hammer it across a few frames + a tick so late
-    // layout (content/fonts settling) can't leave it scrolled down.
-    if (isModal) {
-      const sc = this.el.querySelector("#reader-scroll");
-      if (sc) {
-        const top = () => { sc.scrollTop = 0; };
-        top();
-        requestAnimationFrame(top);
-        requestAnimationFrame(() => requestAnimationFrame(top));
-        setTimeout(top, 60);
-        setTimeout(top, 200);
-      }
-    }
-
     this._handler = (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target;
@@ -554,6 +538,14 @@ Hooks.ReaderKeys = {
           // the only source on the page, with no hover needed.
           this.pushEvent("expand_source", {id});
         }
+        return;
+      }
+
+      // j / k switch which rulebook source is open in the reader (vim-style:
+      // h/l page, j/k source). Modal only — there's nothing to switch inline.
+      if (isModal && (e.key === "j" || e.key === "k")) {
+        e.preventDefault();
+        this.pushEvent("cycle_source", {delta: e.key === "j" ? "1" : "-1"});
         return;
       }
 
@@ -617,6 +609,21 @@ let liveSocket = new LiveView.LiveSocket("/live", Phoenix.Socket, {
     reader_pages: localStorage.getItem("rm:reader:pages") || ""
   }),
   hooks: Hooks
+});
+
+// Scroll the expanded reader to the top after it opens or switches source.
+// Fired by the server (after the DOM patch), and hammered across a few frames +
+// a tick so late content/layout can't leave it scrolled partway down.
+window.addEventListener("phx:reader_scroll_top", () => {
+  const top = () => {
+    const sc = document.getElementById("reader-scroll");
+    if (sc) sc.scrollTop = 0;
+  };
+  top();
+  requestAnimationFrame(top);
+  requestAnimationFrame(() => requestAnimationFrame(top));
+  setTimeout(top, 60);
+  setTimeout(top, 200);
 });
 
 // Persist the cleanup strength choice.
