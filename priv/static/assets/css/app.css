@@ -956,9 +956,14 @@ a:not([class]):hover {
   min-height: 100vh;
 }
 
-/* Gentle fade + rise of page content on load */
+/* Gentle fade + rise of page content on load. Uses `backwards` (not `both`) on
+   purpose: `forwards`/`both` would hold the `to` frame's transform:translateY(0)
+   after the animation, and a non-`none` transform turns .main-content into the
+   containing block for any position:fixed descendant (e.g. the expanded reader
+   modal), sizing it to the full page instead of the viewport. `backwards` only
+   pre-applies the `from` frame, then reverts to transform:none at the end. */
 .main-content {
-  animation: content-rise 0.45s ease both;
+  animation: content-rise 0.45s ease backwards;
 }
 
 /* The Q&A page's chat-layout is position:fixed. The rise animation leaves a
