@@ -192,6 +192,11 @@ defmodule RuleMavenWeb.GameLive.Show do
         setup_checklist: setup_checklist
       )
 
+    # Restyle the just-loaded thread's answers to the current voice (switching
+    # threads, ?t navigation, reload). No-op on first mount where the default is
+    # still neutral — the VoiceDefault hook then fires default_voice_restore.
+    socket = apply_default_voice(socket, socket.assigns.default_voice)
+
     suggestions =
       case RuleMaven.Settings.get("suggestions_#{game.id}") do
         nil ->
@@ -468,34 +473,19 @@ defmodule RuleMavenWeb.GameLive.Show do
   # Switch one answer to a persona voice. Neutral and already-cached voices swap
   # instantly (no cost); an uncached voice enqueues a durable restyle job and
   # shows a spinner until {:voice_ready, ...} arrives over PubSub.
-  def handle_event("set_voice", %{"id" => id_str, "voice" => voice}, socket) do
-    {id, _} = Integer.parse(id_str)
-
+  # Picking a voice from an answer's dropdown selects ONE current voice for every
+  # answer (new and existing), and persists it per-browser — same as "set as
+  # default". Per-answer overrides are cleared so the choice can't be shadowed by
+  # a stale selection on another answer.
+  def handle_event("set_voice", %{"voice" => voice}, socket) do
     if not RuleMaven.Voices.valid?(voice, socket.assigns.game) do
       {:noreply, socket}
     else
-      sel = Map.put(socket.assigns.voice_sel, id, voice)
-
-      cond do
-        voice == "neutral" ->
-          {:noreply, assign(socket, voice_sel: sel)}
-
-        Map.has_key?(socket.assigns.voice_cache, {id, voice}) ->
-          {:noreply, assign(socket, voice_sel: sel)}
-
-        cached = RuleMaven.Voices.get(id, voice) ->
-          # In DB but not in this session's cache — load it, still free.
-          cache = Map.put(socket.assigns.voice_cache, {id, voice}, cached)
-          {:noreply, assign(socket, voice_sel: sel, voice_cache: cache)}
-
-        true ->
-          %{question_log_id: id, voice: voice, game_id: socket.assigns.game.id}
-          |> RuleMaven.Workers.VoiceWorker.new()
-          |> Oban.insert()
-
-          pending = MapSet.put(socket.assigns.voice_pending, {id, voice})
-          {:noreply, assign(socket, voice_sel: sel, voice_pending: pending)}
-      end
+      {:noreply,
+       socket
+       |> assign(voice_sel: %{})
+       |> apply_default_voice(voice)
+       |> push_event("save_default_voice", %{voice: voice})}
     end
   end
 
@@ -1246,6 +1236,14 @@ defmodule RuleMavenWeb.GameLive.Show do
           community_questions: community,
           refresh: socket.assigns.refresh + 1
         )
+
+      # A freshly-answered row inherits the current voice: restyle it to the
+      # active default so it doesn't show plain while every other answer is in
+      # character. No-op when the default is neutral.
+      socket =
+        if ql.answer != "Thinking...",
+          do: apply_default_voice(socket, socket.assigns.default_voice),
+          else: socket
 
       {:noreply,
        if(answer_ready?,
