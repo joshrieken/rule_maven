@@ -531,7 +531,11 @@ let liveSocket = new LiveView.LiveSocket("/live", Phoenix.Socket, {
     // choice survives reloads. Restored in GameLive.Form mount.
     reader_label: localStorage.getItem("rm:reader:label") || "",
     // Remembered cleanup strength (light|standard|aggressive). Restored in mount.
-    clean_level: localStorage.getItem("rm:clean:level") || ""
+    clean_level: localStorage.getItem("rm:clean:level") || "",
+    // Remembered game-edit tab per game ({gameId: tab}) so a refresh reopens it.
+    edit_tab: localStorage.getItem("rm:edit:tab") || "",
+    // Remembered rulebook reader page per source ({gameId: {srcId: page}}).
+    reader_pages: localStorage.getItem("rm:reader:pages") || ""
   }),
   hooks: Hooks
 });
@@ -545,6 +549,38 @@ window.addEventListener("phx:save_reader_label", (e) => {
 // Persist the cleanup strength choice.
 window.addEventListener("phx:save_clean_level", (e) => {
   localStorage.setItem("rm:clean:level", e.detail.level);
+});
+
+// Merge a value into a {gameId: ...} JSON blob in localStorage. Tolerates a
+// corrupt/missing blob by starting fresh.
+function mergeGameBlob(key, gameId, value) {
+  let blob = {};
+  try {
+    blob = JSON.parse(localStorage.getItem(key) || "{}") || {};
+  } catch (_) {
+    blob = {};
+  }
+  blob[gameId] = value;
+  localStorage.setItem(key, JSON.stringify(blob));
+}
+
+// Persist the game-edit tab per game so a refresh reopens the last one.
+window.addEventListener("phx:save_edit_tab", (e) => {
+  mergeGameBlob("rm:edit:tab", e.detail.game_id, e.detail.tab);
+});
+
+// Persist the rulebook reader page per source, nested under the game id.
+window.addEventListener("phx:save_reader_page", (e) => {
+  let blob = {};
+  try {
+    blob = JSON.parse(localStorage.getItem("rm:reader:pages") || "{}") || {};
+  } catch (_) {
+    blob = {};
+  }
+  const g = blob[e.detail.game_id] || {};
+  g[e.detail.source_id] = e.detail.page;
+  blob[e.detail.game_id] = g;
+  localStorage.setItem("rm:reader:pages", JSON.stringify(blob));
 });
 
 // Keep --header-height in sync with the real sticky-header height so fixed/

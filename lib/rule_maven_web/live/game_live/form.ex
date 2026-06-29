@@ -255,10 +255,21 @@ defmodule RuleMavenWeb.GameLive.Form do
               ingest_log: Games.ingest_log(game.id)
             )
 
-          # Land on Manage once a rulebook has been processed, else Upload.
+          # Tab restore: an explicit ?tab= wins (in-app navigation), else the
+          # per-game choice remembered in localStorage, else a sensible default
+          # (Manage once a rulebook exists, else Upload).
           default_tab = if entries == [], do: "rulebook", else: "manage"
-          tab = Map.get(params, "tab", default_tab)
-          socket = assign(socket, tab: tab)
+          tab = params["tab"] || restore_edit_tab(socket, game.id) || default_tab
+
+          # Seed the per-source last page/sheet from localStorage, but only on the
+          # first load — later patches (e.g. tab switches) must not stomp the
+          # page the user has navigated to this session.
+          source_page =
+            if socket.assigns.source_page == %{},
+              do: restore_source_page(socket, game.id),
+              else: socket.assigns.source_page
+
+          socket = assign(socket, tab: tab, source_page: source_page)
 
           suggestions =
             case RuleMaven.Settings.get("suggestions_#{game.id}") do
@@ -699,7 +710,7 @@ defmodule RuleMavenWeb.GameLive.Form do
       "pagesel_" <> id ->
         id = String.to_integer(id)
         page = String.to_integer(params[target] || "0")
-        {:noreply, assign(socket, source_page: Map.put(socket.assigns.source_page, id, page))}
+        {:noreply, persist_source_page(socket, id, page)}
 
       _ ->
         {:noreply, socket}
@@ -745,8 +756,7 @@ defmodule RuleMavenWeb.GameLive.Form do
   def handle_event("source_page_step", %{"id" => id, "delta" => delta}, socket) do
     id = String.to_integer(id)
     cur = Map.get(socket.assigns.source_page, id, 0)
-    sp = Map.put(socket.assigns.source_page, id, cur + String.to_integer(delta))
-    {:noreply, assign(socket, source_page: sp)}
+    {:noreply, persist_source_page(socket, id, cur + String.to_integer(delta))}
   end
 
   # Stash the "page 1 is on sheet N" input as the user types (name encodes the
@@ -864,7 +874,10 @@ defmodule RuleMavenWeb.GameLive.Form do
   @impl true
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     if socket.assigns.game do
-      {:noreply, push_patch(socket, to: ~p"/games/#{socket.assigns.game}/edit?tab=#{tab}")}
+      {:noreply,
+       socket
+       |> push_event("save_edit_tab", %{game_id: socket.assigns.game.id, tab: tab})
+       |> push_patch(to: ~p"/games/#{socket.assigns.game}/edit?tab=#{tab}")}
     else
       {:noreply, socket}
     end
@@ -2366,6 +2379,54 @@ defmodule RuleMavenWeb.GameLive.Form do
     else
       "sheet"
     end
+  end
+
+  @edit_tabs ~w(details rulebook manage generated cheatsheet danger)
+
+  # Last edit tab for this game, remembered in localStorage and delivered via the
+  # LiveSocket connect params as JSON {game_id => tab}. nil when absent/invalid.
+  defp restore_edit_tab(socket, game_id) do
+    with true <- connected?(socket),
+         %{"edit_tab" => json} when is_binary(json) and json != "" <-
+           get_connect_params(socket),
+         {:ok, %{} = blob} <- Jason.decode(json),
+         tab when tab in @edit_tabs <- Map.get(blob, to_string(game_id)) do
+      tab
+    else
+      _ -> nil
+    end
+  end
+
+  # Last page/sheet per source for this game, from localStorage as JSON
+  # {game_id => {source_id => page}}. Keys come back as strings; convert to the
+  # integer source ids the reader keys @source_page by. Empty on anything off.
+  # Track the current page per source and mirror it to localStorage (via the
+  # browser, keyed by game) so a refresh reopens the last page/sheet the user
+  # was on. Restored in mount from the LiveSocket connect params.
+  defp persist_source_page(socket, id, page) do
+    sp = Map.put(socket.assigns.source_page, id, page)
+
+    socket
+    |> assign(source_page: sp)
+    |> push_event("save_reader_page", %{
+      game_id: socket.assigns.game.id,
+      source_id: id,
+      page: page
+    })
+  end
+
+  defp restore_source_page(socket, game_id) do
+    with true <- connected?(socket),
+         %{"reader_pages" => json} when is_binary(json) and json != "" <-
+           get_connect_params(socket),
+         {:ok, %{} = blob} <- Jason.decode(json),
+         %{} = game_map <- Map.get(blob, to_string(game_id)) do
+      for {k, v} <- game_map, is_integer(v), into: %{}, do: {String.to_integer(k), v}
+    else
+      _ -> %{}
+    end
+  rescue
+    _ -> %{}
   end
 
   # Per-browser cleanup-strength preference (localStorage → connect params).
