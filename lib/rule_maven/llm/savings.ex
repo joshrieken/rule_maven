@@ -57,6 +57,20 @@ defmodule RuleMaven.LLM.Savings do
 
   def record(_kind, _attrs), do: :ok
 
+  @doc "Estimates and records the savings from a cache/pool hit avoiding a call."
+  def record_cache_hit(operation, game_id, user_id) do
+    est = estimate_avoided(operation, game_id)
+
+    record("cache_hit", %{
+      operation: operation,
+      estimated_tokens: est.tokens,
+      estimated_usd: est.usd,
+      model: est.model,
+      game_id: game_id,
+      user_id: user_id
+    })
+  end
+
   @doc """
   Estimates the tokens/USD a now-avoided call of `operation` would have cost,
   from the average of recent real `LLM.Log` rows (preferring `game_id`). Falls

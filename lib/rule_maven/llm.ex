@@ -60,6 +60,7 @@ defmodule RuleMaven.LLM do
     cond do
       pool_hit ->
         {row, tier} = pool_hit
+        RuleMaven.LLM.Savings.record_cache_hit("ask", game.id, opts[:user_id])
 
         # Serve answer text only — never the source row's question wording or
         # author. tier is :trusted | :provisional (unverified single source).
