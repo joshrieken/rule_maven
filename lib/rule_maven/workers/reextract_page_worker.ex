@@ -90,7 +90,12 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
             :noop
 
           page ->
-            log.("Re-extracting page #{page.printed || page.sheet} with the stronger model…", "info")
+            label =
+              if page.printed,
+                do: "sheet #{page.sheet} (page #{page.printed})",
+                else: "sheet #{page.sheet}"
+
+            log.("Re-extracting #{label} with the stronger model…", "info")
 
             case RulebookDownloader.reextract_page(doc.pdf_path, page.sheet, on_log: log) do
               {:ok, result} ->
