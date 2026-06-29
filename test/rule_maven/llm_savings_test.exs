@@ -29,8 +29,6 @@ defmodule RuleMaven.LLMSavingsTest do
   end
 
   describe "record_cache_hit/3" do
-    alias RuleMaven.Repo
-
     test "writes a cache_hit row using the estimator" do
       assert :ok = Savings.record_cache_hit("ask", nil, nil)
       row = Repo.one(from s in Savings, where: s.kind == "cache_hit")

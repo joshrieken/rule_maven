@@ -69,6 +69,8 @@ defmodule RuleMaven.LLM.Savings do
       game_id: game_id,
       user_id: user_id
     })
+  rescue
+    e -> Logger.warning("Savings.record_cache_hit raised: #{inspect(e)}"); :ok
   end
 
   @doc """
