@@ -554,6 +554,13 @@ Hooks.ReaderKeys = {
   }
 };
 
+// Scroll the element to the top when it's first added to the DOM — used by the
+// expanded reader so opening it always starts at the top, not wherever the last
+// view left off.
+Hooks.ScrollTopOnMount = {
+  mounted() { this.el.scrollTop = 0; }
+};
+
 Hooks.InfiniteScroll = {
   mounted() {
     this.observer = new IntersectionObserver(([entry]) => {

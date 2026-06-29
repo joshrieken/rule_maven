@@ -3458,7 +3458,11 @@ defmodule RuleMavenWeb.GameLive.Form do
                         not regenerating? %>
                     <% edit_style =
                       "width:100%;box-sizing:border-box;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.9rem;line-height:1.6;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:0.4rem;padding:1rem;resize:vertical#{if not editable, do: ";opacity:0.7;background:var(--bg-subtle)"}" %>
-                    <div style="overflow:auto;padding:2rem clamp(1.5rem,8vw,8rem);flex:1;min-height:0;display:flex;flex-direction:column">
+                    <div
+                      id="reader-scroll"
+                      phx-hook="ScrollTopOnMount"
+                      style="overflow:auto;padding:2rem clamp(1.5rem,8vw,8rem);flex:1;min-height:0;display:flex;flex-direction:column"
+                    >
                       <%= if @reader_mode == "paginated" do %>
                         <%= if cur_page do %>
                           <div style={page_head}>— {page_label.(cur_page)} —</div>
