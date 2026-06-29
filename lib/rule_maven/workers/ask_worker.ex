@@ -6,10 +6,10 @@ defmodule RuleMaven.Workers.AskWorker do
   """
   use Oban.Worker, queue: :default, max_attempts: 2
 
-  alias RuleMaven.Games
+  alias RuleMaven.{Games, Jobs}
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: args}) do
+  def perform(%Oban.Job{id: oban_id, args: args}) do
     game_id = args["game_id"]
     question_log_id = args["question_log_id"]
     question = args["question"]
@@ -22,6 +22,11 @@ defmodule RuleMaven.Workers.AskWorker do
       |> Enum.map(fn %{"q" => q, "a" => a} -> {q, a} end)
 
     game = Games.get_game!(game_id)
+
+    # One run per question. High-volume, so the panel hides "ask" by default; the
+    # admin can toggle it on. Every terminal branch below closes this run, so it
+    # never lingers as "running".
+    run = Jobs.start_run("ask", {"question", question_log_id}, ask_label(question), oban_job_id: oban_id)
 
     if RuleMaven.Security.prompt_injection?(question) do
       if ql = get_question_log!(question_log_id) do
@@ -52,6 +57,7 @@ defmodule RuleMaven.Workers.AskWorker do
         end
       end
 
+      Jobs.finish_run(run, "done", "Blocked by security filter.")
       :ok
     else
       case RuleMaven.LLM.ask(game, question, expansion_ids, recent_context,
@@ -170,6 +176,12 @@ defmodule RuleMaven.Workers.AskWorker do
                    }}
                 )
 
+                Jobs.finish_run(
+                  run,
+                  "done",
+                  if(refused?, do: "Refused — not in rulebook.", else: "Answered.")
+                )
+
               {:error, changeset} ->
                 require Logger
 
@@ -187,7 +199,13 @@ defmodule RuleMaven.Workers.AskWorker do
                      error: "Failed to save answer"
                    }}
                 )
+
+                Jobs.finish_run(run, "failed", "Failed to save answer.")
             end
+          else
+            # Question row vanished (deleted by a retry) — close the run so it
+            # doesn't linger as running.
+            Jobs.finish_run(run, "done", "Question no longer exists.")
           end
 
           :ok
@@ -228,12 +246,21 @@ defmodule RuleMaven.Workers.AskWorker do
             end
           end
 
+          Jobs.finish_run(run, "failed", to_string(reason))
           :ok
       end
     end
 
     # end prompt_injection? else
   end
+
+  # Short left-rail label: the question, truncated.
+  defp ask_label(question) when is_binary(question) do
+    q = String.trim(question)
+    if String.length(q) > 60, do: String.slice(q, 0, 57) <> "…", else: q
+  end
+
+  defp ask_label(_), do: "Ask"
 
   defp get_question_log(id) do
     import Ecto.Query

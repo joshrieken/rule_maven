@@ -46,7 +46,9 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
        admin?: admin?,
        open: false,
        runs: (admin? && Jobs.list_runs(limit: @max_runs)) || [],
-       running_count: (admin? && Jobs.running_count()) || 0,
+       # High-volume kinds hidden by default so they don't drown the panel; the
+       # admin can toggle them back on via the filter chips.
+       hidden_kinds: MapSet.new(["ask"]),
        selected_id: nil,
        events: []
      ), layout: false}
@@ -71,6 +73,17 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
     {:noreply, assign(socket, selected_id: nil, events: [])}
   end
 
+  def handle_event("toggle-kind", %{"kind" => kind}, socket) do
+    hidden = socket.assigns.hidden_kinds
+
+    hidden =
+      if MapSet.member?(hidden, kind),
+        do: MapSet.delete(hidden, kind),
+        else: MapSet.put(hidden, kind)
+
+    {:noreply, assign(socket, hidden_kinds: hidden)}
+  end
+
   # A run opened/closed/changed state — upsert it at the top of the rail.
   @impl true
   def handle_info({:job_run, run}, socket) do
@@ -78,7 +91,7 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
       [run | Enum.reject(socket.assigns.runs, &(&1.id == run.id))]
       |> Enum.take(@max_runs)
 
-    {:noreply, assign(socket, runs: runs, running_count: Jobs.running_count())}
+    {:noreply, assign(socket, runs: runs)}
   end
 
   # A new progress line — append it to the open run's stream (newest rendered
@@ -95,6 +108,15 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
   def render(%{admin?: false} = assigns), do: ~H""
 
   def render(assigns) do
+    visible = Enum.reject(assigns.runs, &MapSet.member?(assigns.hidden_kinds, &1.kind))
+
+    assigns =
+      assign(assigns,
+        visible_runs: visible,
+        running_count: Enum.count(visible, &(&1.state == "running")),
+        kinds: assigns.runs |> Enum.map(& &1.kind) |> Enum.uniq() |> Enum.sort()
+      )
+
     ~H"""
     <div id="job-panel" phx-hook="JobPanel" class="jobpanel" data-open={to_string(@open)}>
       <button type="button" class="jobpanel-bar" phx-click="toggle">
@@ -105,9 +127,20 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
 
       <div :if={@open} class="jobpanel-body">
         <div class="jobpanel-list">
-          <div :if={@runs == []} class="jobpanel-empty">No jobs yet.</div>
+          <div :if={@kinds != []} class="jobpanel-filters">
+            <button
+              :for={kind <- @kinds}
+              type="button"
+              class={["jobpanel-chip", MapSet.member?(@hidden_kinds, kind) && "is-off"]}
+              phx-click="toggle-kind"
+              phx-value-kind={kind}
+            >
+              {kind}
+            </button>
+          </div>
+          <div :if={@visible_runs == []} class="jobpanel-empty">No jobs to show.</div>
           <button
-            :for={run <- @runs}
+            :for={run <- @visible_runs}
             type="button"
             class={["jobpanel-run", @selected_id == run.id && "is-selected"]}
             phx-click="select"
