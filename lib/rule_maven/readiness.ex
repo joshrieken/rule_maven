@@ -155,7 +155,12 @@ defmodule RuleMaven.Readiness do
     docs != [] and Enum.all?(docs, &doc_embedded?/1)
   end
 
-  def step_complete?(:categories, %Game{id: id}, _docs), do: present?("categories_#{id}")
+  # Done when categories exist as either an unsaved draft (Settings cache) or a
+  # curated set in the table. First-time generation auto-saves straight to the
+  # table and deletes the draft, so checking the cache alone would wrongly leave
+  # this step pending after a successful generate.
+  def step_complete?(:categories, %Game{} = game, _docs),
+    do: present?("categories_#{game.id}") or Games.list_game_categories(game) != []
 
   def step_complete?(:cheat_sheet, %Game{id: id}, _docs),
     do: Settings.get("cheat_status_#{id}") == "done"

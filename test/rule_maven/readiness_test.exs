@@ -100,6 +100,20 @@ defmodule RuleMaven.ReadinessTest do
       doc_fixture(game2, pages: [{0.9, true}], embed: :done)
       assert Readiness.step_complete?(:embed, game2, Games.list_documents(game2))
     end
+
+    test "categories step is done from a draft cache or saved categories" do
+      game = game_fixture()
+      refute Readiness.step_complete?(:categories, game, [])
+
+      # Unsaved draft in the Settings cache counts.
+      Settings.put("categories_#{game.id}", Jason.encode!([%{name: "Setup", description: "x"}]))
+      assert Readiness.step_complete?(:categories, game, [])
+
+      # First-time auto-save deletes the draft and writes the table; still done.
+      Settings.delete("categories_#{game.id}")
+      Games.replace_game_categories(game, [%{name: "Setup", description: "How to set up"}])
+      assert Readiness.step_complete?(:categories, game, [])
+    end
   end
 
   describe "recompute/1" do
