@@ -498,6 +498,26 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  @doc false
+  # Records non-call-avoidance savings from a completed LLM call: the real
+  # prompt-cache discount (and cheap-route, added in a later task). Best-effort.
+  def record_call_savings(actual_model, opts, usage)
+
+  def record_call_savings(actual_model, opts, %{cached: cached} = _usage) when is_integer(cached) and cached > 0 do
+    RuleMaven.LLM.Savings.record("prompt_cache", %{
+      operation: opts[:operation] || "unknown",
+      estimated_tokens: cached,
+      estimated_usd: RuleMaven.LLM.Pricing.cached_savings(actual_model, cached),
+      model: actual_model,
+      game_id: opts[:game_id],
+      user_id: opts[:user_id]
+    })
+
+    :ok
+  end
+
+  def record_call_savings(_actual_model, _opts, _usage), do: :ok
+
   defp do_request(_body, attempt, _opts) when attempt > 4 do
     {:error, "Rate limited after #{attempt - 1} attempts"}
   end
@@ -537,7 +557,9 @@ defmodule RuleMaven.LLM do
         {:ok, %{status: 200, body: response_body}} ->
           duration = System.monotonic_time(:millisecond) - start
           usage = extract_usage(response_body)
-          log_llm(provider_name, model_name, opts, usage, duration, true, nil)
+          actual_model = body[:model] || model_name
+          log_llm(provider_name, actual_model, opts, usage, duration, true, nil)
+          record_call_savings(actual_model, opts, usage)
           parse_response(response_body)
 
         {:ok, %{status: 429}} ->
@@ -573,13 +595,19 @@ defmodule RuleMaven.LLM do
 
   defp extract_usage(body) do
     case body do
-      %{"usage" => %{"prompt_tokens" => p, "completion_tokens" => c, "total_tokens" => t}} ->
-        %{prompt: p, completion: c, total: t}
+      %{"usage" => %{"prompt_tokens" => p, "completion_tokens" => c, "total_tokens" => t} = u} ->
+        %{prompt: p, completion: c, total: t, cached: cached_tokens(u)}
 
       _ ->
         nil
     end
   end
+
+  # Provider-reported cached prompt tokens, OpenAI-compatible shape OpenRouter
+  # forwards. Tolerates the field being absent (other providers) → 0.
+  defp cached_tokens(%{"prompt_tokens_details" => %{"cached_tokens" => n}}) when is_integer(n), do: n
+  defp cached_tokens(%{"cached_tokens" => n}) when is_integer(n), do: n
+  defp cached_tokens(_), do: 0
 
   defp log_llm(provider, model, opts, usage, duration_ms, success, error) do
     alias RuleMaven.Repo

@@ -38,6 +38,25 @@ defmodule RuleMaven.LLMSavingsTest do
     end
   end
 
+  describe "record_call_savings/3 (prompt_cache)" do
+    alias RuleMaven.{LLM, Repo}
+
+    test "records a prompt_cache row when cached tokens are present" do
+      usage = %{prompt: 5000, completion: 200, total: 5200, cached: 4000}
+      assert :ok = LLM.record_call_savings("google/gemini-2.5-flash", [operation: "ask", game_id: nil], usage)
+
+      row = Repo.one(from s in Savings, where: s.kind == "prompt_cache")
+      assert row.estimated_tokens == 4000
+      assert row.estimated_usd > 0.0
+    end
+
+    test "no prompt_cache row when there are no cached tokens" do
+      usage = %{prompt: 5000, completion: 200, total: 5200, cached: 0}
+      assert :ok = LLM.record_call_savings("google/gemini-2.5-flash", [operation: "ask"], usage)
+      assert Repo.one(from s in Savings, where: s.kind == "prompt_cache") == nil
+    end
+  end
+
   describe "estimate_avoided/2" do
     alias RuleMaven.LLM
     alias RuleMaven.Repo
