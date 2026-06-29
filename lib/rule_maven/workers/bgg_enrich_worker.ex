@@ -48,8 +48,8 @@ defmodule RuleMaven.Workers.BggEnrichWorker do
     status =
       case RuleMaven.BGG.enrich_game(game, force: true) do
         {:ok, updated} ->
-          # Cover may have just landed — derive the per-game theme (durable, async).
-          RuleMaven.Workers.ThemePaletteWorker.enqueue(updated)
+          # No LLM work here: theme palette (and other generation) is driven by
+          # the readiness pipeline's `theme` step, not the raw BGG pull.
           {:ok, changed_fields(game, updated)}
 
         {:error, reason} ->
