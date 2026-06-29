@@ -1528,19 +1528,20 @@ defmodule RuleMavenWeb.GameLive.Form do
 
   # A single-page re-extraction finished — reload that source from the DB (the
   # worker persisted the new page) and clear its busy flag.
-  def handle_info({:reextract_done, sid}, socket) do
+  def handle_info({:reextract_done, sid, index, outcome}, socket) do
     entries =
       Enum.map(socket.assigns.source_entries, fn e ->
         if e.source_id == sid, do: reload_entry(e), else: e
       end)
 
-    {:noreply,
-     socket
-     |> assign(
-       source_entries: entries,
-       reextracting: Map.delete(socket.assigns.reextracting, sid)
-     )
-     |> put_flash(:info, "Re-extracted the page.")}
+    socket =
+      assign(socket,
+        source_entries: entries,
+        reextracting: Map.delete(socket.assigns.reextracting, sid)
+      )
+
+    {kind, msg} = reextract_flash(outcome, entries, sid, index)
+    {:noreply, put_flash(socket, kind, msg)}
   end
 
   @impl true
@@ -1854,6 +1855,32 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   defp reload_entry(entry), do: entry
+
+  # Honest re-extract feedback: the strong re-read can fail, or succeed but still
+  # come back low-confidence (same flag, ~same text) — which reads as "nothing
+  # changed". Tell the user which actually happened.
+  defp reextract_flash(:ok, entries, sid, index) do
+    page =
+      entries
+      |> Enum.find(&(&1.source_id == sid))
+      |> case do
+        nil -> nil
+        entry -> Enum.find(entry.pages, &(&1.index == index))
+      end
+
+    if page && page[:needs_review] do
+      {:info,
+       "Re-extracted with the strongest model, but the page is still low-confidence. Edit it by hand if it's wrong."}
+    else
+      {:info, "Re-extracted the page — it's no longer flagged."}
+    end
+  end
+
+  defp reextract_flash({:error, reason}, _entries, _sid, _index),
+    do: {:error, "Re-extraction failed (#{reason}). The page is unchanged."}
+
+  defp reextract_flash(:noop, _entries, _sid, _index),
+    do: {:error, "Couldn't find that page to re-extract."}
 
   # Build the LiveView source-entry map (with first-class pages) from a Document.
   # Per-source extraction decision log: one row per page showing how/why it was

@@ -57,26 +57,38 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
     doc = Games.get_document!(doc_id)
     topic = "game_cleanup:#{doc.game_id}"
 
-    # Always broadcast done (success OR raise) once the topic is known, so the
-    # UI never gets stuck on "Re-extracting…". A failed re-extract simply leaves
-    # the page flagged as before. We swallow the error after broadcasting rather
-    # than retry — re-extraction is a best-effort, user-triggered action.
-    try do
-      case Enum.find(doc.pages, &(&1.index == index)) do
-        nil ->
-          :noop
+    # Always broadcast the outcome (success, failure, or raise) once the topic is
+    # known, so the UI never gets stuck on "Re-extracting…" and can tell the user
+    # honestly what happened. We swallow the error after reporting it rather than
+    # retry — re-extraction is a best-effort, user-triggered action.
+    outcome =
+      try do
+        case Enum.find(doc.pages, &(&1.index == index)) do
+          nil ->
+            :noop
 
-        page ->
-          case RulebookDownloader.reextract_page(doc.pdf_path, page.sheet) do
-            {:ok, result} -> Games.replace_page(doc, index, result)
-            {:error, reason} -> Logger.warning("Re-extract page #{index} failed: #{reason}")
-          end
+          page ->
+            case RulebookDownloader.reextract_page(doc.pdf_path, page.sheet) do
+              {:ok, result} ->
+                Games.replace_page(doc, index, result)
+                :ok
+
+              {:error, reason} ->
+                Logger.warning("Re-extract page #{index} failed: #{reason}")
+                {:error, to_string(reason)}
+            end
+        end
+      rescue
+        e ->
+          Logger.error("Re-extract page #{index} crashed: #{Exception.message(e)}")
+          {:error, "internal error"}
       end
-    rescue
-      e -> Logger.error("Re-extract page #{index} crashed: #{Exception.message(e)}")
-    after
-      Phoenix.PubSub.broadcast(RuleMaven.PubSub, topic, {:reextract_done, doc_id})
-    end
+
+    Phoenix.PubSub.broadcast(
+      RuleMaven.PubSub,
+      topic,
+      {:reextract_done, doc_id, index, outcome}
+    )
 
     :ok
   end
