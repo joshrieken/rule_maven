@@ -583,6 +583,13 @@ let liveSocket = new LiveView.LiveSocket("/live", Phoenix.Socket, {
   hooks: Hooks
 });
 
+// Force a <details> log panel open when a re-extraction starts (the inline panel
+// is always in the DOM, so its phx-mounted won't re-fire on the live trigger).
+window.addEventListener("phx:open_log", (e) => {
+  const el = document.getElementById(e.detail.id);
+  if (el) el.open = true;
+});
+
 // Persist the cleanup strength choice.
 window.addEventListener("phx:save_clean_level", (e) => {
   localStorage.setItem("rm:clean:level", e.detail.level);

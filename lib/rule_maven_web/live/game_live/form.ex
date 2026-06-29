@@ -1916,10 +1916,16 @@ defmodule RuleMavenWeb.GameLive.Form do
     Games.clear_reextract_log(sid)
     Games.log_reextract(sid, queued, "info")
 
-    assign(socket,
+    socket
+    |> assign(
       reextracting: Map.put(socket.assigns.reextracting, sid, n),
       reextract_log: Map.put(socket.assigns.reextract_log, sid, Games.reextract_log(sid))
     )
+    # The inline panel is always in the DOM, so its phx-mounted (which only fires
+    # once) won't re-open it on this live trigger — open it explicitly. The modal
+    # id is a no-op when the modal isn't open.
+    |> push_event("open_log", %{id: "reextlog-#{sid}"})
+    |> push_event("open_log", %{id: "reextlog-modal-#{sid}"})
   end
 
   # Honest re-extract feedback: the strong re-read can fail, or succeed but still
@@ -3238,7 +3244,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                     </style>
                   </div>
                   <.ingest_log_panel
-                    id={"reextlog-#{entry.id}"}
+                    id={"reextlog-#{entry.source_id}"}
                     log={Map.get(@reextract_log, entry.source_id, [])}
                     running={regenerating?}
                   />
@@ -3447,7 +3453,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                             busy={regenerating?}
                           />
                           <.ingest_log_panel
-                            id={"reextlog-modal-#{reader.id}"}
+                            id={"reextlog-modal-#{reader.source_id}"}
                             log={Map.get(@reextract_log, reader.source_id, [])}
                             running={regenerating?}
                           />
