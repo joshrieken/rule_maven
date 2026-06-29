@@ -513,7 +513,17 @@ Hooks.VoiceDefault = {
 // mirror the resulting data-open attribute back into localStorage on update.
 Hooks.JobPanel = {
   key: "rm:jobpanel_open",
+  // Reserve space at the bottom of the page equal to the (fixed) panel's height
+  // so the page above stays fully scrollable and nothing hides behind the panel
+  // — i.e. docked like Chrome DevTools rather than overlaying content.
+  syncPad() {
+    document.body.style.paddingBottom = this.el.offsetHeight + "px";
+  },
   mounted() {
+    this.syncPad();
+    this._onResize = () => this.syncPad();
+    window.addEventListener("resize", this._onResize);
+
     let open = false;
     try {
       open = localStorage.getItem(this.key) === "1";
@@ -525,6 +535,7 @@ Hooks.JobPanel = {
     }
   },
   updated() {
+    this.syncPad();
     try {
       if (this.el.dataset.open === "true") {
         localStorage.setItem(this.key, "1");
@@ -532,6 +543,10 @@ Hooks.JobPanel = {
         localStorage.removeItem(this.key);
       }
     } catch (_e) {}
+  },
+  destroyed() {
+    window.removeEventListener("resize", this._onResize);
+    document.body.style.paddingBottom = "";
   }
 };
 
