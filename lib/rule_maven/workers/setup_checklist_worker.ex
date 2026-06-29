@@ -20,6 +20,8 @@ defmodule RuleMaven.Workers.SetupChecklistWorker do
         oban_job_id: oban_id
       )
 
+    Jobs.event(run, :info, "Asking the model to build the setup checklist…")
+
     result =
       try do
         Setup.generate_content(game)

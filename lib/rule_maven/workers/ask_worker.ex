@@ -60,6 +60,8 @@ defmodule RuleMaven.Workers.AskWorker do
       Jobs.finish_run(run, "done", "Blocked by security filter.")
       :ok
     else
+      Jobs.event(run, :info, "Answering against the rulebook#{if expansion_ids != [], do: " (+#{length(expansion_ids)} expansion(s))", else: ""}…")
+
       case RuleMaven.LLM.ask(game, question, expansion_ids, recent_context,
              user_id: user_id,
              skip_pool: skip_pool

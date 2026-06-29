@@ -30,6 +30,8 @@ defmodule RuleMaven.Workers.VoiceWorker do
           oban_job_id: oban_id
         )
 
+      Jobs.event(run, :info, "Restyling the answer in the “#{voice}” voice…")
+
       case Voices.restyle(ql_id, voice, canonical, game.name) do
         {:ok, content} ->
           Phoenix.PubSub.broadcast(

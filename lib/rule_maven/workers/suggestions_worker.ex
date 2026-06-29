@@ -41,6 +41,8 @@ defmodule RuleMaven.Workers.SuggestionsWorker do
       |> Enum.map(& &1.question)
       |> Enum.uniq()
 
+    Jobs.event(run, :info, "Asking the model for fresh questions (avoiding #{length(already_asked)} already asked)…")
+
     case RuleMaven.LLM.suggest_questions(game.name, text, already_asked) do
       {:ok, qs} ->
         Settings.put("suggestions_#{game_id}", Jason.encode!(qs))

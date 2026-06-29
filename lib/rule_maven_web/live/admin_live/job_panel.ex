@@ -114,7 +114,8 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
       assign(assigns,
         visible_runs: visible,
         running_count: Enum.count(visible, &(&1.state == "running")),
-        kinds: assigns.runs |> Enum.map(& &1.kind) |> Enum.uniq() |> Enum.sort()
+        kinds: assigns.runs |> Enum.map(& &1.kind) |> Enum.uniq() |> Enum.sort(),
+        selected_run: assigns.selected_id && Enum.find(assigns.runs, &(&1.id == assigns.selected_id))
       )
 
     ~H"""
@@ -156,9 +157,32 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
         </div>
 
         <div class="jobpanel-detail">
-          <%= if @selected_id do %>
+          <%= if @selected_run do %>
+            <%!-- Run header: always shown, so a run that logged no progress lines
+                  (many workers only record start/finish) still surfaces its
+                  state, timing and finish summary instead of a blank pane. --%>
+            <div class="jobpanel-runhead">
+              <div class="jobpanel-runhead-top">
+                <span class={["jobpanel-dot", "is-#{@selected_run.state}"]}></span>
+                <span class="jobpanel-runhead-label">{@selected_run.label || @selected_run.kind}</span>
+                <span class={["jobpanel-state", "is-#{@selected_run.state}"]}>{@selected_run.state}</span>
+              </div>
+              <div class="jobpanel-runhead-meta">
+                {@selected_run.kind}
+                <span :if={@selected_run.scope_type && @selected_run.scope_id}>
+                  · {@selected_run.scope_type} #{@selected_run.scope_id}
+                </span>
+                · {Calendar.strftime(@selected_run.started_at || @selected_run.inserted_at, "%H:%M:%S")}
+                <span :if={duration(@selected_run)}>· {duration(@selected_run)}</span>
+              </div>
+              <div :if={@selected_run.summary} class="jobpanel-runhead-summary" style={line_style(@selected_run.state)}>
+                {@selected_run.summary}
+              </div>
+            </div>
             <div class="jobpanel-events">
-              <div :if={@events == []} class="jobpanel-empty">No events for this run.</div>
+              <div :if={@events == []} class="jobpanel-empty">
+                {if @selected_run.state == "running", do: "Running — no progress lines logged yet.", else: "This job logged no detailed progress."}
+              </div>
               <div :for={ev <- @events} class="jobpanel-event" style={line_style(ev.level)}>
                 <span class="jobpanel-event-time">{Calendar.strftime(ev.inserted_at, "%H:%M:%S")}</span>
                 <span class="jobpanel-event-msg">{ev.message}</span>
@@ -198,4 +222,17 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
   # row was shown.
   defp age_seconds(%DateTime{} = dt), do: DateTime.diff(DateTime.utc_now(), dt, :second)
   defp age_seconds(%NaiveDateTime{} = dt), do: NaiveDateTime.diff(NaiveDateTime.utc_now(), dt, :second)
+
+  # Wall-clock duration of a run for the detail header: elapsed-so-far while it
+  # runs, total once it finished. nil when timing is missing.
+  defp duration(%{started_at: %DateTime{} = s, finished_at: %DateTime{} = f}),
+    do: fmt_secs(DateTime.diff(f, s, :second))
+
+  defp duration(%{state: "running", started_at: %DateTime{} = s}),
+    do: fmt_secs(DateTime.diff(DateTime.utc_now(), s, :second)) <> " so far"
+
+  defp duration(_), do: nil
+
+  defp fmt_secs(s) when s < 60, do: "#{s}s"
+  defp fmt_secs(s), do: "#{div(s, 60)}m #{rem(s, 60)}s"
 end

@@ -30,6 +30,8 @@ defmodule RuleMaven.Workers.CheatSheetGenWorker do
         oban_job_id: oban_id
       )
 
+    Jobs.event(run, :info, "Generating the #{level} cheat sheet#{if expansion_ids != [], do: " (+#{length(expansion_ids)} expansion(s))", else: ""}…")
+
     result =
       try do
         CheatSheet.generate_content(game, level, expansion_ids)

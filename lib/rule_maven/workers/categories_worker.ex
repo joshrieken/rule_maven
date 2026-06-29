@@ -32,6 +32,8 @@ defmodule RuleMaven.Workers.CategoriesWorker do
         oban_job_id: oban_id
       )
 
+    Jobs.event(run, :info, "Asking the model to derive rule categories from the rulebook…")
+
     case RuleMaven.LLM.generate_categories(game.name, text) do
       {:ok, cats} ->
         # When the game has no saved categories yet, there's nothing to blow away

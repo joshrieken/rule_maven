@@ -2787,6 +2787,16 @@ body:has([data-phx-main].phx-connected)::after {
 .jobpanel-state.is-failed { color: var(--red, #c0392b); }
 
 .jobpanel-detail { overflow: auto; background: var(--bg, #fff); }
+.jobpanel-runhead {
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--border, #ddd);
+  background: var(--bg-subtle, #f6f6f8);
+}
+.jobpanel-runhead-top { display: flex; align-items: center; gap: 0.45rem; }
+.jobpanel-runhead-label { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jobpanel-runhead-top .jobpanel-state { margin-left: auto; }
+.jobpanel-runhead-meta { margin-top: 0.2rem; font-size: 0.68rem; color: var(--text-muted, #999); }
+.jobpanel-runhead-summary { margin-top: 0.3rem; font-size: 0.72rem; }
 .jobpanel-events {
   padding: 0.4rem 0.7rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

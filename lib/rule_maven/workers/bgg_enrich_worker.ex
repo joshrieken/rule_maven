@@ -40,6 +40,8 @@ defmodule RuleMaven.Workers.BggEnrichWorker do
         oban_job_id: oban_id
       )
 
+    Jobs.event(run, :info, "Fetching game details from BoardGameGeek…")
+
     status =
       case RuleMaven.BGG.enrich_game(game, force: true) do
         {:ok, updated} ->

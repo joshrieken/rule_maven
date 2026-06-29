@@ -42,6 +42,8 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
         oban_job_id: oban_id
       )
 
+    Jobs.event(run, :info, "Deriving a colour palette from the cover image…")
+
     status =
       case build_palette(game) do
         {:ok, palette} ->

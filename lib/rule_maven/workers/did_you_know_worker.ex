@@ -50,6 +50,8 @@ defmodule RuleMaven.Workers.DidYouKnowWorker do
         oban_job_id: oban_id
       )
 
+    Jobs.event(run, :info, "Asking the model for did-you-know facts from the rulebook…")
+
     case RuleMaven.LLM.generate_did_you_know(game.name, text) do
       {:ok, facts} when facts != [] ->
         Settings.put("did_you_know_#{game_id}", Jason.encode!(facts))
