@@ -69,15 +69,21 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    id = params["id"]
-    game = Games.get_game_by_token!(id)
+    case Games.get_game_by_token(params["id"]) do
+      nil ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "That game doesn’t exist.")
+         |> push_navigate(to: ~p"/")}
 
-    # DMCA takedown: non-admins can't reach a taken-down game at all. Admins can
-    # still open it (to review / restore) and see a banner instead of content.
-    if Games.taken_down?(game) and not socket.assigns.is_admin do
-      throw_takedown(socket)
-    else
-      do_handle_params(params, game, socket)
+      game ->
+        # DMCA takedown: non-admins can't reach a taken-down game at all. Admins
+        # can still open it (to review / restore) and see a banner instead.
+        if Games.taken_down?(game) and not socket.assigns.is_admin do
+          throw_takedown(socket)
+        else
+          do_handle_params(params, game, socket)
+        end
     end
   end
 

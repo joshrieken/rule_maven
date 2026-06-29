@@ -81,7 +81,7 @@ defmodule RuleMavenWeb.Feature.FlowTest do
 
     session
     |> login(user.username)
-    |> visit("/games/#{game.id}/prepare")
+    |> visit("/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
     |> assert_has(css("h1", text: "Prepare Prep Test Game"))
     |> assert_has(css("button", text: "Prepare game"))
     |> assert_has(css("h2", text: "Pipeline"))

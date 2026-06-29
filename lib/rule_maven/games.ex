@@ -225,6 +225,14 @@ defmodule RuleMaven.Games do
     end
   end
 
+  @doc "Fetch a game by its public URL token; nil on a bad/unknown token."
+  def get_game_by_token(token) do
+    case RuleMaven.Hashid.decode(token) do
+      {:ok, id} -> Repo.get(Game, id)
+      :error -> nil
+    end
+  end
+
   def get_game_by_bgg_id(bgg_id) when is_integer(bgg_id), do: Repo.get_by(Game, bgg_id: bgg_id)
 
   def create_game(attrs) do

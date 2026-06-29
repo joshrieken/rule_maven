@@ -20,25 +20,31 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
-      game = Games.get_game_by_token!(id)
-      Readiness.recompute(game)
+    game = Users.can?(socket.assigns.current_user, :admin) && Games.get_game_by_token(id)
 
-      if connected?(socket) do
-        Jobs.subscribe(Readiness.topic(game.id))
-        Jobs.subscribe(Jobs.scope_topic("game", game.id))
+    cond do
+      not Users.can?(socket.assigns.current_user, :admin) ->
+        {:ok, push_navigate(socket, to: ~p"/")}
 
-        for d <- Games.list_documents(game) do
-          Jobs.subscribe(Jobs.scope_topic("document", d.id))
+      is_nil(game) ->
+        {:ok, socket |> put_flash(:error, "That game doesn’t exist.") |> push_navigate(to: ~p"/")}
+
+      true ->
+        Readiness.recompute(game)
+
+        if connected?(socket) do
+          Jobs.subscribe(Readiness.topic(game.id))
+          Jobs.subscribe(Jobs.scope_topic("game", game.id))
+
+          for d <- Games.list_documents(game) do
+            Jobs.subscribe(Jobs.scope_topic("document", d.id))
+          end
         end
-      end
 
-      {:ok,
-       socket
-       |> assign(game: game, page_title: "Prepare — #{game.name}")
-       |> load()}
-    else
-      {:ok, push_navigate(socket, to: ~p"/")}
+        {:ok,
+         socket
+         |> assign(game: game, page_title: "Prepare — #{game.name}")
+         |> load()}
     end
   end
 

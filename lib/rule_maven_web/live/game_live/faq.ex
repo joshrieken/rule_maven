@@ -5,7 +5,17 @@ defmodule RuleMavenWeb.GameLive.Faq do
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
-    game = Games.get_game_by_token!(id)
+    case Games.get_game_by_token(id) do
+      nil ->
+        {:ok,
+         socket |> put_flash(:error, "That game doesn’t exist.") |> push_navigate(to: ~p"/")}
+
+      game ->
+        mount_game(game, socket)
+    end
+  end
+
+  defp mount_game(game, socket) do
     is_admin = RuleMaven.Users.can?(socket.assigns.current_user, :admin)
     categories = Games.list_game_categories(game)
     community_questions = Games.faq_questions(game)

@@ -60,6 +60,10 @@ defmodule RuleMaven.CheatSheet do
     Repo.get!(RuleMaven.CheatSheet.CheatSheetVersion, id)
   end
 
+  def get_version(id) do
+    Repo.get(RuleMaven.CheatSheet.CheatSheetVersion, id)
+  end
+
   @doc """
   Sets one version as active, deactivates all others for this document.
   """

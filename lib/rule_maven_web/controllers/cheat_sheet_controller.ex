@@ -9,15 +9,23 @@ defmodule RuleMavenWeb.CheatSheetController do
   plug :require_login
 
   def show(conn, %{"id" => id}) do
-    game = Games.get_game_by_token!(id)
-    serve_active_cheatsheet(conn, game)
+    case Games.get_game_by_token(id) do
+      nil -> not_found(conn)
+      game -> serve_active_cheatsheet(conn, game)
+    end
   end
 
   def show_version(conn, %{"id" => id, "version_id" => version_id}) do
-    game = Games.get_game_by_token!(id)
-    version = CheatSheet.get_version!(RuleMaven.Hashid.decode!(version_id))
-    serve_content(conn, game.name, version.content)
+    with game when not is_nil(game) <- Games.get_game_by_token(id),
+         {:ok, vid} <- RuleMaven.Hashid.decode(version_id),
+         version when not is_nil(version) <- CheatSheet.get_version(vid) do
+      serve_content(conn, game.name, version.content)
+    else
+      _ -> not_found(conn)
+    end
   end
+
+  defp not_found(conn), do: conn |> put_status(:not_found) |> text("Not found")
 
   defp require_login(conn, _opts) do
     if conn.assigns[:current_user] do

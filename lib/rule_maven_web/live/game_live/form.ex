@@ -110,13 +110,19 @@ defmodule RuleMavenWeb.GameLive.Form do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    if RuleMaven.Users.can?(socket.assigns.current_user, :admin) do
-      do_handle_params(params, socket)
-    else
-      {:noreply,
-       socket
-       |> put_flash(:error, "You don't have permission to do that.")
-       |> push_navigate(to: ~p"/")}
+    cond do
+      not RuleMaven.Users.can?(socket.assigns.current_user, :admin) ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "You don't have permission to do that.")
+         |> push_navigate(to: ~p"/")}
+
+      match?(%{"id" => _}, params) and is_nil(Games.get_game_by_token(params["id"])) ->
+        {:noreply,
+         socket |> put_flash(:error, "That game doesn’t exist.") |> push_navigate(to: ~p"/")}
+
+      true ->
+        do_handle_params(params, socket)
     end
   end
 

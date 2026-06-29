@@ -5,12 +5,17 @@ defmodule RuleMavenWeb.GameLive.Review do
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
-    game = Games.get_game_by_token!(id)
+    game = Games.get_game_by_token(id)
     is_admin = RuleMaven.Users.can?(socket.assigns.current_user, :admin)
 
-    if !is_admin do
-      {:ok, push_navigate(socket, to: ~p"/games/#{id}/faq")}
-    else
+    cond do
+      is_nil(game) ->
+        {:ok, socket |> put_flash(:error, "That game doesn’t exist.") |> push_navigate(to: ~p"/")}
+
+      !is_admin ->
+        {:ok, push_navigate(socket, to: ~p"/games/#{id}/faq")}
+
+      true ->
       {:ok,
        assign(socket,
          game: game,
