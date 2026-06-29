@@ -420,7 +420,8 @@ defmodule RuleMaven.Prompts do
       "slug": "kebab-case-stable-id",
       "label": "Short Display Name",
       "emoji": "🙂",
-      "style": "a one-sentence description of how this persona talks, in the same form as 'a swashbuckling pirate who uses nautical slang.'"
+      "style": "a one-sentence description of how this persona talks, in the same form as 'a swashbuckling pirate who uses nautical slang.'",
+      "loading_phrases": ["Hoisting the sails…", "Counting the doubloons…", "Sighing at landlubbers…"]
     }
   ]
 
@@ -431,6 +432,10 @@ defmodule RuleMaven.Prompts do
   - "style" describes ONLY tone/voice (vocabulary, cadence, catchphrases). It
     must NOT contain any rule, number, or game fact — the restyler keeps facts
     unchanged and only borrows the voice.
+  - "loading_phrases" is an array of 4-6 very short (≤ 5 words) in-character
+    "loading screen" status lines for THIS persona — playful nonsense in the
+    spirit of old SimCity loaders ("Reticulating splines…"), each ending with an
+    ellipsis. They are flavor ONLY: never a rule, number, or game fact.
   - Make them distinct from each other and from the generic globals (plain,
     rules lawyer, pirate, robot, hype coach). Lean into THIS game's flavor.
   - Aim for funny and specific, not cheesy. Give each persona a comic attitude

@@ -262,6 +262,26 @@ defmodule RuleMaven.LLMTest do
     end
   end
 
+  describe "voice parsing includes loading_phrases" do
+    test "parses loading_phrases when present" do
+      json = ~s([{"slug":"herald","label":"Herald","emoji":"🦉","style":"a courtly herald","loading_phrases":["Sounding the horn…","Unrolling the scroll…"]}])
+      [v] = RuleMaven.LLM.__parse_voices__(json)
+      assert v.loading_phrases == ["Sounding the horn…", "Unrolling the scroll…"]
+    end
+
+    test "defaults loading_phrases to [] when missing" do
+      json = ~s([{"slug":"herald","label":"Herald","emoji":"🦉","style":"a courtly herald"}])
+      [v] = RuleMaven.LLM.__parse_voices__(json)
+      assert v.loading_phrases == []
+    end
+
+    test "drops non-string and blank loading_phrases entries" do
+      json = ~s([{"slug":"h","label":"H","emoji":"🦉","style":"x","loading_phrases":["ok ", 3, "", "  ", "two"]}])
+      [v] = RuleMaven.LLM.__parse_voices__(json)
+      assert v.loading_phrases == ["ok", "two"]
+    end
+  end
+
   defp mock_llm(fun) do
     Application.put_env(:rule_maven, :llm_mock, fun)
 

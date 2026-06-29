@@ -1302,18 +1302,34 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  @doc false
+  # Test seam for parse_voices/1.
+  def __parse_voices__(text), do: parse_voices(text)
+
   defp coerce_voice(%{"label" => label, "emoji" => emoji, "style" => style} = m)
        when is_binary(label) and is_binary(emoji) and is_binary(style) do
     label = String.trim(label)
     style = String.trim(style)
     slug = m |> Map.get("slug", label) |> to_string() |> slugify()
+    loading = m |> Map.get("loading_phrases", []) |> coerce_phrases()
 
     if label != "" and style != "" and slug != "" do
-      %{slug: slug, label: label, emoji: String.trim(emoji), style: style}
+      %{slug: slug, label: label, emoji: String.trim(emoji), style: style, loading_phrases: loading}
     end
   end
 
   defp coerce_voice(_), do: nil
+
+  # Keep only non-blank string phrases, trimmed, capped at 6.
+  defp coerce_phrases(list) when is_list(list) do
+    list
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.take(6)
+  end
+
+  defp coerce_phrases(_), do: []
 
   # Stable, namespace-safe slug: lowercase, non-alphanumerics → "-", trimmed.
   defp slugify(s) do
