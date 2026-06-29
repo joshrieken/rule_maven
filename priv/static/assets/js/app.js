@@ -208,7 +208,9 @@ Hooks.Refocus = {
     const saved = localStorage.getItem("game-search") || "";
     this.el.value = saved;
     this.pushEvent("restore_search", { value: saved });
-    this.el.focus();
+    // preventScroll: .main-content is now a scroll container; a plain focus()
+    // scrolls it to the input, jolting the controls down after first paint.
+    this.el.focus({ preventScroll: true });
     // Save on each input change
     this._saveHandler = () => {
       localStorage.setItem("game-search", this.el.value);
