@@ -587,6 +587,47 @@ Hooks.VoiceDefault = {
   }
 };
 
+Hooks.VoiceLoader = {
+  mounted() {
+    let phrases;
+    try {
+      phrases = JSON.parse(this.el.dataset.phrases || "[]");
+    } catch (_e) {
+      phrases = [];
+    }
+    if (!phrases.length) phrases = ["Reticulating splines…"];
+
+    const phraseEl = this.el.querySelector(".voice-loader__phrase");
+    const fillEl = this.el.querySelector(".voice-loader__fill");
+    let last = -1;
+    let pct = 8;
+
+    const pickPhrase = () => {
+      let i = Math.floor(Math.random() * phrases.length);
+      if (phrases.length > 1 && i === last) i = (i + 1) % phrases.length;
+      last = i;
+      if (phraseEl) phraseEl.textContent = phrases[i];
+    };
+
+    const stepBar = () => {
+      // Eased random crawl toward ~90%, with occasional retro hiccup resets.
+      if (Math.random() < 0.08 && pct > 30) pct -= 10;
+      pct += Math.random() * (pct < 60 ? 9 : 3);
+      if (pct > 92) pct = 92;
+      if (fillEl) fillEl.style.width = pct.toFixed(1) + "%";
+    };
+
+    pickPhrase();
+    stepBar();
+    this._phraseTimer = setInterval(pickPhrase, 700);
+    this._barTimer = setInterval(stepBar, 250);
+  },
+  destroyed() {
+    clearInterval(this._phraseTimer);
+    clearInterval(this._barTimer);
+  }
+};
+
 // Admin background-job panel: persist the open/closed state across refreshes.
 // Restores it on connect (pushes "restore"); the toggle is server-side, so we
 // mirror the resulting data-open attribute back into localStorage on update.

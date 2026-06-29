@@ -2861,3 +2861,50 @@ body:has([data-phx-main].phx-connected)::after {
   color: var(--text-muted, #999);
   text-decoration: line-through;
 }
+
+/* Voice loader — retro spinner + crawling progress bar */
+.voice-loader {
+  margin: 0.15rem 0 0.35rem;
+}
+.voice-loader__row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--text-muted);
+}
+.voice-loader__spinner {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+}
+.voice-loader__spinner::before {
+  content: "⠋";
+  animation: voice-loader-spin 0.8s steps(1) infinite;
+}
+@keyframes voice-loader-spin {
+  0%   { content: "⠋"; }
+  12%  { content: "⠙"; }
+  25%  { content: "⠹"; }
+  37%  { content: "⠸"; }
+  50%  { content: "⠼"; }
+  62%  { content: "⠴"; }
+  75%  { content: "⠦"; }
+  87%  { content: "⠧"; }
+  100% { content: "⠇"; }
+}
+.voice-loader__bar {
+  margin-top: 0.3rem;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.voice-loader__fill {
+  height: 100%;
+  width: 8%;
+  background: var(--accent);
+  transition: width 0.25s ease-out;
+}
