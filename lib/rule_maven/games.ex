@@ -18,6 +18,7 @@ defmodule RuleMaven.Games do
   alias RuleMaven.Games.UserFavorite
   alias RuleMaven.Games.SupportRequest
   alias RuleMaven.Games.IngestLog
+  alias RuleMaven.Games.ReextractLog
   alias Oban
 
   NimbleCSV.define(RuleMaven.Games.RankCSV, separator: ",", escape: "\"")
@@ -1056,6 +1057,40 @@ defmodule RuleMaven.Games do
   @doc "Clears a game's ingest log (called at the start of each ingest run)."
   def clear_ingest_log(game_id) do
     from(l in IngestLog, where: l.game_id == ^game_id) |> Repo.delete_all()
+    :ok
+  end
+
+  @doc """
+  Appends one line to a source document's re-extraction log. Best-effort — a
+  logging failure must never break the re-extraction. `kind` ∈ "info" | "warn" |
+  "done" | "error".
+  """
+  def log_reextract(document_id, text, kind \\ "info") do
+    %ReextractLog{}
+    |> Ecto.Changeset.change(document_id: document_id, text: text, kind: kind)
+    |> Repo.insert()
+
+    :ok
+  rescue
+    e ->
+      require Logger
+      Logger.debug("reextract log write failed (doc #{document_id}): #{inspect(e)}")
+      :ok
+  end
+
+  @doc "All re-extraction log lines for a source document in insertion order."
+  def reextract_log(document_id, limit \\ 500) do
+    from(l in ReextractLog,
+      where: l.document_id == ^document_id,
+      order_by: [asc: l.id],
+      limit: ^limit
+    )
+    |> Repo.all()
+  end
+
+  @doc "Clears a document's re-extraction log (called at the start of each run)."
+  def clear_reextract_log(document_id) do
+    from(l in ReextractLog, where: l.document_id == ^document_id) |> Repo.delete_all()
     :ok
   end
 

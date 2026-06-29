@@ -243,7 +243,8 @@ defmodule RuleMavenWeb.GameLive.Form do
           socket =
             assign(socket,
               cleaning: seed_cleaning(entries),
-              reextracting: seed_reextracting(entries)
+              reextracting: seed_reextracting(entries),
+              reextract_log: seed_reextract_log(entries)
             )
 
           # Follow an in-flight download (durable Oban job) across a remount.
@@ -1561,11 +1562,10 @@ defmodule RuleMavenWeb.GameLive.Form do
      |> put_flash(:info, "Cleaned up the rulebook text.")}
   end
 
-  # One re-extraction stage line streamed from the worker — append it to that
-  # source's transient log so the panel tracks progress live.
-  def handle_info({:reextract_log, sid, _index, text, kind}, socket) do
-    prev = Map.get(socket.assigns.reextract_log, sid, [])
-    log = Map.put(socket.assigns.reextract_log, sid, prev ++ [reextract_line(text, kind)])
+  # A re-extraction stage line was persisted — reload that source's durable log
+  # from the DB so the panel stays consistent across refresh/restart.
+  def handle_info({:reextract_log, sid}, socket) do
+    log = Map.put(socket.assigns.reextract_log, sid, Games.reextract_log(sid))
     {:noreply, assign(socket, reextract_log: log)}
   end
 
@@ -1907,20 +1907,18 @@ defmodule RuleMavenWeb.GameLive.Form do
 
   defp reload_entry(entry), do: entry
 
-  # One transient re-extraction log line, shaped like an ingest_log row so it can
-  # reuse ingest_log_panel (timestamp + kind colour + text).
-  defp reextract_line(text, kind),
-    do: %{inserted_at: DateTime.utc_now(), kind: kind, text: text}
-
-  # Mark a source busy for `n` in-flight re-extraction jobs and reset its live
-  # progress log (seeded with a queued line). {:reextract_done} counts each job
-  # back down to zero.
+  # Mark a source busy for `n` in-flight re-extraction jobs and (re)start its
+  # durable progress log: clear the doc's old lines once at the trigger (the jobs
+  # only append), seed a queued line, then load the log from the DB so the panel
+  # is populated. {:reextract_done} counts each job back down to zero.
   defp start_reextract(socket, sid, n) do
     queued = if n > 1, do: "Queued #{n} flagged pages…", else: "Queued…"
+    Games.clear_reextract_log(sid)
+    Games.log_reextract(sid, queued, "info")
 
     assign(socket,
       reextracting: Map.put(socket.assigns.reextracting, sid, n),
-      reextract_log: Map.put(socket.assigns.reextract_log, sid, [reextract_line(queued, "info")])
+      reextract_log: Map.put(socket.assigns.reextract_log, sid, Games.reextract_log(sid))
     )
   end
 
@@ -2108,6 +2106,18 @@ defmodule RuleMavenWeb.GameLive.Form do
         n > 0,
         into: %{},
         do: {sid, n}
+  end
+
+  # Rebuild the durable re-extraction log per source from the DB, so the progress
+  # panel survives a refresh/restart (the log persists until the next run clears
+  # it). Only sources with lines are included.
+  defp seed_reextract_log(entries) do
+    for %{source_id: sid} <- entries,
+        not is_nil(sid),
+        lines = Games.reextract_log(sid),
+        lines != [],
+        into: %{},
+        do: {sid, lines}
   end
 
   defp parse_id(id_str) do

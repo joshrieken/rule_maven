@@ -55,7 +55,19 @@ config :rule_maven, Oban,
        {"*/15 * * * *", RuleMaven.Workers.DirectPromotionWorker}
      ]}
   ],
-  queues: [default: 5, cheatsheet: 2, clustering: 1, cleanup: 2, llm: 3, expansion: 2]
+  # `reextract` is intentionally serial (concurrency 1): a "re-extract all
+  # flagged" bulk fans out one job per page, and each runs the costly strong
+  # vision model + critic loop. Processing them one at a time keeps the progress
+  # log readable and bounds the LLM spend/rate instead of firing 5 at once.
+  queues: [
+    default: 5,
+    cheatsheet: 2,
+    clustering: 1,
+    cleanup: 2,
+    llm: 3,
+    expansion: 2,
+    reextract: 1
+  ]
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

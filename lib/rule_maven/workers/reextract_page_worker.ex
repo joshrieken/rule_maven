@@ -10,7 +10,7 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
   retried rather than stranding the page. `unique` keeps one job per page.
   """
   use Oban.Worker,
-    queue: :default,
+    queue: :reextract,
     max_attempts: 3,
     unique: [
       keys: [:document_id, :page_index],
@@ -69,14 +69,13 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
     doc = Games.get_document!(doc_id)
     topic = "game_cleanup:#{doc.game_id}"
 
-    # Stream a live progress log to the form (transient, mirrors the upload log):
-    # each stage of the re-extraction broadcasts one line on the cleanup topic.
+    # Durable progress log (mirrors the upload log): persist each stage line to
+    # the DB so it survives a refresh/restart, then broadcast a refresh signal so
+    # the form reloads it. The batch's first job clears the doc's log at the UI
+    # trigger, not here — clearing per job would wipe earlier pages' lines.
     log = fn text, kind ->
-      Phoenix.PubSub.broadcast(
-        RuleMaven.PubSub,
-        topic,
-        {:reextract_log, doc_id, index, text, kind}
-      )
+      Games.log_reextract(doc_id, text, kind)
+      Phoenix.PubSub.broadcast(RuleMaven.PubSub, topic, {:reextract_log, doc_id})
     end
 
     # Always broadcast the outcome (success, failure, or raise) once the topic is
@@ -97,15 +96,18 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
 
             log.("Re-extracting #{label} with the stronger model…", "info")
 
-            case RulebookDownloader.reextract_page(doc.pdf_path, page.sheet, on_log: log) do
+            case RulebookDownloader.reextract_page(doc.pdf_path, page.sheet,
+                   on_log: log,
+                   label: label
+                 ) do
               {:ok, result} ->
                 Games.replace_page(doc, index, result)
-                log.("Done — page re-extracted and saved.", "done")
+                log.("Done — #{label} re-extracted and saved.", "done")
                 :ok
 
               {:error, reason} ->
                 Logger.warning("Re-extract page #{index} failed: #{reason}")
-                log.("Failed — #{reason}.", "error")
+                log.("Failed — #{label}: #{reason}.", "error")
                 {:error, to_string(reason)}
             end
         end

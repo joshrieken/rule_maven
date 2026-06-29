@@ -822,6 +822,7 @@ defmodule RuleMaven.RulebookDownloader do
   def reextract_page(doc_path, sheet, opts \\ []) when is_integer(sheet) do
     full = Application.app_dir(:rule_maven, "priv/static/#{doc_path}")
     log = Keyword.get(opts, :on_log, fn _t, _k -> :ok end)
+    label = Keyword.get(opts, :label, "sheet #{sheet}")
 
     cond do
       image?(doc_path) ->
@@ -846,7 +847,7 @@ defmodule RuleMaven.RulebookDownloader do
             prefix
           ]
 
-        log.("Rendering the page at #{@reextract_dpi} DPI…", "info")
+        log.("Rendering #{label} at #{@reextract_dpi} DPI…", "info")
 
         case cmd("pdftoppm", args, @pdftoppm_timeout) do
           {:ok, {_, 0}} ->
@@ -857,7 +858,7 @@ defmodule RuleMaven.RulebookDownloader do
             |> case do
               [img | _] ->
                 path = Path.join(tmp, img)
-                log.("Page rendered.", "info")
+                log.("Rendered #{label}.", "info")
                 # try/after so the temp image is removed even if escalate_page raises.
                 try do
                   {:ok, escalate_page(path, "", on_log: log)}
