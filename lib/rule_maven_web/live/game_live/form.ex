@@ -2385,7 +2385,8 @@ defmodule RuleMavenWeb.GameLive.Form do
   defp log_lines(assigns) do
     ~H"""
     <div style="max-height:14rem;overflow:auto;padding:0.4rem 0.7rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.72rem;line-height:1.55">
-      <div :for={line <- @log} style={ingest_line_style(line.kind)}>
+      <%!-- Newest line first, so live progress shows at the top without scrolling. --%>
+      <div :for={line <- Enum.reverse(@log)} style={ingest_line_style(line.kind)}>
         <span style="color:var(--text-muted)">{Calendar.strftime(line.inserted_at, "%H:%M:%S")}</span>
         {line.text}
       </div>
