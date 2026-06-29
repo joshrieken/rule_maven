@@ -28,6 +28,7 @@ defmodule RuleMavenWeb.GameLive.Show do
        confirm_delete_id: nil,
        suggestions: [],
        suggestions_open: true,
+       suggestions_modal: false,
        sidebar_open: false,
        show_refused: false,
        community_vote_counts: %{},
@@ -842,10 +843,16 @@ defmodule RuleMavenWeb.GameLive.Show do
          "Maximum #{@max_concurrent} concurrent questions. Please wait for one to finish."
        )}
     else
-      socket = assign(socket, suggestions_open: false)
+      socket = assign(socket, suggestions_open: false, suggestions_modal: false)
       handle_event("ask", %{"question" => q}, socket)
     end
   end
+
+  def handle_event("open_suggestions", _params, socket),
+    do: {:noreply, assign(socket, suggestions_modal: true)}
+
+  def handle_event("close_suggestions", _params, socket),
+    do: {:noreply, assign(socket, suggestions_modal: false)}
 
   @impl true
   def handle_event("favorite_question", %{"id" => id_str}, socket) do
@@ -2602,41 +2609,55 @@ defmodule RuleMavenWeb.GameLive.Show do
         </div>
       </div>
 
+      <%!-- Suggested-questions modal. Backdrop closes via phx-click-away on the
+            panel; picking a question asks it and closes (ask_suggestion). --%>
+      <div
+        :if={@suggestions_modal}
+        style="position:fixed;inset:0;z-index:60;background:rgba(0,0,0,0.45);display:flex;align-items:flex-end;justify-content:center;padding:1rem"
+      >
+        <div
+          phx-click-away="close_suggestions"
+          phx-window-keydown="close_suggestions"
+          phx-key="Escape"
+          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:42rem;width:100%;max-height:70vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,0.3)"
+        >
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-surface);z-index:1">
+            <div style="font-size:0.95rem;font-weight:700;color:var(--text)">Suggested questions</div>
+            <button
+              type="button"
+              phx-click="close_suggestions"
+              aria-label="Close"
+              style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--text-muted);line-height:1"
+            >✕</button>
+          </div>
+          <div style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:1rem">
+            <%= for cat <- @suggestions do %>
+              <div>
+                <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:0.35rem">
+                  {cat.category}
+                </div>
+                <div style="display:flex;flex-direction:column;gap:0.3rem">
+                  <%= for q <- cat.questions do %>
+                    <button
+                      type="button"
+                      phx-click="ask_suggestion"
+                      phx-value-q={q}
+                      disabled={@pending_count >= @max_concurrent}
+                      style="text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.7rem;font-size:0.82rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word;line-height:1.45"
+                    >{q}</button>
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        </div>
+      </div>
+
       <!-- Input -->
       <div
         class="chat-input"
         style="flex-shrink:0;padding:0.5rem 1rem 0.75rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface);position:relative;z-index:1"
       >
-        <%= if @suggestions != [] do %>
-          <details
-            style="margin-bottom:0.75rem;max-width:48rem;margin-left:auto;margin-right:auto;font-size:0.8rem"
-            open={@suggestions_open}
-          >
-            <summary style="cursor:pointer;color:var(--text);font-weight:600;font-size:0.8rem;user-select:none">
-              Suggested questions
-            </summary>
-            <div style="display:flex;flex-direction:column;gap:0.75rem;margin-top:0.5rem;max-height:40vh;overflow-y:auto;padding-right:0.25rem">
-              <%= for cat <- @suggestions do %>
-                <div>
-                  <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:0.25rem">
-                    {cat.category}
-                  </div>
-                  <div style="display:flex;flex-direction:column;gap:0.2rem">
-                    <%= for q <- cat.questions do %>
-                      <button
-                        type="button"
-                        phx-click="ask_suggestion"
-                        phx-value-q={q}
-                        disabled={@pending_count >= @max_concurrent}
-                        style="text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.25rem 0.6rem;font-size:0.78rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word;line-height:1.4"
-                      >{q}</button>
-                    <% end %>
-                  </div>
-                </div>
-              <% end %>
-            </div>
-          </details>
-        <% end %>
         <div style="max-width:48rem;margin:0 auto;width:100%">
           <%= if length(@expansions) > 0 do %>
             <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.5rem">
@@ -2669,6 +2690,43 @@ defmodule RuleMavenWeb.GameLive.Show do
             style="margin-bottom:0.5rem;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:0.5rem;background:color-mix(in srgb,var(--yellow) 10%,transparent);color:var(--text);font-size:0.78rem"
           >
             🧪 Not yet marked Ready — you're testing as admin.
+          </div>
+          <%!-- Above-the-box controls: open the suggested-questions modal (left)
+                and pick the default answer voice (right). The voice applies to
+                every answer and persists in localStorage via VoiceDefault. --%>
+          <% cur_default = Enum.find(@voices, &(&1.id == @default_voice)) || hd(@voices) %>
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+            <button
+              :if={@suggestions != []}
+              type="button"
+              phx-click="open_suggestions"
+              style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:0"
+            >
+              <span aria-hidden="true">💡</span> Suggested questions
+            </button>
+            <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto">
+              <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Answer voice</span>
+              <details class="card-menu">
+                <summary style="font-size:0.68rem;color:var(--text);font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;background:var(--bg-surface);cursor:pointer;list-style:none">
+                  <span aria-hidden="true">{cur_default.emoji}</span>
+                  <span>{cur_default.label}</span>
+                  <span style="opacity:0.6">▾</span>
+                </summary>
+                <div class="card-menu__pop card-menu__pop--up">
+                  <button
+                    :for={v <- @voices}
+                    type="button"
+                    phx-click="set_default_voice"
+                    phx-value-voice={v.id}
+                    class="card-menu__item"
+                    style={if @default_voice == v.id, do: "background:var(--accent);color:var(--accent-text,#fff)"}
+                  >
+                    <span aria-hidden="true">{v.emoji}</span>
+                    <span>{v.label}</span>
+                  </button>
+                </div>
+              </details>
+            </div>
           </div>
           <form phx-submit="ask" class="flex gap-2" phx-hook="KeyboardSubmit" id="ask-form">
             <button
@@ -2707,32 +2765,6 @@ defmodule RuleMavenWeb.GameLive.Show do
               {if @pending_count >= @max_concurrent, do: "Wait…", else: "Send"}
             </button>
           </form>
-          <%!-- Default answer voice: applies to every answer (and restyles the
-                open thread). Persisted in localStorage via the VoiceDefault hook. --%>
-          <% cur_default = Enum.find(@voices, &(&1.id == @default_voice)) || hd(@voices) %>
-          <div style="display:flex;align-items:center;justify-content:flex-end;gap:0.4rem;margin-top:0.45rem">
-            <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Answer voice</span>
-            <details class="card-menu">
-              <summary style="font-size:0.68rem;color:var(--text);font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;background:var(--bg-surface);cursor:pointer;list-style:none">
-                <span aria-hidden="true">{cur_default.emoji}</span>
-                <span>{cur_default.label}</span>
-                <span style="opacity:0.6">▾</span>
-              </summary>
-              <div class="card-menu__pop card-menu__pop--up">
-                <button
-                  :for={v <- @voices}
-                  type="button"
-                  phx-click="set_default_voice"
-                  phx-value-voice={v.id}
-                  class="card-menu__item"
-                  style={if @default_voice == v.id, do: "background:var(--accent);color:var(--accent-text,#fff)"}
-                >
-                  <span aria-hidden="true">{v.emoji}</span>
-                  <span>{v.label}</span>
-                </button>
-              </div>
-            </details>
-          </div>
           <%= if @pending_count >= @max_concurrent do %>
             <div style="text-align:center;font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">
               {@pending_count} of {@max_concurrent} questions in progress — please wait for one to finish

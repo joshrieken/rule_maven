@@ -107,6 +107,28 @@ defmodule RuleMavenWeb.Feature.FlowTest do
     |> assert_has(css("details.card-menu summary", minimum: 1))
   end
 
+  feature "suggested questions open in a modal", %{session: session} do
+    user = create_user("e2e_suggest_admin", "admin")
+    game = published_game_fixture(%{name: "Suggest Test Game"})
+
+    RuleMaven.Settings.put(
+      "suggestions_#{game.id}",
+      Jason.encode!([%{"category" => "Setup", "questions" => ["How many cards each?"]}])
+    )
+
+    session
+    |> login(user.username)
+    |> visit("/games/#{RuleMaven.Hashid.encode(game.id)}")
+    # Modal starts closed (its Close button is absent), opens on the trigger
+    # showing the question, and closes again.
+    |> refute_has(css("button[aria-label='Close']"))
+    |> click(css("button", text: "Suggested questions"))
+    |> assert_has(css("button[aria-label='Close']"))
+    |> assert_has(css("button", text: "How many cards each?", minimum: 1))
+    |> click(css("button[aria-label='Close']"))
+    |> refute_has(css("button[aria-label='Close']"))
+  end
+
   feature "login succeeds and shows game list", %{session: session} do
     user = create_user("e2e_flow_user", "admin")
     published_game_fixture(%{name: "E2E Test Game", bgg_id: 9999})
