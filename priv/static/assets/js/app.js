@@ -508,9 +508,12 @@ Hooks.VoiceDefault = {
   }
 };
 
-// Arrow keys / h / l flip pages while the rulebook reader modal is open.
-// Window-level so it works regardless of focus, but ignored while the user is
-// typing in an input/textarea/contenteditable (so editing text isn't hijacked).
+// Keyboard paging for the rulebook reader, shared by the inline source editors
+// and the expanded modal. ← / h previous page, → / l next, f opens the expanded
+// reader (inline only). Ignored while typing in a field so editing isn't
+// hijacked. Window-level, but each instance only acts when it's the active
+// reader: the modal always wins while open; otherwise the inline source under
+// the mouse or holding focus.
 Hooks.ReaderKeys = {
   mounted() {
     this._handler = (e) => {
@@ -520,19 +523,30 @@ Hooks.ReaderKeys = {
                 t.tagName === "INPUT" ||
                 t.tagName === "TEXTAREA" ||
                 t.tagName === "SELECT")) return;
+      if (!this._active()) return;
 
-      let delta = 0;
-      if (e.key === "ArrowLeft" || e.key === "h") delta = -1;
-      else if (e.key === "ArrowRight" || e.key === "l") delta = 1;
-      else return;
+      const isModal = this.el.id === "reader-modal";
+      const id = this.el.dataset.readerId;
 
-      e.preventDefault();
-      this.pushEvent("source_page_step", {
-        id: this.el.dataset.readerId,
-        delta: String(delta)
-      });
+      if (e.key === "ArrowLeft" || e.key === "h") {
+        e.preventDefault();
+        this.pushEvent("source_page_step", {id, delta: "-1"});
+      } else if (e.key === "ArrowRight" || e.key === "l") {
+        e.preventDefault();
+        this.pushEvent("source_page_step", {id, delta: "1"});
+      } else if (e.key === "f" && !isModal) {
+        e.preventDefault();
+        this.pushEvent("expand_source", {id});
+      }
     };
     window.addEventListener("keydown", this._handler);
+  },
+  // The modal owns the keys while open; otherwise the hovered/focused inline
+  // source does. Stops every inline instance from paging at once.
+  _active() {
+    if (this.el.id === "reader-modal") return true;
+    if (document.getElementById("reader-modal")) return false;
+    return this.el.matches(":hover") || this.el.contains(document.activeElement);
   },
   destroyed() {
     window.removeEventListener("keydown", this._handler);

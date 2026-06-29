@@ -3046,7 +3046,12 @@ defmodule RuleMavenWeb.GameLive.Form do
                 tab.
               </p>
               <%= for entry <- @source_entries do %>
-                <div class="border rounded p-4">
+                <div
+                  id={"inline-reader-#{entry.id}"}
+                  phx-hook="ReaderKeys"
+                  data-reader-id={entry.id}
+                  class="border rounded p-4"
+                >
                   <div class="flex gap-2 items-end mb-2">
                     <div class="flex-1">
                       <label class="block text-sm font-medium mb-1">Label</label>
@@ -3198,8 +3203,9 @@ defmodule RuleMavenWeb.GameLive.Form do
                       phx-click="expand_source"
                       phx-value-id={entry.id}
                       disabled={String.trim(entry.text) == ""}
+                      title="Open the full-screen reader (press f while hovering this source)"
                       style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
-                    >⤢ Expand reader</button>
+                    >⤢ Expand reader (f)</button>
                     <%!-- No raw-PDF link: rulebooks may be copyrighted, so we
                           don't offer the original file for download. The HTML is
                           our extracted text (admin view only). --%>
