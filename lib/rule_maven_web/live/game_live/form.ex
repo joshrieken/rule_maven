@@ -2640,7 +2640,7 @@ defmodule RuleMavenWeb.GameLive.Form do
         </.link>
         <div style="display:flex;align-items:center;gap:1rem">
           <.link
-            :if={@game}
+            :if={@game && bgg_synced?(@game)}
             navigate={~p"/games/#{@game.id}/prepare"}
             class="back-link"
             style="margin-bottom:0"
@@ -4370,12 +4370,7 @@ defmodule RuleMavenWeb.GameLive.Form do
   # A game is "BGG-synced" once the detail pull has populated the enriched
   # fields. Catalog import only sets name/year/rank, so these stay nil until a
   # BGG sync (refresh_bgg → BggEnrichWorker) runs.
-  defp bgg_synced?(%{} = game) do
-    not is_nil(game.image_url) or not is_nil(game.min_players) or
-      not is_nil(game.playing_time)
-  end
-
-  defp bgg_synced?(_), do: false
+  defp bgg_synced?(game), do: Games.bgg_synced?(game)
 
   def format_elapsed(seconds) do
     if seconds < 60 do

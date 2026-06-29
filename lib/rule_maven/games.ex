@@ -248,6 +248,17 @@ defmodule RuleMaven.Games do
     Game.changeset(game, attrs)
   end
 
+  @doc """
+  True once a game's BGG detail pull has populated the enriched fields. Catalog
+  import only sets name/year/rank, so these stay nil until a BGG sync
+  (refresh_bgg → BggEnrichWorker) runs. Gates the editor and the Prepare links.
+  """
+  def bgg_synced?(%{image_url: img, min_players: mn, playing_time: pt}) do
+    not is_nil(img) or not is_nil(mn) or not is_nil(pt)
+  end
+
+  def bgg_synced?(_), do: false
+
   # ── Catalog import (BGG rank dump) ──
 
   @doc """

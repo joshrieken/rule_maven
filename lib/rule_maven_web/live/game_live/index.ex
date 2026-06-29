@@ -764,7 +764,10 @@ defmodule RuleMavenWeb.GameLive.Index do
                     ✓ Ready
                   </span>
                   <.link
-                    :if={has_source and RuleMaven.Users.can?(@current_user, :admin)}
+                    :if={
+                      has_source and RuleMaven.Games.bgg_synced?(game) and
+                        RuleMaven.Users.can?(@current_user, :admin)
+                    }
                     navigate={~p"/games/#{game.id}/prepare"}
                     style="font-size:0.6rem;font-weight:700;vertical-align:middle;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:0.05rem 0.4rem;margin-left:0.4rem;pointer-events:auto"
                   >

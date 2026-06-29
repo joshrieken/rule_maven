@@ -1524,7 +1524,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                 <.link navigate={~p"/games/#{@game.id}/review"} class="card-menu__item">
                   🔍 Review
                 </.link>
-                <.link navigate={~p"/games/#{@game.id}/prepare"} class="card-menu__item">
+                <.link
+                  :if={RuleMaven.Games.bgg_synced?(@game)}
+                  navigate={~p"/games/#{@game.id}/prepare"}
+                  class="card-menu__item"
+                >
                   🚀 Prepare
                 </.link>
               </div>
