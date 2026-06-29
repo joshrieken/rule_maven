@@ -22,6 +22,11 @@ defmodule RuleMaven.RulebookDownloader do
   # Page-image render resolution for both vision transcription and OCR. 300 dpi
   # grayscale resolves small/decorative glyphs without bloating image-token cost.
   @render_dpi 300
+  # A manual single-page re-extract is the user asking for a *better* read after
+  # the page already escalated at @render_dpi. Re-running the same image + same
+  # model just reproduces the same text, so re-extract renders sharper (higher
+  # dpi) to actually give the strong model something new to work with.
+  @reextract_dpi 450
   # Max concurrent vision calls (remote LLM, not local CPU) when transcribing a
   # book page-by-page.
   @vision_concurrency 4
@@ -831,7 +836,7 @@ defmodule RuleMaven.RulebookDownloader do
             "-png",
             "-gray",
             "-r",
-            to_string(@render_dpi),
+            to_string(@reextract_dpi),
             "-f",
             to_string(sheet),
             "-l",
