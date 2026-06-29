@@ -1718,12 +1718,13 @@ defmodule RuleMavenWeb.GameLive.Form do
         socket.assigns[:game_changeset]
       end
 
-    # Offer to pull expansions only after a user-initiated refresh, and only for
-    # base games (an expansion has no expansions of its own) that aren't already
-    # syncing.
+    # Offer to pull expansions only after a user-initiated refresh, for base
+    # games (an expansion has none of its own) that aren't already syncing, and
+    # only when BGG actually lists expansions for the game.
     prompt? =
       socket.assigns.bgg_refresh_pending and not is_nil(game) and
-        is_nil(game.parent_game_id) and not socket.assigns.exp_syncing
+        is_nil(game.parent_game_id) and not socket.assigns.exp_syncing and
+        RuleMaven.BGG.expansion_link_count(game) > 0
 
     {:noreply,
      socket

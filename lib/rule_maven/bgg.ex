@@ -353,6 +353,23 @@ defmodule RuleMaven.BGG do
   end
 
   @doc """
+  Number of expansions BGG lists *for* this game (outbound expansion links in
+  its cached `bgg_data`). Returns 0 when there is no cached data or no links —
+  used to decide whether to offer an expansion pull after enrichment.
+  """
+  def expansion_link_count(%RuleMaven.Games.Game{bgg_data: nil}), do: 0
+
+  def expansion_link_count(%RuleMaven.Games.Game{bgg_data: xml}) do
+    {:ok, info} = parse_game_info(xml)
+
+    info
+    |> Map.get(:expansion_links, [])
+    |> Enum.count(&(&1.inbound != "true"))
+  end
+
+  def expansion_link_count(_), do: 0
+
+  @doc """
   Searches BGG for board games by name. Returns `{:ok, [%{bgg_id: id, name: name, year: year}]}`.
   """
   def search(query) do
