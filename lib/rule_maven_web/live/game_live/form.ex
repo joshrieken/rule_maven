@@ -2351,25 +2351,45 @@ defmodule RuleMavenWeb.GameLive.Form do
 
   defp ingest_log_panel(assigns) do
     ~H"""
+    <%!-- While running, render the log as a plain always-open block so it's
+          guaranteed visible (no collapsible <details>, which fights LiveView DOM
+          patches over its open state). Once finished, switch to a collapsed
+          <details> the user can expand to review. --%>
+    <div
+      :if={@log != [] and @running}
+      style="margin-top:0.8rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-subtle)"
+    >
+      <div style="padding:0.5rem 0.7rem;font-size:0.78rem;font-weight:600;color:var(--text-secondary)">
+        Processing log
+        <span style="font-weight:400;color:var(--text-muted)">({length(@log)} steps)</span>
+      </div>
+      <.log_lines log={@log} />
+    </div>
+
     <details
-      :if={@log != []}
+      :if={@log != [] and not @running}
       id={@id}
-      open={@running}
-      phx-hook="OpenWhileRunning"
-      data-running={to_string(@running)}
       style="margin-top:0.8rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-subtle)"
     >
       <summary style="cursor:pointer;padding:0.5rem 0.7rem;font-size:0.78rem;font-weight:600;color:var(--text-secondary)">
         Processing log
         <span style="font-weight:400;color:var(--text-muted)">({length(@log)} steps)</span>
       </summary>
-      <div style="max-height:14rem;overflow:auto;padding:0.4rem 0.7rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.72rem;line-height:1.55">
-        <div :for={line <- @log} style={ingest_line_style(line.kind)}>
-          <span style="color:var(--text-muted)">{Calendar.strftime(line.inserted_at, "%H:%M:%S")}</span>
-          {line.text}
-        </div>
-      </div>
+      <.log_lines log={@log} />
     </details>
+    """
+  end
+
+  attr :log, :list, required: true
+
+  defp log_lines(assigns) do
+    ~H"""
+    <div style="max-height:14rem;overflow:auto;padding:0.4rem 0.7rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.72rem;line-height:1.55">
+      <div :for={line <- @log} style={ingest_line_style(line.kind)}>
+        <span style="color:var(--text-muted)">{Calendar.strftime(line.inserted_at, "%H:%M:%S")}</span>
+        {line.text}
+      </div>
+    </div>
     """
   end
 
