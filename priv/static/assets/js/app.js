@@ -513,11 +513,11 @@ Hooks.VoiceDefault = {
 // mirror the resulting data-open attribute back into localStorage on update.
 Hooks.JobPanel = {
   key: "rm:jobpanel_open",
-  // Reserve space at the bottom of the page equal to the (fixed) panel's height
-  // so the page above stays fully scrollable and nothing hides behind the panel
-  // — i.e. docked like Chrome DevTools rather than overlaying content.
+  // Publish the (fixed) panel's height as a CSS var so .app-shell can reserve
+  // space for it: .main-content squishes above the panel and scrolls internally,
+  // instead of the whole window scrolling — docked like Chrome DevTools.
   syncPad() {
-    document.body.style.paddingBottom = this.el.offsetHeight + "px";
+    document.documentElement.style.setProperty("--jobpanel-h", this.el.offsetHeight + "px");
   },
   mounted() {
     this.syncPad();
@@ -546,7 +546,7 @@ Hooks.JobPanel = {
   },
   destroyed() {
     window.removeEventListener("resize", this._onResize);
-    document.body.style.paddingBottom = "";
+    document.documentElement.style.removeProperty("--jobpanel-h");
   }
 };
 

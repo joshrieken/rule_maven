@@ -1400,7 +1400,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     <div
       class="chat-layout"
       data-refresh={@refresh}
-      style="display:flex;flex-direction:column;height:calc(100dvh - var(--header-height, 3.125rem));position:fixed;top:var(--header-height, 3.125rem);left:0;right:0;bottom:0;z-index:10;background:var(--bg)"
+      style="display:flex;flex-direction:column;height:calc(100dvh - var(--header-height, 3.125rem) - var(--jobpanel-h, 0px));position:fixed;top:var(--header-height, 3.125rem);left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:10;background:var(--bg)"
     >
       <%!-- Faint blurred cover art behind the Q&A. The message column is opaque
             and centered, so this only shows in the side gutters — keeping the

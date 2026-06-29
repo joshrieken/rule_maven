@@ -953,7 +953,13 @@ a:not([class]):hover {
 .app-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  /* Fixed-height shell: the docked job panel (position:fixed, out of flow)
+     reserves space via padding-bottom so .main-content shrinks above it and
+     scrolls internally, instead of the whole window scrolling. */
+  height: 100vh;
+  min-height: 0;
+  box-sizing: border-box;
+  padding-bottom: var(--jobpanel-h, 0px);
 }
 
 /* Gentle fade + rise of page content on load. Uses `backwards` (not `both`) on
@@ -1403,6 +1409,8 @@ button.motion-toggle:hover {
 /* ===== Main Content ===== */
 .main-content {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 2rem 1.5rem 4rem;
 }
 
