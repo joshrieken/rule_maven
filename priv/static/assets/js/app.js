@@ -526,6 +526,11 @@ Hooks.ReaderKeys = {
     if (isModal) {
       this._lastReader = this.el.dataset.readerId;
       this._scrollReaderTop();
+      // Lock the page behind the reader so the wheel doesn't scroll the edit
+      // form (visible through the translucent overlay) when the modal content
+      // itself doesn't scroll.
+      this._prevBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
     }
 
     this._handler = (e) => {
@@ -622,6 +627,7 @@ Hooks.ReaderKeys = {
   },
   destroyed() {
     window.removeEventListener("keydown", this._handler);
+    if (this._isModal) document.body.style.overflow = this._prevBodyOverflow || "";
   }
 };
 
