@@ -30,6 +30,17 @@ defmodule RuleMaven.Workers.ExpansionSyncWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"game_id" => game_id}}) do
     game = Games.get_game!(game_id)
+
+    # Discover + link this game's expansions from BGG first, so freshly-linked
+    # catalog rows are included in the detail refresh below. Use the cached BGG
+    # XML when we have it (no API hit); otherwise fetch, which also links.
+    if game.bgg_data do
+      RuleMaven.BGG.relink_from_cache(game)
+    else
+      RuleMaven.BGG.enrich_game(game, force: true)
+    end
+
+    game = Games.get_game!(game_id)
     expansions = game |> Games.expansions_for() |> Enum.filter(& &1.bgg_id)
     total = length(expansions)
     counter = :counters.new(1, [:atomics])

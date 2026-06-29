@@ -37,6 +37,8 @@ defmodule RuleMavenWeb.GameLive.Form do
         question_count: 0,
         generating: false,
         bgg_gate_bypassed: false,
+        exp_syncing: false,
+        exp_sync_progress: nil,
         cheat_error: nil,
         cheat_content: nil,
         cheat_status: nil,
@@ -219,7 +221,20 @@ defmodule RuleMavenWeb.GameLive.Form do
                 RuleMaven.Workers.ThemePaletteWorker.topic(game.id)
               )
 
-              assign(socket, cleanup_subscribed: true)
+              Phoenix.PubSub.subscribe(
+                RuleMaven.PubSub,
+                RuleMaven.Workers.ExpansionSyncWorker.topic(game.id)
+              )
+
+              # Re-seed an in-flight expansion sync so a remount shows progress.
+              progress = Settings.get(RuleMaven.Workers.ExpansionSyncWorker.key(game.id))
+
+              socket
+              |> assign(
+                cleanup_subscribed: true,
+                exp_syncing: not is_nil(progress),
+                exp_sync_progress: progress
+              )
             else
               socket
             end
@@ -461,6 +476,21 @@ defmodule RuleMavenWeb.GameLive.Form do
   # down, no data for this id). Let the admin into the full editor anyway.
   def handle_event("bypass_bgg_gate", _params, socket) do
     {:noreply, assign(socket, bgg_gate_bypassed: true)}
+  end
+
+  # Discover + link this game's expansions from BGG and refresh each one's
+  # detail. Durable + non-blocking via Oban; progress arrives over PubSub.
+  def handle_event("pull_expansions", _params, socket) do
+    if socket.assigns.game do
+      RuleMaven.Workers.ExpansionSyncWorker.enqueue(socket.assigns.game.id)
+
+      {:noreply,
+       socket
+       |> assign(exp_syncing: true, exp_sync_progress: nil)
+       |> put_flash(:info, "Pulling expansions from BGG…")}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("refresh_bgg", _params, socket) do
@@ -1605,6 +1635,25 @@ defmodule RuleMavenWeb.GameLive.Form do
      socket
      |> assign(generating: false)
      |> put_flash(:error, "Failed to refresh: #{reason}")}
+  end
+
+  def handle_info({:expansion_progress, _game_id, done, total}, socket) do
+    {:noreply, assign(socket, exp_syncing: true, exp_sync_progress: "#{done}/#{total}")}
+  end
+
+  def handle_info({:expansion_sync_done, game_id}, socket) do
+    game = socket.assigns.game && Games.get_game!(game_id)
+
+    {:noreply,
+     socket
+     |> assign(
+       exp_syncing: false,
+       exp_sync_progress: nil,
+       expansions: (game && Games.expansions_for(game)) || socket.assigns.expansions,
+       cheat_expansions:
+         (game && Games.expansions_with_documents(game)) || socket.assigns.cheat_expansions
+     )
+     |> put_flash(:info, "Expansions updated from BGG.")}
   end
 
   @impl true
@@ -2819,9 +2868,29 @@ defmodule RuleMavenWeb.GameLive.Form do
               </div>
             <% end %>
 
-            <%= if @game && length(@expansions) > 0 do %>
-              <div style="margin-bottom:1.25rem">
-                <h3 class="text-sm font-semibold mb-1">Expansions of this game</h3>
+            <div :if={@game} style="margin-bottom:1.25rem">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.5rem">
+                <h3 class="text-sm font-semibold" style="margin:0">Expansions of this game</h3>
+                <button
+                  type="button"
+                  phx-click="pull_expansions"
+                  disabled={@exp_syncing}
+                  style={"background:var(--accent);color:#fff;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-size:0.72rem;font-weight:600;white-space:nowrap;cursor:#{if @exp_syncing, do: "default", else: "pointer"};opacity:#{if @exp_syncing, do: "0.6", else: "1"}"}
+                >
+                  {if @exp_syncing, do: "⟳ Pulling…", else: "Pull expansions from BGG"}
+                </button>
+              </div>
+
+              <p
+                :if={@exp_syncing}
+                style="font-size:0.72rem;color:var(--text-muted);margin:0 0 0.5rem"
+              >
+                Finding and refreshing expansions from BGG{if @exp_sync_progress,
+                  do: " — #{@exp_sync_progress}",
+                  else: "…"}
+              </p>
+
+              <%= if length(@expansions) > 0 do %>
                 <div class="space-y-1">
                   <%= for exp <- @expansions do %>
                     <div class="flex items-center justify-between border rounded px-3 py-1.5 text-sm">
@@ -2840,8 +2909,13 @@ defmodule RuleMavenWeb.GameLive.Form do
                     </div>
                   <% end %>
                 </div>
-              </div>
-            <% end %>
+              <% else %>
+                <p :if={not @exp_syncing} style="font-size:0.75rem;color:var(--text-muted);margin:0">
+                  No expansions linked yet. Pull from BGG to find and link this game's expansions
+                  (they must already exist in the catalog).
+                </p>
+              <% end %>
+            </div>
           </div>
 
           <%!-- Rulebooks tab --%>
