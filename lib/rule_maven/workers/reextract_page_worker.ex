@@ -41,6 +41,18 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
     )
   end
 
+  @doc "How many re-extraction jobs for this document are queued or running."
+  def active_count(document_id) do
+    RuleMaven.Repo.aggregate(
+      from(j in Oban.Job,
+        where:
+          j.worker == ^@worker and j.state in ^@active_states and
+            fragment("?->>'document_id' = ?", j.args, ^to_string(document_id))
+      ),
+      :count
+    )
+  end
+
   @doc "Enqueue a re-extraction (no-op in test where Oban isn't supervised)."
   def enqueue(document_id, page_index) do
     if Application.get_env(:rule_maven, Oban)[:testing] != :manual do

@@ -837,15 +837,33 @@ defmodule RuleMavenWeb.GameLive.Form do
 
       {:noreply,
        socket
-       |> assign(
-         reextracting: Map.put(socket.assigns.reextracting, sid, true),
-         # Reset the log for a fresh run, seeded with a queued line.
-         reextract_log:
-           Map.put(socket.assigns.reextract_log, sid, [reextract_line("Queued…", "info")])
-       )
+       |> start_reextract(sid, 1)
        |> put_flash(:info, "Re-extracting page with the strongest model…")}
     else
       _ -> {:noreply, put_flash(socket, :error, "Save the rulebook before re-extracting a page.")}
+    end
+  end
+
+  # Re-extract every page in a source the gate flagged as low-confidence, in one
+  # go. Each page is its own durable Oban job; the source stays busy (editing
+  # locked, progress streaming) until the last one reports back.
+  def handle_event("reextract_all", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    entry = Enum.find(socket.assigns.source_entries, &(&1.id == id))
+
+    with %{source_id: sid} when is_integer(sid) <- entry,
+         flagged when flagged != [] <- Enum.filter(entry.pages, & &1[:needs_review]) do
+      Enum.each(flagged, &RuleMaven.Workers.ReextractPageWorker.enqueue(sid, &1.index))
+      n = length(flagged)
+
+      {:noreply,
+       socket
+       |> start_reextract(sid, n)
+       |> put_flash(:info, "Re-extracting #{n} flagged page#{if n == 1, do: "", else: "s"} with the strongest model…")}
+    else
+      nil -> {:noreply, put_flash(socket, :error, "Save the rulebook before re-extracting pages.")}
+      [] -> {:noreply, put_flash(socket, :info, "No flagged pages to re-extract.")}
+      _ -> {:noreply, put_flash(socket, :error, "Save the rulebook before re-extracting pages.")}
     end
   end
 
@@ -1551,22 +1569,30 @@ defmodule RuleMavenWeb.GameLive.Form do
     {:noreply, assign(socket, reextract_log: log)}
   end
 
-  # A single-page re-extraction finished — reload that source from the DB (the
-  # worker persisted the new page) and clear its busy flag.
+  # One page's re-extraction finished — reload that source from the DB (the worker
+  # persisted the new page) and count the source's remaining jobs down. The source
+  # stays busy until the last flagged page reports back; only then do we flash.
   def handle_info({:reextract_done, sid, index, outcome}, socket) do
     entries =
       Enum.map(socket.assigns.source_entries, fn e ->
         if e.source_id == sid, do: reload_entry(e), else: e
       end)
 
-    socket =
-      assign(socket,
-        source_entries: entries,
-        reextracting: Map.delete(socket.assigns.reextracting, sid)
-      )
+    remaining = Map.get(socket.assigns.reextracting, sid, 1) - 1
 
-    {kind, msg} = reextract_flash(outcome, entries, sid, index)
-    {:noreply, put_flash(socket, kind, msg)}
+    reextracting =
+      if remaining > 0,
+        do: Map.put(socket.assigns.reextracting, sid, remaining),
+        else: Map.delete(socket.assigns.reextracting, sid)
+
+    socket = assign(socket, source_entries: entries, reextracting: reextracting)
+
+    if remaining > 0 do
+      {:noreply, socket}
+    else
+      {kind, msg} = reextract_flash(outcome, entries, sid, index)
+      {:noreply, put_flash(socket, kind, msg)}
+    end
   end
 
   @impl true
@@ -1886,6 +1912,18 @@ defmodule RuleMavenWeb.GameLive.Form do
   defp reextract_line(text, kind),
     do: %{inserted_at: DateTime.utc_now(), kind: kind, text: text}
 
+  # Mark a source busy for `n` in-flight re-extraction jobs and reset its live
+  # progress log (seeded with a queued line). {:reextract_done} counts each job
+  # back down to zero.
+  defp start_reextract(socket, sid, n) do
+    queued = if n > 1, do: "Queued #{n} flagged pages…", else: "Queued…"
+
+    assign(socket,
+      reextracting: Map.put(socket.assigns.reextracting, sid, n),
+      reextract_log: Map.put(socket.assigns.reextract_log, sid, [reextract_line(queued, "info")])
+    )
+  end
+
   # Honest re-extract feedback: the strong re-read can fail, or succeed but still
   # come back low-confidence (same flag, ~same text) — which reads as "nothing
   # changed". Tell the user which actually happened.
@@ -2059,16 +2097,17 @@ defmodule RuleMavenWeb.GameLive.Form do
     end
   end
 
-  # Rebuild the {source_id => true} busy map for sources with an in-flight
-  # single-page re-extraction, from durable Oban job state — so a refresh
-  # mid-re-extract still shows the "Re-extracting…" indicator (and the
-  # {:reextract_done} broadcast still lands, since mount re-subscribes).
+  # Rebuild the {source_id => remaining_count} busy map for sources with in-flight
+  # re-extraction jobs, from durable Oban job state — so a refresh mid-re-extract
+  # still shows the "Re-extracting…" indicator with the right remaining count
+  # (and the {:reextract_done} broadcasts still land, since mount re-subscribes).
   defp seed_reextracting(entries) do
     for %{source_id: sid} <- entries,
         not is_nil(sid),
-        RuleMaven.Workers.ReextractPageWorker.running?(sid),
+        n = RuleMaven.Workers.ReextractPageWorker.active_count(sid),
+        n > 0,
         into: %{},
-        do: {sid, true}
+        do: {sid, n}
   end
 
   defp parse_id(id_str) do
@@ -2350,6 +2389,19 @@ defmodule RuleMavenWeb.GameLive.Form do
         :if={not @cur_flagged?}
         style="font-size:0.68rem;color:var(--text-muted)"
       >⚠ {@flagged} page(s) flagged for review — navigate to them to verify.</span>
+
+      <%!-- Bulk action: re-extract every flagged page at once. Shown whichever
+            page you're on, so you don't have to visit each one. --%>
+      <div :if={@can_reextract and @flagged > 0} style="margin-top:0.4rem">
+        <button
+          type="button"
+          phx-click="reextract_all"
+          phx-value-id={@id}
+          data-confirm={"Re-extract all #{@flagged} flagged page#{if @flagged == 1, do: "", else: "s"} with the stronger model? This overwrites their text and uses extra LLM credits."}
+          disabled={@busy}
+          style="font-size:0.68rem;padding:0.15rem 0.55rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+        >{if @busy, do: "Re-extracting…", else: "⟳ Re-extract all #{@flagged} flagged (stronger model)"}</button>
+      </div>
     </div>
     """
   end
@@ -3135,7 +3187,8 @@ defmodule RuleMavenWeb.GameLive.Form do
                     @source_page |> Map.get(entry.id, 0) |> max(0) |> min(max(page_count - 1, 0)) %>
                   <% cur_page = Enum.at(entry.pages, cur) %>
                   <% layer = editor_layer(entry, @editor_tab) %>
-                  <% regenerating? = @reextracting[entry.source_id] == true %>
+                  <% reext_remaining = Map.get(@reextracting, entry.source_id, 0) %>
+                  <% regenerating? = reext_remaining > 0 %>
                   <% editable =
                     layer_editable?(entry, layer) and @cleaning[entry.source_id] == nil and
                       not regenerating? %>
@@ -3161,7 +3214,9 @@ defmodule RuleMavenWeb.GameLive.Form do
                     style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;font-size:0.72rem;color:var(--text-secondary)"
                   >
                     <span style="display:inline-block;width:0.8rem;height:0.8rem;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:rm-spin 0.7s linear infinite"></span>
-                    <span>Re-extracting this page — editing locked until it finishes.</span>
+                    <span>
+                      Re-extracting {if reext_remaining > 1, do: "#{reext_remaining} pages", else: "this page"} — editing locked until {if reext_remaining > 1, do: "they finish", else: "it finishes"}.
+                    </span>
                     <style>
                       @keyframes rm-spin { to { transform: rotate(360deg); } }
                     </style>
@@ -3357,7 +3412,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                       >✕</button>
                     </div>
 
-                    <% regenerating? = @reextracting[reader.source_id] == true %>
+                    <% regenerating? = Map.get(@reextracting, reader.source_id, 0) > 0 %>
                     <% editable =
                       layer_editable?(reader, layer) and @cleaning[reader.source_id] == nil and
                         not regenerating? %>
