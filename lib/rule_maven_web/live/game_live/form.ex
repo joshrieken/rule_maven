@@ -1874,9 +1874,17 @@ defmodule RuleMavenWeb.GameLive.Form do
   # layer either way so progress counts up live — the :again input is read from
   # the DB by the worker before this blanking matters. No-op for an empty or
   # already-cleaning source.
+  # Map the persisted clean-level string to the atom enqueue_cleanup wants.
+  # Explicit so we never rely on the :standard/:aggressive atoms already existing
+  # (String.to_existing_atom on "standard" raised — that atom is only a doc/guard
+  # string, never a compiled literal). Unknown → safest :light.
+  defp clean_level_atom("standard"), do: :standard
+  defp clean_level_atom("aggressive"), do: :aggressive
+  defp clean_level_atom(_), do: :light
+
   defp start_cleanup(socket, sid, mode) do
     entry = Enum.find(socket.assigns.source_entries, &(&1.source_id == sid))
-    level = String.to_existing_atom(socket.assigns.clean_level)
+    level = clean_level_atom(socket.assigns.clean_level)
 
     if (entry && String.trim(entry.text) != "") and not Map.has_key?(socket.assigns.cleaning, sid) do
       {:ok, _job} = Games.enqueue_cleanup(Games.get_document!(sid), level, mode)
