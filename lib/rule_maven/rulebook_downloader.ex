@@ -846,7 +846,7 @@ defmodule RuleMaven.RulebookDownloader do
             prefix
           ]
 
-        log.("Rendering page #{sheet} at #{@reextract_dpi} DPI…", "info")
+        log.("Rendering the page at #{@reextract_dpi} DPI…", "info")
 
         case cmd("pdftoppm", args, @pdftoppm_timeout) do
           {:ok, {_, 0}} ->
