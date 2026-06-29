@@ -3,7 +3,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   import Ecto.Query, only: [from: 2]
 
-  alias RuleMaven.{Users, Games, Readiness, LLM, Jobs, Settings, Setup, CheatSheet, Voices, Repo}
+  alias RuleMaven.{Users, Games, Readiness, LLM, Jobs, Settings, Setup, CheatSheet, Voices, Repo, Workers}
   alias RuleMaven.Games.Chunk
   alias RuleMaven.Readiness.Estimator
 
@@ -19,6 +19,23 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     did_you_know: ["did_you_know"],
     voices: ["voice"],
     theme: ["theme_palette"]
+  }
+
+  # Enrichment steps that can be re-run in place from this page (each maps to a
+  # durable Oban worker), and the subset whose cached output can be cleared.
+  @regen_steps ~w(categories cheat_sheet setup did_you_know voices theme bgg)a
+  @clear_steps ~w(cheat_sheet setup did_you_know theme)a
+
+  # JobRun.kind → step id, so a game-scoped running run lights up its step's
+  # "Running…" indicator while the worker is in flight.
+  @kind_to_step %{
+    "categories" => :categories,
+    "cheat_sheet" => :cheat_sheet,
+    "setup_checklist" => :setup,
+    "did_you_know" => :did_you_know,
+    "voices" => :voices,
+    "theme_palette" => :theme,
+    "bgg_enrich" => :bgg
   }
 
   @impl true
@@ -68,6 +85,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     assign(socket,
       steps: steps,
       previews: build_previews(game, docs),
+      running_steps: running_steps(game),
       playable?: Readiness.playable?(game),
       required_complete?: Readiness.required_complete?(game),
       publish_approved?: Readiness.publish_approved?(game.id),
@@ -131,6 +149,89 @@ defmodule RuleMavenWeb.GameLive.Prepare do
      socket
      |> load()
      |> put_flash(:info, "Paused — the pipeline will stop after the current step.")}
+  end
+
+  # Re-run a single enrichment step. Each path enqueues a durable Oban worker and
+  # returns immediately; progress streams back over the game's job topic (mount
+  # subscribes), which reloads this page and lights up the step's "Running…".
+  def handle_event("regen_step", %{"step" => step}, socket) do
+    case admin_step(socket, step, @regen_steps) do
+      nil ->
+        {:noreply, socket}
+
+      id ->
+        regen_step(id, socket.assigns.game)
+
+        {:noreply,
+         socket
+         |> load()
+         |> put_flash(:info, "Re-running “#{Readiness.label(id)}” — running in the background…")}
+    end
+  end
+
+  def handle_event("clear_step", %{"step" => step}, socket) do
+    case admin_step(socket, step, @clear_steps) do
+      nil ->
+        {:noreply, socket}
+
+      id ->
+        clear_step(id, socket.assigns.game)
+
+        {:noreply,
+         socket
+         |> reload()
+         |> put_flash(:info, "Cleared “#{Readiness.label(id)}”.")}
+    end
+  end
+
+  # Resolve the phx-value step name to a known step atom, but only if the user is
+  # an admin and the step is in the allowed set for the action. Flashes + returns
+  # nil otherwise so the caller no-ops.
+  defp admin_step(socket, step, allowed) do
+    id = step_atom(step)
+
+    cond do
+      not Users.can?(socket.assigns.current_user, :admin) -> nil
+      id in allowed -> id
+      true -> nil
+    end
+  end
+
+  defp step_atom(s) when is_binary(s), do: Enum.find(Readiness.all_steps(), &(to_string(&1) == s))
+  defp step_atom(_), do: nil
+
+  defp regen_step(:categories, g), do: Workers.CategoriesWorker.enqueue(g.id)
+  defp regen_step(:cheat_sheet, g), do: CheatSheet.generate_async(g)
+  defp regen_step(:setup, g), do: Setup.generate_async(g)
+
+  defp regen_step(:did_you_know, g) do
+    # Clear first so a failed/empty run doesn't leave stale facts on screen.
+    Settings.delete("did_you_know_#{g.id}")
+    Workers.DidYouKnowWorker.enqueue(g.id)
+  end
+
+  defp regen_step(:voices, g), do: Workers.VoiceSuggestionsWorker.enqueue(g.id)
+  defp regen_step(:theme, g), do: Workers.ThemePaletteWorker.enqueue(g)
+  defp regen_step(:bgg, g), do: %{game_id: g.id} |> Workers.BggEnrichWorker.new() |> Oban.insert()
+  defp regen_step(_, _), do: :ok
+
+  defp clear_step(:cheat_sheet, g), do: CheatSheet.clear(g.id)
+  defp clear_step(:setup, g), do: Setup.clear(g.id)
+  defp clear_step(:did_you_know, g), do: Settings.delete("did_you_know_#{g.id}")
+  defp clear_step(:theme, g), do: Games.update_game(g, %{theme_palette: nil})
+  defp clear_step(_, _), do: :ok
+
+  # Steps with a game-scoped run currently in flight (drives the "Running…" tag).
+  defp running_steps(game) do
+    [state: "running", scope_type: "game", scope_id: game.id, limit: 100]
+    |> Jobs.list_runs()
+    |> Enum.flat_map(fn run ->
+      case Map.get(@kind_to_step, run.kind) do
+        nil -> []
+        id -> [id]
+      end
+    end)
+    |> MapSet.new()
   end
 
   @impl true
@@ -258,6 +359,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               step={step}
               game={@game}
               preview={Map.get(@previews, step.id)}
+              running={MapSet.member?(@running_steps, step.id)}
               estimate={Map.get(@estimates, step.id, 0.0)}
               actual={Map.get(@actuals, step.id)}
               action={step_action(step, @game)}
@@ -272,15 +374,21 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   attr :step, :map, required: true
   attr :game, :map, required: true
   attr :preview, :any, default: nil
+  attr :running, :boolean, default: false
   attr :estimate, :float, required: true
   attr :actual, :any, required: true
   attr :action, :any, default: nil
 
   defp step_row(assigns) do
-    # A row is collapsible only when its step has a result to preview. The body
-    # is always in the DOM (hidden by CSS); the PrepareCollapse hook toggles
-    # `data-open` per the per-game expanded set it keeps in localStorage.
-    assigns = assign(assigns, :has_body, present_preview?(assigns.preview))
+    # A row is collapsible when it has a result to preview *or* an action to
+    # offer. The body is always in the DOM (hidden by CSS); the PrepareCollapse
+    # hook toggles `data-open` per the per-game expanded set it keeps in
+    # localStorage.
+    assigns =
+      assign(assigns,
+        :has_body,
+        present_preview?(assigns.preview) or step_actions?(assigns.step.id)
+      )
 
     ~H"""
     <div
@@ -328,7 +436,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         <% end %>
       </div>
       <div :if={@has_body} data-prepare-body style="padding:0 0.9rem 0.8rem 2.45rem">
-        <.preview_body id={@step.id} preview={@preview} />
+        <.preview_body :if={present_preview?(@preview)} id={@step.id} preview={@preview} />
+        <.step_actions step={@step} game={@game} running={@running} />
       </div>
     </div>
     """
@@ -503,6 +612,74 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     </div>
     """
   end
+
+  ## Step actions ------------------------------------------------------------
+
+  # Every step has at least a manage/view link, so all steps offer an action and
+  # get a collapsible body even before their artifact exists.
+  defp step_actions?(_id), do: true
+
+  attr :step, :map, required: true
+  attr :game, :map, required: true
+  attr :running, :boolean, default: false
+
+  defp step_actions(assigns) do
+    assigns =
+      assigns
+      |> assign(:link, step_link(assigns.step.id, assigns.game))
+      |> assign(:regen?, assigns.step.id in @regen_steps)
+      |> assign(:clear?, assigns.step.id in @clear_steps)
+
+    ~H"""
+    <div
+      :if={@link || @regen? || @clear?}
+      style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.6rem"
+    >
+      <span
+        :if={@running}
+        style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.74rem;font-weight:600;color:var(--accent)"
+      >
+        <span style="display:inline-block;width:0.5rem;height:0.5rem;border-radius:50%;background:var(--accent)">
+        </span>
+        Running…
+      </span>
+      <button
+        :if={@regen? && !@running}
+        type="button"
+        phx-click="regen_step"
+        phx-value-step={@step.id}
+        data-confirm="Re-run this step? It spends LLM budget and replaces the current result."
+        style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+      >
+        Regenerate
+      </button>
+      <button
+        :if={@clear? && !@running}
+        type="button"
+        phx-click="clear_step"
+        phx-value-step={@step.id}
+        data-confirm="Clear this result? It will need to be regenerated."
+        style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+      >
+        Clear
+      </button>
+      <.link
+        :if={@link}
+        navigate={@link.href}
+        style="font-size:0.74rem;font-weight:600;color:var(--accent);text-decoration:none"
+      >
+        {@link.label} &rarr;
+      </.link>
+    </div>
+    """
+  end
+
+  # Where each step's output is viewed or managed. Player-facing artifacts link
+  # to the live game page; the cheat sheet has its own view; everything in the
+  # required ladder is managed on the edit page.
+  defp step_link(:cheat_sheet, game), do: %{href: ~p"/games/#{game}/cheatsheet", label: "View"}
+  defp step_link(id, game) when id in [:setup, :did_you_know, :voices, :theme], do: %{href: ~p"/games/#{game}", label: "View on game page"}
+  defp step_link(_id, game), do: %{href: ~p"/games/#{game}/edit", label: "Manage on edit page"}
 
   # bgg_data is an unstructured BGG payload — surface only its scalar fields as a
   # compact key/value list, truncated, so we don't have to know the shape.

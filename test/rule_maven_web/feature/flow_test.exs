@@ -90,6 +90,10 @@ defmodule RuleMavenWeb.Feature.FlowTest do
     # starts collapsed (no data-open until the admin expands it).
     |> assert_has(css("[data-prepare-step='source']"))
     |> refute_has(css("[data-prepare-step='source'][data-open]"))
+    # Expanding reveals the step's result body and its action link.
+    |> click(css("[data-prepare-step='source'] [data-prepare-head]"))
+    |> assert_has(css("[data-prepare-step='source'][data-open]"))
+    |> assert_has(css("[data-prepare-step='source'] a", text: "Manage on edit page"))
   end
 
   feature "login succeeds and shows game list", %{session: session} do
