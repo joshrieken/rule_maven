@@ -109,6 +109,7 @@ defmodule RuleMavenWeb.SettingsLive do
        embedding_key: (admin? && Settings.get("embedding_api_key_openrouter")) || "",
        auto_approve_docs: (admin? && Settings.get("auto_approve_documents")) || "true",
        auto_approve_faqs: (admin? && Settings.get("auto_approve_faqs")) || "true",
+       cleanup_critic: (admin? && Settings.get("cleanup_critic")) || "false",
        pool_similarity_threshold: (admin? && Settings.get("pool_similarity_threshold")) || "0.92",
        cluster_similarity_threshold:
          (admin? && Settings.get("cluster_similarity_threshold")) || "0.85",
@@ -254,6 +255,7 @@ defmodule RuleMavenWeb.SettingsLive do
         "embedding_api_key_openrouter" => params["embedding_key"],
         "auto_approve_documents" => params["auto_approve_docs"],
         "auto_approve_faqs" => params["auto_approve_faqs"],
+        "cleanup_critic" => params["cleanup_critic"],
         "pool_similarity_threshold" => params["pool_similarity_threshold"],
         "cluster_similarity_threshold" => params["cluster_similarity_threshold"],
         "llm_proxy_url" => params["llm_proxy_url"]
@@ -327,6 +329,7 @@ defmodule RuleMavenWeb.SettingsLive do
          embedding_key: fields["embedding_api_key_openrouter"] |> trim(),
          auto_approve_docs: fields["auto_approve_documents"] |> trim(),
          auto_approve_faqs: fields["auto_approve_faqs"] |> trim(),
+         cleanup_critic: fields["cleanup_critic"] |> trim(),
          pool_similarity_threshold: fields["pool_similarity_threshold"] |> trim(),
          cluster_similarity_threshold: fields["cluster_similarity_threshold"] |> trim(),
          llm_proxy_url: fields["llm_proxy_url"] |> trim(),
@@ -1011,6 +1014,22 @@ defmodule RuleMavenWeb.SettingsLive do
                     Auto-publish high-confidence FAQ drafts
                     <span style="display:block;font-size:0.7rem;color:var(--text-muted)">
                       Skips review when all source Q&amp;As are upvoted, no disagreements
+                    </span>
+                  </span>
+                </label>
+
+                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                  <input
+                    type="checkbox"
+                    name="cleanup_critic"
+                    id="cleanup_critic"
+                    value="true"
+                    checked={@cleanup_critic == "true"}
+                  />
+                  <span style="font-size:0.85rem">
+                    Adversarial cleanup review
+                    <span style="display:block;font-size:0.7rem;color:var(--text-muted)">
+                      After cleaning a page, run a second LLM pass to check no rule content was dropped or altered; flags issues in the job log. Doubles cleanup LLM calls.
                     </span>
                   </span>
                 </label>

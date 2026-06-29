@@ -185,6 +185,27 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  @doc """
+  Adversarial check that a page's cleanup preserved its rule content. Given the
+  raw extraction and the cleaned text, returns `{:ok, defects}` where `defects`
+  is a list of concrete defect lines (empty = faithful), or `{:error, reason}`.
+  Uses the cleanup model by default (text-only, cheap). Callers treat an error as
+  "no defects" — a critic failure must never block or revert a cleanup.
+  """
+  def critique_cleanup(raw, cleaned, opts \\ []) do
+    user =
+      "RAW EXTRACTION:\n\n" <> (raw || "") <> "\n\n---\n\nCLEANED VERSION:\n\n" <> (cleaned || "")
+
+    case chat(user, "cleanup_critic",
+           system: RuleMaven.Prompts.template("cleanup_critic"),
+           max_tokens: 1024,
+           model: opts[:model] || model(:cleanup)
+         ) do
+      {:ok, text} -> {:ok, parse_defects(text)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   # Smallest fraction of the input the cleaned result may shrink to before we
   # treat it as a truncation/refusal and keep the raw page. Aggressive is meant
   # to cut hard, so it tolerates a much larger drop than the verbatim levels.

@@ -20,7 +20,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
-  alias RuleMaven.{Games, Jobs}
+  alias RuleMaven.{Games, Jobs, Settings}
 
   # LLM fan-out within a single job process; the writes back to the document are
   # funneled through Enum.each below, so they stay serialized (no embeds race).
@@ -58,18 +58,36 @@ defmodule RuleMaven.Workers.CleanupWorker do
     # restarting it (capped at total for "again", which reprocesses every page).
     start_done = doc.cleaning_done || 0
 
-    Jobs.event(run, "info", "Cleaning #{length(todo)} of #{total} pages (#{mode}, #{level})…")
+    # Opt-in adversarial check that cleanup didn't drop/alter rule content. Off by
+    # default — it's a second LLM call per cleaned page.
+    critic? = Settings.get("cleanup_critic") == "true"
+
+    note = if critic?, do: " · critic on", else: ""
+
+    Jobs.event(
+      run,
+      "info",
+      "Cleaning #{length(todo)} of #{total} pages (#{mode}, #{level})#{note}…"
+    )
 
     # Progress is funneled through this serial Enum.reduce (the async fan-out is
     # above), so the counter increments without races. Each step persists the
     # page, advances the durable counter, and broadcasts {done, total} — the
     # single source of truth for the UI, realtime and after a refresh.
-    init = %{done: start_done, removed: 0, kept_raw: 0, unchanged: 0, cleaned: 0, failed: 0}
+    init = %{
+      done: start_done,
+      removed: 0,
+      kept_raw: 0,
+      unchanged: 0,
+      cleaned: 0,
+      failed: 0,
+      flagged: 0
+    }
 
     stats =
       todo
       |> Task.async_stream(
-        fn page -> {page.index, clean_one(page, level, mode)} end,
+        fn page -> {page.index, clean_one(page, level, mode, critic?)} end,
         max_concurrency: @max_concurrency,
         ordered: false,
         timeout: :infinity,
@@ -83,6 +101,16 @@ defmodule RuleMaven.Workers.CleanupWorker do
           Games.set_cleaning_done(doc_id, done)
           Jobs.event(run, event_level(meta.status), page_event_msg(index, meta, done, total))
 
+          defects = meta[:defects] || []
+
+          if defects != [] do
+            Jobs.event(
+              run,
+              "warn",
+              "Page #{index + 1} — cleanup review flagged #{length(defects)} issue(s): #{Enum.join(defects, " | ")}"
+            )
+          end
+
           Phoenix.PubSub.broadcast(
             RuleMaven.PubSub,
             topic,
@@ -92,6 +120,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
           acc
           |> Map.put(:done, done)
           |> Map.update!(:removed, &(&1 + max(meta.in - meta.out, 0)))
+          |> Map.update!(:flagged, &(&1 + if(defects == [], do: 0, else: 1)))
           |> Map.update(meta.status, 1, &(&1 + 1))
 
         # LLM failed for this page: leave `cleaned` nil rather than baking the raw
@@ -144,7 +173,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
   # can be retried, instead of persisting raw text as if it were cleaned. `meta`
   # carries the in/out char counts and a status (:cleaned | :unchanged |
   # :kept_raw | :empty) so the job log can report what actually happened.
-  defp clean_one(page, level, mode) do
+  defp clean_one(page, level, mode, critic?) do
     # "again" re-cleans the current cleaned copy; "raw" cleans the original.
     body = if mode == "again", do: Games.effective_page_text(page), else: page.text || ""
     # The printed page number lives on the page separately — strip it from the
@@ -153,8 +182,12 @@ defmodule RuleMaven.Workers.CleanupWorker do
 
     try do
       case RuleMaven.LLM.cleanup_page(body, level, page.printed) do
-        {:ok, text, status} -> {:ok, text, clean_meta(status, body, text)}
-        {:error, _} -> :failed
+        {:ok, text, status} ->
+          meta = clean_meta(status, body, text)
+          {:ok, text, Map.put(meta, :defects, maybe_critique(critic?, meta.status, body, text))}
+
+        {:error, _} ->
+          :failed
       end
     rescue
       _ -> :failed
@@ -162,6 +195,17 @@ defmodule RuleMaven.Workers.CleanupWorker do
       _, _ -> :failed
     end
   end
+
+  # Only worth critiquing a page the model actually rewrote (:cleaned). An error
+  # from the critic must never fail the page — fall back to "no defects".
+  defp maybe_critique(true, :cleaned, body, text) do
+    case RuleMaven.LLM.critique_cleanup(body, text) do
+      {:ok, defects} -> defects
+      {:error, _} -> []
+    end
+  end
+
+  defp maybe_critique(_critic?, _status, _body, _text), do: []
 
   # Per-page result detail for the job log. A model that returned its input
   # essentially unchanged is reported as :unchanged (distinct from :kept_raw,
@@ -212,6 +256,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
         stats.removed > 0 && "removed #{stats.removed} chars",
         Map.get(stats, :unchanged, 0) > 0 && "#{stats.unchanged} unchanged",
         Map.get(stats, :kept_raw, 0) > 0 && "#{stats.kept_raw} kept raw",
+        Map.get(stats, :flagged, 0) > 0 && "#{stats.flagged} flagged for review",
         Map.get(stats, :failed, 0) > 0 && "#{stats.failed} failed"
       ]
       |> Enum.filter(& &1)

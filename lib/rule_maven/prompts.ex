@@ -179,6 +179,26 @@ defmodule RuleMaven.Prompts do
   output exactly: NONE
   """
 
+  @cleanup_critic """
+  You are an adversarial reviewer checking a CLEANED version of one rulebook page
+  against its RAW extraction. Cleanup is allowed to fix OCR/layout noise (broken
+  line wraps, stray hyphens, headers/footers, page numbers, garbled characters,
+  de-interleaved columns) but MUST NOT drop or alter actual rule content.
+
+  Compare the two and list concrete, specific defects introduced by cleanup, one
+  per line:
+
+  - DROPPED: a rule, number, step, condition, table row, or example present in
+    RAW but missing from CLEANED.
+  - CHANGED: a value, count, name, or wording in CLEANED that contradicts RAW.
+  - INVENTED: rule text in CLEANED that is not supported by RAW.
+
+  Ignore pure formatting/noise differences and removed page numbers/headers —
+  those are the job of cleanup. Quote the affected text so each defect is
+  actionable. If cleanup preserved all rule content faithfully, output exactly:
+  NONE
+  """
+
   # Vars: game_name, exclude, rulebook
   @suggest_questions """
   Based on the rulebook text below for "{{game_name}}", suggest common rules questions grouped by topic category.
@@ -343,10 +363,20 @@ defmodule RuleMaven.Prompts do
       default: @cleanup_aggressive
     },
     %{
+      key: "cleanup_critic",
+      group: "Rulebook cleanup",
+      label: "Cleanup — critic",
+      description:
+        "Adversarial check that cleanup didn't drop/alter rule content (lists defects or NONE).",
+      vars: [],
+      default: @cleanup_critic
+    },
+    %{
       key: "vision_transcribe",
       group: "Vision OCR",
       label: "Vision — transcribe page",
-      description: "Transcribes a rulebook page image. A defect list may be appended on a re-read.",
+      description:
+        "Transcribes a rulebook page image. A defect list may be appended on a re-read.",
       vars: [],
       default: @vision_transcribe
     },
@@ -378,7 +408,8 @@ defmodule RuleMaven.Prompts do
       key: "did_you_know_verify",
       group: "Content generation",
       label: "Did you know? fact-check",
-      description: "Drops generated facts that aren't fully/accurately supported by the rulebook.",
+      description:
+        "Drops generated facts that aren't fully/accurately supported by the rulebook.",
       vars: ~w(game_name rulebook facts),
       default: @did_you_know_verify
     },
@@ -386,7 +417,8 @@ defmodule RuleMaven.Prompts do
       key: "setup_verify",
       group: "Content generation",
       label: "Setup checklist fact-check",
-      description: "Drops setup components/steps that aren't fully/accurately supported by the rulebook.",
+      description:
+        "Drops setup components/steps that aren't fully/accurately supported by the rulebook.",
       vars: ~w(game_name rulebook items),
       default: @setup_verify
     },
