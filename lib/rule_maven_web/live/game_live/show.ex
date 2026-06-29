@@ -39,6 +39,7 @@ defmodule RuleMavenWeb.GameLive.Show do
        search_query: "",
        community_questions: [],
        community_count: 0,
+       favorited_answer_ids: MapSet.new(),
        refresh: 0,
        stale_timer: nil,
        question_categories: %{},
@@ -142,6 +143,9 @@ defmodule RuleMavenWeb.GameLive.Show do
     {cv_counts, cv_user} =
       Games.community_vote_maps(vote_ids, socket.assigns.current_user.id)
 
+    favorited_answer_ids =
+      Games.favorited_answer_ids(socket.assigns.current_user.id, Enum.uniq(vote_ids))
+
     all_thread_ids = Enum.map(threads, & &1.id)
     question_categories = Games.categories_for_questions(all_thread_ids ++ cq_ids)
 
@@ -167,6 +171,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         community_count: community_count,
         community_vote_counts: cv_counts,
         community_user_votes: cv_user,
+        favorited_answer_ids: favorited_answer_ids,
         flagged_ids: Games.user_flagged_ids(socket.assigns.current_user.id),
         asks_disabled: RuleMaven.Settings.asks_disabled?(),
         question_categories: question_categories,
@@ -861,6 +866,24 @@ defmodule RuleMavenWeb.GameLive.Show do
       end
     else
       {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("favorite_community_answer", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+
+    case Games.toggle_answer_favorite(socket.assigns.current_user.id, id) do
+      {:ok, favorited?} ->
+        ids =
+          if favorited?,
+            do: MapSet.put(socket.assigns.favorited_answer_ids, id),
+            else: MapSet.delete(socket.assigns.favorited_answer_ids, id)
+
+        {:noreply, assign(socket, favorited_answer_ids: ids)}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -1583,6 +1606,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                   style={"display:block;text-align:left;border:none;cursor:pointer;padding:0.25rem 0.75rem;color:var(--text-secondary);font-size:0.72rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == q.id, do: "var(--accent)", else: "var(--border-subtle)"};width:100%"}
                 >
                   <span style="word-break:break-word;white-space:normal;display:block;line-height:1.3">
+                    <%= if MapSet.member?(@favorited_answer_ids, q.id) do %>
+                      <span style="color:#e05c2a;font-size:0.55rem">♥</span>
+                    <% end %>
                     {q.canonical_question || q.question}
                   </span>
                 </button>
@@ -2232,6 +2258,14 @@ defmodule RuleMavenWeb.GameLive.Show do
                         title="Total helpful votes"
                       >{Map.get(counts, :up, 0)}</span>
                     </span>
+                    <% fav? = MapSet.member?(@favorited_answer_ids, msg[:id]) %>
+                    <button
+                      type="button"
+                      phx-click="favorite_community_answer"
+                      phx-value-id={msg[:id]}
+                      style={"background:none;border:none;padding:0;line-height:1;font-size:0.85rem;cursor:pointer;#{if fav?, do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
+                      title={if fav?, do: "Remove from your favorites", else: "Add to your favorites"}
+                    >{if fav?, do: "♥", else: "♡"}</button>
                   <% else %>
                     <%= if msg[:pool_hit] && msg[:pool_source_id] do %>
                       <!-- Pool hit (trusted or provisional): vote accrues to the
@@ -2461,7 +2495,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:visibility] == "community", do: "color:var(--accent-ink,var(--accent))", else: "color:var(--text-muted)"}"}
                       >{if msg[:visibility] == "community", do: "🌐", else: "🔒"}</button>
                       <button
-                        :if={!msg[:history]}
+                        :if={!msg[:history] && !is_community_msg}
                         type="button"
                         phx-click="favorite_question"
                         phx-value-id={msg.id}

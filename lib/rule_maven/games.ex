@@ -16,6 +16,7 @@ defmodule RuleMaven.Games do
   alias RuleMaven.Games.Chunk
   alias RuleMaven.Games.UserCollection
   alias RuleMaven.Games.UserFavorite
+  alias RuleMaven.Games.AnswerFavorite
   alias RuleMaven.Games.SupportRequest
   alias Oban
 
@@ -2681,5 +2682,60 @@ defmodule RuleMaven.Games do
     user_votes = Map.new(user_votes_rows, &{&1.question_log_id, &1.value})
 
     {counts, user_votes}
+  end
+
+  # ── Per-user answer favorites ──
+  #
+  # Unlike the QuestionLog.favorited boolean (the asker pinning their own private
+  # thread), this lets any user favorite an answer that surfaces to them —
+  # community/pool rows authored by someone else. State is per (user, answer).
+
+  @doc """
+  Toggle a user's favorite on an answer row. Returns {:ok, true} when now
+  favorited, {:ok, false} when removed. Only rows that actually surface to other
+  users (community or pooled) are favoritable, blocking IDOR on private rows.
+  """
+  def toggle_answer_favorite(user_id, question_log_id)
+      when is_integer(user_id) and is_integer(question_log_id) do
+    case Repo.get(QuestionLog, question_log_id) do
+      nil ->
+        {:error, :not_found}
+
+      %QuestionLog{} = q ->
+        if q.visibility == "community" or q.pooled do
+          do_toggle_answer_favorite(user_id, question_log_id)
+        else
+          {:error, :not_favoritable}
+        end
+    end
+  end
+
+  defp do_toggle_answer_favorite(user_id, question_log_id) do
+    case Repo.get_by(AnswerFavorite, user_id: user_id, question_log_id: question_log_id) do
+      nil ->
+        %AnswerFavorite{}
+        |> AnswerFavorite.changeset(%{user_id: user_id, question_log_id: question_log_id})
+        |> Repo.insert(
+          on_conflict: :nothing,
+          conflict_target: [:user_id, :question_log_id]
+        )
+
+        {:ok, true}
+
+      %AnswerFavorite{} = af ->
+        Repo.delete(af)
+        {:ok, false}
+    end
+  end
+
+  @doc "MapSet of answer (question_log) ids the user has favorited, among the given ids."
+  def favorited_answer_ids(user_id, question_log_ids)
+      when is_integer(user_id) and is_list(question_log_ids) do
+    Repo.all(
+      from af in AnswerFavorite,
+        where: af.user_id == ^user_id and af.question_log_id in ^question_log_ids,
+        select: af.question_log_id
+    )
+    |> MapSet.new()
   end
 end
