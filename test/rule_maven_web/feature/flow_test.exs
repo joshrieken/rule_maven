@@ -85,6 +85,11 @@ defmodule RuleMavenWeb.Feature.FlowTest do
     |> assert_has(css("h1", text: "Prepare Prep Test Game"))
     |> assert_has(css("button", text: "Prepare game"))
     |> assert_has(css("h2", text: "Pipeline"))
+    |> assert_has(css("button[data-prepare-all]", text: "Expand all"))
+    # A published fixture has an uploaded source, so its step is collapsible and
+    # starts collapsed (no data-open until the admin expands it).
+    |> assert_has(css("[data-prepare-step='source']"))
+    |> refute_has(css("[data-prepare-step='source'][data-open]"))
   end
 
   feature "login succeeds and shows game list", %{session: session} do

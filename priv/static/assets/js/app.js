@@ -488,6 +488,83 @@ Hooks.ChecklistStore = {
   }
 };
 
+// Prepare-page pipeline: each step with a result gets a collapsible body
+// (collapsed by default). The set of expanded step ids persists per game in
+// localStorage and is re-applied on every LiveView patch, so the frequent
+// job-event re-renders never reset what the admin has open. Toggling is purely
+// client-side — no server round-trip. "Expand all" flips between all/none.
+Hooks.PrepareCollapse = {
+  key() {
+    return "rm:prepare_open:" + this.el.dataset.game;
+  },
+  load() {
+    try {
+      let v = JSON.parse(localStorage.getItem(this.key()) || "[]");
+      return new Set(Array.isArray(v) ? v.map(String) : []);
+    } catch (_e) {
+      return new Set();
+    }
+  },
+  save() {
+    localStorage.setItem(this.key(), JSON.stringify([...this.expanded]));
+  },
+  stepIds() {
+    return [...this.el.querySelectorAll("[data-prepare-step]")].map(
+      (r) => r.dataset.prepareStep
+    );
+  },
+  apply() {
+    this.el.querySelectorAll("[data-prepare-step]").forEach((row) => {
+      if (this.expanded.has(row.dataset.prepareStep)) {
+        row.setAttribute("data-open", "");
+      } else {
+        row.removeAttribute("data-open");
+      }
+    });
+    let btn = this.el.querySelector("[data-prepare-all]");
+    if (btn) {
+      let ids = this.stepIds();
+      let allOpen = ids.length > 0 && ids.every((id) => this.expanded.has(id));
+      btn.textContent = allOpen ? "Collapse all" : "Expand all";
+      btn.dataset.prepareAll = allOpen ? "collapse" : "expand";
+    }
+  },
+  mounted() {
+    this.expanded = this.load();
+    // Forget saved ids whose step no longer has a result to show.
+    let live = new Set(this.stepIds());
+    this.expanded.forEach((id) => {
+      if (!live.has(id)) this.expanded.delete(id);
+    });
+    this.el.addEventListener("click", (e) => {
+      let allBtn = e.target.closest("[data-prepare-all]");
+      if (allBtn) {
+        let ids = this.stepIds();
+        let allOpen = ids.length > 0 && ids.every((id) => this.expanded.has(id));
+        this.expanded = allOpen ? new Set() : new Set(ids);
+        this.save();
+        this.apply();
+        return;
+      }
+      // Don't toggle when the click landed on an action link in the header.
+      if (e.target.closest("a")) return;
+      let head = e.target.closest("[data-prepare-head]");
+      if (!head) return;
+      let row = head.closest("[data-prepare-step]");
+      if (!row) return;
+      let id = row.dataset.prepareStep;
+      if (this.expanded.has(id)) this.expanded.delete(id);
+      else this.expanded.add(id);
+      this.save();
+      this.apply();
+    });
+    this.apply();
+  },
+  updated() {
+    this.apply();
+  }
+};
+
 Hooks.VoiceDefault = {
   key: "rm:default_voice",
   mounted() {

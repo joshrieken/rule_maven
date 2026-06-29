@@ -1,7 +1,10 @@
 defmodule RuleMavenWeb.GameLive.Prepare do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Users, Games, Readiness, LLM, Jobs}
+  import Ecto.Query, only: [from: 2]
+
+  alias RuleMaven.{Users, Games, Readiness, LLM, Jobs, Settings, Setup, CheatSheet, Voices, Repo}
+  alias RuleMaven.Games.Chunk
   alias RuleMaven.Readiness.Estimator
 
   # Map a readiness step to the llm_logs operation name(s) whose logged spend
@@ -64,6 +67,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
     assign(socket,
       steps: steps,
+      previews: build_previews(game, docs),
       playable?: Readiness.playable?(game),
       required_complete?: Readiness.required_complete?(game),
       publish_approved?: Readiness.publish_approved?(game.id),
@@ -230,61 +234,293 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         </div>
       <% end %>
 
-      <h2 style="font-size:1rem;font-weight:700;margin:0 0 0.5rem">Pipeline</h2>
-      <div style="border:1px solid var(--border);border-radius:0.5rem;overflow:hidden">
-        <%= for step <- @steps do %>
-          <.step_row
-            step={step}
-            estimate={Map.get(@estimates, step.id, 0.0)}
-            actual={Map.get(@actuals, step.id)}
-            action={step_action(step, @game)}
-          />
-        <% end %>
+      <style>
+        [data-prepare-body]{display:none}
+        [data-prepare-step][data-open] [data-prepare-body]{display:block}
+        [data-prepare-caret]{display:inline-block;transition:transform .12s}
+        [data-prepare-step][data-open] [data-prepare-caret]{transform:rotate(90deg)}
+      </style>
+
+      <div id="pipeline" phx-hook="PrepareCollapse" data-game={@game.id}>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;margin:0 0 0.5rem">
+          <h2 style="font-size:1rem;font-weight:700">Pipeline</h2>
+          <button
+            type="button"
+            data-prepare-all="expand"
+            style="background:none;border:none;color:var(--accent);font-size:0.78rem;font-weight:600;cursor:pointer;padding:0"
+          >
+            Expand all
+          </button>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:0.5rem;overflow:hidden">
+          <%= for step <- @steps do %>
+            <.step_row
+              step={step}
+              game={@game}
+              preview={Map.get(@previews, step.id)}
+              estimate={Map.get(@estimates, step.id, 0.0)}
+              actual={Map.get(@actuals, step.id)}
+              action={step_action(step, @game)}
+            />
+          <% end %>
+        </div>
       </div>
     </div>
     """
   end
 
   attr :step, :map, required: true
+  attr :game, :map, required: true
+  attr :preview, :any, default: nil
   attr :estimate, :float, required: true
   attr :actual, :any, required: true
   attr :action, :any, default: nil
 
   defp step_row(assigns) do
+    # A row is collapsible only when its step has a result to preview. The body
+    # is always in the DOM (hidden by CSS); the PrepareCollapse hook toggles
+    # `data-open` per the per-game expanded set it keeps in localStorage.
+    assigns = assign(assigns, :has_body, present_preview?(assigns.preview))
+
     ~H"""
-    <div style={"display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.9rem;border-top:1px solid var(--border-subtle);#{if @step.state == :blocked, do: "opacity:0.62", else: ""}"}>
-      <span style={"font-size:0.7rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:1rem;white-space:nowrap;#{chip_style(@step.state)}"}>
-        {chip_label(@step.state)}
-      </span>
-      <span style="flex:1;font-size:0.85rem;font-weight:600;color:var(--text)">
-        {@step.label}
-        <.link
-          :if={@action}
-          navigate={@action.href}
-          style="font-size:0.72rem;font-weight:600;color:var(--accent);margin-left:0.4rem;white-space:nowrap"
+    <div
+      data-prepare-step={@has_body && to_string(@step.id)}
+      style={"border-top:1px solid var(--border-subtle);#{if @step.state == :blocked, do: "opacity:0.62", else: ""}"}
+    >
+      <div
+        data-prepare-head={@has_body && true}
+        style={"display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.9rem;#{if @has_body, do: "cursor:pointer", else: ""}"}
+      >
+        <span
+          data-prepare-caret={@has_body && true}
+          style={"width:0.7rem;font-size:0.7rem;color:var(--text-muted);#{unless @has_body, do: "visibility:hidden", else: ""}"}
         >
-          {@action.label} &rarr;
-        </.link>
-      </span>
-      <span style={"font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;#{tag_style(@step.category)}"}>
-        {if @step.category == :required, do: "Required", else: "Enrichment"}
-      </span>
-      <%= if @step.llm do %>
-        <span style="font-size:0.72rem;color:var(--text-muted);min-width:5.5rem;text-align:right;white-space:nowrap">
-          est. ${fmt_cost(@estimate)}
+          &#9656;
         </span>
-        <span style="font-size:0.72rem;font-weight:600;color:var(--text);min-width:4.5rem;text-align:right;white-space:nowrap">
-          {cost_or_dash(@actual)}
+        <span style={"font-size:0.7rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:1rem;white-space:nowrap;#{chip_style(@step.state)}"}>
+          {chip_label(@step.state)}
         </span>
-      <% else %>
-        <span style="min-width:5.5rem"></span>
-        <span style="min-width:4.5rem;text-align:right;font-size:0.72rem;color:var(--text-muted)">
-          —
+        <span style="flex:1;font-size:0.85rem;font-weight:600;color:var(--text)">
+          {@step.label}
+          <.link
+            :if={@action}
+            navigate={@action.href}
+            style="font-size:0.72rem;font-weight:600;color:var(--accent);margin-left:0.4rem;white-space:nowrap"
+          >
+            {@action.label} &rarr;
+          </.link>
         </span>
+        <span style={"font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;#{tag_style(@step.category)}"}>
+          {if @step.category == :required, do: "Required", else: "Enrichment"}
+        </span>
+        <%= if @step.llm do %>
+          <span style="font-size:0.72rem;color:var(--text-muted);min-width:5.5rem;text-align:right;white-space:nowrap">
+            est. ${fmt_cost(@estimate)}
+          </span>
+          <span style="font-size:0.72rem;font-weight:600;color:var(--text);min-width:4.5rem;text-align:right;white-space:nowrap">
+            {cost_or_dash(@actual)}
+          </span>
+        <% else %>
+          <span style="min-width:5.5rem"></span>
+          <span style="min-width:4.5rem;text-align:right;font-size:0.72rem;color:var(--text-muted)">
+            —
+          </span>
+        <% end %>
+      </div>
+      <div :if={@has_body} data-prepare-body style="padding:0 0.9rem 0.8rem 2.45rem">
+        <.preview_body id={@step.id} preview={@preview} />
+      </div>
+    </div>
+    """
+  end
+
+  ## Step result previews ----------------------------------------------------
+
+  # Gather every step's artifact up front (the page is admin-only and reloads on
+  # each job event, so eager loading keeps the body markup self-contained). Steps
+  # with no artifact map to a blank value and render no collapsible body.
+  defp build_previews(game, docs) do
+    %{
+      source: docs,
+      extract: doc_page_summary(docs, :text),
+      cleanup: doc_page_summary(docs, :cleaned),
+      review: review_summary(docs),
+      embed: chunk_count(docs),
+      categories: Games.list_game_categories(game),
+      cheat_sheet: CheatSheet.stored_content(game.id),
+      setup: Setup.stored_checklist(game.id),
+      did_you_know: load_did_you_know(game.id),
+      voices: Voices.game_voice_defs(game.id),
+      theme: game.theme_palette,
+      bgg: game.bgg_data
+    }
+  end
+
+  defp doc_page_summary(docs, field) do
+    Enum.map(docs, fn d ->
+      %{
+        label: d.label || "Untitled",
+        done: Enum.count(d.pages, fn p -> is_binary(Map.get(p, field)) and Map.get(p, field) != "" end),
+        total: length(d.pages)
+      }
+    end)
+  end
+
+  defp review_summary(docs) do
+    Enum.map(docs, fn d -> %{label: d.label || "Untitled", remaining: Games.review_page_count(d)} end)
+  end
+
+  defp chunk_count([]), do: 0
+
+  defp chunk_count(docs) do
+    ids = Enum.map(docs, & &1.id)
+    Repo.aggregate(from(c in Chunk, where: c.document_id in ^ids), :count)
+  end
+
+  defp load_did_you_know(game_id) do
+    case Settings.get("did_you_know_#{game_id}") do
+      nil ->
+        []
+
+      json ->
+        case Jason.decode(json) do
+          {:ok, list} when is_list(list) -> list
+          _ -> []
+        end
+    end
+  end
+
+  defp present_preview?(nil), do: false
+  defp present_preview?(n) when is_integer(n), do: n > 0
+  defp present_preview?(s) when is_binary(s), do: String.trim(s) != ""
+  defp present_preview?(l) when is_list(l), do: l != []
+  defp present_preview?(m) when is_map(m) and not is_struct(m), do: map_size(m) > 0
+  defp present_preview?(_), do: false
+
+  attr :id, :atom, required: true
+  attr :preview, :any, required: true
+
+  defp preview_body(assigns) do
+    ~H"""
+    <div style="font-size:0.8rem;color:var(--text-secondary);line-height:1.5">
+      <%= case @id do %>
+        <% :source -> %>
+          <ul style="margin:0;padding-left:1.1rem">
+            <li :for={d <- @preview}>
+              {d.label || "Untitled"}
+              <span style="color:var(--text-muted)">· {d.page_count || length(d.pages)} pages</span>
+            </li>
+          </ul>
+        <% id when id in [:extract, :cleanup] -> %>
+          <ul style="margin:0;padding-left:1.1rem">
+            <li :for={d <- @preview}>{d.label} — {d.done}/{d.total} pages</li>
+          </ul>
+        <% :review -> %>
+          <ul style="margin:0;padding-left:1.1rem">
+            <li :for={d <- @preview}>
+              {d.label} — {if d.remaining == 0, do: "all reviewed", else: "#{d.remaining} pending"}
+            </li>
+          </ul>
+        <% :embed -> %>
+          {fmt_int(@preview)} chunks embedded
+        <% :categories -> %>
+          <div style="display:flex;flex-wrap:wrap;gap:0.3rem">
+            <span
+              :for={c <- @preview}
+              title={c.description}
+              style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:1rem;padding:0.1rem 0.55rem;font-size:0.72rem;font-weight:600"
+            >
+              {c.name}
+            </span>
+          </div>
+        <% :cheat_sheet -> %>
+          <div style="white-space:pre-wrap;max-height:16rem;overflow:auto;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.35rem;padding:0.5rem;font-size:0.74rem">{@preview}</div>
+        <% :setup -> %>
+          <div :if={@preview["components"] != []}>
+            <div style="font-weight:700;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin-bottom:0.2rem">
+              Components
+            </div>
+            <ul style="margin:0 0 0.6rem;padding-left:1.1rem">
+              <li :for={c <- @preview["components"]}>{c}</li>
+            </ul>
+          </div>
+          <div :if={@preview["setup"] != []}>
+            <div style="font-weight:700;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin-bottom:0.2rem">
+              Setup steps
+            </div>
+            <ol style="margin:0;padding-left:1.1rem">
+              <li :for={s <- @preview["setup"]} style="margin-bottom:0.25rem">
+                <span style="font-weight:600">{s["title"]}</span>
+                <span
+                  :if={s["detail"] not in [nil, "", "nil"]}
+                  style="display:block;font-size:0.74rem;color:var(--text-muted)"
+                >
+                  {s["detail"]}
+                </span>
+              </li>
+            </ol>
+          </div>
+        <% :did_you_know -> %>
+          <ul style="margin:0;padding-left:1.1rem">
+            <li :for={f <- @preview} style="margin-bottom:0.25rem">{to_string(f)}</li>
+          </ul>
+        <% :voices -> %>
+          <div style="display:flex;flex-wrap:wrap;gap:0.4rem">
+            <span
+              :for={v <- @preview}
+              style="display:inline-flex;align-items:center;gap:0.25rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:1rem;padding:0.15rem 0.55rem;font-size:0.74rem;font-weight:600"
+            >
+              <span>{v.emoji}</span>{v.label}
+            </span>
+          </div>
+        <% :theme -> %>
+          <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+            <%= for mode <- ["light", "dark"], is_map(@preview[mode]) do %>
+              <% v = @preview[mode] %>
+              <div style={"display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.5rem;border-radius:0.35rem;border:1px solid var(--border);background:#{v["--bg"]}"}>
+                <span style={"font-size:0.62rem;font-weight:700;text-transform:capitalize;color:#{v["--text"]}"}>
+                  {mode}
+                </span>
+                <span
+                  :for={key <- ["--accent", "--bg", "--bg-surface", "--text"]}
+                  title={key}
+                  style={"width:0.9rem;height:0.9rem;border-radius:0.2rem;border:1px solid var(--border);background:#{v[key]}"}
+                >
+                </span>
+              </div>
+            <% end %>
+          </div>
+        <% :bgg -> %>
+          <dl style="display:grid;grid-template-columns:auto 1fr;gap:0.15rem 0.6rem;margin:0">
+            <%= for {k, val} <- bgg_rows(@preview) do %>
+              <dt style="font-weight:600;color:var(--text-muted)">{k}</dt>
+              <dd style="margin:0;overflow-wrap:anywhere">{val}</dd>
+            <% end %>
+          </dl>
+        <% _ -> %>
+          <span style="color:var(--text-muted)">No preview.</span>
       <% end %>
     </div>
     """
   end
+
+  # bgg_data is an unstructured BGG payload — surface only its scalar fields as a
+  # compact key/value list, truncated, so we don't have to know the shape.
+  defp bgg_rows(%{} = m) do
+    m
+    |> Enum.filter(fn {_k, v} -> is_binary(v) or is_number(v) or is_boolean(v) end)
+    |> Enum.sort_by(fn {k, _v} -> to_string(k) end)
+    |> Enum.take(10)
+    |> Enum.map(fn {k, v} -> {k, truncate(to_string(v), 140)} end)
+  end
+
+  defp bgg_rows(_), do: []
+
+  defp truncate(s, n) when is_binary(s) do
+    if String.length(s) > n, do: String.slice(s, 0, n) <> "…", else: s
+  end
+
+  defp truncate(s, _n), do: to_string(s)
 
   attr :label, :string, required: true
   attr :value, :any, required: true
