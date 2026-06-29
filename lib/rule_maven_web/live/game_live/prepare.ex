@@ -833,7 +833,15 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # Categories are managed in place on this page now — no edit-page round-trip.
   defp step_link(:categories, _game), do: nil
 
-  defp step_link(_id, game), do: %{href: ~p"/games/#{game}/edit", label: "Manage on edit page"}
+  # BGG is edited in the details tab. Pin the tab explicitly — without it the
+  # edit page restores whatever tab the admin last used (e.g. the cheat sheet).
+  defp step_link(:bgg, game),
+    do: %{href: ~p"/games/#{game}/edit?#{%{tab: "details"}}", label: "Manage on edit page"}
+
+  # The required ladder (source/extract/review/cleanup/embed) is managed on the
+  # Manage Rulebooks tab.
+  defp step_link(_id, game),
+    do: %{href: ~p"/games/#{game}/edit?#{%{tab: "manage"}}", label: "Manage on edit page"}
 
   # bgg_data is an unstructured BGG payload — surface only its scalar fields as a
   # compact key/value list, truncated, so we don't have to know the shape.
