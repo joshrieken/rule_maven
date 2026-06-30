@@ -245,13 +245,18 @@ defmodule RuleMaven.Voices do
     system = RuleMaven.Prompts.template("voice_restyle_system")
     prompt = RuleMaven.Prompts.render("voice_restyle", %{style: style, answer: canonical})
 
-    do_generate(prompt, system, id, game_name, game_id, @restyle_max_tokens)
+    do_generate(prompt, system, id, game_name, game_id, canonical, @restyle_max_tokens)
   end
 
-  # Reject a truncated restyle rather than cache a partial. On the first cut-off,
-  # retry once at a higher cap; a second truncation returns {:error, :truncated}
-  # so nothing partial is stored.
-  defp do_generate(prompt, system, id, game_name, game_id, cap) do
+  # Reject an incomplete restyle rather than cache it. Two failure modes:
+  #   * truncated   — provider cut off at the token cap (finish_reason).
+  #   * dropped      — a misbehaving model returns a short stub that silently
+  #                    discards the answer (e.g. "Request received. Awaiting
+  #                    resolution."); finish_reason is "stop", so only a length
+  #                    sanity check catches it.
+  # Either way, retry once at a higher cap; a second failure returns an error so
+  # nothing partial/garbage is stored.
+  defp do_generate(prompt, system, id, game_name, game_id, canonical, cap) do
     result =
       LLM.chat(prompt, "voice_#{id}_#{game_name}",
         operation: "voice",
@@ -261,13 +266,40 @@ defmodule RuleMaven.Voices do
         reject_truncated: true
       )
 
+    retry? = cap < @restyle_max_tokens_retry
+
     case result do
-      {:error, :truncated} when cap < @restyle_max_tokens_retry ->
-        do_generate(prompt, system, id, game_name, game_id, @restyle_max_tokens_retry)
+      {:ok, content} ->
+        cond do
+          plausible_restyle?(content, canonical) -> {:ok, content}
+          retry? -> retry(prompt, system, id, game_name, game_id, canonical)
+          true -> {:error, :incomplete_restyle}
+        end
+
+      {:error, :truncated} when retry? ->
+        retry(prompt, system, id, game_name, game_id, canonical)
 
       other ->
         other
     end
+  end
+
+  defp retry(prompt, system, id, game_name, game_id, canonical) do
+    do_generate(prompt, system, id, game_name, game_id, canonical, @restyle_max_tokens_retry)
+  end
+
+  @doc false
+  # Test seam for the restyle sanity check.
+  def __plausible_restyle__(content, canonical), do: plausible_restyle?(content, canonical)
+
+  # A restyle keeps the same facts, so it should be roughly the canonical's
+  # length. Far shorter means the model dropped the answer — reject it. The 0.5
+  # floor tolerates light compression while catching stubs (the camp-director
+  # bug was ~5% of the answer's length).
+  defp plausible_restyle?(content, canonical) do
+    canon_len = canonical |> to_string() |> String.trim() |> String.length()
+    content_len = content |> to_string() |> String.trim() |> String.length()
+    content_len >= round(canon_len * 0.5)
   end
 
   defp store(question_log_id, voice, content) do

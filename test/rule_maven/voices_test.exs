@@ -177,4 +177,24 @@ defmodule RuleMaven.VoicesTest do
       assert Repo.get_by(GameVoice, game_id: g.id, slug: "rogue")
     end
   end
+
+  describe "__plausible_restyle__/2 (dropped-answer guard)" do
+    @answer "During a turn the active player may play any cards, buy from the display, then discard, draw, and pass to the next player in clockwise order."
+
+    test "rejects a stub that dropped the answer" do
+      refute Voices.__plausible_restyle__("Request received. Awaiting resolution.", @answer)
+    end
+
+    test "accepts a same-length in-character restyle" do
+      styled =
+        "Attention campers! On your turn you may play any cards, buy from the display, then discard, draw, and pass clockwise to the next camper."
+
+      assert Voices.__plausible_restyle__(styled, @answer)
+    end
+
+    test "tolerates light compression (>= 50%)" do
+      half = String.slice(@answer, 0, round(String.length(@answer) * 0.6))
+      assert Voices.__plausible_restyle__(half, @answer)
+    end
+  end
 end
