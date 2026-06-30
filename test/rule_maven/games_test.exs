@@ -320,4 +320,100 @@ defmodule RuleMaven.GamesTest do
       refute Enum.any?(Games.list_games_with_documents(), &(&1.id == game.id))
     end
   end
+
+  describe "find_user_duplicate/4" do
+    setup do
+      {:ok, game} = Games.create_game(%{name: "DupGame"})
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "dup_user",
+          email: "dup@test.com",
+          password_hash: "x"
+        })
+
+      %{game: game, user: user}
+    end
+
+    test "matches the user's own prior answer by normalized text", %{game: game, user: user} do
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "How many CARDS do I draw?",
+          answer: "Draw 2 cards.",
+          cleaned_question: "how many cards do i draw",
+          visibility: "private"
+        })
+
+      assert {%{id: id}, _tier} =
+               Games.find_user_duplicate(game.id, user.id, "how many cards do i draw", "anything")
+
+      assert id == q.id
+    end
+
+    test "falls back to raw question when cleaned_question is nil", %{game: game, user: user} do
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "How many cards do I draw?",
+          answer: "Draw 2 cards.",
+          visibility: "private"
+        })
+
+      assert {%{id: id}, _} =
+               Games.find_user_duplicate(game.id, user.id, "noncanon", "how many cards do i draw?")
+
+      assert id == q.id
+    end
+
+    test "ignores another user's matching row", %{game: game, user: user} do
+      other =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "other",
+          email: "other@test.com",
+          password_hash: "x"
+        })
+
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: other.id,
+        question: "How many cards do I draw?",
+        answer: "Draw 2 cards.",
+        cleaned_question: "how many cards do i draw",
+        visibility: "community"
+      })
+
+      assert Games.find_user_duplicate(game.id, user.id, "how many cards do i draw", "x") == nil
+    end
+
+    test "ignores refused, needs_review, and Thinking... rows", %{game: game, user: user} do
+      for attrs <- [
+            %{refused: true},
+            %{needs_review: true},
+            %{answer: "Thinking..."}
+          ] do
+        Games.log_question(
+          Map.merge(
+            %{
+              game_id: game.id,
+              user_id: user.id,
+              question: "Q",
+              answer: "A",
+              cleaned_question: "skip me",
+              visibility: "private"
+            },
+            attrs
+          )
+        )
+      end
+
+      assert Games.find_user_duplicate(game.id, user.id, "skip me", "Q") == nil
+    end
+
+    test "returns nil when user_id is nil", %{game: game} do
+      assert Games.find_user_duplicate(game.id, nil, "anything", "anything") == nil
+    end
+  end
 end
