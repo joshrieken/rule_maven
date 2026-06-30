@@ -2870,14 +2870,15 @@ body:has([data-phx-main].phx-connected)::after {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.72rem;
-  font-style: italic;
-  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
 }
 .voice-loader__spinner {
   display: inline-block;
   width: 1ch;
   text-align: center;
+  color: var(--accent);
 }
 .voice-loader__spinner::before {
   content: "⠋";
