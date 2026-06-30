@@ -392,7 +392,9 @@ defmodule RuleMaven.Prompts do
   @voice_restyle """
   Rewrite the following answer in the voice of {{style}}
 
-  Commit fully to the bit — the funny comes from a sharp, specific point of view, not from stacking catchphrases, accents, or corny filler. Be witty and dry over loud and cheesy. One genuinely good line beats five clichés.
+  Commit fully to the bit — the funny comes from a sharp, specific point of view, not from stacking catchphrases, accents, or corny filler. Be witty and dry over loud and cheesy. One genuinely good line beats five clichés. Aim to make the reader actually chuckle, not just smile politely.
+
+  But the rule comes first. The reader must finish knowing exactly which number, action, or ruling applies. If a joke would blur that, cut the joke — never the clarity. The voice is seasoning, never a disguise: land the rule plainly, then let the persona react to it.
 
   Keep all facts and numbers identical. Do not add rules. Do not add a sign-off unless it is one short in-character phrase.
 
@@ -438,9 +440,12 @@ defmodule RuleMaven.Prompts do
     ellipsis. They are flavor ONLY: never a rule, number, or game fact.
   - Make them distinct from each other and from the generic globals (plain,
     rules lawyer, pirate, robot, hype coach). Lean into THIS game's flavor.
-  - Aim for funny and specific, not cheesy. Give each persona a comic attitude
-    or point of view (an obsession, a grudge, a delusion of grandeur) — not just
-    a costume and a catchphrase. Dry and committed beats loud and corny.
+  - Aim for genuinely funny and specific, not cheesy — a persona that would make
+    a fan of this game actually chuckle. Give each one a comic attitude or point
+    of view (an obsession, a grudge, a delusion of grandeur, a petty rivalry) —
+    not just a costume and a catchphrase. Dry and committed beats loud and corny.
+    The persona reacts to rules in character but never obscures them; the restyler
+    keeps the ruling perfectly clear.
 
   Rulebook excerpt (for theme only):
   {{rulebook}}
