@@ -416,4 +416,68 @@ defmodule RuleMaven.GamesTest do
       assert Games.find_user_duplicate(game.id, nil, "anything", "anything") == nil
     end
   end
+
+  describe "find_user_similar/4" do
+    setup do
+      {:ok, game} = Games.create_game(%{name: "SimGame"})
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "sim_user",
+          email: "sim@test.com",
+          password_hash: "x"
+        })
+
+      # Stored row's embedding is the unit axis e0 = [1.0, 0.0, 0.0, ...].
+      e0 = [1.0 | List.duplicate(0.0, 767)]
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "stored q",
+          answer: "stored answer",
+          visibility: "private"
+        })
+
+      Repo.update_all(
+        from(ql in RuleMaven.Games.QuestionLog, where: ql.id == ^q.id),
+        set: [question_embedding: Pgvector.new(e0)]
+      )
+
+      %{game: game, user: user, q: q}
+    end
+
+    test "hits on an embedding within the tight threshold", %{game: game, user: user, q: q} do
+      e0 = [1.0 | List.duplicate(0.0, 767)]
+      assert {%{id: id}, _tier} = Games.find_user_similar(game.id, user.id, e0)
+      assert id == q.id
+    end
+
+    # cos=0.93 query: distance 0.07 — inside the pool's 0.08 ceiling but OUTSIDE
+    # the stricter same-user 0.05 ceiling, so it must NOT match by default.
+    test "misses when distance exceeds the tight threshold but is within pool's", %{
+      game: game,
+      user: user
+    } do
+      cos = 0.93
+      q_vec = [cos, :math.sqrt(1.0 - cos * cos) | List.duplicate(0.0, 766)]
+      assert Games.find_user_similar(game.id, user.id, q_vec) == nil
+    end
+
+    test "the same near-miss DOES match once the threshold is loosened", %{game: game, user: user} do
+      RuleMaven.Settings.put("user_dup_similarity_threshold", "0.90")
+      on_exit(fn -> RuleMaven.Settings.delete("user_dup_similarity_threshold") end)
+
+      cos = 0.93
+      q_vec = [cos, :math.sqrt(1.0 - cos * cos) | List.duplicate(0.0, 766)]
+      assert {_row, _tier} = Games.find_user_similar(game.id, user.id, q_vec)
+    end
+
+    test "returns nil for nil user_id or nil embedding", %{game: game, user: user} do
+      e0 = [1.0 | List.duplicate(0.0, 767)]
+      assert Games.find_user_similar(game.id, nil, e0) == nil
+      assert Games.find_user_similar(game.id, user.id, nil) == nil
+    end
+  end
 end
