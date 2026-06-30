@@ -23,46 +23,65 @@ defmodule RuleMaven.Workers.VoiceWorker do
         args: %{"question_log_id" => ql_id, "voice" => voice, "game_id" => game_id}
       }) do
     ql = Games.get_question_log(ql_id)
+    canonical = ql && (ql.canonical_answer || ql.answer)
 
-    if ql do
-      game = Games.get_game!(game_id)
-      canonical = ql.canonical_answer || ql.answer
+    cond do
+      is_nil(ql) ->
+        :ok
 
-      run =
-        Jobs.start_run("voice", {"question", ql_id}, "Voice “#{voice}” — #{game.name}",
-          oban_job_id: oban_id
+      # Never restyle a non-final answer: restyling the in-flight "Thinking..."
+      # placeholder (or a blank/refused row) yields a garbage stub that silently
+      # replaces the answer. The restyle is re-enqueued once the real answer
+      # lands. This is the durable guard behind the LiveView-side skip.
+      not final_answer?(canonical) or ql.refused ->
+        :ok
+
+      true ->
+        do_restyle(ql, canonical, voice, game_id, oban_id)
+    end
+  end
+
+  defp final_answer?(text) do
+    t = text |> to_string() |> String.trim()
+    t != "" and t != "Thinking..."
+  end
+
+  defp do_restyle(ql, canonical, voice, game_id, oban_id) do
+    ql_id = ql.id
+    game = Games.get_game!(game_id)
+
+    run =
+      Jobs.start_run("voice", {"question", ql_id}, "Voice “#{voice}” — #{game.name}",
+        oban_job_id: oban_id
+      )
+
+    Jobs.event(run, :info, "Restyling the answer in the “#{voice}” voice…")
+
+    case Voices.restyle(ql_id, voice, canonical, game) do
+      {:ok, content} ->
+        Phoenix.PubSub.broadcast(
+          RuleMaven.PubSub,
+          "game:#{game_id}",
+          {:voice_ready, ql_id, voice, content}
         )
 
-      Jobs.event(run, :info, "Restyling the answer in the “#{voice}” voice…")
+        Jobs.finish_run(
+          run,
+          "done",
+          "Restyled as “#{voice}” (#{String.length(content)} chars)."
+        )
 
-      case Voices.restyle(ql_id, voice, canonical, game) do
-        {:ok, content} ->
-          Phoenix.PubSub.broadcast(
-            RuleMaven.PubSub,
-            "game:#{game_id}",
-            {:voice_ready, ql_id, voice, content}
-          )
+        :ok
 
-          Jobs.finish_run(
-            run,
-            "done",
-            "Restyled as “#{voice}” (#{String.length(content)} chars)."
-          )
+      {:error, reason} ->
+        Phoenix.PubSub.broadcast(
+          RuleMaven.PubSub,
+          "game:#{game_id}",
+          {:voice_failed, ql_id, voice}
+        )
 
-          :ok
-
-        {:error, reason} ->
-          Phoenix.PubSub.broadcast(
-            RuleMaven.PubSub,
-            "game:#{game_id}",
-            {:voice_failed, ql_id, voice}
-          )
-
-          Jobs.finish_run(run, "failed", inspect(reason))
-          {:error, reason}
-      end
-    else
-      :ok
+        Jobs.finish_run(run, "failed", inspect(reason))
+        {:error, reason}
     end
   end
 end

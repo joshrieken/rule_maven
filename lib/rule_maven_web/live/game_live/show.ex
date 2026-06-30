@@ -363,7 +363,13 @@ defmodule RuleMavenWeb.GameLive.Show do
       socket
     else
       socket.assigns.conversation
-      |> Enum.filter(&(&1[:role] == :assistant && &1[:id]))
+      # Only restyle FINAL answers. Restyling the in-flight "Thinking..."
+      # placeholder produces a garbage stub (the model restyles the placeholder
+      # text), so skip pending / non-final rows — they get restyled on
+      # :ask_complete once the real answer lands.
+      |> Enum.filter(
+        &(&1[:role] == :assistant && &1[:id] && !&1[:pending] && &1[:content] != "Thinking...")
+      )
       |> Enum.map(& &1[:id])
       |> Enum.uniq()
       |> Enum.reduce(socket, fn id, acc ->
