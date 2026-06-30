@@ -244,7 +244,9 @@ defmodule RuleMaven.Voices do
       operation: "voice",
       game_id: game_id,
       system: system,
-      max_tokens: 700
+      # Canonical answers run up to ~1024 tokens (the ask cap) and a persona adds
+      # framing words on top, so 700 truncated longer restyles mid-sentence.
+      max_tokens: 1536
     )
   end
 
