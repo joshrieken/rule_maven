@@ -697,13 +697,32 @@ defmodule RuleMavenWeb.GameLive.Prepare do
             <li :for={f <- @preview} style="margin-bottom:0.25rem">{to_string(f)}</li>
           </ul>
         <% :voices -> %>
-          <div style="display:flex;flex-wrap:wrap;gap:0.4rem">
-            <span
+          <div style="display:flex;flex-direction:column;gap:0.6rem">
+            <div
               :for={v <- @preview}
-              style="display:inline-flex;align-items:center;gap:0.25rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:1rem;padding:0.15rem 0.55rem;font-size:0.74rem;font-weight:600"
+              style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.55rem"
             >
-              <span>{v.emoji}</span>{v.label}
-            </span>
+              <div style="display:flex;align-items:center;gap:0.35rem;font-size:0.8rem;font-weight:700">
+                <span>{v.emoji}</span>{v.label}
+              </div>
+              <div :if={present_preview?(v[:style])} style="font-size:0.72rem;color:var(--text-muted);margin-top:0.15rem">
+                {v.style}
+              </div>
+              <%= if present_preview?(v[:loading_phrases]) do %>
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-top:0.35rem">
+                  <span
+                    :for={p <- v.loading_phrases}
+                    style="background:var(--bg-surface);border:1px solid var(--border);border-radius:1rem;padding:0.05rem 0.45rem;font-size:0.68rem;color:var(--text-secondary)"
+                  >
+                    {p}
+                  </span>
+                </div>
+              <% else %>
+                <div style="font-size:0.68rem;color:var(--text-muted);font-style:italic;margin-top:0.3rem">
+                  No themed loading phrases yet — uses the generic pool. Re-run to generate.
+                </div>
+              <% end %>
+            </div>
           </div>
         <% :theme -> %>
           <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
