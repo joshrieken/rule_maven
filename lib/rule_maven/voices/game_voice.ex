@@ -17,6 +17,7 @@ defmodule RuleMaven.Voices.GameVoice do
     field :label, :string
     field :emoji, :string
     field :style, :string
+    field :loading_phrases, {:array, :string}, default: []
     # "generated" (rulebook-derived) — leaves room for hand-authored later.
     field :source, :string, default: "generated"
     field :position, :integer, default: 0
@@ -27,7 +28,7 @@ defmodule RuleMaven.Voices.GameVoice do
 
   def changeset(gv, attrs) do
     gv
-    |> cast(attrs, [:game_id, :slug, :label, :emoji, :style, :source, :position])
+    |> cast(attrs, [:game_id, :slug, :label, :emoji, :style, :loading_phrases, :source, :position])
     |> validate_required([:game_id, :slug, :label, :emoji, :style])
     |> unique_constraint([:game_id, :slug])
   end

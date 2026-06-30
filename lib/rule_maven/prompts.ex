@@ -392,9 +392,13 @@ defmodule RuleMaven.Prompts do
   @voice_restyle """
   Rewrite the following answer in the voice of {{style}}
 
-  Commit fully to the bit — the funny comes from a sharp, specific point of view, not from stacking catchphrases, accents, or corny filler. Be witty and dry over loud and cheesy. One genuinely good line beats five clichés.
+  Commit fully to the bit — the funny comes from a sharp, specific point of view, not from stacking catchphrases, accents, or corny filler. Be witty and dry over loud and cheesy. One genuinely good line beats five clichés. Aim to make the reader actually chuckle, not just smile politely.
+
+  But the rule comes first. The reader must finish knowing exactly which number, action, or ruling applies. If a joke would blur that, cut the joke — never the clarity. The voice is seasoning, never a disguise: land the rule plainly, then let the persona react to it.
 
   Keep all facts and numbers identical. Do not add rules. Do not add a sign-off unless it is one short in-character phrase.
+
+  Stay about as long as the original — no padding. The persona changes the tone, not the word count; never inflate the answer to perform the character.
 
   ANSWER:
   {{answer}}
@@ -420,7 +424,8 @@ defmodule RuleMaven.Prompts do
       "slug": "kebab-case-stable-id",
       "label": "Short Display Name",
       "emoji": "🙂",
-      "style": "a one-sentence description of how this persona talks, in the same form as 'a swashbuckling pirate who uses nautical slang.'"
+      "style": "a one-sentence description of how this persona talks, in the same form as 'a swashbuckling pirate who uses nautical slang.'",
+      "loading_phrases": ["Hoisting the sails…", "Counting the doubloons…", "Sighing at landlubbers…", "Polishing the anchor…"]
     }
   ]
 
@@ -431,11 +436,18 @@ defmodule RuleMaven.Prompts do
   - "style" describes ONLY tone/voice (vocabulary, cadence, catchphrases). It
     must NOT contain any rule, number, or game fact — the restyler keeps facts
     unchanged and only borrows the voice.
+  - "loading_phrases" is an array of 4-6 very short (≤ 5 words) in-character
+    "loading screen" status lines for THIS persona — playful nonsense in the
+    spirit of old SimCity loaders ("Reticulating splines…"), each ending with an
+    ellipsis. They are flavor ONLY: never a rule, number, or game fact.
   - Make them distinct from each other and from the generic globals (plain,
     rules lawyer, pirate, robot, hype coach). Lean into THIS game's flavor.
-  - Aim for funny and specific, not cheesy. Give each persona a comic attitude
-    or point of view (an obsession, a grudge, a delusion of grandeur) — not just
-    a costume and a catchphrase. Dry and committed beats loud and corny.
+  - Aim for genuinely funny and specific, not cheesy — a persona that would make
+    a fan of this game actually chuckle. Give each one a comic attitude or point
+    of view (an obsession, a grudge, a delusion of grandeur, a petty rivalry) —
+    not just a costume and a catchphrase. Dry and committed beats loud and corny.
+    The persona reacts to rules in character but never obscures them; the restyler
+    keeps the ruling perfectly clear.
 
   Rulebook excerpt (for theme only):
   {{rulebook}}

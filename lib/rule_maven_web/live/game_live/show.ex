@@ -2031,11 +2031,22 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <% v_pending = MapSet.member?(@voice_pending, {msg[:id], v_sel}) %>
                       <div class="answer-in">
                         <%= if v_pending && is_nil(v_content) do %>
-                          <div style="font-size:0.68rem;opacity:0.7;font-style:italic;margin-bottom:0.3rem;color:var(--text-muted)">
-                            🎭 putting it in character…
+                          <div
+                            class="voice-loader"
+                            id={"voice-loader-#{msg[:id]}"}
+                            phx-hook="VoiceLoader"
+                            phx-update="ignore"
+                            data-phrases={Jason.encode!(RuleMaven.Voices.loading_phrases(v_sel, @game))}
+                          >
+                            <div class="voice-loader__row">
+                              <span class="voice-loader__spinner" aria-hidden="true"></span>
+                              <span class="voice-loader__phrase">Reticulating splines…</span>
+                            </div>
+                            <div class="voice-loader__bar"><div class="voice-loader__fill"></div></div>
                           </div>
+                        <% else %>
+                          {render_markdown(v_content || msg.content)}
                         <% end %>
-                        {render_markdown(v_content || msg.content)}
                       </div>
                     <% end %>
                   </div>
@@ -2049,10 +2060,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                           Rulebook &middot; p.{msg.cited_page}
                         </figcaption>
                       <% end %>
-                      <blockquote
-                        style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 50%,transparent)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 92%,transparent)", else: "var(--text)"}"}
-                        phx-no-format
-                      >{String.trim(msg.cited_passage)}</blockquote>
+                      <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 50%,transparent)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;word-break:break-word;color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 92%,transparent)", else: "var(--text)"}"}>
+                        {render_markdown(String.trim(msg.cited_passage))}
+                      </blockquote>
                       <%= if msg[:cited_html_link] do %>
                         <div style="padding:0 0.7rem 0.5rem 0.85rem">
                           <.link href={msg.cited_html_link} target="_blank" class="action-link">

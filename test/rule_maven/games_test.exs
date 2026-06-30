@@ -320,4 +320,164 @@ defmodule RuleMaven.GamesTest do
       refute Enum.any?(Games.list_games_with_documents(), &(&1.id == game.id))
     end
   end
+
+  describe "find_user_duplicate/4" do
+    setup do
+      {:ok, game} = Games.create_game(%{name: "DupGame"})
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "dup_user",
+          email: "dup@test.com",
+          password_hash: "x"
+        })
+
+      %{game: game, user: user}
+    end
+
+    test "matches the user's own prior answer by normalized text", %{game: game, user: user} do
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "How many CARDS do I draw?",
+          answer: "Draw 2 cards.",
+          cleaned_question: "how many cards do i draw",
+          visibility: "private"
+        })
+
+      assert {%{id: id}, _tier} =
+               Games.find_user_duplicate(game.id, user.id, "how many cards do i draw", "anything")
+
+      assert id == q.id
+    end
+
+    test "falls back to raw question when cleaned_question is nil", %{game: game, user: user} do
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "How many cards do I draw?",
+          answer: "Draw 2 cards.",
+          visibility: "private"
+        })
+
+      assert {%{id: id}, _} =
+               Games.find_user_duplicate(game.id, user.id, "noncanon", "how many cards do i draw?")
+
+      assert id == q.id
+    end
+
+    test "ignores another user's matching row", %{game: game, user: user} do
+      other =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "other",
+          email: "other@test.com",
+          password_hash: "x"
+        })
+
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: other.id,
+        question: "How many cards do I draw?",
+        answer: "Draw 2 cards.",
+        cleaned_question: "how many cards do i draw",
+        visibility: "community"
+      })
+
+      assert Games.find_user_duplicate(game.id, user.id, "how many cards do i draw", "x") == nil
+    end
+
+    test "ignores refused, needs_review, and Thinking... rows", %{game: game, user: user} do
+      for attrs <- [
+            %{refused: true},
+            %{needs_review: true},
+            %{answer: "Thinking..."}
+          ] do
+        Games.log_question(
+          Map.merge(
+            %{
+              game_id: game.id,
+              user_id: user.id,
+              question: "Q",
+              answer: "A",
+              cleaned_question: "skip me",
+              visibility: "private"
+            },
+            attrs
+          )
+        )
+      end
+
+      assert Games.find_user_duplicate(game.id, user.id, "skip me", "Q") == nil
+    end
+
+    test "returns nil when user_id is nil", %{game: game} do
+      assert Games.find_user_duplicate(game.id, nil, "anything", "anything") == nil
+    end
+  end
+
+  describe "find_user_similar/4" do
+    setup do
+      {:ok, game} = Games.create_game(%{name: "SimGame"})
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "sim_user",
+          email: "sim@test.com",
+          password_hash: "x"
+        })
+
+      # Stored row's embedding is the unit axis e0 = [1.0, 0.0, 0.0, ...].
+      e0 = [1.0 | List.duplicate(0.0, 767)]
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "stored q",
+          answer: "stored answer",
+          visibility: "private"
+        })
+
+      Repo.update_all(
+        from(ql in RuleMaven.Games.QuestionLog, where: ql.id == ^q.id),
+        set: [question_embedding: Pgvector.new(e0)]
+      )
+
+      %{game: game, user: user, q: q}
+    end
+
+    test "hits on an embedding within the tight threshold", %{game: game, user: user, q: q} do
+      e0 = [1.0 | List.duplicate(0.0, 767)]
+      assert {%{id: id}, _tier} = Games.find_user_similar(game.id, user.id, e0)
+      assert id == q.id
+    end
+
+    # cos=0.93 query: distance 0.07 — inside the pool's 0.08 ceiling but OUTSIDE
+    # the stricter same-user 0.05 ceiling, so it must NOT match by default.
+    test "misses when distance exceeds the tight threshold but is within pool's", %{
+      game: game,
+      user: user
+    } do
+      cos = 0.93
+      q_vec = [cos, :math.sqrt(1.0 - cos * cos) | List.duplicate(0.0, 766)]
+      assert Games.find_user_similar(game.id, user.id, q_vec) == nil
+    end
+
+    test "the same near-miss DOES match once the threshold is loosened", %{game: game, user: user} do
+      RuleMaven.Settings.put("user_dup_similarity_threshold", "0.90")
+      on_exit(fn -> RuleMaven.Settings.delete("user_dup_similarity_threshold") end)
+
+      cos = 0.93
+      q_vec = [cos, :math.sqrt(1.0 - cos * cos) | List.duplicate(0.0, 766)]
+      assert {_row, _tier} = Games.find_user_similar(game.id, user.id, q_vec)
+    end
+
+    test "returns nil for nil user_id or nil embedding", %{game: game, user: user} do
+      e0 = [1.0 | List.duplicate(0.0, 767)]
+      assert Games.find_user_similar(game.id, nil, e0) == nil
+      assert Games.find_user_similar(game.id, user.id, nil) == nil
+    end
+  end
 end

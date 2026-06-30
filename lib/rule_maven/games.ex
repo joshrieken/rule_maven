@@ -1692,6 +1692,76 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
+  The asker's own most-recent reusable answer for an exact (normalized) repeat of
+  their question — independent of pooling and the embedding threshold, so a
+  repeat always collapses to one Q&A even when the first answer never pooled.
+
+  Eligible rows: same `user_id` and `game_id`, not refused/blocked/needs_review,
+  a real answer (not the in-flight "Thinking..." sentinel), and a normalized-text
+  match (`cleaned_question == cleaned`, case-insensitive; or `question == raw`
+  when `cleaned_question` is null). Returns `{row, tier}` or nil; nil when
+  `user_id` is nil.
+  """
+  def find_user_duplicate(_game_id, nil, _cleaned, _raw), do: nil
+
+  def find_user_duplicate(game_id, user_id, cleaned, raw) do
+    cleaned = String.downcase(to_string(cleaned))
+    raw = String.downcase(to_string(raw))
+
+    row =
+      Repo.one(
+        from q in QuestionLog,
+          where: q.game_id == ^game_id and q.user_id == ^user_id,
+          where: q.refused == false and q.blocked == false and q.needs_review == false,
+          where: q.answer != "Thinking..." and not is_nil(q.answer),
+          where:
+            fragment("lower(?) = ?", q.cleaned_question, ^cleaned) or
+              (is_nil(q.cleaned_question) and fragment("lower(?) = ?", q.question, ^raw)),
+          order_by: [desc: q.inserted_at, desc: q.id],
+          limit: 1
+      )
+
+    case row do
+      nil -> nil
+      q -> {q, pool_tier(q)}
+    end
+  end
+
+  @doc """
+  Same-user semantic fallback: the asker's own closest prior answer above a
+  STRICTER similarity floor than the shared pool (`user_dup_similarity_threshold`,
+  default 0.95). Stricter because same-user history has no curation/trust gate —
+  a loose match would serve a wrong answer with nothing behind it. Returns
+  `{row, tier}` or nil; nil when `user_id` or `embedding` is nil.
+  """
+  def find_user_similar(game_id, user_id, embedding, opts \\ [])
+  def find_user_similar(_game_id, nil, _embedding, _opts), do: nil
+  def find_user_similar(_game_id, _user_id, nil, _opts), do: nil
+
+  def find_user_similar(game_id, user_id, embedding, opts) do
+    threshold = Keyword.get(opts, :threshold, user_dup_distance_threshold())
+    vec = Pgvector.new(embedding)
+
+    row =
+      Repo.one(
+        from q in QuestionLog,
+          where: q.game_id == ^game_id and q.user_id == ^user_id,
+          where: q.refused == false and q.blocked == false and q.needs_review == false,
+          where: q.answer != "Thinking..." and not is_nil(q.answer),
+          where: not is_nil(q.question_embedding),
+          where:
+            fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec) <= ^threshold,
+          order_by: [asc: fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec)],
+          limit: 1
+      )
+
+    case row do
+      nil -> nil
+      q -> {q, pool_tier(q)}
+    end
+  end
+
+  @doc """
   Classifies a pooled row as `:trusted` (community-promoted, admin-verified, or
   above the trust floor) or `:provisional` (citation-backed but unreviewed).
   """
@@ -1737,6 +1807,7 @@ defmodule RuleMaven.Games do
   def mark_pooled(%QuestionLog{} = q), do: q
 
   @default_pool_similarity 0.92
+  @default_user_dup_similarity 0.95
 
   # Cosine distance ceiling for a pool hit, derived from the configured
   # similarity floor (distance = 1 - similarity).
@@ -1755,6 +1826,22 @@ defmodule RuleMaven.Games do
               {f, _} -> f
               :error -> @default_pool_similarity
             )
+      end
+
+    1.0 - sim
+  end
+
+  # Cosine distance ceiling for a same-user semantic hit. Stricter than the pool.
+  defp user_dup_distance_threshold do
+    sim =
+      case RuleMaven.Settings.get("user_dup_similarity_threshold") do
+        nil -> @default_user_dup_similarity
+        "" -> @default_user_dup_similarity
+        val ->
+          case Float.parse(val) do
+            {f, _} -> f
+            :error -> @default_user_dup_similarity
+          end
       end
 
     1.0 - sim

@@ -51,40 +51,61 @@ defmodule RuleMaven.LLM do
         {:error, _} -> nil
       end
 
+    user_id = opts[:user_id]
+
     # Pooled/community answers are rulebook-derived, so any asker may be served a
     # match — the lookup intentionally doesn't filter by user (no user_id passed).
     pool_hit =
       !skip_pool && question_embedding &&
         RuleMaven.Games.find_similar_question_in_pool(game.id, question_embedding)
 
+    # Same-user tiers: a returning asker is served their OWN prior answer even
+    # when it never pooled. Exact (normalized-text) dedup first, then a tight
+    # semantic fallback. Skipped when there's no signed-in asker or skip_pool.
+    user_exact =
+      !skip_pool && user_id &&
+        RuleMaven.Games.find_user_duplicate(game.id, user_id, match_text, question)
+
+    user_semantic =
+      !skip_pool && user_id && question_embedding &&
+        RuleMaven.Games.find_user_similar(game.id, user_id, question_embedding)
+
     cond do
       pool_hit ->
-        {row, tier} = pool_hit
-        RuleMaven.LLM.Savings.record_cache_hit("ask", game.id, opts[:user_id])
+        serve_from_cache(pool_hit, question_embedding, cleaned, game.id, user_id)
 
-        # Serve answer text only — never the source row's question wording or
-        # author. tier is :trusted | :provisional (unverified single source).
-        {:ok,
-         %{
-           answer: row.canonical_answer || row.answer,
-           cited_passage: row.cited_passage,
-           cited_page: row.cited_page,
-           verdict: row.verdict,
-           provider: "pool",
-           # Encode tier in the model field so it survives a page reload
-           # (the served row has no trust_score of its own to derive from).
-           model: if(tier == :trusted, do: "cached", else: "cached-unverified"),
-           pool_hit: true,
-           tier: tier,
-           verified: tier == :trusted,
-           source_question_log_id: row.id,
-           question_embedding: question_embedding,
-           cleaned_question: cleaned
-         }}
+      user_exact ->
+        serve_from_cache(user_exact, question_embedding, cleaned, game.id, user_id)
+
+      user_semantic ->
+        serve_from_cache(user_semantic, question_embedding, cleaned, game.id, user_id)
 
       true ->
         call_llm(game, match_text, expansion_ids, recent_context, question_embedding, cleaned)
     end
+  end
+
+  # Builds the cache-serving result from a `{row, tier}` and records the save.
+  # Serves answer text only — never the source row's question wording or author.
+  defp serve_from_cache({row, tier}, question_embedding, cleaned, game_id, user_id) do
+    RuleMaven.LLM.Savings.record_cache_hit("ask", game_id, user_id)
+
+    {:ok,
+     %{
+       answer: row.canonical_answer || row.answer,
+       cited_passage: row.cited_passage,
+       cited_page: row.cited_page,
+       verdict: row.verdict,
+       provider: "pool",
+       # Encode tier in the model field so it survives a page reload.
+       model: if(tier == :trusted, do: "cached", else: "cached-unverified"),
+       pool_hit: true,
+       tier: tier,
+       verified: tier == :trusted,
+       source_question_log_id: row.id,
+       question_embedding: question_embedding,
+       cleaned_question: cleaned
+     }}
   end
 
   defp call_llm(game, question, expansion_ids, recent_context, question_embedding, cleaned) do
@@ -148,12 +169,20 @@ defmodule RuleMaven.LLM do
   def normalize_question(game, question, recent_context \\ []) do
     raw = question |> to_string() |> String.trim()
 
+    # A literally identical re-ask is NOT a followup — normalize it standalone so
+    # it collapses onto the original's canonical form + embedding (and hits the
+    # cache) instead of being rewritten against the conversation.
+    repeat? =
+      Enum.any?(recent_context, fn {q, _a} ->
+        String.downcase(String.trim(to_string(q))) == String.downcase(raw)
+      end)
+
     cond do
       raw == "" ->
         raw
 
       # Followups resolve against the conversation — not cacheable by raw text.
-      recent_context != [] ->
+      recent_context != [] and not repeat? ->
         do_normalize(game, raw, recent_context)
 
       true ->
@@ -493,9 +522,33 @@ defmodule RuleMaven.LLM do
            game_id: opts[:game_id],
            user_id: opts[:user_id]
          ) do
-      {:ok, %{answer: text}} -> {:ok, text}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{answer: text} = res} ->
+        if opts[:reject_truncated] && truncated?(res[:finish_reason], text) do
+          {:error, :truncated}
+        else
+          {:ok, text}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  @doc false
+  # Test seam for the completeness check.
+  def __truncated__(finish_reason, text), do: truncated?(finish_reason, text)
+
+  # True when a response was cut off. The provider's finish_reason is
+  # authoritative ("length" / "max_tokens"); when it's absent, fall back to a
+  # conservative heuristic — text that ends mid-sentence (no terminal
+  # punctuation) is treated as incomplete.
+  defp truncated?(reason, _text) when reason in ["length", "max_tokens"], do: true
+  defp truncated?(nil, text), do: incomplete_text?(text)
+  defp truncated?(_reason, _text), do: false
+
+  defp incomplete_text?(text) do
+    trimmed = text |> to_string() |> String.trim_trailing()
+    trimmed != "" and not Regex.match?(~r/[.!?…)\]"”'`*]$/u, trimmed)
   end
 
   @doc false
@@ -691,8 +744,16 @@ defmodule RuleMaven.LLM do
 
   defp parse_response(body) do
     case body do
-      %{"choices" => [%{"message" => %{"content" => content}} | _]} ->
-        {:ok, content |> decode_answer() |> Map.put(:raw_response, content)}
+      %{"choices" => [%{"message" => %{"content" => content}} = choice | _]} ->
+        # finish_reason == "length" (or Anthropic "max_tokens") means the model was
+        # cut off at the token cap — surfaced so callers can reject a partial.
+        finish_reason = choice["finish_reason"] || body["stop_reason"]
+
+        {:ok,
+         content
+         |> decode_answer()
+         |> Map.put(:raw_response, content)
+         |> Map.put(:finish_reason, finish_reason)}
 
       %{"error" => %{"message" => message}} ->
         {:error, message}
@@ -1264,12 +1325,19 @@ defmodule RuleMaven.LLM do
     prompt =
       RuleMaven.Prompts.render("generate_voices", %{
         game_name: game_name,
-        rulebook: sample_across(rulebook_text, 6000, 2000)
+        # A contiguous head excerpt, not sample_across's fragmented "\n...\n"
+        # windows: the flash model reliably returns an EMPTY completion for the
+        # fragmented input here, while a contiguous excerpt yields a full themed
+        # set. Theme/flavor is front-loaded in rulebooks, so the head is enough.
+        rulebook: String.slice(rulebook_text, 0, 8000)
       })
 
     case chat(prompt, "generate_voices",
            system: RuleMaven.Prompts.template("generate_voices_system"),
-           max_tokens: 1200
+           # Each voice now carries 4-6 loading_phrases on top of its style, so
+           # a full 6-voice set needs noticeably more room. Too low and the JSON
+           # truncates mid-array → parse fails → no voices.
+           max_tokens: 2600
          ) do
       {:ok, text} ->
         {:ok, parse_voices(text)}
@@ -1302,18 +1370,34 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  @doc false
+  # Test seam for parse_voices/1.
+  def __parse_voices__(text), do: parse_voices(text)
+
   defp coerce_voice(%{"label" => label, "emoji" => emoji, "style" => style} = m)
        when is_binary(label) and is_binary(emoji) and is_binary(style) do
     label = String.trim(label)
     style = String.trim(style)
     slug = m |> Map.get("slug", label) |> to_string() |> slugify()
+    loading = m |> Map.get("loading_phrases", []) |> coerce_phrases()
 
     if label != "" and style != "" and slug != "" do
-      %{slug: slug, label: label, emoji: String.trim(emoji), style: style}
+      %{slug: slug, label: label, emoji: String.trim(emoji), style: style, loading_phrases: loading}
     end
   end
 
   defp coerce_voice(_), do: nil
+
+  # Keep only non-blank string phrases, trimmed, capped at 6.
+  defp coerce_phrases(list) when is_list(list) do
+    list
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.take(6)
+  end
+
+  defp coerce_phrases(_), do: []
 
   # Stable, namespace-safe slug: lowercase, non-alphanumerics → "-", trimmed.
   defp slugify(s) do
