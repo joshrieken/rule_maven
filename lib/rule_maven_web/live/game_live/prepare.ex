@@ -1054,7 +1054,11 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # return nil — the Prepare button drives those.
   defp step_action(%{state: :done}, _game), do: nil
   defp step_action(%{id: :source}, game), do: %{href: ~p"/games/#{game}/edit", label: "Upload"}
-  defp step_action(%{id: :review}, game), do: %{href: ~p"/games/#{game}/edit", label: "Review"}
+  # Only offer Review once there are extracted pages to review (state :pending).
+  # While extraction is still pending the step is :blocked — nothing to review.
+  defp step_action(%{id: :review, state: :pending}, game),
+    do: %{href: ~p"/games/#{game}/edit", label: "Review"}
+
   defp step_action(_step, _game), do: nil
 
   defp pause_message(%{pause_reason: "needs_source"} = assigns) do

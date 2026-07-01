@@ -79,6 +79,46 @@ defmodule RuleMavenWeb.PrepareRenderTest do
     assert has_element?(view, "button[phx-click=\"clean_all\"]")
   end
 
+  test "no Review link while the source is unextracted (review blocked)", %{conn: conn} do
+    admin = admin!("prep_noreview_admin")
+    game = game_fixture(%{name: "Unextracted Prep"})
+
+    {:ok, _doc} =
+      RuleMaven.Games.create_document(%{
+        game_id: game.id,
+        label: "Rulebook",
+        pdf_path: "uploads/rulebooks/x.pdf",
+        full_text: nil,
+        pages: [%{index: 0, sheet: 1, printed: 1, text: nil, cleaned: nil}]
+      })
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    refute has_element?(view, "a", "Review")
+  end
+
+  test "Review link shows once extracted with a low-confidence page", %{conn: conn} do
+    admin = admin!("prep_review_admin")
+    game = game_fixture(%{name: "Reviewable Prep"})
+
+    {:ok, _doc} =
+      RuleMaven.Games.create_document(%{
+        game_id: game.id,
+        label: "Rulebook",
+        pdf_path: "uploads/rulebooks/x.pdf",
+        full_text: "text",
+        # Extracted, but one page is below the confidence floor — review is now
+        # actionable (:pending), so the Review link should appear.
+        pages: [%{index: 0, sheet: 1, printed: 1, text: "text", cleaned: nil, confidence: 0.2}]
+      })
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    assert has_element?(view, "a", "Review")
+  end
+
   test "reset button is disabled with help text once questions exist", %{conn: conn} do
     admin = admin!("prep_noreset_admin")
     game = game_fixture(%{name: "Locked Game", bgg_id: 3344})
