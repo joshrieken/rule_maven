@@ -2828,7 +2828,7 @@ defmodule RuleMavenWeb.GameLive.Form do
               type="submit"
               disabled={@downloading}
               style="background:var(--accent);color:white;border:none;padding:0.4rem 0.875rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
-            >{if @downloading, do: "Downloading...", else: "Download & Extract"}</button>
+            >{if @downloading, do: "Downloading...", else: "Download"}</button>
           </form>
           <%= if @downloading do %>
             <div style="display:flex;align-items:center;gap:0.6rem;margin-top:0.6rem;font-size:0.8rem;color:var(--text-secondary)">
