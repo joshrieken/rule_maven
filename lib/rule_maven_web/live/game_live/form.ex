@@ -1232,16 +1232,16 @@ defmodule RuleMavenWeb.GameLive.Form do
           Enum.any?(pages, &(String.trim(Games.effective_page_text(&1)) != ""))
       end)
 
-    # Any pending PDF uploads are handed to the background extraction worker
-    # (same as the Upload button) rather than extracted inline — scanned PDFs
-    # OCR in the background instead of blocking this save.
+    # Copy any pending PDF uploads into place now (consume_uploaded_entries deletes
+    # the temp file once the callback returns). The source rows are created below,
+    # after save_game.
     upload_files =
       socket
       |> consume_uploaded_entries(:rulebook_pdfs, fn %{path: path}, entry ->
         label = entry.client_name |> Path.rootname() |> String.replace(~r/[_\-]/, " ")
 
         case save_uploaded_pdf(path, entry.client_name) do
-          {:ok, pdf_path} -> {:ok, {:ok, %{"pdf_path" => pdf_path, "label" => label}}}
+          {:ok, pdf_path} -> {:ok, {:ok, %{pdf_path: pdf_path, label: label}}}
           {:error, _} -> {:ok, :error}
         end
       end)
@@ -1250,14 +1250,17 @@ defmodule RuleMavenWeb.GameLive.Form do
         :error -> []
       end)
 
-    if upload_files != [] do
-      RuleMaven.Workers.DownloadWorker.enqueue_upload(socket.assigns.game.id, upload_files)
-    end
-
-    socket = if upload_files != [], do: assign(socket, uploading_pdfs: true), else: socket
     game = socket.assigns.game
-
     {:noreply, saved} = save_game(socket, game, game_params, Map.new(source_map))
+
+    # Ingest new uploads *after* save_game — it prunes existing sources not present
+    # in the form's source_map, so ingesting earlier would delete the ones we just
+    # added. Extraction is deferred, so this is a cheap synchronous save; the
+    # source rows exist before we navigate, so the prepare page never renders an
+    # empty pipeline.
+    Enum.each(upload_files, fn %{pdf_path: p, label: l} ->
+      RulebookDownloader.ingest_local(game, p, l)
+    end)
 
     # A save that brought in new PDF uploads lands on the prepare page (where the
     # Extract action lives), overriding save_game's default edit-page redirect.
@@ -1265,7 +1268,7 @@ defmodule RuleMavenWeb.GameLive.Form do
       {:noreply,
        saved
        |> push_navigate(to: ~p"/games/#{game}/prepare")
-       |> put_flash(:info, "Saved — run extraction from the prepare page.")}
+       |> put_flash(:info, "Saved — extract from the prepare page.")}
     else
       {:noreply, saved}
     end
@@ -1275,35 +1278,34 @@ defmodule RuleMavenWeb.GameLive.Form do
   def handle_event("process_uploads", _params, socket) do
     game = socket.assigns.game
 
-    # Only copy the uploaded file into place here (fast); the heavy extraction
-    # (incl. OCR for scanned PDFs, which can take minutes) runs in the durable
-    # DownloadWorker so it never blocks the LiveView. consume_uploaded_entries
-    # deletes the temp file when the callback returns, so the copy must happen
-    # now, not in the worker.
+    # Extraction is deferred to the prepare page, so ingesting an upload is just a
+    # file copy + a Document insert — cheap enough to do synchronously here. Doing
+    # it inline means the source row exists *before* we navigate, so the prepare
+    # page never renders an empty pipeline (no race). consume_uploaded_entries
+    # deletes the temp file when the callback returns, so the copy must happen now.
     results =
       consume_uploaded_entries(socket, :rulebook_pdfs, fn %{path: path}, entry ->
         label = entry.client_name |> Path.rootname() |> String.replace(~r/[_\-]/, " ")
 
-        case save_uploaded_pdf(path, entry.client_name) do
-          {:ok, pdf_path} -> {:ok, {:ok, %{"pdf_path" => pdf_path, "label" => label}}}
+        with {:ok, pdf_path} <- save_uploaded_pdf(path, entry.client_name),
+             {:ok, _src} <- RulebookDownloader.ingest_local(game, pdf_path, label) do
+          {:ok, {:ok, label}}
+        else
           {:error, reason} -> {:ok, {:error, "#{entry.client_name}: #{reason}"}}
         end
       end)
 
-    files = for {:ok, file} <- results, do: file
+    saved = for {:ok, _label} <- results, do: :ok
     errors = for {:error, msg} <- results, do: msg
 
     socket =
-      if files != [] do
-        RuleMaven.Workers.DownloadWorker.enqueue_upload(game.id, files)
-
+      if saved != [] do
         socket
-        |> assign(uploading_pdfs: true)
-        |> push_navigate(to: ~p"/games/#{game}/prepare")
         |> put_flash(
           :info,
-          "Saved #{length(files)} rulebook(s) — run extraction from the prepare page."
+          "Saved #{length(saved)} rulebook(s) — extract them from the prepare page."
         )
+        |> push_navigate(to: ~p"/games/#{game}/prepare")
       else
         socket
       end

@@ -50,9 +50,9 @@ defmodule RuleMavenWeb.FormUnextractedSourceTest do
     assert html =~ "Rulebook Sources"
   end
 
-  # After a rulebook is saved, the edit page sends the admin to the prepare page
-  # (extraction/generation is driven from there).
-  test "upload redirects to the prepare page", %{conn: conn} do
+  # A URL download finishes asynchronously; its {:download_done} broadcast sends
+  # the admin to the prepare page.
+  test "URL-download completion redirects to the prepare page", %{conn: conn} do
     admin = admin!("form_redirect_admin")
     game = unextracted_game()
     token = RuleMaven.Hashid.encode(game.id)
@@ -62,6 +62,32 @@ defmodule RuleMavenWeb.FormUnextractedSourceTest do
 
     send(view.pid, {:download_done, game.id, "uploads/rulebooks/x.pdf"})
 
+    assert_redirect(view, "/games/#{token}/prepare")
+  end
+
+  # A local PDF upload is ingested synchronously (extraction is deferred), so the
+  # source row exists before we navigate — the prepare page never renders an empty
+  # pipeline.
+  test "uploading a PDF ingests the source synchronously, then redirects to prepare",
+       %{conn: conn} do
+    admin = admin!("form_upload_admin")
+    # min_players → bgg_synced, so the editor (and its upload UI) renders.
+    game = game_fixture(%{name: "Upload Target", min_players: 2})
+    token = RuleMaven.Hashid.encode(game.id)
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, view, _html} = live(conn, "/games/#{token}/edit")
+
+    file =
+      file_input(view, "#game-form", :rulebook_pdfs, [
+        %{name: "Rules.pdf", content: "%PDF-1.4 dummy", type: "application/pdf"}
+      ])
+
+    render_upload(file, "Rules.pdf")
+    render_click(view, "process_uploads")
+
+    # Source is saved before navigation (synchronous ingest, no worker race).
+    assert length(RuleMaven.Games.list_documents(game)) == 1
     assert_redirect(view, "/games/#{token}/prepare")
   end
 end

@@ -93,9 +93,11 @@ defmodule RuleMavenWeb.PrepareRenderTest do
       })
 
     conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
-    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+    {:ok, view, html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
 
     refute has_element?(view, "a", "Review")
+    # Extraction cost can't be estimated before extraction — show "—", not $0.0000.
+    assert html =~ "est. —"
   end
 
   test "Review link shows once extracted with a low-confidence page", %{conn: conn} do

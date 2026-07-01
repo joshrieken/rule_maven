@@ -605,7 +605,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         </span>
         <%= if @step.llm do %>
           <span style="font-size:0.72rem;color:var(--text-muted);min-width:5.5rem;text-align:right;white-space:nowrap">
-            est. ${fmt_cost(@estimate)}
+            {est_label(@step, @estimate)}
           </span>
           <span style="font-size:0.72rem;font-weight:600;color:var(--text);min-width:4.5rem;text-align:right;white-space:nowrap">
             {cost_or_dash(@actual)}
@@ -1113,6 +1113,12 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         end
     end
   end
+
+  # An LLM step whose estimate rounds to $0.0000 can't really cost nothing — it's
+  # unknown (e.g. extract/embed before extraction, when the page count isn't yet
+  # known). Show "—" rather than a misleading $0.00.
+  defp est_label(_step, est) when is_number(est) and est < 0.00005, do: "est. —"
+  defp est_label(_step, est), do: "est. $#{fmt_cost(est)}"
 
   defp cost_or_dash(nil), do: "—"
   defp cost_or_dash(usd), do: "$#{fmt_cost(usd)}"
