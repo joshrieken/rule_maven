@@ -10,26 +10,21 @@ defmodule RuleMavenWeb.Feature.FlowTest do
   @password "testpassword123"
 
   # Helper: log in via form and return session
+  # Log in without driving the form. Typing into the login form was flaky: the
+  # layout mounts a LiveView that patches the DOM just after connect, so elements
+  # captured for fill_in/click went stale (StaleReferenceError), and a not-yet-
+  # committed session let the next visit/2 race back to /login. The app already
+  # has a signed-token bypass (`/auto-login`, used post-registration) — a plain
+  # controller that sets the session and redirects, with no form and no LiveView
+  # in the path. Deterministic. We still assert the logged-in header to block
+  # until the session is established before returning.
   defp login(session, username) do
-    session
-    |> visit("/login")
-
-    # Wait for page to fully settle (LiveView JS, CSRF, etc.)
-    Process.sleep(500)
-
-    Wallaby.Browser.find(session, css("input#session_username"), fn el ->
-      Wallaby.Element.fill_in(el, with: username)
-    end)
-
-    Wallaby.Browser.find(session, css("input#session_password"), fn el ->
-      Wallaby.Element.fill_in(el, with: @password)
-    end)
-
-    Wallaby.Browser.find(session, css("button", text: "Log In"), fn el ->
-      Wallaby.Element.click(el)
-    end)
+    user = RuleMaven.Users.get_user_by_username(username)
+    token = Phoenix.Token.sign(RuleMavenWeb.Endpoint, "auto-login", user.id)
 
     session
+    |> visit("/auto-login?token=#{token}")
+    |> assert_has(css(".header-user", text: username))
   end
 
   # Helper: create a user for testing
