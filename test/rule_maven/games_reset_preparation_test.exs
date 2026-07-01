@@ -38,10 +38,9 @@ defmodule RuleMaven.GamesResetPreparationTest do
 
   test "wipes all documents, chunks, files and enrichments, keeps the game" do
     game = game()
-    {_doc, full} = doc_with_file(game)
+    {doc, full} = doc_with_file(game)
     seed_enrichments(game)
-    doc_id = Repo.one(from d in Document, select: d.id)
-    Repo.insert!(%Chunk{document_id: doc_id, chunk_index: 0, content: "x"})
+    Repo.insert!(%Chunk{document_id: doc.id, chunk_index: 0, content: "x"})
 
     assert :ok = Games.reset_preparation(game)
 

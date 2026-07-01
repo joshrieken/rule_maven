@@ -1802,7 +1802,7 @@ defmodule RuleMavenWeb.GameLive.Form do
     entry = Enum.find(socket.assigns.source_entries, &(&1.source_id == sid))
     level = clean_level_atom(socket.assigns.clean_level)
 
-    if (entry && String.trim(entry.text) != "") and not Map.has_key?(socket.assigns.cleaning, sid) do
+    if (entry && String.trim(entry.text || "") != "") and not Map.has_key?(socket.assigns.cleaning, sid) do
       {:ok, _job} = Games.enqueue_cleanup(Games.get_document!(sid), level, mode)
 
       entries =
@@ -3326,7 +3326,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                             "Discard the existing cleaned text and clean again from the original extraction.",
                           else: "Clean up the extracted rulebook text."
                       }
-                      disabled={cleaning? || String.trim(entry.text) == ""}
+                      disabled={cleaning? || String.trim(entry.text || "") == ""}
                       style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
                     >
                       <%= case @cleaning[entry.source_id] do %>
@@ -3345,14 +3345,14 @@ defmodule RuleMavenWeb.GameLive.Form do
                       phx-value-id={entry.id}
                       data-confirm="Run another cleanup pass over the cleaned text? This rewrites it and can't be undone."
                       title="Run another cleanup pass over the already-cleaned text to catch leftover junk."
-                      disabled={cleaning? || String.trim(entry.text) == ""}
+                      disabled={cleaning? || String.trim(entry.text || "") == ""}
                       style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
                     >↻ Clean again</button>
                     <button
                       type="button"
                       phx-click="expand_source"
                       phx-value-id={entry.id}
-                      disabled={String.trim(entry.text) == ""}
+                      disabled={String.trim(entry.text || "") == ""}
                       title="Open the full-screen reader (press f to toggle; f again or Esc closes it)"
                       style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
                     >⤢ Expand reader (f)</button>
