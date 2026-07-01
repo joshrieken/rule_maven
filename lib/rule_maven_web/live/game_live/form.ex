@@ -84,7 +84,6 @@ defmodule RuleMavenWeb.GameLive.Form do
         selected_source_id: nil,
         # Source ids freshly added by upload/download — drives the "clean now?"
         # prompt on the Manage tab.
-        clean_prompt_sids: [],
         cleanup_subscribed: false,
         expanded_source_id: nil,
         reader_mode: "paginated",
@@ -575,21 +574,6 @@ defmodule RuleMavenWeb.GameLive.Form do
         else: socket
 
     {:noreply, socket}
-  end
-
-  # "Clean now?" prompt shown after an upload/download: clean the freshly added
-  # sources, or dismiss.
-  def handle_event("clean_prompt_yes", _params, socket) do
-    socket =
-      Enum.reduce(socket.assigns.clean_prompt_sids, socket, fn sid, s ->
-        start_cleanup(s, sid, :raw)
-      end)
-
-    {:noreply, assign(socket, clean_prompt_sids: [])}
-  end
-
-  def handle_event("clean_prompt_no", _params, socket) do
-    {:noreply, assign(socket, clean_prompt_sids: [])}
   end
 
   def handle_event("expand_source", %{"id" => id}, socket) do
@@ -1363,9 +1347,6 @@ defmodule RuleMavenWeb.GameLive.Form do
         |> Enum.with_index()
         |> Enum.map(fn {s, i} -> source_entry(s, i) end)
 
-      new_sids =
-        for s <- sources, s.pdf_path == pdf_path and not is_nil(s.source_id), do: s.source_id
-
       {:noreply,
        socket
        |> assign(
@@ -1375,8 +1356,7 @@ defmodule RuleMavenWeb.GameLive.Form do
          download_error: nil,
          download_ok: pdf_path,
          source_entries: sources,
-         tab: "manage",
-         clean_prompt_sids: new_sids
+         tab: "manage"
        )
        |> push_patch(to: ~p"/games/#{game}/edit?tab=manage")
        |> put_flash(:info, "Rulebook ready!")
@@ -3110,27 +3090,6 @@ defmodule RuleMavenWeb.GameLive.Form do
               <style>
                 @keyframes rm-spin { to { transform: rotate(360deg); } }
               </style>
-              <div
-                :if={@clean_prompt_sids != []}
-                class="flex items-center gap-3 flex-wrap"
-                style="padding:0.6rem 0.85rem;border:1px solid var(--blue);border-radius:0.5rem;background:var(--bg-subtle)"
-              >
-                <span style="font-size:0.85rem">
-                  ✨ Rulebook extracted. Clean up the text now? Fixes OCR/PDF artifacts before it's used for answers.
-                </span>
-                <span class="flex gap-2" style="margin-left:auto">
-                  <button
-                    type="button"
-                    phx-click="clean_prompt_yes"
-                    style="font-size:0.78rem;padding:0.25rem 0.7rem;border-radius:0.3rem;border:1px solid var(--blue);background:var(--blue);color:#fff;cursor:pointer"
-                  >Clean {if length(@clean_prompt_sids) > 1, do: "all", else: "now"}</button>
-                  <button
-                    type="button"
-                    phx-click="clean_prompt_no"
-                    style="font-size:0.78rem;padding:0.25rem 0.7rem;border-radius:0.3rem;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer"
-                  >Not now</button>
-                </span>
-              </div>
               <p :if={@source_entries == []} style="color:var(--text-muted);font-size:0.85rem">
                 No rulebook sources yet. Add one from the
                 <button

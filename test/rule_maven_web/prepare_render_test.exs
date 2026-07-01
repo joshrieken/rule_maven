@@ -56,6 +56,29 @@ defmodule RuleMavenWeb.PrepareRenderTest do
     assert RuleMaven.Games.list_documents(game) == []
   end
 
+  test "cleanup step offers a Clean up button once a source is extracted but not cleaned",
+       %{conn: conn} do
+    admin = admin!("prep_clean_admin")
+    game = game_fixture(%{name: "Cleanable Game"})
+
+    {:ok, _doc} =
+      RuleMaven.Games.create_document(%{
+        game_id: game.id,
+        label: "Rulebook",
+        pdf_path: "uploads/rulebooks/x.pdf",
+        full_text: "some rules",
+        # Extracted (page has text) and not flagged for review (confidence nil),
+        # but not yet cleaned — so the cleanup step is actionable.
+        pages: [%{index: 0, sheet: 1, printed: 1, text: "some rules", cleaned: nil}]
+      })
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, view, html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    assert html =~ "Clean up"
+    assert has_element?(view, "button[phx-click=\"clean_all\"]")
+  end
+
   test "reset button is disabled with help text once questions exist", %{conn: conn} do
     admin = admin!("prep_noreset_admin")
     game = game_fixture(%{name: "Locked Game", bgg_id: 3344})

@@ -218,6 +218,32 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     end
   end
 
+  # Clean the extracted text on demand for every source that's been extracted but
+  # not yet cleaned. Each enqueues a durable CleanupWorker (strength :light, same
+  # as the auto pipeline); progress streams over the document Jobs topic.
+  def handle_event("clean_all", _params, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      game = socket.assigns.game
+      docs = Games.list_documents(game)
+
+      pending =
+        Enum.filter(docs, fn d ->
+          Readiness.step_complete?(:extract, game, [d]) and
+            not Readiness.step_complete?(:cleanup, game, [d]) and
+            not Games.cleanup_running?(d.id)
+        end)
+
+      Enum.each(pending, &Games.enqueue_cleanup(&1, :light))
+
+      {:noreply,
+       socket
+       |> load()
+       |> put_flash(:info, "Cleaning up the rulebook text — running in the background…")}
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
   def handle_event("stop", _params, socket) do
     Readiness.stop_auto(socket.assigns.game.id)
 
@@ -341,6 +367,12 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   defp clear_step(:did_you_know, g), do: Settings.delete("did_you_know_#{g.id}")
   defp clear_step(:theme, g), do: Games.update_game(g, %{theme_palette: nil})
   defp clear_step(_, _), do: :ok
+
+  # True when any of the game's sources has a cleanup job queued/running. Cleanup
+  # is document-scoped, so it isn't covered by `running_steps/1`.
+  defp cleanup_active?(game) do
+    game |> Games.list_documents() |> Enum.any?(&Games.cleanup_running?(&1.id))
+  end
 
   # Steps with a game-scoped run currently in flight (drives the "Running…" tag).
   defp running_steps(game) do
@@ -863,12 +895,18 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       |> assign(:clear?, assigns.step.id in @clear_steps)
       |> assign(:done?, assigns.step.state == :done)
       |> assign(:extractable?, assigns.step.id == :extract and assigns.step.state != :done)
+      # Cleanup can run once extraction is done (state :pending, not :blocked) and
+      # it isn't already cleaned. `cleaning?` reflects an in-flight run — cleanup
+      # jobs are document-scoped, so they don't show up in the game-scoped
+      # `running` MapSet and need their own check.
+      |> assign(:cleanable?, assigns.step.id == :cleanup and assigns.step.state == :pending)
+      |> assign(:cleaning?, assigns.step.id == :cleanup and cleanup_active?(assigns.game))
       |> assign(:cat_draft?, categories? and category_draft(assigns.game.id) != [])
       |> assign(:cat_saved?, categories? and Games.list_game_categories(assigns.game) != [])
 
     ~H"""
     <div
-      :if={@link || @regen? || @clear? || @cat_draft? || @cat_saved? || @extractable?}
+      :if={@link || @regen? || @clear? || @cat_draft? || @cat_saved? || @extractable? || @cleanable?}
       style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.6rem"
     >
       <button
@@ -880,6 +918,22 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       >
         Extract
       </button>
+      <button
+        :if={@cleanable? && !@cleaning?}
+        type="button"
+        phx-click="clean_all"
+        data-confirm="Clean up the extracted rulebook text now? This spends LLM budget."
+        style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+      >
+        Clean up
+      </button>
+      <span
+        :if={@cleaning?}
+        style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.74rem;font-weight:600;color:var(--accent)"
+      >
+        <span style="display:inline-block;width:0.5rem;height:0.5rem;border-radius:50%;background:var(--accent)"></span>
+        Cleaning…
+      </span>
       <button
         :if={@cat_draft? && !@running}
         type="button"
