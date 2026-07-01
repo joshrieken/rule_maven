@@ -1,0 +1,3 @@
+# Docling sidecar — local PDF layout model for the extraction reader spike.
+# Pinned loosely; docling pulls torch + layout/table model weights on first run.
+docling>=2.0

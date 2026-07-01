@@ -45,3 +45,6 @@ boardgame-*.tar
 !lib/
 !priv/static/assets/
 
+
+# Docling sidecar virtualenv (heavy, local only)
+priv/docling/.venv/
