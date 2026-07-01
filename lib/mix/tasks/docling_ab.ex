@@ -35,13 +35,21 @@ defmodule Mix.Tasks.DoclingAb do
   def run(argv) do
     {opts, _, _} =
       OptionParser.parse(argv,
-        strict: [pdf: :string, pages: :string, docling_python: :string]
+        strict: [
+          pdf: :string,
+          pages: :string,
+          docling_python: :string,
+          out: :string,
+          skip_docling: :boolean
+        ]
       )
 
     Mix.Task.run("app.start")
 
     pdf = opts[:pdf] || Mix.raise("--pdf required")
     full_pdf = if Path.type(pdf) == :absolute, do: pdf, else: Path.join(File.cwd!(), pdf)
+    skip_docling? = opts[:skip_docling] || false
+
     python =
       (opts[:docling_python] || System.get_env("DOCLING_PYTHON") || @default_python)
       |> abs_path()
@@ -54,27 +62,28 @@ defmodule Mix.Tasks.DoclingAb do
     unless File.exists?(full_pdf), do: Mix.raise("PDF not found: #{full_pdf}")
     unless System.find_executable("pdftoppm"), do: Mix.raise("pdftoppm not on PATH")
     unless System.find_executable("pdftotext"), do: Mix.raise("pdftotext not on PATH")
-    preflight_docling(python)
+    unless skip_docling?, do: preflight_docling(python)
 
-    out_dir = Path.join([File.cwd!(), "tmp", "docling_ab"])
+    out_dir = abs_path(opts[:out] || Path.join(["tmp", "docling_ab"]))
     File.mkdir_p!(out_dir)
 
     info("PDF: #{full_pdf}")
-    info("Docling python: #{python}")
+    info("Docling python: #{if skip_docling?, do: "(skipped)", else: python}")
+    info("Out: #{out_dir}")
     info("Pages: #{Enum.join(pages, ", ")}\n")
 
-    results = Enum.map(pages, &run_page(full_pdf, &1, python, out_dir))
+    results = Enum.map(pages, &run_page(full_pdf, &1, python, out_dir, skip_docling?))
     summarize(results)
     info("\nFull reads written under #{out_dir}/")
   end
 
-  defp run_page(full_pdf, page, python, out_dir) do
+  defp run_page(full_pdf, page, python, out_dir, skip_docling?) do
     info(String.duplicate("=", 70))
     info("PAGE #{page}")
     info(String.duplicate("=", 70))
 
     layer = pdftotext_page(full_pdf, page)
-    docling = docling_page(full_pdf, page, python)
+    docling = if skip_docling?, do: "", else: docling_page(full_pdf, page, python)
 
     vision =
       case render_page(full_pdf, page) do
