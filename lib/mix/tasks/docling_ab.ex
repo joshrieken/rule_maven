@@ -42,7 +42,9 @@ defmodule Mix.Tasks.DoclingAb do
 
     pdf = opts[:pdf] || Mix.raise("--pdf required")
     full_pdf = if Path.type(pdf) == :absolute, do: pdf, else: Path.join(File.cwd!(), pdf)
-    python = opts[:docling_python] || System.get_env("DOCLING_PYTHON") || @default_python
+    python =
+      (opts[:docling_python] || System.get_env("DOCLING_PYTHON") || @default_python)
+      |> abs_path()
 
     pages =
       (opts[:pages] || @default_pages)
@@ -216,10 +218,11 @@ defmodule Mix.Tasks.DoclingAb do
 
   # ---- preflight / formatting ----
 
-  defp preflight_docling(python) do
-    exe = if Path.type(python) == :absolute, do: python, else: Path.join(File.cwd!(), python)
+  defp abs_path(p),
+    do: if(Path.type(p) == :absolute, do: p, else: Path.join(File.cwd!(), p))
 
-    unless File.exists?(exe) do
+  defp preflight_docling(python) do
+    unless File.exists?(python) do
       Mix.raise(
         "Docling python not found at #{python}. Build the venv " <>
           "(see priv/docling/README.md) or pass --docling-python."

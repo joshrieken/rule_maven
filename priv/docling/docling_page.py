@@ -33,7 +33,9 @@ def main():
         return 2
 
     try:
-        from docling.document_converter import DocumentConverter
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import DocumentConverter, PdfFormatOption
     except Exception as e:  # ImportError or a broken torch install
         eprint(
             "docling not importable: %s\n"
@@ -41,8 +43,19 @@ def main():
         )
         return 3
 
+    # OCR OFF on purpose: rulebooks we cross-check here are born-digital (they
+    # have a text layer — that's what pdftotext reads too), so Docling's value is
+    # layout + table-structure on that layer, not pixel OCR. It also sidesteps a
+    # broken bundled torch OCR engine. Scanned pages return ~empty and the gate
+    # escalates them, exactly as today. Table structure stays ON — the point.
+    pipe = PdfPipelineOptions()
+    pipe.do_ocr = False
+    pipe.do_table_structure = True
+
     try:
-        conv = DocumentConverter()
+        conv = DocumentConverter(
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipe)}
+        )
         # page_range is inclusive and 1-based in Docling — read just this sheet
         # so we pay layout inference for one page, not the whole rulebook.
         result = conv.convert(args.pdf, page_range=(args.page, args.page))
