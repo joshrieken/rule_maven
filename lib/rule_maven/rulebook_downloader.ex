@@ -28,6 +28,12 @@ defmodule RuleMaven.RulebookDownloader do
   # model just reproduces the same text, so re-extract renders sharper (higher
   # dpi) to actually give the strong model something new to work with.
   @reextract_dpi 450
+  # Mid escalation tier (T2) re-renders the page sharper than @render_dpi so a
+  # re-read has something new to see — same value as a manual re-extract.
+  @t2_dpi 450
+  # Two of N reads agreeing at/above this (token-set Jaccard) settles a T2 page
+  # without paying for the critic. Matches the gate's cross-check agree threshold.
+  @t2_majority 0.75
   # Max concurrent vision calls (remote LLM, not local CPU) when transcribing a
   # book page-by-page.
   @vision_concurrency 4
@@ -748,7 +754,8 @@ defmodule RuleMaven.RulebookDownloader do
             |> Enum.with_index()
             |> Task.async_stream(
               fn {img, i} ->
-                r = decide_page(img, Enum.at(layer_pages, i) || "", drift_rate, game_id)
+                ctx = %{game_id: game_id, pdf_path: full_path, page: i + 1}
+                r = decide_page(img, Enum.at(layer_pages, i) || "", drift_rate, ctx)
                 log(on_progress, page_line(i + 1, total, r), page_kind(r))
                 r
               end,
@@ -813,29 +820,45 @@ defmodule RuleMaven.RulebookDownloader do
     end
   end
 
-  # The per-page decision. Clean text layer → trust it, no model call. Otherwise
-  # cross-check the text layer (or local OCR when there's no layer) against a
-  # cheap vision read; agreement keeps the richer text at the gate's confidence,
-  # disagreement is the escalation point (Phase 3).
-  defp decide_page(image, layer, drift_rate, game_id) do
+  # The per-page decision — a cost-ordered validation ladder. Each rung is read
+  # cheaply, validated by the cheapest check that can catch its failure, and only
+  # climbs when that check is unsatisfied (recall-biased: unsure → climb):
+  #
+  #   T0  clean text layer → trust it, no model call ($0). A drift-sampled
+  #       fraction cross-checks anyway to keep proving the layer is safe.
+  #   T1  cross-check the layer (or OCR) against one cheap vision read; agreement
+  #       (gate) settles it. Disagreement climbs.
+  #   T2  higher-DPI re-read (same then mid model), settled by majority vote of
+  #       the reads — no critic. See escalate_tiers/4.
+  #   T3  top model + adversarial critic (escalate_page), the last resort.
+  defp decide_page(image, layer, drift_rate, ctx) do
     layer = String.trim(layer)
 
     if Gate.clean_text_layer?(layer) do
-      # Clean born-digital text — no cross-check ran, so no gate/critic signals.
-      %{text: layer, confidence: 0.9, lane: "text_layer", source: "text_layer", escalated: false}
+      # T0. Trust the clean born-digital layer with no model call — unless this is
+      # a drift sample, in which case cross-check + escalate it anyway and log the
+      # outcome, so we keep verifying that "clean layer = safe" holds (the safety
+      # net that lets T0 trust on structure alone).
+      if Calibrate.should_sample?(drift_rate) do
+        reader_b = vision_one(image, ctx.game_id)
+        g = Gate.assess(layer, reader_b)
+        escalate_page(image, richer(layer, reader_b), signals: g.signals, drift: true, game_id: ctx.game_id)
+      else
+        %{text: layer, confidence: 0.9, lane: "text_layer", source: "text_layer", escalated: false}
+      end
     else
       reader_a = if layer != "", do: layer, else: ocr_one(image)
-      reader_b = vision_one(image, game_id)
+      reader_b = vision_one(image, ctx.game_id)
       g = Gate.assess(reader_a, reader_b)
       text = richer(reader_a, reader_b)
       base_lane = if layer != "", do: "text_layer", else: "ocr"
 
       cond do
-        # Agreed = accuracy ceiling. A small random sample escalates anyway and
+        # T1 agreed = accuracy ceiling. A small random sample escalates anyway and
         # logs the outcome, to keep verifying that "agreement = ceiling" holds
         # (drift detection). The sampled page keeps the escalated result.
         g.agree? and Calibrate.should_sample?(drift_rate) ->
-          escalate_page(image, text, signals: g.signals, drift: true, game_id: game_id)
+          escalate_page(image, text, signals: g.signals, drift: true, game_id: ctx.game_id)
 
         g.agree? ->
           Map.merge(
@@ -849,10 +872,56 @@ defmodule RuleMaven.RulebookDownloader do
             gate_detail(g.signals)
           )
 
+        # T1 disagreed → climb the mid ladder before the costly critic.
         true ->
-          escalate_page(image, text, signals: g.signals, drift: false, game_id: game_id)
+          escalate_tiers(image, [reader_a, reader_b], g.signals, ctx)
       end
     end
+  end
+
+  # T2 — the mid escalation ladder, run only after a T1 disagreement. Cheapest
+  # move first: re-render the page sharper and re-read with the SAME cheap model
+  # (most disagreements are resolution, not model capability). If a majority of
+  # the reads now concur, that settles the page for the cost of one cheap read.
+  # Still split → try the mid model on the same sharp image. Only a genuine
+  # three/four-way conflict falls through to T3 (top model + critic).
+  defp escalate_tiers(image, reads, signals, ctx) do
+    case render_one_page(ctx.pdf_path, ctx.page, @t2_dpi) do
+      {:ok, hi} ->
+        try do
+          # T2a: same cheap model, higher DPI.
+          cheap_hi = vision_one(hi, ctx.game_id)
+
+          case Gate.majority(reads ++ [cheap_hi], @t2_majority) do
+            {:ok, text} ->
+              t2_result(text, signals)
+
+            :none ->
+              # T2b: mid model, same sharp image.
+              mid = vision_one(hi, ctx.game_id, :mid)
+
+              case Gate.majority(reads ++ [cheap_hi, mid], @t2_majority) do
+                {:ok, text} -> t2_result(text, signals)
+                :none -> escalate_page(image, richest(reads ++ [cheap_hi, mid]), signals: signals, drift: false, game_id: ctx.game_id)
+              end
+          end
+        after
+          File.rm(hi)
+        end
+
+      # No sharper render available (no PDF path / render failure) → straight to T3.
+      _ ->
+        escalate_page(image, richest(reads), signals: signals, drift: false, game_id: ctx.game_id)
+    end
+  end
+
+  # A T2 page settled by majority vote — resolved by agreement, not by the critic,
+  # so confidence sits below a critic-verified read but above a bare cross-check.
+  defp t2_result(text, signals) do
+    Map.merge(
+      %{text: text, confidence: 0.8, lane: "ensemble", source: "midtier", escalated: true},
+      gate_detail(signals)
+    )
   end
 
   @doc """
@@ -1037,11 +1106,52 @@ defmodule RuleMaven.RulebookDownloader do
     end
   end
 
-  # One-page cheap vision read (reader B). "" on failure.
-  defp vision_one(image, game_id) do
-    case RuleMaven.LLM.transcribe_page_image(image, game_id: game_id) do
+  # One-page vision read. `tier` picks the model: :default (cheap, reader B and
+  # T2a), :mid (T2b), :escalate (unused here — escalate_page reads directly). ""
+  # on failure so a dead read never crashes the ladder.
+  defp vision_one(image, game_id, tier \\ :default) do
+    opts = [game_id: game_id]
+    opts = if tier == :default, do: opts, else: [{:model, RuleMaven.LLM.vision_model(tier)} | opts]
+
+    case RuleMaven.LLM.transcribe_page_image(image, opts) do
       {:ok, t} -> t
       {:error, _} -> ""
+    end
+  end
+
+  # Richest read (most real-word content) of a non-empty list; "" for an empty
+  # list. The candidate the critic (T3) compares its strong read against.
+  defp richest([]), do: ""
+  defp richest([h | t]), do: Enum.reduce(t, h, fn x, acc -> richer(x, acc) end)
+
+  # Render one PDF sheet to a grayscale PNG at `dpi` under tmp/ocr. The unique
+  # suffix keeps concurrent page renders (@vision_concurrency) from colliding.
+  # Caller deletes the image. {:ok, path} | {:error, reason}.
+  defp render_one_page(pdf_path, sheet, dpi) do
+    if System.find_executable("pdftoppm") do
+      tmp = Application.app_dir(:rule_maven, "tmp/ocr")
+      File.mkdir_p!(tmp)
+      prefix = Path.join(tmp, "#{System.unique_integer([:positive])}_t2")
+
+      args =
+        ["-png", "-gray", "-r", to_string(dpi), "-f", to_string(sheet), "-l", to_string(sheet), pdf_path, prefix]
+
+      case cmd("pdftoppm", args, @pdftoppm_timeout) do
+        {:ok, {_, 0}} ->
+          tmp
+          |> File.ls!()
+          |> Enum.filter(&String.starts_with?(&1, Path.basename(prefix)))
+          |> Enum.sort()
+          |> case do
+            [img | _] -> {:ok, Path.join(tmp, img)}
+            [] -> {:error, :no_image}
+          end
+
+        _ ->
+          {:error, :render_failed}
+      end
+    else
+      {:error, :no_renderer}
     end
   end
 
@@ -1052,6 +1162,9 @@ defmodule RuleMaven.RulebookDownloader do
 
   defp page_line(i, n, %{source: "text_layer"}), do: "Page #{i}/#{n} — clean text layer ✓"
   defp page_line(i, n, %{source: "crosscheck"}), do: "Page #{i}/#{n} — two reads agree ✓"
+
+  defp page_line(i, n, %{source: "midtier"}),
+    do: "Page #{i}/#{n} — readers disagreed → resolved by majority vote ✓"
 
   defp page_line(i, n, %{source: "critic"}),
     do: "Page #{i}/#{n} — readers disagreed → escalated & verified ✓"

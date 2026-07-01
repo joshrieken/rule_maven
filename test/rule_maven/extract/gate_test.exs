@@ -19,6 +19,44 @@ defmodule RuleMaven.Extract.GateTest do
       refute Gate.clean_text_layer?("12")
       refute Gate.clean_text_layer?("ASE Q YopM&y AcIPa s CE (HP FW? I)")
     end
+
+    test "trusts real rulebook text whose wordish is dragged down by numbers/icons" do
+      # Genuine born-digital rule text scores wordish ~0.77 (measured across 3
+      # rulebooks) because numbers, one/two-letter words and card codes aren't
+      # "wordish" — but pdftotext reads it perfectly. It must be trusted.
+      text =
+        "Gain 2 plants and 1 heat. Place a city tile on any available land " <>
+          "area adjacent to another tile you own. Raise your terraform rating 1 step."
+
+      assert Gate.wordish_ratio(text) < 0.85
+      assert Gate.wordish_ratio(text) >= 0.75
+      assert Gate.clean_text_layer?(text)
+    end
+
+    test "does not trust a short, wordish snippet — too little to validate structurally" do
+      # Clean but tiny (< token floor): little signal, cheap to cross-check, so we
+      # do not skip vision on it.
+      refute Gate.clean_text_layer?("Choose your camp activities carefully before every round")
+    end
+  end
+
+  describe "majority/2" do
+    test "two of three reads agree → returns the richer of the agreeing pair" do
+      a = "gain two plants and one heat then place a city tile"
+      # b is the same content, slightly richer (a few more real words)
+      b = "gain two plants and one heat then place a city tile on land"
+      c = "wholly different garbled symbol soup xqz vvv"
+
+      assert {:ok, ^b} = Gate.majority([a, b, c], 0.75)
+    end
+
+    test "no two reads agree → :none" do
+      a = "gain two plants and one heat"
+      b = "raise your terraform rating one step"
+      c = "place a greenery tile beside another"
+
+      assert :none = Gate.majority([a, b, c], 0.75)
+    end
   end
 
   describe "agreement/2 and coverage/2" do

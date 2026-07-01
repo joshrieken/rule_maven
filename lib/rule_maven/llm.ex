@@ -931,6 +931,16 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  # Mid tier — the T2 reader between cheap cross-check and the top-model+critic
+  # escalation. Falls back to the escalate model when unset, so an unconfigured
+  # install still climbs (just skips straight to the strong read at T2b).
+  def vision_model(:mid) do
+    case RuleMaven.Settings.get("llm_vision_mid_model_#{provider()}") do
+      m when is_binary(m) and m != "" -> m
+      _ -> vision_model(:escalate)
+    end
+  end
+
   def vision_model(_default) do
     case RuleMaven.Settings.get("llm_vision_model_#{provider()}") do
       m when is_binary(m) and m != "" -> m

@@ -21,7 +21,16 @@ defmodule RuleMaven.Extract.Gate do
   @coverage_threshold 0.7
   # A clean text layer needs at least this wordish ratio to be trusted without a
   # second reader (skips a vision call on born-digital pages — the cost win).
-  @clean_layer_wordish 0.85
+  # Calibrated at 0.75: measured across 3 rulebooks, genuine born-digital prose
+  # scores wordish 0.60–0.83 (numbers, icons, card codes drag it down) yet agrees
+  # with vision 32/32 pages. The old 0.85 never fired on real text, so the
+  # skip-vision fast-path was dead code and every clean page paid a redundant
+  # cross-check. The residual risk (a wordish-looking page that silently dropped
+  # content) is caught by drift-sampling trusted pages — see decide_page/4.
+  @clean_layer_wordish 0.75
+  # Floor on token count: below this there's too little text to trust on structure
+  # alone (a near-empty/caption page), so cross-check it — the insurance is cheap.
+  @clean_layer_min_tokens 12
 
   @doc """
   Lowercased alphanumeric token list for a chunk of text.
@@ -93,8 +102,30 @@ defmodule RuleMaven.Extract.Gate do
   def clean_text_layer?(layer) do
     trimmed = String.trim(layer || "")
 
-    trimmed != "" and length(tokens(trimmed)) >= 8 and
+    trimmed != "" and length(tokens(trimmed)) >= @clean_layer_min_tokens and
       wordish_ratio(trimmed) >= @clean_layer_wordish
+  end
+
+  @doc """
+  Majority vote over N independent reads of one page. Returns `{:ok, text}` when
+  any two reads agree at/above `threshold` (token-set Jaccard) — the richer of the
+  first such agreeing pair — else `:none`. The cheap adjudicator for the mid
+  escalation tier: two of three reads concurring settles the page without paying
+  for the adversarial critic; only genuine three-way conflict escalates further.
+  """
+  def majority(reads, threshold) when is_list(reads) do
+    pairs = for {a, i} <- Enum.with_index(reads), {b, j} <- Enum.with_index(reads), i < j, do: {a, b}
+
+    Enum.find_value(pairs, :none, fn {a, b} ->
+      if agreement(a, b) >= threshold, do: {:ok, richer(a, b)}
+    end)
+  end
+
+  # Richer of two reads: more real-word content (wordishness × token count), raw
+  # length as tiebreak. Mirrors the private picker in RulebookDownloader.
+  defp richer(a, b) do
+    score = fn t -> {wordish_ratio(t) * length(tokens(t)), String.length(t)} end
+    if score.(a) >= score.(b), do: a, else: b
   end
 
   @doc """
