@@ -65,6 +65,22 @@ defmodule RuleMaven.CheatSheet do
   end
 
   @doc """
+  Gets a specific version by ID, but only if it belongs to a document under
+  the given game. Returns nil on any mismatch (unknown id, or a version that
+  belongs to a different game) so callers can 404 without distinguishing the
+  two cases — this is what keeps a cheatsheet URL token from one game from
+  being replayed with a version id lifted from another game's cheatsheet.
+  """
+  def get_version_for_game(%Games.Game{id: game_id}, id) do
+    Repo.one(
+      from v in RuleMaven.CheatSheet.CheatSheetVersion,
+        join: d in Games.Document,
+        on: d.id == v.document_id,
+        where: v.id == ^id and d.game_id == ^game_id
+    )
+  end
+
+  @doc """
   Sets one version as active, deactivates all others for this document.
   """
   def set_active(%RuleMaven.CheatSheet.CheatSheetVersion{} = version) do

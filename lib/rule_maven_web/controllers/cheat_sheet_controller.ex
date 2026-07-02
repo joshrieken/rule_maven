@@ -18,7 +18,7 @@ defmodule RuleMavenWeb.CheatSheetController do
   def show_version(conn, %{"id" => id, "version_id" => version_id}) do
     with game when not is_nil(game) <- Games.get_game_by_token(id),
          {:ok, vid} <- RuleMaven.Hashid.decode(version_id),
-         version when not is_nil(version) <- CheatSheet.get_version(vid) do
+         version when not is_nil(version) <- CheatSheet.get_version_for_game(game, vid) do
       serve_content(conn, game.name, version.content)
     else
       _ -> not_found(conn)
