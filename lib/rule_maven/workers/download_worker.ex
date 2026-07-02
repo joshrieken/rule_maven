@@ -8,13 +8,16 @@ defmodule RuleMaven.Workers.DownloadWorker do
 
   Replaces inline work in the LiveView process: a server restart mid-download
   no longer strands the spinner — Oban re-runs the orphaned job. `unique` keeps
-  one download per game at a time (the form disables the buttons while running).
+  one *in-flight download of a given mode* per game at a time (the form disables
+  the buttons that share a mode while running). Keying on `:game_id` alone would
+  coalesce distinct concurrent batches — e.g. a "find" search and a fresh
+  "upload" batch — into a single job, silently dropping one of them.
   """
   use Oban.Worker,
     queue: :default,
     max_attempts: 3,
     unique: [
-      keys: [:game_id],
+      keys: [:game_id, :mode],
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
