@@ -70,4 +70,25 @@ defmodule RuleMavenWeb.GameFormErrorHandlingTest do
 
     assert RuleMavenWeb.GameLive.Form.split_upload_results([]) == {[], []}
   end
+
+  test "combine_error_messages combines existing and upload errors" do
+    existing_error = "Couldn't save: name can't be blank"
+    upload_errors = ["document.pdf: could not save file (enospc)"]
+
+    combined =
+      RuleMavenWeb.GameLive.Form.combine_error_messages(existing_error, upload_errors)
+
+    # Both messages should be present, combined with space
+    assert combined ==
+             "Couldn't save: name can't be blank 1 upload(s) failed: document.pdf: could not save file (enospc)"
+  end
+
+  test "combine_error_messages handles nil existing error" do
+    upload_errors = ["document.pdf: could not save file (enospc)"]
+
+    combined = RuleMavenWeb.GameLive.Form.combine_error_messages(nil, upload_errors)
+
+    # Only upload message when no existing error
+    assert combined == "1 upload(s) failed: document.pdf: could not save file (enospc)"
+  end
 end

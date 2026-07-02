@@ -1333,14 +1333,28 @@ defmodule RuleMavenWeb.GameLive.Form do
     {files, errors}
   end
 
+  @doc false
+  def combine_error_messages(existing_error, new_errors) do
+    upload_msg = "#{length(new_errors)} upload(s) failed: #{Enum.join(new_errors, "; ")}"
+
+    case existing_error do
+      nil -> upload_msg
+      msg -> "#{msg} #{upload_msg}"
+    end
+  end
+
   defp flash_upload_errors(socket, []), do: socket
 
   defp flash_upload_errors(socket, errors) do
-    put_flash(
-      socket,
-      :error,
-      "#{length(errors)} upload(s) failed: #{Enum.join(errors, "; ")}"
-    )
+    upload_msg = "#{length(errors)} upload(s) failed: #{Enum.join(errors, "; ")}"
+
+    case socket.assigns.flash["error"] do
+      nil ->
+        put_flash(socket, :error, upload_msg)
+      existing_msg ->
+        combined = combine_error_messages(existing_msg, errors)
+        put_flash(socket, :error, combined)
+    end
   end
 
   # Copies a freshly uploaded temp file into the static uploads dir under a
