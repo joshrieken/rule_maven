@@ -7,6 +7,7 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
     SuggestionsWorker,
     CategoriesWorker,
     CheatSheetGenWorker,
+    CheatSheetWorker,
     DownloadWorker
   }
 
@@ -81,6 +82,36 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
       assert is_list(cats)
       assert Enum.map(Games.list_game_categories(game), & &1.name) == ["Existing"]
       assert Settings.get("categories_#{game.id}") != nil
+    end
+  end
+
+  describe "CheatSheetWorker" do
+    test "generates and saves a cheat-sheet version, reporting to the Jobs log" do
+      mock_llm("## Essentials\n- Draw **2** cards.")
+
+      {:ok, game} = Games.create_game(%{name: "CheatDoc #{System.unique_integer([:positive])}"})
+
+      {:ok, doc} =
+        Games.create_document(%{
+          game_id: game.id,
+          label: "Rules",
+          full_text: String.duplicate("setup draw cards then play and score points. ", 50)
+        })
+
+      assert {:ok, _content} =
+               CheatSheetWorker.perform(%Oban.Job{id: 999_001, args: %{"document_id" => doc.id}})
+
+      assert [version] = RuleMaven.CheatSheet.list_versions(doc.id)
+      assert version.content =~ "Essentials"
+
+      run =
+        RuleMaven.Repo.get_by!(RuleMaven.Jobs.JobRun,
+          kind: "cheat_sheet",
+          scope_type: "document",
+          scope_id: doc.id
+        )
+
+      assert run.state == "done"
     end
   end
 
