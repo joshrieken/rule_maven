@@ -43,15 +43,21 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
   end
 
   describe "invalidate_pool/1" do
-    test "demotes auto-pooled rows and flags community rows for review" do
+    test "demotes auto-pooled rows and flags every row (community + private) for review" do
       game = game()
       auto = pooled_q(game, %{pooled: true})
       community = pooled_q(game, %{pooled: true, visibility: "community"})
 
-      # 2 demoted (both pooled) + 1 community flagged.
-      assert Games.invalidate_pool(game.id) == 3
+      # 2 demoted (both pooled) + 2 flagged (auto/private + community).
+      assert Games.invalidate_pool(game.id) == 4
 
       refute Repo.get!(QuestionLog, auto.id).pooled
+
+      # Private rows are flagged too, so same-user lookups stop serving them
+      # (find_user_duplicate/find_user_similar filter on needs_review == false).
+      auto = Repo.get!(QuestionLog, auto.id)
+      assert auto.visibility == "private"
+      assert auto.needs_review
 
       # Community answer is preserved but flagged so it stops serving until a
       # moderator re-approves it.
@@ -59,7 +65,8 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
       assert community.visibility == "community"
       assert community.needs_review
 
-      # The review backlog count reflects the flagged community row...
+      # The review backlog count only reflects the flagged community row — the
+      # moderator queue stays scoped to community content.
       assert Games.needs_review_count() == 1
 
       # clear_needs_review re-approves it.
@@ -68,6 +75,39 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
 
       # ...and drains once re-approved.
       assert Games.needs_review_count() == 0
+    end
+
+    test "user-tier lookups exclude a private answer flagged stale by a rulebook change" do
+      game = game()
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "stale_user_#{System.unique_integer([:positive])}",
+          email: "stale_#{System.unique_integer([:positive])}@test.com",
+          password_hash: "x"
+        })
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "How many cards do I draw?",
+          answer: "Draw 2 cards.",
+          cleaned_question: "how many cards do i draw",
+          visibility: "private"
+        })
+
+      # Eligible before the rulebook changes...
+      assert {%{id: id}, _tier} =
+               Games.find_user_duplicate(game.id, user.id, "how many cards do i draw", "x")
+
+      assert id == q.id
+
+      # A rulebook change invalidates the pool — the user's own cached answer,
+      # computed against the old text, must stop being served too.
+      Games.invalidate_pool(game.id)
+
+      assert Games.find_user_duplicate(game.id, user.id, "how many cards do i draw", "x") == nil
     end
 
     test "the pool lookup skips a flagged community answer" do

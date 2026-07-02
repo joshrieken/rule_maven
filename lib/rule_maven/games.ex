@@ -843,12 +843,17 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Drop a game's auto-cached answers from the answer pool. Called whenever the
-  game's rulebook content materially changes (new/edited/cleaned/deleted source)
-  so stale answers — computed against the old text — stop being served by
-  `find_similar_question_in_pool/3`. Community-promoted rows (human-curated) are
-  left alone; only auto-pooled (`pooled = true`) rows are demoted. Returns the
-  number of rows demoted.
+  Drop a game's cached answers from the answer pool AND from same-user reuse.
+  Called whenever the game's rulebook content materially changes
+  (new/edited/cleaned/deleted source) so stale answers — computed against the
+  old text — stop being served by `find_similar_question_in_pool/3` OR by the
+  same-user tiers (`find_user_duplicate/4`, `find_user_similar/4`,
+  `find_user_answer_duplicate/4`), which all filter on `needs_review == false`.
+  Community-promoted rows (human-curated) are preserved but flagged for
+  moderator re-approval; auto-pooled (`pooled = true`) rows are demoted
+  outright; every row (regardless of visibility) is flagged `needs_review` so
+  no answer computed before this change keeps serving. Returns the number of
+  rows touched (demoted + newly flagged).
   """
   def invalidate_pool(game_id) do
     # Auto-pooled answers can be demoted silently — they'll re-pool on the next
@@ -859,13 +864,17 @@ defmodule RuleMaven.Games do
         set: [pooled: false]
       )
 
-    # Community answers are human-curated, so don't drop or regenerate them.
-    # Flag them for review instead: the pool lookup skips flagged rows, so they
-    # stop serving until a moderator re-approves (clear_needs_review/1).
+    # Flag every not-yet-flagged row in the game for review — not just
+    # community rows. This is what keeps the same-user cache tiers
+    # (find_user_duplicate/find_user_similar) from serving a private answer
+    # computed against text that's now stale. Community rows additionally stay
+    # out of the shared pool until a moderator re-approves them
+    # (clear_needs_review/1); private rows just silently stop matching and a
+    # fresh ask re-populates them.
     {flagged, _} =
       Repo.update_all(
         from(q in QuestionLog,
-          where: q.game_id == ^game_id and q.visibility == "community" and q.needs_review == false
+          where: q.game_id == ^game_id and q.needs_review == false
         ),
         set: [needs_review: true]
       )
@@ -895,14 +904,17 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Answers currently pulled from the pool awaiting re-approval (`needs_review`),
-  whether pulled by a rulebook change or by user reports. Newest first, with the
+  Community answers currently pulled from the pool awaiting re-approval
+  (`needs_review`), whether pulled by a rulebook change or by user reports.
+  Scoped to `visibility == "community"` — private rows also get flagged by
+  `invalidate_pool/1` (so same-user reuse excludes them), but they aren't
+  moderator-curated and don't belong in this backlog. Newest first, with the
   game preloaded for display.
   """
   def list_needs_review_questions do
     Repo.all(
       from q in QuestionLog,
-        where: q.needs_review == true,
+        where: q.needs_review == true and q.visibility == "community",
         order_by: [desc: q.updated_at],
         preload: [:game]
     )
