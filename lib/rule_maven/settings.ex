@@ -14,14 +14,18 @@ defmodule RuleMaven.Settings do
     end
   end
 
-  @doc "Writes a setting value by key. Upserts to handle insert or update."
+  @doc """
+  Writes a setting value by key. Upserts via `ON CONFLICT` so concurrent
+  writers can't race a get-then-insert/update round trip into a unique
+  constraint violation — the last writer to reach Postgres wins.
+  """
   def put(key, value) do
-    case Repo.get(AppSetting, key) do
-      nil -> %AppSetting{key: key}
-      existing -> existing
-    end
+    %AppSetting{key: key}
     |> AppSetting.changeset(%{key: key, value: value})
-    |> Repo.insert_or_update()
+    |> Repo.insert(
+      on_conflict: {:replace, [:value, :updated_at]},
+      conflict_target: :key
+    )
   end
 
   @doc "Deletes a setting by key. No-op if not set."
