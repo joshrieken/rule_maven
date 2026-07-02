@@ -1107,13 +1107,20 @@ defmodule RuleMaven.Games do
   @doc """
   Re-chunk (and re-embed) every document, e.g. after changing how chunk text is
   derived. `chunk_document/1` clears + reinserts chunks and enqueues embedding.
+  Also invalidates the pool for every affected game — the re-chunk changes what
+  retrieval sees, so cached answers computed against the old chunks are stale.
   Returns the number of documents processed.
   """
   def rechunk_all_documents do
-    Document
-    |> Repo.all()
-    |> Enum.map(&chunk_document/1)
-    |> length()
+    docs = Repo.all(Document)
+    Enum.each(docs, &chunk_document/1)
+
+    docs
+    |> Enum.map(& &1.game_id)
+    |> Enum.uniq()
+    |> Enum.each(&invalidate_pool/1)
+
+    length(docs)
   end
 
   @doc_job_workers ~w(RuleMaven.Workers.CleanupWorker RuleMaven.Workers.CheatSheetWorker)

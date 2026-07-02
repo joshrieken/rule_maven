@@ -129,6 +129,26 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
       assert Games.find_similar_question_in_pool(game.id, embedding) == nil
     end
 
+    test "rechunk_all_documents invalidates the pool for every affected game" do
+      game = game()
+      q = pooled_q(game, %{pooled: true})
+
+      {:ok, _doc} =
+        Games.create_document(%{
+          game_id: game.id,
+          label: "Rules",
+          full_text: String.duplicate("alpha beta gamma delta epsilon zeta. ", 40)
+        })
+
+      # create_document already invalidates the pool once; re-pool the row so we
+      # can prove rechunk_all_documents invalidates it again on its own.
+      Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id), set: [pooled: true])
+
+      Games.rechunk_all_documents()
+
+      refute Repo.get!(QuestionLog, q.id).pooled
+    end
+
     test "create/update/delete document invalidate the pool" do
       game = game()
       q = pooled_q(game, %{pooled: true})
