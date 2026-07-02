@@ -979,8 +979,14 @@ defmodule RuleMavenWeb.GameLive.Form do
     game = socket.assigns.game
     refresh = socket.assigns.cheat_refresh + 1
 
-    case Integer.parse(id) do
-      {version_id, _} ->
+    case {game, Integer.parse(id)} do
+      # /games/new has no game yet (socket.assigns.game is nil) —
+      # get_version_for_game/2 pattern-matches a %Game{} struct, so a forged
+      # event here would otherwise crash with FunctionClauseError.
+      {nil, _} ->
+        {:noreply, socket |> put_flash(:error, "Version not found.")}
+
+      {_game, {version_id, _}} ->
         case CheatSheet.get_version_for_game(game, version_id) do
           nil ->
             {:noreply, socket |> put_flash(:error, "Version not found.")}
@@ -992,7 +998,7 @@ defmodule RuleMavenWeb.GameLive.Form do
              socket |> assign(cheat_refresh: refresh) |> put_flash(:info, "Version deleted.")}
         end
 
-      :error ->
+      {_game, :error} ->
         {:noreply, socket |> put_flash(:error, "Invalid version ID.")}
     end
   end
@@ -1002,8 +1008,12 @@ defmodule RuleMavenWeb.GameLive.Form do
     game = socket.assigns.game
     refresh = socket.assigns.cheat_refresh + 1
 
-    case Integer.parse(id) do
-      {version_id, _} ->
+    case {game, Integer.parse(id)} do
+      # See delete_version/2 above: /games/new has no game yet.
+      {nil, _} ->
+        {:noreply, socket |> put_flash(:error, "Version not found.")}
+
+      {_game, {version_id, _}} ->
         case CheatSheet.get_version_for_game(game, version_id) do
           nil ->
             {:noreply, socket |> put_flash(:error, "Version not found.")}
@@ -1017,7 +1027,7 @@ defmodule RuleMavenWeb.GameLive.Form do
              |> put_flash(:info, "Version set as active.")}
         end
 
-      :error ->
+      {_game, :error} ->
         {:noreply, socket |> put_flash(:error, "Invalid version ID.")}
     end
   end

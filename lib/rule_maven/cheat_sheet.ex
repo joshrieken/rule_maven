@@ -54,17 +54,6 @@ defmodule RuleMaven.CheatSheet do
   end
 
   @doc """
-  Gets a specific version by ID.
-  """
-  def get_version!(id) do
-    Repo.get!(RuleMaven.CheatSheet.CheatSheetVersion, id)
-  end
-
-  def get_version(id) do
-    Repo.get(RuleMaven.CheatSheet.CheatSheetVersion, id)
-  end
-
-  @doc """
   Gets a specific version by ID, but only if it belongs to a document under
   the given game. Returns nil on any mismatch (unknown id, or a version that
   belongs to a different game) so callers can 404 without distinguishing the

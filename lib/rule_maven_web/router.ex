@@ -52,19 +52,6 @@ defmodule RuleMavenWeb.Router do
       live "/register", RegistrationLive, :index
     end
 
-    live_session :default,
-      on_mount: [{RuleMavenWeb.UserLiveAuth, :default}],
-      session: {RuleMavenWeb.UserLiveAuth, :get_session, []} do
-      live "/", GameLive.Index, :index
-      live "/games/new", GameLive.Form, :new
-      live "/games/import", GameLive.Import, :index
-      live "/games/:id", GameLive.Show, :show
-      live "/games/:id/edit", GameLive.Form, :edit
-      live "/games/:id/faq", GameLive.Faq, :index
-      live "/settings", SettingsLive, :index
-      live "/settings/usage", SettingsLive, :usage
-    end
-
     live_session :admin,
       on_mount: [{RuleMavenWeb.UserLiveAuth, :admin}],
       session: {RuleMavenWeb.UserLiveAuth, :get_session, []} do
@@ -73,6 +60,26 @@ defmodule RuleMavenWeb.Router do
       # client-side and does not stop forged events on a raw socket.
       live "/games/:id/review", GameLive.Review, :index
       live "/games/:id/prepare", GameLive.Prepare, :index
+      # Admin-only editor. Was in :default (mount/handle_params gated admins
+      # only, but that check never re-ran on handle_event) so a demoted admin
+      # kept a live socket that could still fire save_game/delete_version/
+      # set_active_version until reconnect. Moved here so the :admin session's
+      # per-event `reauth_event` hook re-checks admin standing on every event,
+      # matching Review/Prepare. Cross-boundary live_navigate from :default
+      # views (Index, Show) into these routes now does a full page reload
+      # instead of a connected transition — functionally fine, and this
+      # codebase already round-trips this exact boundary the other way
+      # (Prepare/Requests, both :admin, already `navigate` into this route
+      # when it was :default).
+      #
+      # NOTE: `/games/new` (literal) MUST be declared before `/games/:id`
+      # (dynamic, see the :default scope below) — Phoenix's router matches
+      # top-down in declaration order, not by specificity, so this whole
+      # :admin scope is deliberately placed ahead of :default in this file.
+      # Getting that order wrong makes `/games/:id` (GameLive.Show) swallow
+      # "/games/new" with id="new" before Form ever sees it.
+      live "/games/new", GameLive.Form, :new
+      live "/games/:id/edit", GameLive.Form, :edit
       live "/admin", AdminLive.Index, :index
       live "/admin/db", AdminLive.Db, :index
       live "/admin/security", AdminLive.Security, :index
@@ -87,6 +94,17 @@ defmodule RuleMavenWeb.Router do
       live "/admin/catalog", AdminLive.Catalog, :index
       live "/admin/themes", AdminLive.Themes, :index
       live "/admin/requests", AdminLive.Requests, :index
+    end
+
+    live_session :default,
+      on_mount: [{RuleMavenWeb.UserLiveAuth, :default}],
+      session: {RuleMavenWeb.UserLiveAuth, :get_session, []} do
+      live "/", GameLive.Index, :index
+      live "/games/import", GameLive.Import, :index
+      live "/games/:id", GameLive.Show, :show
+      live "/games/:id/faq", GameLive.Faq, :index
+      live "/settings", SettingsLive, :index
+      live "/settings/usage", SettingsLive, :usage
     end
   end
 
