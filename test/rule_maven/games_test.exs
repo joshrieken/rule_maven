@@ -337,6 +337,39 @@ defmodule RuleMaven.GamesTest do
       assert length(results) == 1
       assert hd(results).question == "What about trading?"
     end
+
+    test "search_questions/2 treats a literal % in the query as a literal character, not a wildcard",
+         %{game: game} do
+      # An unescaped "%" would match zero-or-more of anything, so "50%" would
+      # incorrectly match unrelated rows too (any text containing "50").
+      results = Games.search_questions(game, "50%")
+      assert results == []
+    end
+
+    test "search_questions/2 treats a literal _ in the query as a literal character, not a single-char wildcard",
+         %{game: game} do
+      # An unescaped "_" matches any single character, so "c_rds" would
+      # incorrectly match "cards".
+      results = Games.search_questions(game, "c_rds")
+      assert results == []
+    end
+
+    test "search_questions/2 still matches when the query contains a literal % that's actually present" do
+      game2 = game_fixture(%{bgg_id: System.unique_integer([:positive])})
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "search_user2",
+          email: "search2@test.com",
+          password_hash: "x"
+        })
+
+      log_question!(game2.id, user.id, "Do I get a 50% bonus?", "Yes.")
+
+      results = Games.search_questions(game2, "50%")
+      assert length(results) == 1
+      assert hd(results).question == "Do I get a 50% bonus?"
+    end
   end
 
   defp log_question!(

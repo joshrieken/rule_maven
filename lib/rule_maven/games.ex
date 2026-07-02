@@ -1827,10 +1827,14 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Searches questions by text match for a game.
+  Searches questions by text match for a game. User input is escaped before
+  being interpolated into the ILIKE pattern so literal `%`/`_`/`\\` in the
+  search box are matched literally instead of acting as SQL wildcards
+  (Postgres's LIKE/ILIKE default escape character is `\\`, so no explicit
+  `ESCAPE` clause is needed as long as we escape with it).
   """
   def search_questions(%Game{} = game, query_text) do
-    search_term = "%#{query_text}%"
+    search_term = "%#{escape_like(query_text)}%"
 
     Repo.all(
       from q in QuestionLog,
@@ -1839,6 +1843,17 @@ defmodule RuleMaven.Games do
         order_by: [desc: q.inserted_at],
         limit: 50
     )
+  end
+
+  # Escapes the three characters ILIKE treats specially — `\` (the escape
+  # character itself, must go first so we don't double-escape the escapes we
+  # just inserted), `%` (zero-or-more wildcard), and `_` (single-char
+  # wildcard) — so user-supplied search text is matched literally.
+  defp escape_like(text) do
+    text
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
   end
 
   @doc """
