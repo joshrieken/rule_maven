@@ -262,12 +262,14 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         {:noreply, socket}
 
       id ->
-        regen_step(id, socket.assigns.game)
-
-        {:noreply,
-         socket
-         |> load()
-         |> put_flash(:info, "Re-running “#{Readiness.label(id)}” — running in the background…")}
+        # Blocked steps (enrichments before embedding is done) can't run — the UI
+        # hides the button, but re-check here since the client can't be trusted.
+        if step_blocked?(socket, id) do
+          {:noreply,
+           put_flash(socket, :error, "That step is blocked — finish “Chunked & embedded” first.")}
+        else
+          do_regen_step(id, socket)
+        end
     end
   end
 
@@ -339,6 +341,21 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   defp step_atom(s) when is_binary(s), do: Enum.find(Readiness.all_steps(), &(to_string(&1) == s))
   defp step_atom(_), do: nil
+
+  defp do_regen_step(id, socket) do
+    regen_step(id, socket.assigns.game)
+
+    {:noreply,
+     socket
+     |> load()
+     |> put_flash(:info, "Re-running “#{Readiness.label(id)}” — running in the background…")}
+  end
+
+  defp step_blocked?(socket, id) do
+    socket.assigns.game
+    |> Readiness.state()
+    |> Enum.any?(&(&1.id == id and &1.state == :blocked))
+  end
 
   defp regen_step(:suggestions, g) do
     # Clear first so a failed/empty run doesn't leave stale questions on screen.
@@ -826,7 +843,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               <div style="display:flex;align-items:center;gap:0.35rem;font-size:0.8rem;font-weight:700">
                 <span>{v.emoji}</span>{v.label}
               </div>
-              <div :if={present_preview?(v[:style])} style="font-size:0.72rem;color:var(--text-muted);margin-top:0.15rem">
+              <div
+                :if={present_preview?(v[:style])}
+                style="font-size:0.72rem;color:var(--text-muted);margin-top:0.15rem"
+              >
                 {v.style}
               </div>
               <%= if present_preview?(v[:loading_phrases]) do %>
@@ -891,7 +911,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     assigns =
       assigns
       |> assign(:link, step_link(assigns.step.id, assigns.game))
-      |> assign(:regen?, assigns.step.id in @regen_steps)
+      |> assign(:regen?, assigns.step.id in @regen_steps and assigns.step.state != :blocked)
       |> assign(:clear?, assigns.step.id in @clear_steps)
       |> assign(:done?, assigns.step.state == :done)
       |> assign(:extractable?, assigns.step.id == :extract and assigns.step.state != :done)

@@ -76,6 +76,9 @@ defmodule RuleMaven.Readiness do
   """
   def state(%Game{} = game) do
     docs = Games.list_documents(game)
+    # Enrichments read the embedded rulebook text, so every step after
+    # "Chunked & embedded" stays blocked until embedding completes.
+    embed_done = step_complete?(:embed, game, docs)
 
     {steps, _prev_done} =
       Enum.map_reduce(all_steps(), true, fn step, prev_done ->
@@ -85,6 +88,7 @@ defmodule RuleMaven.Readiness do
           cond do
             done -> :done
             category(step) == :required and not prev_done -> :blocked
+            category(step) == :enrichment and not embed_done -> :blocked
             true -> :pending
           end
 

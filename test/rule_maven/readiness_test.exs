@@ -126,6 +126,30 @@ defmodule RuleMaven.ReadinessTest do
     end
   end
 
+  describe "state/1" do
+    test "enrichment steps are blocked until embed is done" do
+      game = game_fixture()
+      doc_fixture(game, pages: [{0.9, true}], embed: :pending)
+
+      states = Map.new(Readiness.state(game), &{&1.id, &1.state})
+
+      for step <- Readiness.enrichment_steps() do
+        assert states[step] == :blocked, "expected #{step} blocked before embed"
+      end
+    end
+
+    test "enrichment steps unblock once embed is done" do
+      game = game_fixture()
+      doc_fixture(game, pages: [{0.9, true}], embed: :done)
+
+      states = Map.new(Readiness.state(game), &{&1.id, &1.state})
+
+      for step <- Readiness.enrichment_steps() do
+        assert states[step] == :pending, "expected #{step} pending after embed"
+      end
+    end
+  end
+
   describe "recompute/1" do
     test "stays unplayable until required steps are done" do
       game = game_fixture()
