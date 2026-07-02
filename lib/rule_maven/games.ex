@@ -2434,8 +2434,6 @@ defmodule RuleMaven.Games do
   end
 
   def chunk_document(%Document{} = doc) do
-    Repo.delete_all(from c in Chunk, where: c.document_id == ^doc.id)
-
     # Prefer first-class pages; fall back to parsing the legacy full_text blob
     # for documents not yet backfilled.
     # Each page yields {page_num, text}. page_num is the printed page when known,
@@ -2504,7 +2502,13 @@ defmodule RuleMaven.Games do
         }
       end)
 
-    if rows != [], do: Repo.insert_all(Chunk, rows)
+    # Clear the old chunks and insert the new ones atomically — a failed insert
+    # (e.g. a DB-level rejection partway through) must not leave the document
+    # with zero chunks. Repo.transaction re-raises on error after rolling back.
+    Repo.transaction(fn ->
+      Repo.delete_all(from c in Chunk, where: c.document_id == ^doc.id)
+      if rows != [], do: Repo.insert_all(Chunk, rows)
+    end)
 
     # Enqueue embedding generation as Oban job (skip in test)
     unless testing?() do

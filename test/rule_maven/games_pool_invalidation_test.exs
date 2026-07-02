@@ -17,6 +17,41 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
     Repo.get!(QuestionLog, q.id)
   end
 
+  describe "chunk_document/1 transactional delete+insert" do
+    test "a failed insert rolls back the delete (no orphaned zero-chunk document)" do
+      game = game()
+
+      {:ok, doc} =
+        Games.create_document(%{game_id: game.id, label: "R", full_text: "alpha beta gamma text"})
+
+      Games.chunk_document(doc)
+
+      original =
+        Repo.all(
+          from c in RuleMaven.Games.Chunk, where: c.document_id == ^doc.id, select: c.content
+        )
+        |> Enum.sort()
+
+      assert original != []
+
+      # A NUL byte is invalid in Postgres text — inserting it reliably fails the
+      # insert_all at the DB level. pages: [] forces chunk_document to fall back
+      # to parsing full_text, which carries the poison byte straight into a
+      # chunk's content.
+      poisoned = %{doc | full_text: "bad " <> <<0>> <> " content", pages: []}
+
+      assert_raise Postgrex.Error, fn -> Games.chunk_document(poisoned) end
+
+      remaining =
+        Repo.all(
+          from c in RuleMaven.Games.Chunk, where: c.document_id == ^doc.id, select: c.content
+        )
+        |> Enum.sort()
+
+      assert remaining == original
+    end
+  end
+
   describe "chunk_document uses effective (cleaned) text" do
     test "cleaned page text reaches the chunks, not the original" do
       game = game()
