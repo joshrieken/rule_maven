@@ -34,7 +34,7 @@ if config_env() == :prod do
   config :rule_maven, RuleMaven.Repo,
     # ssl: true,
     url: database_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "20"),
     # For machines with several cores, consider starting multiple pools
     # pool_count: 4,
     socket_options: maybe_ipv6,
@@ -52,7 +52,12 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  host = System.get_env("PHX_HOST") || "example.com"
+  host =
+    System.get_env("PHX_HOST") ||
+      raise """
+      environment variable PHX_HOST is missing.
+      For example: example.com
+      """
 
   config :rule_maven, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
@@ -62,6 +67,14 @@ if config_env() == :prod do
   # back to the in-memory Local adapter and warn loudly so the gap is visible.
   case System.get_env("MAIL_API_KEY") do
     nil ->
+      if System.get_env("MAIL_ALLOW_LOCAL") != "true" do
+        raise """
+        environment variable MAIL_API_KEY is missing.
+        Email confirmation is required for vote eligibility in production.
+        Set MAIL_ALLOW_LOCAL=true to use the Local adapter (development only).
+        """
+      end
+
       require Logger
 
       Logger.warning(
