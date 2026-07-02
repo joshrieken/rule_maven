@@ -95,6 +95,41 @@ defmodule RuleMaven.InviteCodesTest do
     test "returns error when code is invalid", %{} do
       assert {:error, _} = InviteCodes.use_code("nope")
     end
+
+    test "two concurrent uses of a max_uses=1 code: exactly one succeeds", %{gm: gm} do
+      {:ok, code} = InviteCodes.create_code(gm.id, max_uses: 1)
+
+      # Two requests racing on the read-then-write path could both read
+      # use_count: 0 before either writes, and both write use_count: 1,
+      # letting the code be consumed twice. Fire two real concurrent calls
+      # and require the DB-level atomic guard (not the in-process read) to
+      # settle the race: exactly one wins.
+      results =
+        [Task.async(fn -> InviteCodes.use_code(code.code) end),
+         Task.async(fn -> InviteCodes.use_code(code.code) end)]
+        |> Enum.map(&Task.await/1)
+
+      successes = Enum.count(results, &match?({:ok, _}, &1))
+      failures = Enum.count(results, &match?({:error, _}, &1))
+
+      assert successes == 1
+      assert failures == 1
+
+      final = Repo.get!(RuleMaven.InviteCodes.InviteCode, code.id)
+      assert final.use_count == 1
+    end
+
+    test "sequential re-use of a max_uses=1 code fails the second time", %{gm: gm} do
+      {:ok, code} = InviteCodes.create_code(gm.id, max_uses: 1)
+
+      assert {:ok, updated} = InviteCodes.use_code(code.code)
+      assert updated.use_count == 1
+
+      assert {:error, _} = InviteCodes.use_code(code.code)
+
+      final = Repo.get!(RuleMaven.InviteCodes.InviteCode, code.id)
+      assert final.use_count == 1
+    end
   end
 
   describe "list invite codes" do

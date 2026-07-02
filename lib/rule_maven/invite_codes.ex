@@ -54,16 +54,37 @@ defmodule RuleMaven.InviteCodes do
 
   @doc """
   Consumes an invite code (increments use_count). Returns {:ok, code} or {:error, reason}.
+
+  `validate_code/1` is still run first for the specific, user-facing error
+  (unknown / inactive / expired / exhausted) — but that read is just a
+  best-effort pre-check for messaging. The actual consumption below is a
+  single atomic `update_all` guarded by `use_count < max_uses`, so two
+  concurrent callers that both pass the pre-check (both saw use_count still
+  under max) can't both win: only the request whose UPDATE the DB evaluates
+  first, i.e. before the row's `use_count` is bumped, satisfies the WHERE
+  clause. The loser sees 0 rows updated and gets an error, even though its
+  in-memory read was stale.
   """
   def use_code(code) do
     case validate_code(code) do
-      {:ok, ic} ->
-        ic
-        |> InviteCode.changeset(%{use_count: ic.use_count + 1})
-        |> Repo.update()
+      {:ok, ic} -> consume(ic)
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
-      {:error, reason} ->
-        {:error, reason}
+  defp consume(%InviteCode{id: id, max_uses: max_uses}) do
+    {count, rows} =
+      Repo.update_all(
+        from(ic in InviteCode,
+          where: ic.id == ^id and ic.active == true and ic.use_count < ^max_uses,
+          select: ic
+        ),
+        inc: [use_count: 1]
+      )
+
+    case {count, rows} do
+      {1, [updated]} -> {:ok, updated}
+      {0, _} -> {:error, "This invite code has reached its maximum uses."}
     end
   end
 
