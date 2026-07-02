@@ -976,12 +976,12 @@ defmodule RuleMavenWeb.GameLive.Form do
 
   @impl true
   def handle_event("delete_version", %{"id" => id}, socket) do
-    _game = socket.assigns.game
+    game = socket.assigns.game
     refresh = socket.assigns.cheat_refresh + 1
 
     case Integer.parse(id) do
       {version_id, _} ->
-        case CheatSheet.get_version!(version_id) do
+        case CheatSheet.get_version_for_game(game, version_id) do
           nil ->
             {:noreply, socket |> put_flash(:error, "Version not found.")}
 
@@ -999,12 +999,12 @@ defmodule RuleMavenWeb.GameLive.Form do
 
   @impl true
   def handle_event("set_active_version", %{"id" => id}, socket) do
-    _game = socket.assigns.game
+    game = socket.assigns.game
     refresh = socket.assigns.cheat_refresh + 1
 
     case Integer.parse(id) do
       {version_id, _} ->
-        case CheatSheet.get_version!(version_id) do
+        case CheatSheet.get_version_for_game(game, version_id) do
           nil ->
             {:noreply, socket |> put_flash(:error, "Version not found.")}
 
