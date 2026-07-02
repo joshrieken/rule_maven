@@ -46,6 +46,15 @@ defmodule RuleMavenWeb.Endpoint do
 
   plug Plug.MethodOverride
   plug Plug.Head
+
+  # In the test env only, let Wallaby's browser requests join the test process's
+  # Ecto sandbox connection (via metadata in the user-agent) so their DB writes
+  # roll back with the test instead of committing. Compile-time guarded, so it
+  # never ships in dev/prod.
+  if Application.compile_env(:rule_maven, :sql_sandbox, false) do
+    plug Phoenix.Ecto.SQL.Sandbox
+  end
+
   plug Plug.Session, @session_options
   plug RuleMavenWeb.Router
 end

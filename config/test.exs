@@ -47,8 +47,15 @@ config :rule_maven, RuleMaven.Mailer, adapter: Swoosh.Adapters.Test
 
 # Wallaby E2E tests — run on port 4003 to avoid conflict with ConnTest (port 4002)
 # Chrome/chromedriver paths set in test_helper.exs (platform-dependent)
+# Enables the Phoenix.Ecto.SQL.Sandbox plug in the endpoint (test only), so
+# Wallaby browser requests roll back their DB writes instead of committing.
+config :rule_maven, sql_sandbox: true
+
 config :wallaby,
   driver: Wallaby.Chrome,
   screenshot_on_failure: true,
   js_errors: true,
-  base_url: "http://localhost:4003"
+  base_url: "http://localhost:4003",
+  # Wallaby.Feature reads this to find the app's ecto_repos, check them out into
+  # the test's sandbox, and pass the connection metadata to the browser session.
+  otp_app: :rule_maven
