@@ -1073,11 +1073,13 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     """
   end
 
-  # BGG is a free HTTP pull — no LLM spend, unlike every other regen step.
+  # Confirm only actions that spend LLM budget or destroy an existing result.
+  # BGG is a free HTTP pull — a fresh pull needs no confirm at all; a re-pull
+  # confirms only because it replaces the current data.
   defp regen_confirm(:bgg, true),
-    do: "Re-pull the BoardGameGeek data? This replaces the current result (free — no LLM spend)."
+    do: "Re-pull the BoardGameGeek data? This replaces the current data."
 
-  defp regen_confirm(:bgg, false), do: "Pull the BoardGameGeek data? Free — no LLM spend."
+  defp regen_confirm(:bgg, false), do: nil
 
   defp regen_confirm(_id, true),
     do: "Re-run this step? It spends LLM budget and replaces the current result."
