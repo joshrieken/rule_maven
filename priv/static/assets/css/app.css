@@ -978,12 +978,13 @@ a:not([class]):hover {
   animation: content-rise 0.45s ease backwards;
 }
 
-/* The Q&A page's chat-layout is position:fixed. The rise animation leaves a
-   lingering transform on .main-content (fill-mode both), which would turn it
-   into the containing block for that fixed child and offset it by the header
-   height — a blank band above the sub bar. Drop the animation when a fixed
-   chat-layout is present so it positions against the viewport as intended. */
-.main-content:has(.chat-layout) {
+/* The Q&A page's chat-layout and the FAQ page's blur-bg cover backdrop are both
+   position:fixed. The rise animation leaves a lingering transform on
+   .main-content (fill-mode both), which would turn it into the containing
+   block for that fixed child and offset/mis-clip it against .main-content's
+   box instead of the viewport. Drop the animation whenever either fixed child
+   is present so they position against the viewport as intended. */
+.main-content:has(.chat-layout, .blur-bg) {
   animation: none;
 }
 

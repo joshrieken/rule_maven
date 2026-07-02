@@ -34,6 +34,7 @@ defmodule RuleMavenWeb.GameLive.GameTheme do
     ~H"""
     <div
       :if={@image_url}
+      class="blur-bg"
       aria-hidden="true"
       style={"position:fixed;top:0;left:0;width:25%;height:25%;z-index:0;transform-origin:top left;transform:scale(4);background-image:url('#{@image_url}');background-size:cover;background-position:center;filter:blur(5px) saturate(1.15);opacity:0.22;pointer-events:none"}
     >
