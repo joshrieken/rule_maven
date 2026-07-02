@@ -1234,43 +1234,51 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     # Copy any pending PDF uploads into place now (consume_uploaded_entries deletes
     # the temp file once the callback returns). The source rows are created below,
-    # after save_game.
-    upload_files =
+    # after save_game. Failed copies are kept as error messages and surfaced via
+    # flash — never silently dropped.
+    {upload_files, upload_errors} =
       socket
       |> consume_uploaded_entries(:rulebook_pdfs, fn %{path: path}, entry ->
         label = entry.client_name |> Path.rootname() |> String.replace(~r/[_\-]/, " ")
 
         case save_uploaded_pdf(path, entry.client_name) do
           {:ok, pdf_path} -> {:ok, {:ok, %{pdf_path: pdf_path, label: label}}}
-          {:error, _} -> {:ok, :error}
+          {:error, reason} -> {:ok, {:error, "#{entry.client_name}: #{reason}"}}
         end
       end)
-      |> Enum.flat_map(fn
-        {:ok, file} -> [file]
-        :error -> []
-      end)
+      |> split_upload_results()
 
     game = socket.assigns.game
-    {:noreply, saved} = save_game(socket, game, game_params, Map.new(source_map))
 
-    # Ingest new uploads *after* save_game — it prunes existing sources not present
-    # in the form's source_map, so ingesting earlier would delete the ones we just
-    # added. Extraction is deferred, so this is a cheap synchronous save; the
-    # source rows exist before we navigate, so the prepare page never renders an
-    # empty pipeline.
-    Enum.each(upload_files, fn %{pdf_path: p, label: l} ->
-      RulebookDownloader.ingest_local(game, p, l)
-    end)
+    case save_game(socket, game, game_params, Map.new(source_map)) do
+      {:ok, saved} ->
+        # Ingest new uploads *after* save_game — it prunes existing sources not
+        # present in the form's source_map, so ingesting earlier would delete the
+        # ones we just added. Extraction is deferred, so this is a cheap
+        # synchronous save; the source rows exist before we navigate, so the
+        # prepare page never renders an empty pipeline.
+        Enum.each(upload_files, fn %{pdf_path: p, label: l} ->
+          RulebookDownloader.ingest_local(game, p, l)
+        end)
 
-    # A save that brought in new PDF uploads lands on the prepare page (where the
-    # Extract action lives), overriding save_game's default edit-page redirect.
-    if upload_files != [] do
-      {:noreply,
-       saved
-       |> push_navigate(to: ~p"/games/#{game}/prepare")
-       |> put_flash(:info, "Saved — extract from the prepare page.")}
-    else
-      {:noreply, saved}
+        saved = flash_upload_errors(saved, upload_errors)
+
+        # A save that brought in new PDF uploads lands on the prepare page (where
+        # the Extract action lives), overriding save_game's default edit-page
+        # redirect.
+        if upload_files != [] do
+          {:noreply,
+           saved
+           |> push_navigate(to: ~p"/games/#{game}/prepare")
+           |> put_flash(:info, "Saved — extract from the prepare page.")}
+        else
+          {:noreply, saved}
+        end
+
+      {:error, errored} ->
+        # Save failed: don't ingest uploads against unsaved state, don't
+        # navigate — re-render the form with the changeset errors.
+        {:noreply, flash_upload_errors(errored, upload_errors)}
     end
   end
 
@@ -1314,6 +1322,25 @@ defmodule RuleMavenWeb.GameLive.Form do
       if errors != [], do: put_flash(socket, :error, Enum.join(errors, "; ")), else: socket
 
     {:noreply, socket}
+  end
+
+  # Splits consume_uploaded_entries results into successfully copied files and
+  # error messages. Public so the failure-counting logic is directly testable.
+  @doc false
+  def split_upload_results(results) do
+    files = for {:ok, file} <- results, do: file
+    errors = for {:error, msg} <- results, do: msg
+    {files, errors}
+  end
+
+  defp flash_upload_errors(socket, []), do: socket
+
+  defp flash_upload_errors(socket, errors) do
+    put_flash(
+      socket,
+      :error,
+      "#{length(errors)} upload(s) failed: #{Enum.join(errors, "; ")}"
+    )
   end
 
   # Copies a freshly uploaded temp file into the static uploads dir under a
@@ -2040,6 +2067,9 @@ defmodule RuleMavenWeb.GameLive.Form do
     end
   end
 
+  # Returns {:ok, socket} on success (flash + navigate queued) or
+  # {:error, socket} with the invalid changeset assigned — the caller must not
+  # ingest uploads or navigate on error.
   defp save_game(socket, nil, game_params, source_map) do
     case Games.create_game(game_params) do
       {:ok, game} ->
@@ -2047,13 +2077,16 @@ defmodule RuleMavenWeb.GameLive.Form do
           Games.create_rulebook_source(Map.merge(attrs, %{game_id: game.id, label: label}))
         end)
 
-        {:noreply,
+        {:ok,
          socket
          |> put_flash(:info, "Game created!")
          |> push_navigate(to: ~p"/games/#{game}/edit")}
 
       {:error, changeset} ->
-        {:noreply, assign(socket, game_changeset: changeset)}
+        {:error,
+         socket
+         |> assign(game_changeset: changeset)
+         |> put_flash(:error, "Couldn't save: #{changeset_error_summary(changeset)}")}
     end
   end
 
@@ -2081,14 +2114,29 @@ defmodule RuleMavenWeb.GameLive.Form do
           end
         end)
 
-        {:noreply,
+        {:ok,
          socket
          |> put_flash(:info, "Game updated!")
          |> push_navigate(to: ~p"/games/#{game}/edit")}
 
       {:error, changeset} ->
-        {:noreply, assign(socket, game_changeset: changeset)}
+        {:error,
+         socket
+         |> assign(game_changeset: changeset)
+         |> put_flash(:error, "Couldn't save: #{changeset_error_summary(changeset)}")}
     end
+  end
+
+  # "name can't be blank; bgg_id is invalid" — human-readable changeset errors
+  # for the save-failure flash.
+  defp changeset_error_summary(changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
+      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
+    |> Enum.map_join("; ", fn {field, msgs} -> "#{field} #{Enum.join(msgs, ", ")}" end)
   end
 
   # Shared page navigator for the inline editor and the expanded reader. Selects
