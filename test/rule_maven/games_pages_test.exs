@@ -199,6 +199,43 @@ defmodule RuleMaven.GamesPagesTest do
     end
   end
 
+  describe "replace_page/3 (concurrent-write race)" do
+    test "applies to fresh state, not clobbering a concurrent set_page_cleaned write" do
+      {:ok, game} = Games.create_game(%{name: "Race Test #{System.unique_integer([:positive])}"})
+
+      {:ok, doc} =
+        Games.create_document(%{
+          game_id: game.id,
+          label: "Rules",
+          full_text: "page one text\fpage two text"
+        })
+
+      # Simulate the worker's load-then-wait-5-minutes: it holds this snapshot
+      # from before the concurrent cleanup write below.
+      stale_doc = Games.get_document!(doc.id)
+
+      # A concurrent cleanup write lands on page 1 (index 1) while the
+      # re-extract is "in flight".
+      {:ok, _} = Games.set_page_cleaned(doc.id, 1, "freshly cleaned page two")
+
+      # The re-extract now persists using the doc it loaded before that write.
+      {:ok, updated} =
+        Games.replace_page(stale_doc, 0, %{
+          text: "re-extracted page one",
+          confidence: 0.95,
+          lane: "t1",
+          source: "reextract"
+        })
+
+      page0 = Enum.find(updated.pages, &(&1.index == 0))
+      page1 = Enum.find(updated.pages, &(&1.index == 1))
+
+      assert page0.text == "re-extracted page one"
+      # Must NOT be clobbered back to nil/original by the stale snapshot.
+      assert page1.cleaned == "freshly cleaned page two"
+    end
+  end
+
   describe "job log" do
     test "a run records its events in order and closes with a terminal state" do
       {:ok, game} = Games.create_game(%{name: "Log Test"})

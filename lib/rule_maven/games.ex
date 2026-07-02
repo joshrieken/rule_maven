@@ -2205,8 +2205,18 @@ defmodule RuleMaven.Games do
   re-extraction). `fields` is `%{text:, confidence:, lane:, source:}`. Clears any
   cleaned/edited body (the fresh extraction supersedes it), preserves the page's
   printed number, rebuilds full_text, and re-chunks via `update_document/2`.
+
+  Re-fetches the document by id before rebuilding the pages array (mirrors
+  `set_page_cleaned/3`) rather than trusting the caller's in-memory `doc`. A
+  single-page re-extraction runs through a strong model + critic and can take
+  minutes; a `doc` loaded before that wait is a stale snapshot, and rebuilding
+  the whole pages array from it would silently clobber any concurrent per-page
+  write (e.g. the cleanup worker's `set_page_cleaned/3`) that landed in the
+  meantime. Only `doc.id` from the passed-in struct is used.
   """
   def replace_page(%Document{} = doc, index, fields) do
+    doc = get_document!(doc.id)
+
     pages =
       doc.pages
       |> Enum.sort_by(& &1.index)
