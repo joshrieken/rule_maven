@@ -30,8 +30,8 @@ defmodule RuleMaven.Readiness do
   alias RuleMaven.{Repo, Settings, Games, Voices, Audit, CheatSheet}
   alias RuleMaven.Games.{Game, Document, Chunk}
 
-  @required ~w(source extract review cleanup embed)a
-  @enrichment ~w(suggestions categories cheat_sheet setup did_you_know voices theme bgg)a
+  @required ~w(bgg source extract review cleanup embed)a
+  @enrichment ~w(suggestions categories cheat_sheet setup did_you_know voices theme)a
 
   # Steps that spend LLM/embedding budget — the ones we estimate + total cost for.
   @llm_steps ~w(extract cleanup embed suggestions categories cheat_sheet setup did_you_know voices theme)a
@@ -292,6 +292,18 @@ defmodule RuleMaven.Readiness do
     docs = Games.list_documents(game)
 
     cond do
+      # BGG data is the first required step — it must be pulled before anything
+      # else runs. Without a bgg_id there's nothing to pull, so pause for a human
+      # to set one (or override) rather than silently stalling forever.
+      not step_complete?(:bgg, game, docs) ->
+        if is_nil(game.bgg_id) do
+          pause(game, "needs_bgg")
+        else
+          run_bgg(game)
+          clear_pause(game)
+          {:running, :bgg}
+        end
+
       docs == [] ->
         pause(game, "needs_source")
 
@@ -334,6 +346,17 @@ defmodule RuleMaven.Readiness do
         Games.enqueue_extract(doc)
       end
     end)
+  end
+
+  # Pull BoardGameGeek data. The worker is `unique` per game, so the guard just
+  # avoids a redundant enqueue while a pull is already in flight.
+  defp run_bgg(%Game{} = game) do
+    if Application.get_env(:rule_maven, Oban)[:testing] != :manual and
+         game.id not in RuleMaven.Workers.BggEnrichWorker.running_game_ids() do
+      %{game_id: game.id} |> RuleMaven.Workers.BggEnrichWorker.new() |> Oban.insert()
+    end
+
+    :ok
   end
 
   defp run_cleanup(docs) do

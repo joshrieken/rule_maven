@@ -59,7 +59,9 @@ defmodule RuleMavenWeb.PrepareRenderTest do
   test "cleanup step offers a Clean up button once a source is extracted but not cleaned",
        %{conn: conn} do
     admin = admin!("prep_clean_admin")
-    game = game_fixture(%{name: "Cleanable Game"})
+    # BGG is the first required step now, so it must be pulled before the
+    # cleanup step becomes actionable.
+    game = game_fixture(%{name: "Cleanable Game", bgg_data: "<items/>"})
 
     {:ok, _doc} =
       RuleMaven.Games.create_document(%{

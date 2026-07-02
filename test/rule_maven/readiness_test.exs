@@ -136,7 +136,7 @@ defmodule RuleMaven.ReadinessTest do
     end
 
     test "required-complete is not enough without publish approval (manual gate)" do
-      game = game_fixture(name: "ready", bgg_id: 102)
+      game = game_fixture(name: "ready", bgg_id: 102, bgg_data: "<items/>")
       doc_fixture(game, pages: [{0.9, true}], status: "cleaned", embed: :done)
 
       assert Readiness.required_complete?(game)
@@ -156,7 +156,7 @@ defmodule RuleMaven.ReadinessTest do
     end
 
     test "approved playable game appears in list_playable_games/0" do
-      game = game_fixture(name: "ready2")
+      game = game_fixture(name: "ready2", bgg_data: "<items/>")
       doc_fixture(game, pages: [{0.9, true}], status: "cleaned", embed: :done)
       Readiness.approve_publish(game)
 
@@ -166,14 +166,27 @@ defmodule RuleMaven.ReadinessTest do
   end
 
   describe "drive/1 auto-pilot decisions" do
-    test "pauses needing a source on an empty game" do
-      game = game_fixture()
+    # BGG is the first required step. Games past it in these tests carry
+    # bgg_data so drive advances to the stage under test.
+    test "pauses for BGG when there is no bgg_id to pull" do
+      game = game_fixture(bgg_id: nil)
+      assert {:paused, "needs_bgg"} = Readiness.drive(game)
+      assert Readiness.pause_reason(game.id) == "needs_bgg"
+    end
+
+    test "runs the BGG pull first when a bgg_id is set but not yet pulled" do
+      game = game_fixture(bgg_id: 42)
+      assert {:running, :bgg} = Readiness.drive(game)
+    end
+
+    test "pauses needing a source on a bgg-pulled empty game" do
+      game = game_fixture(bgg_data: "<items/>")
       assert {:paused, "needs_source"} = Readiness.drive(game)
       assert Readiness.pause_reason(game.id) == "needs_source"
     end
 
     test "runs extraction (not a pause) when a source is saved but unextracted" do
-      game = game_fixture()
+      game = game_fixture(bgg_data: "<items/>")
 
       {:ok, _doc} =
         %Document{}
@@ -189,13 +202,13 @@ defmodule RuleMaven.ReadinessTest do
     end
 
     test "pauses for human review when pages are flagged" do
-      game = game_fixture()
+      game = game_fixture(bgg_data: "<items/>")
       doc_fixture(game, pages: [{0.9, true}, {0.2, true}])
       assert {:paused, "needs_review"} = Readiness.drive(game)
     end
 
     test "reaches done and disarms once required steps complete" do
-      game = game_fixture()
+      game = game_fixture(bgg_data: "<items/>")
       doc_fixture(game, pages: [{0.9, true}], status: "cleaned", embed: :done)
       Settings.put("readiness_auto_#{game.id}", "on")
 

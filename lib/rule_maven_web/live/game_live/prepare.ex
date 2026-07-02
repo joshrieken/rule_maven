@@ -1061,6 +1061,17 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   defp step_action(_step, _game), do: nil
 
+  defp pause_message(%{pause_reason: "needs_bgg"} = assigns) do
+    ~H"""
+    BoardGameGeek data must be pulled first — set a BGG ID on the <.link
+      navigate={~p"/games/#{@game}/edit?#{%{tab: "details"}}"}
+      style="color:var(--accent);font-weight:600"
+    >
+      edit page
+    </.link>, then re-click Prepare to resume.
+    """
+  end
+
   defp pause_message(%{pause_reason: "needs_source"} = assigns) do
     ~H"""
     Upload a rulebook source first — <.link
