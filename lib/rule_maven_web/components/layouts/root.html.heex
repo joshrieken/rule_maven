@@ -193,7 +193,15 @@
         </nav>
       </div>
 
-      <.flash_group flash={assigns[:flash] || %{}} />
+      <%!-- LiveView routes render their own flash_group via the live layout
+            (RuleMavenWeb.Layouts.app), which re-renders on every connected
+            update — this root-layout flash_group is dead-rendered once and
+            never updates after the socket connects, so it's skipped here to
+            avoid a duplicate, stale flash box. Controller routes (e.g. login)
+            have no live layout, so they keep using this one. --%>
+      <%= if !(assigns[:conn] && assigns[:conn].private[:phoenix_live_view]) do %>
+        <.flash_group flash={assigns[:flash] || %{}} />
+      <% end %>
 
       <main class="main-content">
         <div class="container">

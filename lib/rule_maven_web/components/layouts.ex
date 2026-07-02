@@ -5,30 +5,26 @@ defmodule RuleMavenWeb.Layouts do
 
   embed_templates "layouts/*"
 
-  attr :flash, :map, required: true
-  slot :inner_block, required: true
+  @doc """
+  The live layout (wired up via `layout: {RuleMavenWeb.Layouts, :app}` in the
+  `live_view` macro, see lib/rule_maven_web.ex). The real app shell (header,
+  nav, drawer, admin panel) lives in the root layout (root.html.heex) and is
+  rendered once per dead render — it doesn't need to be live-reactive. This
+  layout's only job is to make `flash_group` re-render on every connected
+  LiveView update, since the root layout's own flash_group (kept for
+  controller-rendered pages) never re-renders after the WebSocket connects. It
+  renders no visual chrome of its own so pages stay pixel-identical;
+  flash_group is fixed-positioned so its location in the DOM doesn't matter.
 
+  Note: this is invoked directly by `Phoenix.LiveView.Renderer` via
+  `Phoenix.Template.render/4` (matched by function name against the layout
+  template atom), not as a `<Layouts.app>` component call — so it receives
+  `@inner_content` (like root.html.heex does), not a slot.
+  """
   def app(assigns) do
     ~H"""
-    <div class="app-shell">
-      <header class="header">
-        <div class="header-inner">
-          <a href={~p"/"} class="header-brand">
-            <span class="header-icon">◆</span>
-            <span class="header-title">Rule <span class="header-title-accent">Maven</span></span>
-          </a>
-          <span class="header-tagline">rules &amp; reference assistant</span>
-        </div>
-      </header>
-
-      <.flash_group flash={@flash} />
-
-      <main class="main-content">
-        <div class="container">
-          {render_slot(@inner_block)}
-        </div>
-      </main>
-    </div>
+    <.flash_group flash={@flash} />
+    {@inner_content}
     """
   end
 
