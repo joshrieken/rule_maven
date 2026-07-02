@@ -102,6 +102,31 @@ defmodule RuleMaven.ModerationTest do
     end
   end
 
+  describe "invalidate_pool/1 does not inflate moderation risk" do
+    test "a rulebook edit doesn't touch needs_review-based abuse stats for private askers" do
+      game = game_fixture()
+      asker = user_fixture("ordinary_asker")
+
+      # Two private answers — no reports, no community promotion. An ordinary
+      # user just asking questions.
+      log(game, asker, %{visibility: "private", citation_valid: true})
+      log(game, asker, %{visibility: "private", citation_valid: true})
+
+      before_stats = Enum.find(Moderation.user_signals(), &(&1.username == "ordinary_asker"))
+      assert before_stats.needs_review == 0
+      assert before_stats.risk == 0
+
+      # Simulate a rulebook edit: invalidate_pool marks the private rows
+      # `stale`, but must NOT set `needs_review` on them (that's the
+      # moderation-abuse signal, reserved for community/report-driven flags).
+      Games.invalidate_pool(game.id)
+
+      after_stats = Enum.find(Moderation.user_signals(), &(&1.username == "ordinary_asker"))
+      assert after_stats.needs_review == 0
+      assert after_stats.risk == before_stats.risk
+    end
+  end
+
   describe "Games.demote_user_answers/1" do
     test "makes all of a user's answers private and unpools them" do
       game = game_fixture()

@@ -78,26 +78,31 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
   end
 
   describe "invalidate_pool/1" do
-    test "demotes auto-pooled rows and flags every row (community + private) for review" do
+    test "demotes auto-pooled rows, stales every row, flags only community rows for review" do
       game = game()
       auto = pooled_q(game, %{pooled: true})
       community = pooled_q(game, %{pooled: true, visibility: "community"})
 
-      # 2 demoted (both pooled) + 2 flagged (auto/private + community).
-      assert Games.invalidate_pool(game.id) == 4
+      # 2 demoted (both pooled) + 2 staled (private + community) + 1 flagged
+      # (community only — needs_review is a moderation signal and must not
+      # touch private rows).
+      assert Games.invalidate_pool(game.id) == 5
 
       refute Repo.get!(QuestionLog, auto.id).pooled
 
-      # Private rows are flagged too, so same-user lookups stop serving them
-      # (find_user_duplicate/find_user_similar filter on needs_review == false).
+      # Private rows get `stale` (so same-user lookups stop serving them) but
+      # NOT `needs_review` — that would inflate the asker's moderation risk
+      # score on every rulebook edit.
       auto = Repo.get!(QuestionLog, auto.id)
       assert auto.visibility == "private"
-      assert auto.needs_review
+      assert auto.stale
+      refute auto.needs_review
 
-      # Community answer is preserved but flagged so it stops serving until a
-      # moderator re-approves it.
+      # Community answer is preserved but staled AND flagged so it stops
+      # serving until a moderator re-approves it.
       community = Repo.get!(QuestionLog, community.id)
       assert community.visibility == "community"
+      assert community.stale
       assert community.needs_review
 
       # The review backlog count only reflects the flagged community row — the
@@ -112,8 +117,9 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
       assert Games.needs_review_count() == 0
     end
 
-    test "user-tier lookups exclude a private answer flagged stale by a rulebook change" do
+    test "user-tier lookups exclude a private answer marked stale by a rulebook change" do
       game = game()
+      embedding = List.duplicate(0.1, 768)
 
       user =
         Repo.insert!(%RuleMaven.Users.User{
@@ -132,17 +138,29 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
           visibility: "private"
         })
 
-      # Eligible before the rulebook changes...
+      Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
+        set: [question_embedding: Pgvector.new(embedding)]
+      )
+
+      # Eligible in both user tiers before the rulebook changes...
       assert {%{id: id}, _tier} =
                Games.find_user_duplicate(game.id, user.id, "how many cards do i draw", "x")
 
       assert id == q.id
+      assert {%{id: ^id}, _tier} = Games.find_user_similar(game.id, user.id, embedding)
 
       # A rulebook change invalidates the pool — the user's own cached answer,
       # computed against the old text, must stop being served too.
       Games.invalidate_pool(game.id)
 
       assert Games.find_user_duplicate(game.id, user.id, "how many cards do i draw", "x") == nil
+      assert Games.find_user_similar(game.id, user.id, embedding) == nil
+
+      # The exclusion runs on `stale`, not `needs_review` — the moderation
+      # signal stays untouched for a private row.
+      q = Repo.get!(QuestionLog, q.id)
+      assert q.stale
+      refute q.needs_review
     end
 
     test "the pool lookup skips a flagged community answer" do

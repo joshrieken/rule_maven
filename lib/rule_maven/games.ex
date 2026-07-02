@@ -262,6 +262,10 @@ defmodule RuleMaven.Games do
   """
   def delete_game(%Game{} = game) do
     Repo.transaction(fn ->
+      # delete_document/1's own {:error, _} results are discarded here (same
+      # as reset_preparation/1) — a failed per-doc delete doesn't abort the
+      # loop; if it leaves the doc row behind, the transaction still surfaces
+      # a failure when the final Repo.delete(game) hits the FK constraint.
       Enum.each(list_documents(game), &delete_document/1)
       Repo.delete_all(from q in QuestionLog, where: q.game_id == ^game.id)
 
@@ -279,16 +283,22 @@ defmodule RuleMaven.Games do
   shape, since callers pattern-match on it).
   """
   def delete_all_games do
-    Repo.transaction(fn ->
-      Document |> Repo.all() |> Enum.each(&delete_document/1)
-      Repo.delete_all(QuestionLog)
-      {count, _} = Repo.delete_all(Game)
-      count
-    end)
-    |> case do
-      {:ok, count} -> {count, nil}
-      {:error, reason} -> {:error, reason}
-    end
+    # delete_document/1's own {:error, _} results are discarded here (same as
+    # reset_preparation/1 and delete_game/1) — a failed per-doc delete doesn't
+    # abort the loop; nothing calls Repo.rollback in this function, so a
+    # genuine DB-level failure (e.g. an unexpected constraint violation) is
+    # left to raise and crash the transaction rather than silently returning a
+    # dishonest `{:error, _}` tuple callers would render as "Cleared error
+    # game(s)".
+    {:ok, count} =
+      Repo.transaction(fn ->
+        Document |> Repo.all() |> Enum.each(&delete_document/1)
+        Repo.delete_all(QuestionLog)
+        {count, _} = Repo.delete_all(Game)
+        count
+      end)
+
+    {count, nil}
   end
 
   def change_game(%Game{} = game, attrs \\ %{}) do
@@ -879,12 +889,19 @@ defmodule RuleMaven.Games do
   (new/edited/cleaned/deleted source) so stale answers — computed against the
   old text — stop being served by `find_similar_question_in_pool/3` OR by the
   same-user tiers (`find_user_duplicate/4`, `find_user_similar/4`,
-  `find_user_answer_duplicate/4`), which all filter on `needs_review == false`.
-  Community-promoted rows (human-curated) are preserved but flagged for
-  moderator re-approval; auto-pooled (`pooled = true`) rows are demoted
-  outright; every row (regardless of visibility) is flagged `needs_review` so
-  no answer computed before this change keeps serving. Returns the number of
-  rows touched (demoted + newly flagged).
+  `find_user_answer_duplicate/4`), which all filter on `stale == false`.
+  Content-staleness (`stale`) is deliberately a separate field from
+  `needs_review`: `needs_review` doubles as a per-user abuse signal
+  (`RuleMaven.Moderation.answer_stats_by_user/0`), so flagging every row in
+  the game on every rulebook edit would inflate ordinary askers' moderation
+  risk score for no abuse-related reason. `stale` carries no moderation
+  weight — it's set on every row (any visibility), auto-pooled (`pooled =
+  true`) rows are demoted outright, and community rows are additionally
+  flagged `needs_review` so they stay out of the shared pool until a
+  moderator re-approves them (`clear_needs_review/1`); private rows just
+  silently stop matching `stale == false` and a fresh ask re-populates them.
+  Returns the number of rows touched (demoted + newly staled + newly
+  flagged).
   """
   def invalidate_pool(game_id) do
     # Auto-pooled answers can be demoted silently — they'll re-pool on the next
@@ -895,17 +912,24 @@ defmodule RuleMaven.Games do
         set: [pooled: false]
       )
 
-    # Flag every not-yet-flagged row in the game for review — not just
-    # community rows. This is what keeps the same-user cache tiers
-    # (find_user_duplicate/find_user_similar) from serving a private answer
-    # computed against text that's now stale. Community rows additionally stay
-    # out of the shared pool until a moderator re-approves them
-    # (clear_needs_review/1); private rows just silently stop matching and a
-    # fresh ask re-populates them.
+    # Mark every not-yet-stale row in the game — this is the content-staleness
+    # signal the same-user cache tiers check, independent of moderation.
+    {staled, _} =
+      Repo.update_all(
+        from(q in QuestionLog, where: q.game_id == ^game_id and q.stale == false),
+        set: [stale: true]
+      )
+
+    # Community rows also get needs_review so they leave the shared pool until
+    # a moderator re-approves them (clear_needs_review/1). Scoped to community
+    # only — same as pre-existing moderation semantics — so an ordinary user's
+    # abuse-risk score (needs_review * 2 in moderation.ex) is never inflated by
+    # a rulebook edit.
     {flagged, _} =
       Repo.update_all(
         from(q in QuestionLog,
-          where: q.game_id == ^game_id and q.needs_review == false
+          where:
+            q.game_id == ^game_id and q.visibility == "community" and q.needs_review == false
         ),
         set: [needs_review: true]
       )
@@ -914,12 +938,17 @@ defmodule RuleMaven.Games do
     # underlying answer can change.
     RuleMaven.Voices.clear_for_game(game_id)
 
-    demoted + flagged
+    demoted + staled + flagged
   end
 
-  @doc "Clears the stale-review flag on an answer, making it pool-eligible again."
+  @doc """
+  Clears the review flag on an answer, making it pool-eligible again. Also
+  clears `stale` — moderator re-approval asserts the answer is still valid
+  against the current rulebook text, so it shouldn't stay excluded from the
+  same-user cache tiers either.
+  """
   def clear_needs_review(%QuestionLog{} = q) do
-    q |> QuestionLog.changeset(%{needs_review: false}) |> Repo.update()
+    q |> QuestionLog.changeset(%{needs_review: false, stale: false}) |> Repo.update()
   end
 
   @doc """
@@ -935,17 +964,14 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Community answers currently pulled from the pool awaiting re-approval
-  (`needs_review`), whether pulled by a rulebook change or by user reports.
-  Scoped to `visibility == "community"` — private rows also get flagged by
-  `invalidate_pool/1` (so same-user reuse excludes them), but they aren't
-  moderator-curated and don't belong in this backlog. Newest first, with the
+  Answers currently pulled from the pool awaiting re-approval (`needs_review`),
+  whether pulled by a rulebook change or by user reports. Newest first, with the
   game preloaded for display.
   """
   def list_needs_review_questions do
     Repo.all(
       from q in QuestionLog,
-        where: q.needs_review == true and q.visibility == "community",
+        where: q.needs_review == true,
         order_by: [desc: q.updated_at],
         preload: [:game]
     )
@@ -1883,8 +1909,10 @@ defmodule RuleMaven.Games do
   their question — independent of pooling and the embedding threshold, so a
   repeat always collapses to one Q&A even when the first answer never pooled.
 
-  Eligible rows: same `user_id` and `game_id`, not refused/blocked/needs_review,
-  a real answer (not the in-flight "Thinking..." sentinel), and a normalized-text
+  Eligible rows: same `user_id` and `game_id`, not
+  refused/blocked/needs_review/stale (stale = rulebook changed since the answer
+  was computed, set by `invalidate_pool/1`), a real answer (not the in-flight
+  "Thinking..." sentinel), and a normalized-text
   match (`cleaned_question == cleaned`, case-insensitive; or `question == raw`
   when `cleaned_question` is null). Returns `{row, tier}` or nil; nil when
   `user_id` is nil.
@@ -1899,7 +1927,9 @@ defmodule RuleMaven.Games do
       Repo.one(
         from q in QuestionLog,
           where: q.game_id == ^game_id and q.user_id == ^user_id,
-          where: q.refused == false and q.blocked == false and q.needs_review == false,
+          where:
+            q.refused == false and q.blocked == false and q.needs_review == false and
+              q.stale == false,
           where: q.answer != "Thinking..." and not is_nil(q.answer),
           where:
             fragment("lower(?) = ?", q.cleaned_question, ^cleaned) or
@@ -1933,7 +1963,9 @@ defmodule RuleMaven.Games do
       Repo.one(
         from q in QuestionLog,
           where: q.game_id == ^game_id and q.user_id == ^user_id,
-          where: q.refused == false and q.blocked == false and q.needs_review == false,
+          where:
+            q.refused == false and q.blocked == false and q.needs_review == false and
+              q.stale == false,
           where: q.answer != "Thinking..." and not is_nil(q.answer),
           where: not is_nil(q.question_embedding),
           where:
@@ -1967,7 +1999,9 @@ defmodule RuleMaven.Games do
       Repo.one(
         from q in QuestionLog,
           where: q.game_id == ^game_id and q.user_id == ^user_id and q.id != ^exclude_id,
-          where: q.refused == false and q.blocked == false and q.needs_review == false,
+          where:
+            q.refused == false and q.blocked == false and q.needs_review == false and
+              q.stale == false,
           where: q.answer != "Thinking..." and not is_nil(q.answer),
           where:
             fragment("btrim(lower(regexp_replace(?, '\\s+', ' ', 'g'))) = ?", q.answer, ^norm),

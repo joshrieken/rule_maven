@@ -31,6 +31,12 @@ defmodule RuleMaven.Games.QuestionLog do
     # Set when a rulebook content change may have invalidated a community answer.
     # The pool lookup skips flagged rows so they stop serving until re-approved.
     field :needs_review, :boolean, default: false
+    # Set on EVERY row (any visibility) when a rulebook content change may have
+    # invalidated it. Distinct from needs_review: needs_review also drives the
+    # moderator abuse-risk score (moderation.ex), so it must stay scoped to
+    # community/report-driven flags — stale is the content-invalidation signal
+    # the same-user cache tiers (find_user_duplicate/find_user_similar) check.
+    field :stale, :boolean, default: false
     belongs_to :game, RuleMaven.Games.Game
     belongs_to :user, RuleMaven.Users.User
     belongs_to :document, RuleMaven.Games.Document
@@ -80,6 +86,7 @@ defmodule RuleMaven.Games.QuestionLog do
       :pooled,
       :pool_source_id,
       :needs_review,
+      :stale,
       :favorited
     ])
     |> validate_required([:question, :answer, :game_id])
