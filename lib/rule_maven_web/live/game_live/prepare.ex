@@ -1047,11 +1047,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         type="button"
         phx-click="regen_step"
         phx-value-step={@step.id}
-        data-confirm={
-          if @done?,
-            do: "Re-run this step? It spends LLM budget and replaces the current result.",
-            else: "Generate this step? It spends LLM budget."
-        }
+        data-confirm={regen_confirm(@step.id, @done?)}
         style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
       >
         {if @done?, do: "Regenerate", else: "Generate"}
@@ -1076,6 +1072,17 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     </div>
     """
   end
+
+  # BGG is a free HTTP pull — no LLM spend, unlike every other regen step.
+  defp regen_confirm(:bgg, true),
+    do: "Re-pull the BoardGameGeek data? This replaces the current result (free — no LLM spend)."
+
+  defp regen_confirm(:bgg, false), do: "Pull the BoardGameGeek data? Free — no LLM spend."
+
+  defp regen_confirm(_id, true),
+    do: "Re-run this step? It spends LLM budget and replaces the current result."
+
+  defp regen_confirm(_id, false), do: "Generate this step? It spends LLM budget."
 
   # Where each step's output is viewed or managed. Player-facing artifacts link
   # to the live game page; the cheat sheet has its own view; everything in the
