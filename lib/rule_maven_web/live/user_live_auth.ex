@@ -11,6 +11,21 @@ defmodule RuleMavenWeb.UserLiveAuth do
         {:halt, redirect(socket, to: "/login")}
 
       user ->
+        # Mirrors the :admin hook below: a socket outlives its mount, so a
+        # user suspended (or force-logged-out) after connecting would
+        # otherwise keep a live session with full event access. Re-verify
+        # suspension/session validity before EVERY event so revocation takes
+        # effect on the next interaction, uniformly across all :default
+        # LiveViews. `logged_in_at` is stashed on the socket (it only ever
+        # comes from the session, not the DB) so the hook can re-run
+        # `session_valid?/2` without threading the session through.
+        logged_in_at = session[:logged_in_at] || session["logged_in_at"]
+
+        socket =
+          socket
+          |> assign(:logged_in_at, logged_in_at)
+          |> attach_hook(:suspension_reauth, :handle_event, &default_reauth_event/3)
+
         {:cont, assign(socket, :current_user, user)}
     end
   end
@@ -54,6 +69,26 @@ defmodule RuleMavenWeb.UserLiveAuth do
       {:cont, assign(socket, :current_user, fresh)}
     else
       _ -> {:halt, redirect(socket, to: "/")}
+    end
+  end
+
+  # Re-checks suspension/session standing from the DB on each event of a
+  # :default-session LiveView. Halts (redirects to login) the moment an
+  # open socket's user is suspended or their session is invalidated
+  # (force-logout), so a stale socket can't keep firing events after
+  # revocation. Re-fetches fresh — the socket's assigned user is a snapshot
+  # from mount.
+  defp default_reauth_event(_event, _params, socket) do
+    user = socket.assigns[:current_user]
+    logged_in_at = socket.assigns[:logged_in_at]
+
+    with %{id: id} <- user,
+         fresh when not is_nil(fresh) <- Users.get_user(id),
+         false <- Users.suspended?(fresh),
+         true <- Users.session_valid?(fresh, logged_in_at) do
+      {:cont, assign(socket, :current_user, fresh)}
+    else
+      _ -> {:halt, redirect(socket, to: "/login")}
     end
   end
 
