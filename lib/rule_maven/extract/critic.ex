@@ -80,6 +80,7 @@ defmodule RuleMaven.Extract.Critic do
     RuleMaven.LLM.transcribe_page_image(image,
       model: RuleMaven.LLM.vision_model(:escalate),
       max_tokens: 8192,
+      reasoning_effort: "low",
       guidance: guidance,
       game_id: game_id
     )

@@ -413,11 +413,13 @@ defmodule RuleMaven.LLM do
           }
         ]
 
-        body = %{
-          model: opts[:model] || vision_model(),
-          max_tokens: opts[:max_tokens] || 4096,
-          messages: messages
-        }
+        body =
+          %{
+            model: opts[:model] || vision_model(),
+            max_tokens: opts[:max_tokens] || 4096,
+            messages: messages
+          }
+          |> maybe_reasoning(opts[:reasoning_effort])
 
         case do_request(body, 1, operation: "ocr_vision", game_id: opts[:game_id]) do
           {:ok, %{answer: text}} -> {:ok, text}
@@ -428,6 +430,16 @@ defmodule RuleMaven.LLM do
         {:error, "could not read page image: #{inspect(reason)}"}
     end
   end
+
+  # Caps reasoning spend on models that think by default (e.g. Gemini 3 Pro):
+  # page transcription is perception, not reasoning — thinking tokens bill at
+  # output rate and buy no transcription accuracy. OpenRouter-only knob (other
+  # OpenAI-compatible endpoints may reject the unknown key).
+  defp maybe_reasoning(body, effort) when effort in ["low", "medium", "high"] do
+    if provider() == "openrouter", do: Map.put(body, :reasoning, %{effort: effort}), else: body
+  end
+
+  defp maybe_reasoning(body, _), do: body
 
   @doc """
   Adversarial critic for a page transcription. Given the page image and a

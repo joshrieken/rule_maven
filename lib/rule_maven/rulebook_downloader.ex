@@ -36,7 +36,14 @@ defmodule RuleMaven.RulebookDownloader do
   @t2_majority 0.75
   # Max concurrent vision calls (remote LLM, not local CPU) when transcribing a
   # book page-by-page.
-  @vision_concurrency 4
+  @vision_concurrency 8
+
+  # Page images go to the model as grayscale JPEG: providers downscale/tile the
+  # image to the same token count regardless of encoding, so JPEG only shrinks
+  # the base64 upload (~2-5x vs PNG, measured 1.8x on a dense page) — faster,
+  # same accuracy. Quality 90 keeps compression artifacts below what
+  # tesseract/vision notice.
+  @jpeg_args ["-jpeg", "-jpegopt", "quality=90", "-gray"]
 
   # No-op progress sink used when a caller doesn't care about stage updates.
   defp noop_progress(_stage), do: :ok
@@ -648,7 +655,9 @@ defmodule RuleMaven.RulebookDownloader do
   defp image_extract(full_path, on_progress, game_id) do
     on_progress.(:ocr)
     log(on_progress, "Reading image — OCR + vision cross-check…")
-    r = decide_page(full_path, "", 0.0, game_id)
+    # pdf_path nil: there is no PDF to re-render, so a T1 disagreement skips the
+    # T2 sharper-render tier and goes straight to T3 (see escalate_tiers).
+    r = decide_page(full_path, "", false, %{game_id: game_id, pdf_path: nil, page: 1})
 
     if String.trim(r.text) == "" do
       {:error, "Image produced no readable text"}
@@ -713,50 +722,52 @@ defmodule RuleMaven.RulebookDownloader do
   end
 
   # Accuracy-first cross-check engine. Per page: a clean text layer is trusted
-  # as-is (no model call). Otherwise the page is read two cheap, independent ways
-  # — text layer (or local OCR) and cheap vision — and scored by the gate. Strong
-  # agreement is the accuracy ceiling, so we stop; disagreement escalates (Phase 3
-  # wires Opus + an adversarial critic here — currently keeps the richer cheap
-  # read and flags low confidence). Pages stay in physical order and join with
-  # "\f", so the marker/paginate pipeline is untouched. Returns
-  # {:ok, text, from_ocr, page_meta}.
+  # as-is (no model call, no page render). Otherwise the page is rendered and
+  # read two cheap, independent ways — text layer (or local OCR) and cheap
+  # vision — and scored by the gate. Strong agreement is the accuracy ceiling,
+  # so we stop; disagreement climbs the escalation ladder. Pages stay in
+  # physical order and join with "\f", so the marker/paginate pipeline is
+  # untouched. Returns {:ok, text, from_ocr, page_meta}.
+  #
+  # Rendering is lazy: pages are rendered one-by-one only when a page actually
+  # needs an image (not T0-trusted, or drift-sampled). On a clean born-digital
+  # book most pages skip pdftoppm entirely.
   defp crosscheck_extract(full_path, on_progress, game_id) do
     if System.find_executable("pdftoppm") do
       on_progress.(:extracting)
 
-      case render_pages(full_path) do
-        {:ok, []} ->
+      case sheet_count(full_path) do
+        {:ok, 0} ->
           {:error, "PDF produced no pages to extract"}
 
-        {:ok, images} ->
+        {:ok, total} ->
           on_progress.(:ocr)
-          total = length(images)
 
           log(
             on_progress,
             "Reading #{total} page(s) — trusting clean text, cross-checking the rest…"
           )
 
-          # Positional layer↔image pairing is only safe when the text-layer page
-          # count matches the rendered sheet count. On any mismatch we discard the
+          # Positional layer↔sheet pairing is only safe when the text-layer page
+          # count matches the sheet count. On any mismatch we discard the
           # layer entirely (every page cross-checks via OCR/vision) rather than
           # risk attaching a page's text to the wrong sheet — silent corruption is
           # the one thing accuracy-first must never do. A few extra vision calls
           # on a rare mismatch is the right trade.
-          layer_pages = aligned_layers(pdftext_pages(full_path), length(images))
+          layer_pages = aligned_layers(pdftext_pages(full_path), total)
 
           # Read the drift-sample rate once for the whole book (avoids a Settings
           # DB read per page).
           drift_rate = Calibrate.drift_rate()
 
           results =
-            images
-            |> Enum.with_index()
+            1..total
             |> Task.async_stream(
-              fn {img, i} ->
-                ctx = %{game_id: game_id, pdf_path: full_path, page: i + 1}
-                r = decide_page(img, Enum.at(layer_pages, i) || "", drift_rate, ctx)
-                log(on_progress, page_line(i + 1, total, r), page_kind(r))
+              fn page ->
+                layer = String.trim(Enum.at(layer_pages, page - 1) || "")
+                ctx = %{game_id: game_id, pdf_path: full_path, page: page}
+                r = decide_page_lazy(layer, drift_rate, ctx)
+                log(on_progress, page_line(page, total, r), page_kind(r))
                 r
               end,
               max_concurrency: @vision_concurrency,
@@ -767,8 +778,6 @@ defmodule RuleMaven.RulebookDownloader do
               {:ok, r} -> r
               _ -> %{text: "", confidence: 0.0, lane: "vision", source: "error"}
             end)
-
-          Enum.each(images, &File.rm/1)
 
           text = results |> Enum.map(& &1.text) |> Enum.join("\f")
 
@@ -796,6 +805,26 @@ defmodule RuleMaven.RulebookDownloader do
     end
   end
 
+  # Sheet count via pdfinfo (ships with poppler alongside pdftoppm/pdftotext).
+  # Needed up front so lazy rendering can skip pdftoppm on trusted pages. On any
+  # failure the caller errors out and pdf_extract falls back to the legacy path.
+  defp sheet_count(full_path) do
+    if System.find_executable("pdfinfo") do
+      case cmd("pdfinfo", [full_path], @pdftotext_timeout) do
+        {:ok, {out, 0}} ->
+          case Regex.run(~r/^Pages:\s+(\d+)/m, out) do
+            [_, n] -> {:ok, String.to_integer(n)}
+            _ -> {:error, "could not read PDF page count"}
+          end
+
+        _ ->
+          {:error, "pdfinfo failed — PDF may be corrupt"}
+      end
+    else
+      {:error, :no_pdfinfo}
+    end
+  end
+
   # Returns the layer pages only if they align 1:1 with the rendered sheets
   # (after dropping trailing empty chunks pdftotext appends). On any count
   # mismatch returns [] so every page cross-checks instead of risking a
@@ -820,6 +849,40 @@ defmodule RuleMaven.RulebookDownloader do
     end
   end
 
+  # Lazy wrapper around the per-page decision: renders the sheet only when the
+  # decision actually needs an image. A T0-trusted, non-sampled page returns
+  # straight off the text layer with zero pdftoppm/model cost — on a clean
+  # born-digital book that's most pages, and rendering was the wall-time floor.
+  # The drift-sample draw happens here (before rendering) since it decides
+  # whether a trusted page needs an image at all.
+  defp decide_page_lazy(layer, drift_rate, ctx) do
+    trusted? = Gate.clean_text_layer?(layer)
+    sampled? = Calibrate.should_sample?(drift_rate)
+
+    if trusted? and not sampled? do
+      %{text: layer, confidence: 0.9, lane: "text_layer", source: "text_layer", escalated: false}
+    else
+      case render_one_page(ctx.pdf_path, ctx.page, @render_dpi) do
+        {:ok, img} ->
+          try do
+            decide_page(img, layer, sampled?, ctx)
+          after
+            File.rm(img)
+          end
+
+        {:error, _} when trusted? ->
+          # Drift sample that couldn't render — keep the trusted layer; the
+          # sample is simply skipped (best-effort telemetry, never a cost).
+          %{text: layer, confidence: 0.9, lane: "text_layer", source: "text_layer", escalated: false}
+
+        {:error, _} ->
+          # Un-renderable page with no trusted layer: keep whatever the layer
+          # had rather than dropping the page, flagged for review.
+          %{text: layer, confidence: 0.0, lane: "vision", source: "error"}
+      end
+    end
+  end
+
   # The per-page decision — a cost-ordered validation ladder. Each rung is read
   # cheaply, validated by the cheapest check that can catch its failure, and only
   # climbs when that check is unsatisfied (recall-biased: unsure → climb):
@@ -831,24 +894,22 @@ defmodule RuleMaven.RulebookDownloader do
   #   T2  higher-DPI re-read (same then mid model), settled by majority vote of
   #       the reads — no critic. See escalate_tiers/4.
   #   T3  top model + adversarial critic (escalate_page), the last resort.
-  defp decide_page(image, layer, drift_rate, ctx) do
+  #
+  # `sampled?` is the pre-drawn drift-sample decision (drawn before rendering,
+  # in decide_page_lazy — a trusted page only renders when sampled).
+  defp decide_page(image, layer, sampled?, ctx) do
     layer = String.trim(layer)
 
     if Gate.clean_text_layer?(layer) do
-      # T0. Trust the clean born-digital layer with no model call — unless this is
-      # a drift sample, in which case cross-check + escalate it anyway and log the
-      # outcome, so we keep verifying that "clean layer = safe" holds (the safety
-      # net that lets T0 trust on structure alone).
-      if Calibrate.should_sample?(drift_rate) do
-        reader_b = vision_one(image, ctx.game_id)
-        g = Gate.assess(layer, reader_b)
-        escalate_page(image, richer(layer, reader_b), signals: g.signals, drift: true, game_id: ctx.game_id)
-      else
-        %{text: layer, confidence: 0.9, lane: "text_layer", source: "text_layer", escalated: false}
-      end
-    else
-      reader_a = if layer != "", do: layer, else: ocr_one(image)
+      # T0 drift sample (the only way a clean layer reaches here): cross-check +
+      # strong-read it anyway and log the outcome, so we keep verifying that
+      # "clean layer = safe" holds (the safety net that lets T0 trust on
+      # structure alone).
       reader_b = vision_one(image, ctx.game_id)
+      g = Gate.assess(layer, reader_b)
+      escalate_page(image, richer(layer, reader_b), signals: g.signals, drift: true, game_id: ctx.game_id)
+    else
+      {reader_a, reader_b} = read_pair(image, layer, ctx.game_id)
       g = Gate.assess(reader_a, reader_b)
       text = richer(reader_a, reader_b)
       base_lane = if layer != "", do: "text_layer", else: "ocr"
@@ -857,7 +918,7 @@ defmodule RuleMaven.RulebookDownloader do
         # T1 agreed = accuracy ceiling. A small random sample escalates anyway and
         # logs the outcome, to keep verifying that "agreement = ceiling" holds
         # (drift detection). The sampled page keeps the escalated result.
-        g.agree? and Calibrate.should_sample?(drift_rate) ->
+        g.agree? and sampled? ->
           escalate_page(image, text, signals: g.signals, drift: true, game_id: ctx.game_id)
 
         g.agree? ->
@@ -878,6 +939,19 @@ defmodule RuleMaven.RulebookDownloader do
       end
     end
   end
+
+  # The two independent T1 reads. When the page has no text layer, local OCR
+  # (CPU) and cheap vision (remote API) are independent — overlap them instead
+  # of paying both latencies in sequence. With a layer, reader A is free.
+  defp read_pair(image, "", game_id) do
+    ocr = Task.async(fn -> ocr_one(image) end)
+    vision = vision_one(image, game_id)
+    # ocr_one has its own hard timeout and returns "" on failure; the extra
+    # margin here only covers scheduler lag.
+    {Task.await(ocr, @tesseract_timeout + 5_000), vision}
+  end
+
+  defp read_pair(image, layer, game_id), do: {layer, vision_one(image, game_id)}
 
   # T2 — the mid escalation ladder, run only after a T1 disagreement. Cheapest
   # move first: re-render the page sharper and re-read with the SAME cheap model
@@ -945,18 +1019,8 @@ defmodule RuleMaven.RulebookDownloader do
         prefix = Path.join(tmp, "#{System.system_time(:millisecond)}_re")
 
         args =
-          [
-            "-png",
-            "-gray",
-            "-r",
-            to_string(@reextract_dpi),
-            "-f",
-            to_string(sheet),
-            "-l",
-            to_string(sheet),
-            full,
-            prefix
-          ]
+          @jpeg_args ++
+            ["-r", to_string(@reextract_dpi), "-f", to_string(sheet), "-l", to_string(sheet), full, prefix]
 
         log.("Rendering #{label} at #{@reextract_dpi} DPI…", "info")
 
@@ -996,6 +1060,10 @@ defmodule RuleMaven.RulebookDownloader do
   # confidence); residual defects are flagged for review. Runs only on
   # disagreement (or drift-sampled) pages, so the costly path stays bounded.
   # `opts[:signals]` (gate signals) + `opts[:drift]` enable calibration logging.
+  #
+  # A drift sample skips the critic: calibration only compares the strong read
+  # to the cheap one (log_calibration), and the page's two readers already
+  # agreed — the critic there was pure spend with no calibration value.
   defp escalate_page(image, cheap_text, opts) do
     log = Keyword.get(opts, :on_log, fn _t, _k -> :ok end)
 
@@ -1005,6 +1073,7 @@ defmodule RuleMaven.RulebookDownloader do
       case RuleMaven.LLM.transcribe_page_image(image,
              model: RuleMaven.LLM.vision_model(:escalate),
              max_tokens: 8192,
+             reasoning_effort: "low",
              game_id: opts[:game_id]
            ) do
         {:ok, t} -> t
@@ -1018,6 +1087,20 @@ defmodule RuleMaven.RulebookDownloader do
     end
 
     candidate = richer(strong, cheap_text)
+
+    if opts[:drift] do
+      log_calibration(strong, cheap_text, opts)
+
+      Map.merge(
+        %{text: candidate, confidence: 0.85, lane: "ensemble", source: "drift_check", escalated: true},
+        gate_detail(opts[:signals])
+      )
+    else
+      escalate_with_critic(image, candidate, strong, cheap_text, opts, log)
+    end
+  end
+
+  defp escalate_with_critic(image, candidate, strong, cheap_text, opts, log) do
     log.("Running the adversarial critic check…", "info")
     v = Critic.verify(image, candidate, game_id: opts[:game_id])
 
@@ -1068,15 +1151,17 @@ defmodule RuleMaven.RulebookDownloader do
     with %{} = signals <- opts[:signals],
          false <- String.trim(strong) == "" do
       jaccard = Gate.agreement(strong, cheap)
+      cheap_tokens = length(Gate.tokens(cheap))
+      strong_tokens = length(Gate.tokens(strong))
 
       Calibrate.log(%{
         agreement: signals.agreement,
         coverage: signals.coverage,
         cheap_wordish: max(signals.wordish_a, signals.wordish_b),
-        cheap_tokens: length(Gate.tokens(cheap)),
-        strong_tokens: length(Gate.tokens(strong)),
+        cheap_tokens: cheap_tokens,
+        strong_tokens: strong_tokens,
         jaccard_strong_cheap: jaccard,
-        materially_differed: Calibrate.materially_differed?(jaccard),
+        materially_differed: Calibrate.materially_differed?(jaccard, strong_tokens, cheap_tokens),
         drift_sample: opts[:drift] == true
       })
     else
@@ -1111,7 +1196,13 @@ defmodule RuleMaven.RulebookDownloader do
   # on failure so a dead read never crashes the ladder.
   defp vision_one(image, game_id, tier \\ :default) do
     opts = [game_id: game_id]
-    opts = if tier == :default, do: opts, else: [{:model, RuleMaven.LLM.vision_model(tier)} | opts]
+
+    # Non-default tiers may resolve to a thinking model (mid falls back to the
+    # escalate model when unset) — cap reasoning: transcription doesn't need it.
+    opts =
+      if tier == :default,
+        do: opts,
+        else: [{:model, RuleMaven.LLM.vision_model(tier)}, {:reasoning_effort, "low"} | opts]
 
     case RuleMaven.LLM.transcribe_page_image(image, opts) do
       {:ok, t} -> t
@@ -1124,9 +1215,13 @@ defmodule RuleMaven.RulebookDownloader do
   defp richest([]), do: ""
   defp richest([h | t]), do: Enum.reduce(t, h, fn x, acc -> richer(x, acc) end)
 
-  # Render one PDF sheet to a grayscale PNG at `dpi` under tmp/ocr. The unique
+  # Render one PDF sheet to a grayscale JPEG at `dpi` under tmp/ocr. The unique
   # suffix keeps concurrent page renders (@vision_concurrency) from colliding.
-  # Caller deletes the image. {:ok, path} | {:error, reason}.
+  # Caller deletes the image. {:ok, path} | {:error, reason}. nil pdf_path (a
+  # single-image source, nothing to render) short-circuits so callers skip
+  # render-dependent tiers.
+  defp render_one_page(nil, _sheet, _dpi), do: {:error, :no_pdf}
+
   defp render_one_page(pdf_path, sheet, dpi) do
     if System.find_executable("pdftoppm") do
       tmp = Application.app_dir(:rule_maven, "tmp/ocr")
@@ -1134,7 +1229,8 @@ defmodule RuleMaven.RulebookDownloader do
       prefix = Path.join(tmp, "#{System.unique_integer([:positive])}_t2")
 
       args =
-        ["-png", "-gray", "-r", to_string(dpi), "-f", to_string(sheet), "-l", to_string(sheet), pdf_path, prefix]
+        @jpeg_args ++
+          ["-r", to_string(dpi), "-f", to_string(sheet), "-l", to_string(sheet), pdf_path, prefix]
 
       case cmd("pdftoppm", args, @pdftoppm_timeout) do
         {:ok, {_, 0}} ->
@@ -1166,6 +1262,9 @@ defmodule RuleMaven.RulebookDownloader do
   defp page_line(i, n, %{source: "midtier"}),
     do: "Page #{i}/#{n} — readers disagreed → resolved by majority vote ✓"
 
+  defp page_line(i, n, %{source: "drift_check"}),
+    do: "Page #{i}/#{n} — drift-sampled: strong model cross-checked ✓"
+
   defp page_line(i, n, %{source: "critic"}),
     do: "Page #{i}/#{n} — readers disagreed → escalated & verified ✓"
 
@@ -1188,7 +1287,7 @@ defmodule RuleMaven.RulebookDownloader do
 
     case cmd(
            "pdftoppm",
-           ["-png", "-gray", "-r", to_string(@render_dpi), pdf_path, prefix],
+           @jpeg_args ++ ["-r", to_string(@render_dpi), pdf_path, prefix],
            @pdftoppm_timeout
          ) do
       {:ok, {_, 0}} ->

@@ -27,6 +27,12 @@ defmodule RuleMaven.Extract.Calibrate do
   # Token-set agreement at/above this → the strong read said essentially the same
   # thing as the cheap read, so the escalation didn't change the answer (wasted).
   @materially_differs_below 0.85
+  # A strong read carrying fewer than this fraction of the cheap read's tokens
+  # dropped content — that's a failed re-read, not evidence the cheap read was
+  # wrong. Without this guard, drift stats count strong-model failures as
+  # "the gate was unsafe" (observed: strong returned 85 tokens vs cheap's 404 on
+  # a page whose readers agreed at 0.99).
+  @strong_coverage_floor 0.7
   @default_drift_rate 0.05
 
   @doc """
@@ -61,6 +67,20 @@ defmodule RuleMaven.Extract.Calibrate do
   """
   def materially_differed?(jaccard) when is_number(jaccard),
     do: jaccard < @materially_differs_below
+
+  @doc """
+  Direction-aware variant: a low jaccard only counts as a material difference
+  when the strong read actually *covered* the page (didn't lose content vs the
+  cheap read). The raw jaccard is still logged either way — this only keeps the
+  waste/drift rates from being polluted by strong-read failures.
+  """
+  def materially_differed?(jaccard, strong_tokens, cheap_tokens)
+      when is_number(jaccard) and is_integer(strong_tokens) and is_integer(cheap_tokens) do
+    materially_differed?(jaccard) and strong_covers?(strong_tokens, cheap_tokens)
+  end
+
+  defp strong_covers?(_strong, 0), do: true
+  defp strong_covers?(strong, cheap), do: strong / cheap >= @strong_coverage_floor
 
   @doc """
   Records one escalation outcome. Best-effort — returns `:ok` and swallows any
