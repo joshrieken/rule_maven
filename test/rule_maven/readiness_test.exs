@@ -111,6 +111,14 @@ defmodule RuleMaven.ReadinessTest do
       assert Readiness.step_complete?(:embed, game2, Games.list_documents(game2))
     end
 
+    test "embed step is not done while cleanup is pending, even with embedded chunks" do
+      game = game_fixture()
+      # Stale raw-text chunks embedded before cleanup ran must not read as done.
+      doc_fixture(game, pages: [{0.9, false}], embed: :done)
+      docs = Games.list_documents(game)
+      refute Readiness.step_complete?(:embed, game, docs)
+    end
+
     test "categories step is done from a draft cache or saved categories" do
       game = game_fixture()
       refute Readiness.step_complete?(:categories, game, [])

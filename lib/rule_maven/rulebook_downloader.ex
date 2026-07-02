@@ -195,7 +195,9 @@ defmodule RuleMaven.RulebookDownloader do
   @doc """
   Extract a saved source's text and fill its pages. Runs the same
   timeout-guarded vision/OCR pipeline as before, then `update_document` (which
-  re-chunks, rebuilds the HTML view, and invalidates stale cached answers).
+  rebuilds the HTML view and invalidates stale cached answers). Chunking is
+  deliberately skipped (`chunk: false`) — embedding is its own pipeline step
+  and must not run (or read as done) before the text is cleaned.
   Returns `{:ok, document}` or `{:error, reason}`.
   """
   def extract_document(doc, on_progress \\ &noop_progress/1)
@@ -211,15 +213,19 @@ defmodule RuleMaven.RulebookDownloader do
       page_structs = Games.paginate(pages) |> attach_page_meta(page_meta)
       text = Games.rebuild_full_text(page_structs)
 
-      Games.update_document(doc, %{
-        pages: page_structs,
-        full_text: text,
-        content_type: content_type_for(pdf_path),
-        page_count: length(pages),
-        printed_offset: Games.detect_printed_offset(pages),
-        from_ocr: from_ocr,
-        extracted_at: DateTime.utc_now() |> DateTime.truncate(:second)
-      })
+      Games.update_document(
+        doc,
+        %{
+          pages: page_structs,
+          full_text: text,
+          content_type: content_type_for(pdf_path),
+          page_count: length(pages),
+          printed_offset: Games.detect_printed_offset(pages),
+          from_ocr: from_ocr,
+          extracted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        },
+        chunk: false
+      )
     end
   end
 
@@ -873,7 +879,13 @@ defmodule RuleMaven.RulebookDownloader do
         {:error, _} when trusted? ->
           # Drift sample that couldn't render — keep the trusted layer; the
           # sample is simply skipped (best-effort telemetry, never a cost).
-          %{text: layer, confidence: 0.9, lane: "text_layer", source: "text_layer", escalated: false}
+          %{
+            text: layer,
+            confidence: 0.9,
+            lane: "text_layer",
+            source: "text_layer",
+            escalated: false
+          }
 
         {:error, _} ->
           # Un-renderable page with no trusted layer: keep whatever the layer
@@ -907,7 +919,12 @@ defmodule RuleMaven.RulebookDownloader do
       # structure alone).
       reader_b = vision_one(image, ctx.game_id)
       g = Gate.assess(layer, reader_b)
-      escalate_page(image, richer(layer, reader_b), signals: g.signals, drift: true, game_id: ctx.game_id)
+
+      escalate_page(image, richer(layer, reader_b),
+        signals: g.signals,
+        drift: true,
+        game_id: ctx.game_id
+      )
     else
       {reader_a, reader_b} = read_pair(image, layer, ctx.game_id)
       g = Gate.assess(reader_a, reader_b)
@@ -979,8 +996,15 @@ defmodule RuleMaven.RulebookDownloader do
               mid = vision_one(hi, ctx.game_id, :mid)
 
               case Gate.majority(reads ++ [cheap_hi, mid], @t2_majority, exclude_pairs: [{0, 1}]) do
-                {:ok, text} -> t2_result(text, signals)
-                :none -> escalate_page(image, richest(reads ++ [cheap_hi, mid]), signals: signals, drift: false, game_id: ctx.game_id)
+                {:ok, text} ->
+                  t2_result(text, signals)
+
+                :none ->
+                  escalate_page(image, richest(reads ++ [cheap_hi, mid]),
+                    signals: signals,
+                    drift: false,
+                    game_id: ctx.game_id
+                  )
               end
           end
         after
@@ -1024,7 +1048,16 @@ defmodule RuleMaven.RulebookDownloader do
 
         args =
           @jpeg_args ++
-            ["-r", to_string(@reextract_dpi), "-f", to_string(sheet), "-l", to_string(sheet), full, prefix]
+            [
+              "-r",
+              to_string(@reextract_dpi),
+              "-f",
+              to_string(sheet),
+              "-l",
+              to_string(sheet),
+              full,
+              prefix
+            ]
 
         log.("Rendering #{label} at #{@reextract_dpi} DPI…", "info")
 
@@ -1096,7 +1129,13 @@ defmodule RuleMaven.RulebookDownloader do
       log_calibration(strong, cheap_text, opts)
 
       Map.merge(
-        %{text: candidate, confidence: 0.85, lane: "ensemble", source: "drift_check", escalated: true},
+        %{
+          text: candidate,
+          confidence: 0.85,
+          lane: "ensemble",
+          source: "drift_check",
+          escalated: true
+        },
         gate_detail(opts[:signals])
       )
     else

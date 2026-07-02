@@ -244,6 +244,35 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     end
   end
 
+  # Chunk + embed on demand for every cleaned-but-unembedded source. Chunking
+  # enqueues the durable EmbedChunksWorker; the nil-embedding chunk count drives
+  # the "Embedding…" indicator until every vector lands.
+  def handle_event("embed", _params, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      game = socket.assigns.game
+      docs = Games.list_documents(game)
+
+      pending =
+        Enum.filter(docs, fn d ->
+          Readiness.step_complete?(:cleanup, game, [d]) and
+            not Readiness.step_complete?(:embed, game, [d]) and
+            not embed_in_flight?(d.id)
+        end)
+
+      Enum.each(pending, &Games.chunk_document/1)
+
+      {:noreply,
+       socket
+       |> load()
+       |> put_flash(
+         :info,
+         "Chunking and embedding the rulebook text — running in the background…"
+       )}
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
   def handle_event("stop", _params, socket) do
     Readiness.stop_auto(socket.assigns.game.id)
 
@@ -389,6 +418,17 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # is document-scoped, so it isn't covered by `running_steps/1`.
   defp cleanup_active?(game) do
     game |> Games.list_documents() |> Enum.any?(&Games.cleanup_running?(&1.id))
+  end
+
+  # Embedding in flight = chunks exist that still lack a vector (the
+  # EmbedChunksWorker fills them in). Document-scoped like cleanup, so it isn't
+  # covered by `running_steps/1` either.
+  defp embed_in_flight?(doc_id) do
+    Repo.exists?(from(c in Chunk, where: c.document_id == ^doc_id and is_nil(c.embedding)))
+  end
+
+  defp embed_active?(game) do
+    game |> Games.list_documents() |> Enum.any?(&embed_in_flight?(&1.id))
   end
 
   # Steps with a game-scoped run currently in flight (drives the "Running…" tag).
@@ -921,12 +961,19 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       # `running` MapSet and need their own check.
       |> assign(:cleanable?, assigns.step.id == :cleanup and assigns.step.state == :pending)
       |> assign(:cleaning?, assigns.step.id == :cleanup and cleanup_active?(assigns.game))
+      # Embed can run once cleanup is done (state :pending, not :blocked). Like
+      # cleanup it's document-scoped, so in-flight embedding needs its own check.
+      |> assign(:embeddable?, assigns.step.id == :embed and assigns.step.state == :pending)
+      |> assign(:embedding?, assigns.step.id == :embed and embed_active?(assigns.game))
       |> assign(:cat_draft?, categories? and category_draft(assigns.game.id) != [])
       |> assign(:cat_saved?, categories? and Games.list_game_categories(assigns.game) != [])
 
     ~H"""
     <div
-      :if={@link || @regen? || @clear? || @cat_draft? || @cat_saved? || @extractable? || @cleanable?}
+      :if={
+        @link || @regen? || @clear? || @cat_draft? || @cat_saved? || @extractable? || @cleanable? ||
+          @embeddable?
+      }
       style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.6rem"
     >
       <button
@@ -953,6 +1000,22 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       >
         <span style="display:inline-block;width:0.5rem;height:0.5rem;border-radius:50%;background:var(--accent)"></span>
         Cleaning…
+      </span>
+      <button
+        :if={@embeddable? && !@embedding?}
+        type="button"
+        phx-click="embed"
+        data-confirm="Chunk and embed the cleaned rulebook text now? This spends embedding budget."
+        style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+      >
+        Chunk &amp; embed
+      </button>
+      <span
+        :if={@embedding?}
+        style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.74rem;font-weight:600;color:var(--accent)"
+      >
+        <span style="display:inline-block;width:0.5rem;height:0.5rem;border-radius:50%;background:var(--accent)"></span>
+        Embedding…
       </span>
       <button
         :if={@cat_draft? && !@running}

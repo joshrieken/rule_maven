@@ -690,7 +690,7 @@ defmodule RuleMaven.Games do
     :ok
   end
 
-  def update_document(%Document{} = doc, attrs) do
+  def update_document(%Document{} = doc, attrs, opts \\ []) do
     result =
       doc
       |> Document.changeset(derive_pages(attrs))
@@ -700,9 +700,11 @@ defmodule RuleMaven.Games do
     # demote stale cached answers. Rulebook-derived content (suggestions, facts,
     # setup, categories) is NOT regenerated here — that's the explicit finalize
     # step (`generate_all/1`), run once the admin is happy with the source.
+    # `chunk: false` skips the re-chunk — extraction uses it so the embed step
+    # doesn't run (and read as done) before cleanup.
     case result do
       {:ok, updated} when updated.full_text != doc.full_text ->
-        chunk_document(updated)
+        if Keyword.get(opts, :chunk, true), do: chunk_document(updated)
         regenerate_document_html(updated)
         invalidate_pool(updated.game_id)
         result
@@ -928,8 +930,7 @@ defmodule RuleMaven.Games do
     {flagged, _} =
       Repo.update_all(
         from(q in QuestionLog,
-          where:
-            q.game_id == ^game_id and q.visibility == "community" and q.needs_review == false
+          where: q.game_id == ^game_id and q.visibility == "community" and q.needs_review == false
         ),
         set: [needs_review: true]
       )
@@ -2110,8 +2111,12 @@ defmodule RuleMaven.Games do
   defp user_dup_distance_threshold do
     sim =
       case RuleMaven.Settings.get("user_dup_similarity_threshold") do
-        nil -> @default_user_dup_similarity
-        "" -> @default_user_dup_similarity
+        nil ->
+          @default_user_dup_similarity
+
+        "" ->
+          @default_user_dup_similarity
+
         val ->
           case Float.parse(val) do
             {f, _} -> f
@@ -2610,6 +2615,11 @@ defmodule RuleMaven.Games do
 
   # Backward compat alias
   defdelegate chunk_source(source), to: __MODULE__, as: :chunk_document
+
+  @doc "True when the document has any chunks (embedded or awaiting embedding)."
+  def document_chunked?(doc_id) do
+    Repo.exists?(from(c in Chunk, where: c.document_id == ^doc_id))
+  end
 
   def retrieve_chunks(%Game{} = game, question, limit \\ 6) do
     retrieve_chunks_for_games([game.id], question, limit: limit)

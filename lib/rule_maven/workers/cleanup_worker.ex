@@ -148,11 +148,13 @@ defmodule RuleMaven.Workers.CleanupWorker do
           Map.update!(acc, :failed, &(&1 + 1))
       end)
 
-    # Re-chunk once now that every page's effective text is final (per-page
-    # writes skip chunking to avoid 21x re-embeds). Cleaned text now feeds
-    # retrieval, so demote stale cached answers for the game.
+    # Re-chunk only when the doc already has chunks (a re-clean of a live doc)
+    # so the cleaned text reaches retrieval instead of leaving stale raw-text
+    # chunks. A first-run cleanup deliberately does NOT chunk — embedding is
+    # the next pipeline step and is triggered explicitly (prepare page button
+    # or the auto pipeline), never as a side effect of cleanup.
     doc = Games.get_document!(doc_id)
-    Games.chunk_document(doc)
+    if Games.document_chunked?(doc_id), do: Games.chunk_document(doc)
     # Re-render the "View as HTML" file from the freshly cleaned text.
     Games.regenerate_document_html(doc)
     Games.invalidate_pool(doc.game_id)

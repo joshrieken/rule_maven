@@ -166,8 +166,10 @@ defmodule RuleMaven.Readiness do
     docs != [] and Enum.all?(docs, &doc_cleaned?/1)
   end
 
+  # Embedding must chunk the *cleaned* text, so it can't count as done while
+  # cleanup is still pending — even if (stale, raw-text) embedded chunks exist.
   def step_complete?(:embed, _game, docs) do
-    docs != [] and Enum.all?(docs, &doc_embedded?/1)
+    docs != [] and Enum.all?(docs, &(doc_cleaned?(&1) and doc_embedded?(&1)))
   end
 
   # Done when categories exist as either an unsaved draft (Settings cache) or a
