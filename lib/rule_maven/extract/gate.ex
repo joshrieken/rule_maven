@@ -112,14 +112,40 @@ defmodule RuleMaven.Extract.Gate do
   first such agreeing pair — else `:none`. The cheap adjudicator for the mid
   escalation tier: two of three reads concurring settles the page without paying
   for the adversarial critic; only genuine three-way conflict escalates further.
+
+  A failed read (`""`) never votes here: unlike `assess/2`'s both-empty case
+  (where two *original* T1 readers genuinely saw the page), by the time
+  `majority/2,3` runs the page has already failed to settle at T1 — so an empty
+  string reaching this function means a dead read, not a confirmed-blank page.
+  Two dead reads "agreeing" with each other would silently settle a page that
+  actually had content (the reader that saw it just isn't in the empty pair).
+  So any pair containing an empty read is skipped, including all-empty input.
+
+  `exclude_pairs` (index pairs into `reads`, order-independent) lets a caller
+  keep a specific pair from voting — e.g. the original T1 pair that already
+  disagreed on a fuller test (coverage/wordish, not just raw agreement) should
+  not be allowed to re-settle the page on the strength of that same stale
+  comparison; a fresh read must corroborate it.
   """
-  def majority(reads, threshold) when is_list(reads) do
-    pairs = for {a, i} <- Enum.with_index(reads), {b, j} <- Enum.with_index(reads), i < j, do: {a, b}
+  def majority(reads, threshold, opts \\ []) when is_list(reads) do
+    exclude = opts |> Keyword.get(:exclude_pairs, []) |> Enum.map(&normalize_pair/1) |> MapSet.new()
+
+    pairs =
+      for {a, i} <- Enum.with_index(reads),
+          {b, j} <- Enum.with_index(reads),
+          i < j,
+          String.trim(a || "") != "",
+          String.trim(b || "") != "",
+          not MapSet.member?(exclude, normalize_pair({i, j})),
+          do: {a, b}
 
     Enum.find_value(pairs, :none, fn {a, b} ->
       if agreement(a, b) >= threshold, do: {:ok, richer(a, b)}
     end)
   end
+
+  defp normalize_pair({i, j}) when i <= j, do: {i, j}
+  defp normalize_pair({i, j}), do: {j, i}
 
   # Richer of two reads: more real-word content (wordishness × token count), raw
   # length as tiebreak. Mirrors the private picker in RulebookDownloader.

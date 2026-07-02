@@ -57,6 +57,44 @@ defmodule RuleMaven.Extract.GateTest do
 
       assert :none = Gate.majority([a, b, c], 0.75)
     end
+
+    test "two failed reads (both empty) do not settle the page as blank" do
+      # A real read plus two failed re-reads ("" from a dead vision call) must
+      # NOT let the two empty strings "agree" with each other and settle the
+      # page as blank — that would silently drop the real content in `a`.
+      a = "gain two plants and one heat then place a city tile on the land"
+
+      assert :none = Gate.majority([a, "", ""], 0.75)
+    end
+
+    test "all reads failed (all empty) → :none, not a blank consensus" do
+      # This never legitimately happens at T1 (assess/2 settles genuine blank
+      # pages before majority/2 is ever called), so at this level every-read-
+      # empty always means total read failure, not a blank page — don't vote.
+      assert :none = Gate.majority(["", "", ""], 0.75)
+    end
+  end
+
+  describe "majority/3 with exclude_pairs" do
+    test "excludes a specified pair from voting" do
+      # a and b would agree with each other, but that pair is the original T1
+      # pair that already disagreed on a fuller test (coverage/wordish) — it
+      # must not be allowed to settle T2a on its own, unsupported by any new
+      # (higher-DPI) read.
+      a = "gain two plants and one heat then place a city tile on the land"
+      b = "gain two plants and one heat then place a city tile on the land today"
+      c = "wholly different garbled symbol soup xqz vvv nowhere close to that"
+
+      assert :none = Gate.majority([a, b, c], 0.75, exclude_pairs: [{0, 1}])
+    end
+
+    test "still finds agreement via a non-excluded pair" do
+      a = "gain two plants and one heat then place a city tile on the land"
+      b = "wholly different garbled symbol soup xqz vvv nowhere close to that"
+      c = "gain two plants and one heat then place a city tile on the land also"
+
+      assert {:ok, ^c} = Gate.majority([a, b, c], 0.75, exclude_pairs: [{0, 1}])
+    end
   end
 
   describe "agreement/2 and coverage/2" do

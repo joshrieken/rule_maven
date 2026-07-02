@@ -963,10 +963,14 @@ defmodule RuleMaven.RulebookDownloader do
     case render_one_page(ctx.pdf_path, ctx.page, @t2_dpi) do
       {:ok, hi} ->
         try do
-          # T2a: same cheap model, higher DPI.
+          # T2a: same cheap model, higher DPI. `reads` (indices 0,1) is the
+          # original T1 pair that already disagreed on the fuller assess/2 test
+          # (agreement + coverage + wordish) — exclude that exact pair from the
+          # majority vote so it can't re-settle the page unsupported by any new
+          # (higher-DPI) evidence.
           cheap_hi = vision_one(hi, ctx.game_id)
 
-          case Gate.majority(reads ++ [cheap_hi], @t2_majority) do
+          case Gate.majority(reads ++ [cheap_hi], @t2_majority, exclude_pairs: [{0, 1}]) do
             {:ok, text} ->
               t2_result(text, signals)
 
@@ -974,7 +978,7 @@ defmodule RuleMaven.RulebookDownloader do
               # T2b: mid model, same sharp image.
               mid = vision_one(hi, ctx.game_id, :mid)
 
-              case Gate.majority(reads ++ [cheap_hi, mid], @t2_majority) do
+              case Gate.majority(reads ++ [cheap_hi, mid], @t2_majority, exclude_pairs: [{0, 1}]) do
                 {:ok, text} -> t2_result(text, signals)
                 :none -> escalate_page(image, richest(reads ++ [cheap_hi, mid]), signals: signals, drift: false, game_id: ctx.game_id)
               end
