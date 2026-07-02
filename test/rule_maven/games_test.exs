@@ -61,6 +61,94 @@ defmodule RuleMaven.GamesTest do
     end
   end
 
+  describe "delete_game/1 cleans up via delete_document/1 (not a bare Repo.delete_all)" do
+    defp doc_with_file(game) do
+      pdf_path = "rulebooks/delgame_#{System.unique_integer([:positive])}.pdf"
+      full = Application.app_dir(:rule_maven, "priv/static/#{pdf_path}")
+      File.mkdir_p!(Path.dirname(full))
+      File.write!(full, "pdf")
+
+      {:ok, doc} =
+        Games.create_document(%{
+          game_id: game.id,
+          label: "Rules",
+          full_text: "alpha\fbeta",
+          pdf_path: pdf_path
+        })
+
+      {doc, full}
+    end
+
+    test "removes stored source files and clears generation-state settings" do
+      game =
+        game_fixture(%{
+          name: "DelGame #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+      {_doc, full} = doc_with_file(game)
+      RuleMaven.Settings.put("cheat_content_#{game.id}", "stale")
+
+      assert File.exists?(full)
+
+      assert {:ok, %RuleMaven.Games.Game{}} = Games.delete_game(game)
+
+      refute File.exists?(full)
+      assert RuleMaven.Settings.get("cheat_content_#{game.id}") == nil
+      assert_raise Ecto.NoResultsError, fn -> Games.get_game!(game.id) end
+    end
+  end
+
+  describe "delete_all_games/0 cleans up via delete_document/1" do
+    test "removes stored source files for every game" do
+      game1 =
+        game_fixture(%{
+          name: "Bulk1 #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+
+      game2 =
+        game_fixture(%{
+          name: "Bulk2 #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+
+      pdf_path1 = "rulebooks/bulk1_#{System.unique_integer([:positive])}.pdf"
+      full1 = Application.app_dir(:rule_maven, "priv/static/#{pdf_path1}")
+      File.mkdir_p!(Path.dirname(full1))
+      File.write!(full1, "pdf")
+
+      pdf_path2 = "rulebooks/bulk2_#{System.unique_integer([:positive])}.pdf"
+      full2 = Application.app_dir(:rule_maven, "priv/static/#{pdf_path2}")
+      File.mkdir_p!(Path.dirname(full2))
+      File.write!(full2, "pdf")
+
+      {:ok, _} =
+        Games.create_document(%{
+          game_id: game1.id,
+          label: "R1",
+          full_text: "alpha\fbeta",
+          pdf_path: pdf_path1
+        })
+
+      {:ok, _} =
+        Games.create_document(%{
+          game_id: game2.id,
+          label: "R2",
+          full_text: "alpha\fbeta",
+          pdf_path: pdf_path2
+        })
+
+      assert File.exists?(full1)
+      assert File.exists?(full2)
+
+      {count, _} = Games.delete_all_games()
+      assert count >= 2
+
+      refute File.exists?(full1)
+      refute File.exists?(full2)
+    end
+  end
+
   describe "grouped questions" do
     setup do
       game = game_fixture()

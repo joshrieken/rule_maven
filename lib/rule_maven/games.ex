@@ -247,17 +247,48 @@ defmodule RuleMaven.Games do
     |> Repo.update()
   end
 
+  @doc """
+  Deletes a game and everything under it. Goes through `delete_document/1` for
+  each source (rather than a bare `Repo.delete_all(Document)`) so stored
+  files are removed from disk, in-flight cleanup/cheatsheet jobs are
+  cancelled, and per-game generation-state Settings are cleared — the same
+  cleanup `reset_preparation/1` relies on. The document deletions, question
+  log wipe, and game delete run in one transaction; file removal and job
+  cancellation are side effects of `delete_document/1` that happen as we go
+  and are not themselves transactional (a mid-transaction failure after some
+  files are already removed would not restore them — acceptable for a
+  destructive admin action, and no worse than the non-transactional
+  `reset_preparation/1` this mirrors).
+  """
   def delete_game(%Game{} = game) do
-    Repo.delete_all(from d in Document, where: d.game_id == ^game.id)
-    Repo.delete_all(from q in QuestionLog, where: q.game_id == ^game.id)
-    Repo.delete(game)
+    Repo.transaction(fn ->
+      Enum.each(list_documents(game), &delete_document/1)
+      Repo.delete_all(from q in QuestionLog, where: q.game_id == ^game.id)
+
+      case Repo.delete(game) do
+        {:ok, deleted} -> deleted
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
   end
 
+  @doc """
+  Deletes every game. Same rationale as `delete_game/1`: documents are removed
+  via `delete_document/1` so files/jobs/settings are cleaned up, not just the
+  DB rows. Returns `{count, nil}` on success (matching `Repo.delete_all/2`'s
+  shape, since callers pattern-match on it).
+  """
   def delete_all_games do
-    Repo.delete_all(Document)
-    Repo.delete_all(QuestionLog)
-    {count, _} = Repo.delete_all(Game)
-    {count, nil}
+    Repo.transaction(fn ->
+      Document |> Repo.all() |> Enum.each(&delete_document/1)
+      Repo.delete_all(QuestionLog)
+      {count, _} = Repo.delete_all(Game)
+      count
+    end)
+    |> case do
+      {:ok, count} -> {count, nil}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   def change_game(%Game{} = game, attrs \\ %{}) do
