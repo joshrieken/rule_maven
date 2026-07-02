@@ -53,4 +53,24 @@ defmodule RuleMaven.Workers.VoiceWorkerTest do
                })
     end
   end
+
+  describe "kill switch" do
+    test "a fresh (uncached) restyle does not call the LLM while asks_disabled is on" do
+      {:ok, _} = RuleMaven.Settings.set_asks_disabled(true)
+
+      {:ok, game} = Games.create_game(%{name: "VW KillSwitch"})
+
+      {:ok, ql} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "How many dice do I roll?",
+          answer: "You roll 3 dice."
+        })
+
+      # No llm_mock set: if the switch didn't short-circuit, this would hit a
+      # real HTTP call instead of cleanly reporting :asks_disabled.
+      assert {:error, :asks_disabled} = perform(ql, "pirate", game)
+      assert cached_count(ql.id) == 0
+    end
+  end
 end

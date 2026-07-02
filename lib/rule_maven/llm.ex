@@ -40,7 +40,7 @@ defmodule RuleMaven.LLM do
     # fragments ("snack bar max limit") collapse onto one phrasing, so they share
     # an embedding — lifting the pool hit rate — and the retrieval + LLM answer
     # also run on the cleaned question. Falls back to the raw question on error.
-    cleaned = normalize_question(game, question, recent_context)
+    cleaned = normalize_question(game, question, recent_context, user_id: opts[:user_id])
     match_text = if cleaned == "", do: question, else: cleaned
 
     # Embed the cleaned question (used for pool check + stored on the logged row,
@@ -86,7 +86,15 @@ defmodule RuleMaven.LLM do
         serve_from_cache(user_semantic, question_embedding, cleaned, game.id, user_id, true)
 
       true ->
-        call_llm(game, match_text, expansion_ids, recent_context, question_embedding, cleaned)
+        call_llm(
+          game,
+          match_text,
+          expansion_ids,
+          recent_context,
+          question_embedding,
+          cleaned,
+          user_id
+        )
     end
   end
 
@@ -116,7 +124,15 @@ defmodule RuleMaven.LLM do
      }}
   end
 
-  defp call_llm(game, question, expansion_ids, recent_context, question_embedding, cleaned) do
+  defp call_llm(
+         game,
+         question,
+         expansion_ids,
+         recent_context,
+         question_embedding,
+         cleaned,
+         user_id
+       ) do
     game_ids = [game.id | expansion_ids]
     # Reuse the embedding already computed in ask/5 — no second embed call.
     retrieval_opts = if question_embedding, do: [embedding: question_embedding], else: []
@@ -136,7 +152,7 @@ defmodule RuleMaven.LLM do
       ]
     }
 
-    case do_request(body, 1, operation: "ask", game_id: game.id) do
+    case do_request(body, 1, operation: "ask", game_id: game.id, user_id: user_id) do
       {:ok, %{answer: answer, cited_passage: passage} = llm_result} ->
         {:ok,
          %{
@@ -174,7 +190,8 @@ defmodule RuleMaven.LLM do
   `{game_id, raw}`; followups (which carry `recent_context`) are not pure
   functions of the raw text, so they skip the cache.
   """
-  def normalize_question(game, question, recent_context \\ []) do
+  def normalize_question(game, question, recent_context \\ [], opts \\ []) do
+    user_id = opts[:user_id]
     raw = question |> to_string() |> String.trim()
 
     # A literally identical re-ask is NOT a followup — normalize it standalone so
@@ -191,7 +208,7 @@ defmodule RuleMaven.LLM do
 
       # Followups resolve against the conversation — not cacheable by raw text.
       recent_context != [] and not repeat? ->
-        do_normalize(game, raw, recent_context)
+        do_normalize(game, raw, recent_context, user_id)
 
       true ->
         key = {game.id, String.downcase(raw)}
@@ -201,14 +218,14 @@ defmodule RuleMaven.LLM do
             cached
 
           :miss ->
-            cleaned = do_normalize(game, raw, [])
+            cleaned = do_normalize(game, raw, [], user_id)
             RuleMaven.LLM.NormalizeCache.put(key, cleaned)
             cleaned
         end
     end
   end
 
-  defp do_normalize(game, raw, recent_context) do
+  defp do_normalize(game, raw, recent_context, user_id) do
     user =
       RuleMaven.Prompts.render("normalize_question", %{
         game_name: game.name,
@@ -222,7 +239,8 @@ defmodule RuleMaven.LLM do
            max_tokens: 64,
            model: model(:cheap),
            operation: "normalize",
-           game_id: game.id
+           game_id: game.id,
+           user_id: user_id
          ) do
       {:ok, text} ->
         cleaned =
@@ -637,9 +655,26 @@ defmodule RuleMaven.LLM do
   defp do_request(body, attempt, opts) do
     # Test-mode mock injection point. Set via Application.put_env(:rule_maven, :llm_mock, fn body -> ... end)
     if mock = Application.get_env(:rule_maven, :llm_mock) do
-      mock.(body)
+      do_request_mock(body, opts, mock)
     else
       do_request_real(body, attempt, opts)
+    end
+  end
+
+  # Mirrors the log_llm call on the real HTTP path so mocked tests can assert
+  # on llm_logs rows (operation/game_id/user_id) same as production traffic —
+  # otherwise every mocked call would silently skip cost attribution.
+  defp do_request_mock(body, opts, mock) do
+    model_name = body[:model] || model()
+
+    case mock.(body) do
+      {:ok, _} = ok ->
+        log_llm(provider(), model_name, opts, nil, 0, true, nil)
+        ok
+
+      {:error, reason} = err ->
+        log_llm(provider(), model_name, opts, nil, 0, false, to_string(reason))
+        err
     end
   end
 

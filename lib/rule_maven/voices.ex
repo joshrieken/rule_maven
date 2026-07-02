@@ -215,10 +215,17 @@ defmodule RuleMaven.Voices do
   it, and returns `{:ok, content}`. "neutral" returns the canonical text as-is
   without storing. Concurrent generators race-safely upsert. `game` may be a
   `%Game{}` or id and scopes which generated voices are valid.
-  """
-  def restyle(_question_log_id, "neutral", canonical, _game), do: {:ok, canonical}
 
-  def restyle(question_log_id, voice, canonical, game) do
+  Fresh generation (a cache miss) is user-triggered spend, so it's gated by the
+  admin kill switch (`Settings.asks_disabled?`) — a cache hit is free and never
+  blocked. `opts[:user_id]`, when given, is attributed on the underlying
+  `llm_logs` row so restyle spend counts toward that user's daily cost cap.
+  """
+  def restyle(question_log_id, voice, canonical, game, opts \\ [])
+
+  def restyle(_question_log_id, "neutral", canonical, _game, _opts), do: {:ok, canonical}
+
+  def restyle(question_log_id, voice, canonical, game, opts) do
     voice_def = get_def(voice, game)
 
     cond do
@@ -228,8 +235,12 @@ defmodule RuleMaven.Voices do
       cached = get(question_log_id, voice) ->
         {:ok, cached}
 
+      RuleMaven.Settings.asks_disabled?() ->
+        {:error, :asks_disabled}
+
       true ->
-        with {:ok, styled} <- generate(voice_def, canonical, game_name(game), game_id(game)) do
+        with {:ok, styled} <-
+               generate(voice_def, canonical, game_name(game), game_id(game), opts[:user_id]) do
           store(question_log_id, voice, styled)
           {:ok, styled}
         end
@@ -241,11 +252,11 @@ defmodule RuleMaven.Voices do
   @restyle_max_tokens 1536
   @restyle_max_tokens_retry 3072
 
-  defp generate(%{id: id, style: style}, canonical, game_name, game_id) do
+  defp generate(%{id: id, style: style}, canonical, game_name, game_id, user_id) do
     system = RuleMaven.Prompts.template("voice_restyle_system")
     prompt = RuleMaven.Prompts.render("voice_restyle", %{style: style, answer: canonical})
 
-    do_generate(prompt, system, id, game_name, game_id, canonical, @restyle_max_tokens)
+    do_generate(prompt, system, id, game_name, game_id, canonical, @restyle_max_tokens, user_id)
   end
 
   # Reject an incomplete restyle rather than cache it. Two failure modes:
@@ -256,11 +267,12 @@ defmodule RuleMaven.Voices do
   #                    sanity check catches it.
   # Either way, retry once at a higher cap; a second failure returns an error so
   # nothing partial/garbage is stored.
-  defp do_generate(prompt, system, id, game_name, game_id, canonical, cap) do
+  defp do_generate(prompt, system, id, game_name, game_id, canonical, cap, user_id) do
     result =
       LLM.chat(prompt, "voice_#{id}_#{game_name}",
         operation: "voice",
         game_id: game_id,
+        user_id: user_id,
         system: system,
         max_tokens: cap,
         reject_truncated: true
@@ -272,20 +284,29 @@ defmodule RuleMaven.Voices do
       {:ok, content} ->
         cond do
           plausible_restyle?(content, canonical) -> {:ok, content}
-          retry? -> retry(prompt, system, id, game_name, game_id, canonical)
+          retry? -> retry(prompt, system, id, game_name, game_id, canonical, user_id)
           true -> {:error, :incomplete_restyle}
         end
 
       {:error, :truncated} when retry? ->
-        retry(prompt, system, id, game_name, game_id, canonical)
+        retry(prompt, system, id, game_name, game_id, canonical, user_id)
 
       other ->
         other
     end
   end
 
-  defp retry(prompt, system, id, game_name, game_id, canonical) do
-    do_generate(prompt, system, id, game_name, game_id, canonical, @restyle_max_tokens_retry)
+  defp retry(prompt, system, id, game_name, game_id, canonical, user_id) do
+    do_generate(
+      prompt,
+      system,
+      id,
+      game_name,
+      game_id,
+      canonical,
+      @restyle_max_tokens_retry,
+      user_id
+    )
   end
 
   @doc false

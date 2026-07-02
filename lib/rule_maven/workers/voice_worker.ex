@@ -20,10 +20,11 @@ defmodule RuleMaven.Workers.VoiceWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{
         id: oban_id,
-        args: %{"question_log_id" => ql_id, "voice" => voice, "game_id" => game_id}
+        args: %{"question_log_id" => ql_id, "voice" => voice, "game_id" => game_id} = args
       }) do
     ql = Games.get_question_log(ql_id)
     canonical = ql && (ql.canonical_answer || ql.answer)
+    user_id = args["user_id"]
 
     cond do
       is_nil(ql) ->
@@ -37,7 +38,7 @@ defmodule RuleMaven.Workers.VoiceWorker do
         :ok
 
       true ->
-        do_restyle(ql, canonical, voice, game_id, oban_id)
+        do_restyle(ql, canonical, voice, game_id, oban_id, user_id)
     end
   end
 
@@ -46,7 +47,7 @@ defmodule RuleMaven.Workers.VoiceWorker do
     t != "" and t != "Thinking..."
   end
 
-  defp do_restyle(ql, canonical, voice, game_id, oban_id) do
+  defp do_restyle(ql, canonical, voice, game_id, oban_id, user_id) do
     ql_id = ql.id
     game = Games.get_game!(game_id)
 
@@ -57,7 +58,7 @@ defmodule RuleMaven.Workers.VoiceWorker do
 
     Jobs.event(run, :info, "Restyling the answer in the “#{voice}” voice…")
 
-    case Voices.restyle(ql_id, voice, canonical, game) do
+    case Voices.restyle(ql_id, voice, canonical, game, user_id: user_id) do
       {:ok, content} ->
         Phoenix.PubSub.broadcast(
           RuleMaven.PubSub,
