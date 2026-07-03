@@ -137,7 +137,7 @@ defmodule RuleMaven.LLM do
     # Reuse the embedding already computed in ask/5 — no second embed call.
     retrieval_opts = if question_embedding, do: [embedding: question_embedding], else: []
     chunks = RuleMaven.Games.retrieve_chunks_for_games(game_ids, question, retrieval_opts)
-    context = Enum.map_join(chunks, "\n\n---\n\n", & &1.content)
+    context = build_context_block(chunks, game.id)
     system_prompt = build_system_prompt(game.name, game.category, context, recent_context)
     provider_name = provider()
     model_name = model()
@@ -159,6 +159,7 @@ defmodule RuleMaven.LLM do
            answer: answer,
            cited_passage: passage,
            cited_page: llm_result[:cited_page],
+           cited_source: llm_result[:cited_source],
            verdict: llm_result[:verdict],
            provider: provider_name,
            model: model_name,
@@ -178,6 +179,30 @@ defmodule RuleMaven.LLM do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @doc """
+  Groups retrieval chunks into per-source blocks for the answer prompt. Chunks
+  stay in relevance order within a group; groups are ordered by kind authority
+  then base-before-expansion, so the most authoritative material leads.
+  """
+  def build_context_block(chunks, base_game_id) do
+    chunks
+    |> Enum.group_by(&{&1.game_id, &1.document_id})
+    |> Enum.map(fn {_key, [first | _] = group} -> {first, group} end)
+    |> Enum.sort_by(fn {first, _} ->
+      {RuleMaven.Games.Document.authority(first.kind),
+       if(first.game_id == base_game_id, do: 0, else: 1)}
+    end)
+    |> Enum.map_join("\n\n", fn {first, group} ->
+      scope =
+        if first.game_id == base_game_id,
+          do: ~s(BASE GAME "#{first.game_name}"),
+          else: ~s(EXPANSION "#{first.game_name}")
+
+      header = ~s(=== #{scope} — #{String.upcase(first.kind)} "#{first.label}" ===)
+      header <> "\n" <> Enum.map_join(group, "\n\n", & &1.content)
+    end)
   end
 
   @doc """
@@ -870,7 +895,10 @@ defmodule RuleMaven.LLM do
 
   # Decode the model's JSON answer object. Degrades gracefully if the model
   # ignored the JSON instruction: the raw content becomes the answer.
-  defp decode_answer(content) do
+  # Public (not documented) so tests can exercise JSON parsing directly —
+  # do_request_mock (test mock seam) bypasses this entirely.
+  @doc false
+  def decode_answer(content) do
     # A reasoning model that hits max_tokens mid-thought can return null content;
     # normalize so nothing downstream (Jason.decode, String.trim) crashes on nil.
     content = content || ""
@@ -881,6 +909,7 @@ defmodule RuleMaven.LLM do
           answer: trimmed_string(map["answer"]),
           cited_passage: nilable_string(map["citation"]),
           cited_page: coerce_page(map["page"]),
+          cited_source: nilable_string(map["source"]),
           verdict: coerce_verdict(map["verdict"]),
           followups: string_list(map["followups"]),
           also_asked: string_list(map["also_asked"])
@@ -891,6 +920,7 @@ defmodule RuleMaven.LLM do
           answer: String.trim(content),
           cited_passage: nil,
           cited_page: nil,
+          cited_source: nil,
           verdict: nil,
           followups: [],
           also_asked: []

@@ -63,6 +63,16 @@ defmodule RuleMaven.LLMTest do
     end
   end
 
+  describe "decode_answer" do
+    test "maps the source field" do
+      json = ~s({"answer":"x","citation":"y","page":3,"source":"X errata","verdict":"clear"})
+      result = LLM.decode_answer(json)
+
+      assert result[:cited_source] == "X errata"
+      assert result[:cited_page] == 3
+    end
+  end
+
   describe "system prompt" do
     test "includes refusal instructions" do
       {:ok, game} = Games.create_game(%{name: "Test"})

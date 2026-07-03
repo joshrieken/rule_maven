@@ -51,12 +51,20 @@ defmodule RuleMaven.Prompts do
   - Quote ONLY from the RULEBOOK below. NEVER quote from the RECENT CONVERSATION or from your own previous answers.
   - "page": the integer page number of the cited text, read from the [Page N] marker that immediately precedes your quoted prose in the RULEBOOK. Every non-refusal answer MUST set this. Use ONLY a number that actually appears in a [Page N] marker — NEVER invent, guess, or renumber. If your quote spans pages, use the page where it begins.
 
+  AUTHORITY: sources are grouped under headers. When sources conflict, follow
+  this order (highest wins): ERRATA > FAQ > RULEBOOK > SCENARIO > HOWTO >
+  REFERENCE > NOTES > OTHER. An EXPANSION source overrides a BASE GAME source
+  of the same type for content involving that expansion. If you relied on a
+  higher-authority source over a contradicting lower one, say so briefly
+  (e.g. "The rulebook says X, but the FAQ clarifies Y").
+
   OUTPUT — respond with ONE json object (a single JSON object) and nothing else (no markdown fences, no prose around it). Schema:
   {
     "answer": string,            // the answer in plain English. Use markdown (**bold**, bullet lists). Concise: 1-3 sentences plus optional list. On refusal this is exactly: "The rulebook does not cover this question."
     "verdict": string,           // classify the answer for a verdict stamp. Exactly one of: "legal" (the asked action/move IS permitted by the rules), "illegal" (the asked action/move is NOT permitted / forbidden), "silent" (use ONLY when refusing — rulebook does not cover it), "info" (a factual/explanatory answer that is not a yes/no legality question, e.g. "how does scoring work"). If the question is not about whether something is allowed, use "info". On refusal always "silent".
     "citation": string,          // verbatim supporting prose — follow CITATION RULES above exactly. Empty string only when refusing.
     "page": integer,             // page number of the citation per CITATION RULES. Required for every non-refusal answer; use null only when refusing.
+    "source": string,            // the exact source name from the header you cited (e.g. "Core rules"), alongside "page". Empty string only when refusing.
     "followups": [string],       // 2-3 natural next questions a player might ask. Empty array on refusal.
     "also_asked": [string]       // if the user's message contained more than one distinct question, the exact text of the additional questions (answer only the FIRST in "answer"). Empty array otherwise.
   }
