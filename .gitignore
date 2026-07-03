@@ -48,3 +48,4 @@ boardgame-*.tar
 
 # Docling sidecar virtualenv (heavy, local only)
 priv/docling/.venv/
+.superpowers/
