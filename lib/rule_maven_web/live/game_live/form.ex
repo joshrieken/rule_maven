@@ -320,16 +320,7 @@ defmodule RuleMavenWeb.GameLive.Form do
           socket =
             assign(socket, draft_categories: draft_categories, saved_categories: saved_categories)
 
-          bases = Games.base_games_for(game)
-          parent = List.first(bases)
-
-          assign(socket,
-            parent_selected_id: parent && parent.id,
-            parent_selected_name: parent && parent.name,
-            extra_bases: Enum.drop(bases, 1),
-            parent_query: "",
-            parent_results: []
-          )
+          assign_parent_state(socket, game)
 
         _ ->
           changeset = Games.change_game(%Games.Game{})
@@ -847,12 +838,14 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     game = Games.get_game!(socket.assigns.game.id)
 
-    {:noreply,
-     assign(socket,
-       game: game,
-       expansions: Games.expansions_for(game),
-       cheat_expansions: Games.expansions_with_documents(game)
-     )}
+    socket =
+      assign(socket,
+        game: game,
+        expansions: Games.expansions_for(game),
+        cheat_expansions: Games.expansions_with_documents(game)
+      )
+
+    {:noreply, assign_parent_state(socket, game)}
   end
 
   @impl true
@@ -1049,17 +1042,11 @@ defmodule RuleMavenWeb.GameLive.Form do
     {:noreply, assign(socket, parent_query: query, parent_results: results)}
   end
 
-  def handle_event("select_parent", %{"id" => id, "name" => name}, socket) do
+  def handle_event("select_parent", %{"id" => id, "name" => _name}, socket) do
     base_id = String.to_integer(id)
     Games.link_expansion(socket.assigns.game.id, base_id)
 
-    {:noreply,
-     assign(socket,
-       parent_selected_id: base_id,
-       parent_selected_name: name,
-       parent_query: "",
-       parent_results: []
-     )}
+    {:noreply, assign_parent_state(socket, socket.assigns.game)}
   end
 
   def handle_event("clear_parent", _params, socket) do
@@ -1067,13 +1054,27 @@ defmodule RuleMavenWeb.GameLive.Form do
       Games.unlink_expansion(socket.assigns.game.id, socket.assigns.parent_selected_id)
     end
 
-    {:noreply,
-     assign(socket,
-       parent_selected_id: nil,
-       parent_selected_name: nil,
-       parent_query: "",
-       parent_results: []
-     )}
+    {:noreply, assign_parent_state(socket, socket.assigns.game)}
+  end
+
+  # Re-derives the base-game picker assigns (parent_selected_id/_name,
+  # extra_bases) straight from the DB. Must be called after every
+  # link_expansion/unlink_expansion write touching this game as an expansion,
+  # since a game can be linked to more than one base (BGG multi-parent
+  # linking) — overwriting the assigns from event params instead of
+  # re-deriving them clobbers whichever base isn't the one just
+  # linked/unlinked out of the UI, even though it stays linked in the DB.
+  defp assign_parent_state(socket, game) do
+    bases = Games.base_games_for(game)
+    parent = List.first(bases)
+
+    assign(socket,
+      parent_selected_id: parent && parent.id,
+      parent_selected_name: parent && parent.name,
+      extra_bases: Enum.drop(bases, 1),
+      parent_query: "",
+      parent_results: []
+    )
   end
 
   @impl true
