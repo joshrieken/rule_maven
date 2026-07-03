@@ -2782,23 +2782,26 @@ defmodule RuleMaven.Games do
   end
 
   # Greedy near-duplicate collapse. Chunks arrive relevance-ordered; each is kept
-  # unless it's ≥ @dup_threshold cosine-similar to an already-kept chunk, in which
-  # case the more authoritative of the two survives (kind authority, then base
-  # game beats expansion). Guides restating the rulebook and expansions
-  # reprinting base rules stop crowding the retrieval budget.
+  # unless it's ≥ @dup_threshold cosine-similar to one or more already-kept
+  # chunks, in which case the WHOLE collided cluster (the incoming chunk plus
+  # every match — similarity isn't transitive, so a chunk can match more than
+  # one already-kept chunk at once) collapses to a single survivor: the most
+  # authoritative one (kind authority, then base game beats expansion). Guides
+  # restating the rulebook and expansions reprinting base rules stop crowding
+  # the retrieval budget.
   @dup_threshold 0.97
 
   defp dedup_near_duplicates(chunks, base_game_id) do
     Enum.reduce(chunks, [], fn chunk, kept ->
       case Enum.split_with(kept, &(cosine_sim(&1.embedding, chunk.embedding) >= @dup_threshold)) do
         {[], _} -> kept ++ [chunk]
-        {[dup | _], rest} -> rest ++ [pick_authoritative(dup, chunk, base_game_id)]
+        {matches, rest} -> rest ++ [pick_authoritative([chunk | matches], base_game_id)]
       end
     end)
   end
 
-  defp pick_authoritative(a, b, base_game_id) do
-    Enum.min_by([a, b], fn c ->
+  defp pick_authoritative(candidates, base_game_id) do
+    Enum.min_by(candidates, fn c ->
       {RuleMaven.Games.Document.authority(c.kind), if(c.game_id == base_game_id, do: 0, else: 1)}
     end)
   end
@@ -2813,13 +2816,20 @@ defmodule RuleMaven.Games do
   end
 
   # Last-resort retrieval context when semantic + keyword search find nothing
-  # (e.g. embeddings not yet generated). Two invariants the per-document
-  # fallbacks got wrong:
+  # (e.g. embeddings not yet generated). Invariants the per-document fallbacks
+  # got wrong:
   #   1. PUBLISHED ONLY — `document_full_text/1` ignored status, so a
   #      `pending_review`/`rejected` rulebook leaked into answers, bypassing the
   #      whole approval gate.
   #   2. CAPPED — dumping an entire (multi-game) rulebook could overflow the
   #      model's context window; budget the text instead.
+  #   3. PER-DOCUMENT ATTRIBUTION — merging every published doc's full_text
+  #      into one blob attributed to a single "representative" document was
+  #      wrong whenever more than one doc was in play (wrong label/kind on the
+  #      combined content, and a doc with no full_text still "borrowed"
+  #      attribution for someone else's text). Return one entry per document
+  #      instead, each labeled with its own metadata, with the shared budget
+  #      split evenly (floor) across the contributing docs.
   @fallback_char_budget 12_000
 
   defp published_full_text_fallback(game_ids) do
@@ -2839,29 +2849,25 @@ defmodule RuleMaven.Games do
             game_name: g.name
           }
       )
+      |> Enum.filter(&(&1.full_text not in [nil, ""]))
 
-    text =
-      docs
-      |> Enum.map_join("\n\n", &(&1.full_text || ""))
-      |> String.trim()
-
-    cond do
-      text == "" ->
+    case docs do
+      [] ->
         []
 
-      true ->
-        rep = Enum.find(docs, &(&1.full_text not in [nil, ""])) || List.first(docs)
+      _ ->
+        per_doc_budget = div(@fallback_char_budget, length(docs))
 
-        [
+        Enum.map(docs, fn d ->
           %{
-            content: String.slice(text, 0, @fallback_char_budget),
-            document_id: rep.document_id,
-            label: rep.label,
-            kind: rep.kind,
-            game_id: rep.game_id,
-            game_name: rep.game_name
+            content: String.slice(String.trim(d.full_text), 0, per_doc_budget),
+            document_id: d.document_id,
+            label: d.label,
+            kind: d.kind,
+            game_id: d.game_id,
+            game_name: d.game_name
           }
-        ]
+        end)
     end
   end
 
