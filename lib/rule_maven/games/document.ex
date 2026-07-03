@@ -2,6 +2,24 @@ defmodule RuleMaven.Games.Document do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @kinds ~w(errata faq rulebook scenario howto reference notes other)
+  @kind_labels %{
+    "errata" => "Errata / corrections",
+    "faq" => "FAQ / rulings",
+    "rulebook" => "Rulebook",
+    "scenario" => "Scenario / campaign book",
+    "howto" => "How to play / quickstart",
+    "reference" => "Reference / player aid",
+    "notes" => "Designer notes",
+    "other" => "Other"
+  }
+
+  @doc "All kinds, authority order high→low."
+  def kinds, do: @kinds
+  @doc "Authority rank: 0 (errata, highest) … 7 (other)."
+  def authority(kind), do: Enum.find_index(@kinds, &(&1 == kind)) || length(@kinds)
+  def kind_label(kind), do: Map.get(@kind_labels, kind, kind)
+
   defmodule Page do
     @moduledoc """
     A single first-class rulebook page. `index` is the 0-based physical order,
@@ -87,9 +105,9 @@ defmodule RuleMaven.Games.Document do
     field :extracted_at, :utc_datetime
     field :status, :string, default: "pending_review"
     field :file_hash, :string
-    # Marks this source as the game's core rulebook. When set, its label is
-    # derived as "{Game Name} Core Rules" rather than inferred from the PDF.
-    field :is_core, :boolean, default: false
+    # Typed source kind (authority order defined by `kinds/0`). Drives label
+    # inference and retrieval weighting across multi-source games.
+    field :kind, :string, default: "rulebook"
     # Durable cleanup progress: pages persisted so far in the active run (nil
     # when idle). Updated incrementally by CleanupWorker so the UI counter is
     # reliable and survives refreshes.
@@ -121,7 +139,7 @@ defmodule RuleMaven.Games.Document do
       :extracted_at,
       :status,
       :file_hash,
-      :is_core,
+      :kind,
       :reviewed_by_id,
       :reviewed_at
     ])
@@ -129,6 +147,7 @@ defmodule RuleMaven.Games.Document do
     # full_text is absent for a source saved before extraction (ExtractWorker
     # fills it on demand); only label + game_id are required at ingest.
     |> validate_required([:label, :game_id])
+    |> validate_inclusion(:kind, @kinds)
   end
 end
 
