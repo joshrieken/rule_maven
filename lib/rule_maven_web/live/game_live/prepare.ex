@@ -54,6 +54,25 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     "bgg_enrich" => :bgg
   }
 
+  # JobRun.kind → step id for the inline per-step job log. Superset of
+  # @kind_to_step: includes the document-scoped kinds (cleanup/embed/reextract)
+  # and the ingest download, which the game-scoped running indicator ignores.
+  @run_kind_to_step %{
+    "download" => :source,
+    "extract" => :extract,
+    "reextract" => :extract,
+    "cleanup" => :cleanup,
+    "embed" => :embed,
+    "bgg_enrich" => :bgg,
+    "suggestions" => :suggestions,
+    "categories" => :categories,
+    "cheat_sheet" => :cheat_sheet,
+    "setup_checklist" => :setup,
+    "did_you_know" => :did_you_know,
+    "voices" => :voices,
+    "theme_palette" => :theme
+  }
+
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     game = Users.can?(socket.assigns.current_user, :admin) && Games.get_game_by_token(id)
@@ -71,6 +90,9 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         if connected?(socket) do
           Jobs.subscribe(Readiness.topic(game.id))
           Jobs.subscribe(Jobs.scope_topic("game", game.id))
+          # Event lines only broadcast on the admin feed; the inline per-step
+          # job log filters them to this game's runs in handle_info.
+          Jobs.subscribe(Jobs.admin_topic())
 
           for d <- Games.list_documents(game) do
             Jobs.subscribe(Jobs.scope_topic("document", d.id))
@@ -100,9 +122,15 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       Map.new(steps, fn s -> {s.id, step_actual_cost(s.id, by_operation)} end)
 
     review_pages = Enum.sum(Enum.map(docs, &Games.review_page_count/1))
+    step_logs = load_step_logs(game, docs)
+
+    step_run_ids =
+      step_logs |> Map.values() |> Enum.flat_map(& &1.runs) |> MapSet.new(& &1.id)
 
     assign(socket,
       steps: steps,
+      step_logs: step_logs,
+      step_run_ids: step_run_ids,
       previews: build_previews(game, docs),
       running_steps: running_steps(game),
       playable?: Readiness.playable?(game),
@@ -449,6 +477,26 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     game |> Games.list_documents() |> Enum.any?(&embed_in_flight?(&1.id))
   end
 
+  # Latest runs per step (newest first, capped at 3) plus the newest run's
+  # event lines, feeding each step's inline job log. Two run queries (game +
+  # per-doc scope) and one events query per step that has runs — the page is
+  # admin-only and reloads on job traffic, so eager loading is fine.
+  defp load_step_logs(game, docs) do
+    game_runs = Jobs.list_runs(scope_type: "game", scope_id: game.id, limit: 200)
+
+    doc_runs =
+      Enum.flat_map(docs, &Jobs.list_runs(scope_type: "document", scope_id: &1.id, limit: 100))
+
+    (game_runs ++ doc_runs)
+    |> Enum.group_by(&Map.get(@run_kind_to_step, &1.kind))
+    |> Map.delete(nil)
+    |> Map.new(fn {step, runs} ->
+      [latest | _] = runs = runs |> Enum.sort_by(& &1.id, :desc) |> Enum.take(3)
+      events = latest.id |> Jobs.events(40) |> Enum.reverse()
+      {step, %{runs: runs, events: events}}
+    end)
+  end
+
   # Steps with a game-scoped run currently in flight (drives the "Running…" tag).
   defp running_steps(game) do
     [state: "running", scope_type: "game", scope_id: game.id, limit: 100]
@@ -465,6 +513,17 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   @impl true
   def handle_info({:readiness, _game_id}, socket), do: {:noreply, reload(socket)}
   def handle_info({:job_run, _run}, socket), do: {:noreply, reload(socket)}
+
+  # Admin-feed event lines: refresh only when the line belongs to one of the
+  # runs shown in this page's per-step logs (the feed carries every run app-wide).
+  def handle_info({:job_event, %{job_run_id: rid}}, socket) do
+    if MapSet.member?(socket.assigns.step_run_ids, rid) do
+      {:noreply, reload(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   defp reload(socket) do
@@ -619,6 +678,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               estimate={Map.get(@estimates, step.id, 0.0)}
               actual={Map.get(@actuals, step.id)}
               action={step_action(step, @game)}
+              log={Map.get(@step_logs, step.id)}
             />
           <% end %>
         </div>
@@ -634,6 +694,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   attr :estimate, :float, required: true
   attr :actual, :any, required: true
   attr :action, :any, default: nil
+  attr :log, :any, default: nil
 
   defp step_row(assigns) do
     # A row is collapsible when it has a result to preview *or* an action to
@@ -695,6 +756,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       <div :if={@has_body} data-prepare-body style="padding:0 0.9rem 0.8rem 2.45rem">
         <.preview_body :if={present_preview?(@preview)} id={@step.id} preview={@preview} />
         <.step_actions step={@step} game={@game} running={@running} />
+        <.step_log log={@log} />
       </div>
     </div>
     """
@@ -1103,6 +1165,60 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     do: "Re-run this step? It spends LLM budget and replaces the current result."
 
   defp regen_confirm(_id, false), do: "Generate this step? It spends LLM budget."
+
+  ## Inline job log ------------------------------------------------------------
+
+  # Per-step job history: the newest run with its event stream, then up to two
+  # older runs as one-line summaries. Times are UTC, same as the DevTools panel.
+  attr :log, :any, default: nil
+
+  defp step_log(assigns) do
+    ~H"""
+    <div
+      :if={@log}
+      style="margin-top:0.7rem;border-top:1px dashed var(--border-subtle);padding-top:0.5rem"
+    >
+      <div style="font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:0.3rem">
+        Job log
+      </div>
+      <% [latest | older] = @log.runs %>
+      <div style="display:flex;gap:0.5rem;align-items:baseline;flex-wrap:wrap;font-size:0.72rem;color:var(--text-secondary)">
+        <span style={run_state_style(latest.state)}>{latest.state}</span>
+        <span style="font-weight:600">{latest.label}</span>
+        <span style="color:var(--text-muted)">{fmt_run_time(latest)}</span>
+        <span :if={latest.summary} style="color:var(--text-muted)">— {latest.summary}</span>
+      </div>
+      <div
+        :if={@log.events != []}
+        style="margin-top:0.35rem;max-height:9rem;overflow:auto;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.35rem;padding:0.4rem 0.55rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.68rem;line-height:1.5"
+      >
+        <div :for={e <- @log.events} style={event_style(e.level)}>
+          <span style="color:var(--text-muted)">{fmt_event_time(e.inserted_at)}</span>
+          {e.message}
+        </div>
+      </div>
+      <div :for={r <- older} style="margin-top:0.25rem;font-size:0.68rem;color:var(--text-muted)">
+        <span style={run_state_style(r.state)}>{r.state}</span>
+        {fmt_run_time(r)}<span :if={r.summary}> — {r.summary}</span>
+      </div>
+    </div>
+    """
+  end
+
+  defp run_state_style("done"), do: "color:var(--green);font-weight:700"
+  defp run_state_style("failed"), do: "color:var(--red);font-weight:700"
+  defp run_state_style("running"), do: "color:var(--accent);font-weight:700"
+  defp run_state_style(_), do: "color:var(--text-muted);font-weight:700"
+
+  defp event_style("error"), do: "color:var(--red)"
+  defp event_style("warn"), do: "color:var(--yellow)"
+  defp event_style(_), do: "color:var(--text-secondary)"
+
+  defp fmt_run_time(%{started_at: t}) when is_struct(t), do: Calendar.strftime(t, "%b %d %H:%M")
+  defp fmt_run_time(_), do: ""
+
+  defp fmt_event_time(t) when is_struct(t), do: Calendar.strftime(t, "%H:%M:%S")
+  defp fmt_event_time(_), do: ""
 
   # Where each step's output is viewed or managed. Player-facing artifacts link
   # to the live game page; the cheat sheet has its own view; everything in the
