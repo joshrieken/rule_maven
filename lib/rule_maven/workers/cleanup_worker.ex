@@ -20,7 +20,8 @@ defmodule RuleMaven.Workers.CleanupWorker do
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
-  alias RuleMaven.{Games, Jobs}
+  alias RuleMaven.{Games, Jobs, Settings}
+  alias RuleMaven.Extract.Calibrate
 
   # LLM fan-out within a single job process; the writes back to the document are
   # funneled through Enum.each below, so they stay serialized (no embeds race).
@@ -81,13 +82,16 @@ defmodule RuleMaven.Workers.CleanupWorker do
       unchanged: 0,
       cleaned: 0,
       failed: 0,
-      flagged: 0
+      flagged: 0,
+      skipped: 0
     }
 
     stats =
       todo
       |> Task.async_stream(
-        fn page -> {page.index, clean_one(page, level, mode, game_id)} end,
+        fn page ->
+          {page.index, clean_one(page, level, mode, game_id, is_integer(page_index))}
+        end,
         max_concurrency: @max_concurrency,
         ordered: false,
         timeout: :infinity,
@@ -123,6 +127,26 @@ defmodule RuleMaven.Workers.CleanupWorker do
           |> Map.update!(:removed, &(&1 + max(meta.in - meta.out, 0)))
           |> Map.update!(:flagged, &(&1 + if(defects == [], do: 0, else: 1)))
           |> Map.update(meta.status, 1, &(&1 + 1))
+
+        # Skipped (vision-lane): no LLM call, no cleaned layer — effective text
+        # falls back to the raw extraction, which is already model output.
+        {:ok, {index, :skipped}}, acc ->
+          done = min(acc.done + 1, total)
+          Games.set_cleaning_done(doc_id, done)
+
+          Jobs.event(
+            run,
+            "info",
+            "Page #{index + 1} — skipped (vision-transcribed, already clean) · #{done}/#{total} done"
+          )
+
+          Phoenix.PubSub.broadcast(
+            RuleMaven.PubSub,
+            topic,
+            {:page_cleaned, doc_id, index, nil, done, total}
+          )
+
+          acc |> Map.put(:done, done) |> Map.update(:skipped, 1, &(&1 + 1))
 
         # LLM failed for this page: leave `cleaned` nil rather than baking the raw
         # text in. Retrieval/display already fall back to `text` (effective text =
@@ -179,18 +203,54 @@ defmodule RuleMaven.Workers.CleanupWorker do
   # can be retried. `meta` carries in/out char counts, a status (:cleaned |
   # :unchanged | :kept_raw | :empty), the level `:path` taken, and `:defects`
   # (non-empty = page flagged for review).
-  defp clean_one(page, level, mode, game_id) do
-    body = if mode == "again", do: Games.effective_page_text(page), else: page.text || ""
-    body = Games.strip_printed_number(body, page.printed)
+  defp clean_one(page, level, mode, game_id, forced?) do
+    if skippable_page?(page, level, forced?) and
+         not Calibrate.should_sample?(skip_sample_rate()) do
+      :skipped
+    else
+      body = if mode == "again", do: Games.effective_page_text(page), else: page.text || ""
+      body = Games.strip_printed_number(body, page.printed)
 
-    try do
-      if level == :auto,
-        do: clean_auto(body, page, game_id),
-        else: clean_fixed(body, page, level, game_id)
-    rescue
-      _ -> :failed
-    catch
-      _, _ -> :failed
+      try do
+        if level == :auto,
+          do: clean_auto(body, page, game_id),
+          else: clean_fixed(body, page, level, game_id)
+      rescue
+        _ -> :failed
+      catch
+        _, _ -> :failed
+      end
+    end
+  end
+
+  # Lanes whose text was produced by a vision-model transcription — already
+  # LLM-shaped output, so a cleanup pass is a near-guaranteed no-op. Measured
+  # on DungeonQuest post-column-fix: 7/12 pages "no changes", all vision-lane.
+  @skip_lanes ~w(ensemble vision)
+  # Same review threshold as Games.page_needs_review?/1 — below it the page is
+  # already flagged for humans, so let cleanup have a look too.
+  @skip_min_confidence 0.6
+
+  @doc """
+  Should this page skip the cleanup LLM call entirely? True only for auto-level
+  bulk runs on confident vision-lane pages (their text already came out of a
+  model — cleaning it again is paying to hear "no changes"). Forced runs
+  (single-page re-clean) and explicit levels always clean. A drift sample of
+  skippable pages is still cleaned by the caller to keep verifying this rule.
+  """
+  def skippable_page?(page, level, forced?) do
+    not forced? and level == :auto and
+      page.lane in @skip_lanes and
+      is_number(page.confidence) and page.confidence >= @skip_min_confidence
+  end
+
+  # Fraction of skippable pages that get cleaned anyway, so "vision lane =
+  # already clean" keeps being verified. Admin-tunable like the extract drift
+  # rate; 0.0 disables sampling, 1.0 disables skipping.
+  defp skip_sample_rate do
+    case Float.parse(Settings.get("cleanup_skip_sample_rate") || "") do
+      {r, _} when r >= 0.0 and r <= 1.0 -> r
+      _ -> 0.1
     end
   end
 
@@ -389,6 +449,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
       [
         stats.removed > 0 && "removed #{stats.removed} chars",
         Map.get(stats, :unchanged, 0) > 0 && "#{stats.unchanged} unchanged",
+        Map.get(stats, :skipped, 0) > 0 && "#{stats.skipped} skipped (vision lane)",
         Map.get(stats, :kept_raw, 0) > 0 && "#{stats.kept_raw} kept raw",
         Map.get(stats, :flagged, 0) > 0 && "#{stats.flagged} flagged for review",
         Map.get(stats, :failed, 0) > 0 && "#{stats.failed} failed"

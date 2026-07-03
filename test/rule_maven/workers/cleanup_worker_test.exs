@@ -439,4 +439,67 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
     assert Enum.map(pages, & &1.cleaned) == [@good_clean]
     assert calls(agent) == [:light]
   end
+
+  describe "skippable_page?/3" do
+    defp skip_page(attrs), do: Map.merge(%{lane: "ensemble", confidence: 0.8}, attrs)
+
+    test "vision-lane, confident page is skippable at auto level" do
+      assert CleanupWorker.skippable_page?(skip_page(%{lane: "ensemble"}), :auto, false)
+      assert CleanupWorker.skippable_page?(skip_page(%{lane: "vision"}), :auto, false)
+    end
+
+    test "text_layer and ocr lanes are never skipped" do
+      refute CleanupWorker.skippable_page?(skip_page(%{lane: "text_layer"}), :auto, false)
+      refute CleanupWorker.skippable_page?(skip_page(%{lane: "ocr"}), :auto, false)
+      refute CleanupWorker.skippable_page?(skip_page(%{lane: nil}), :auto, false)
+    end
+
+    test "low or missing confidence disqualifies the skip" do
+      refute CleanupWorker.skippable_page?(skip_page(%{confidence: 0.5}), :auto, false)
+      refute CleanupWorker.skippable_page?(skip_page(%{confidence: nil}), :auto, false)
+    end
+
+    test "explicit levels and forced single-page runs always clean" do
+      refute CleanupWorker.skippable_page?(skip_page(%{}), :standard, false)
+      refute CleanupWorker.skippable_page?(skip_page(%{}), :aggressive, false)
+      refute CleanupWorker.skippable_page?(skip_page(%{}), :light, false)
+      refute CleanupWorker.skippable_page?(skip_page(%{}), :auto, true)
+    end
+  end
+
+  test "auto run skips confident vision-lane pages without calling the LLM" do
+    Application.put_env(:rule_maven, :llm_mock, fn _ -> raise "LLM must not be called" end)
+    # Deterministic: sampling off.
+    RuleMaven.Settings.put("cleanup_skip_sample_rate", "0.0")
+
+    doc = doc_with_pages("alpha rules here\fbeta rules here")
+
+    vision_pages =
+      Enum.map(doc.pages, fn p ->
+        %{index: p.index, sheet: p.sheet, printed: p.printed, text: p.text, lane: "ensemble", confidence: 0.9}
+      end)
+
+    {:ok, doc} = Games.update_document(doc, %{pages: vision_pages}, chunk: false)
+
+    refreshed = run(doc, %{"level" => "auto"})
+
+    assert Enum.all?(refreshed.pages, &is_nil(&1.cleaned))
+    assert Games.cleaning_done(doc.id) == nil
+  end
+
+  test "forced single-page run cleans a vision-lane page anyway" do
+    RuleMaven.Settings.put("cleanup_skip_sample_rate", "0.0")
+    doc = doc_with_pages("alpha rules here\fbeta rules here")
+
+    vision_pages =
+      Enum.map(doc.pages, fn p ->
+        %{index: p.index, sheet: p.sheet, printed: p.printed, text: p.text, lane: "ensemble", confidence: 0.9}
+      end)
+
+    {:ok, doc} = Games.update_document(doc, %{pages: vision_pages}, chunk: false)
+
+    refreshed = run(doc, %{"page_index" => 0})
+
+    assert Enum.at(refreshed.pages, 0).cleaned == "ALPHA RULES HERE"
+  end
 end
