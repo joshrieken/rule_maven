@@ -32,6 +32,12 @@ defmodule RuleMaven.LLMCostTest do
       assert {0.5, 1.5} = Pricing.rate("some-unknown-model")
     end
 
+    test "models in production logs resolve to real rates, not the default" do
+      assert Pricing.rate("deepseek/deepseek-v4-flash") == {0.089, 0.18}
+      assert Pricing.rate("openai/gpt-5-mini") == {0.25, 2.00}
+      assert Pricing.rate("google/gemini-3.1-pro-preview") == {2.00, 12.00}
+    end
+
     test "cost combines input and output rates" do
       # gemini-2.5-flash: 0.30 in / 2.50 out per 1M
       cost = Pricing.cost("gemini-2.5-flash", 1_000_000, 1_000_000)

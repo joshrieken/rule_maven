@@ -11,6 +11,9 @@ defmodule RuleMaven.LLM.Pricing do
 
   # {input_per_mtok, output_per_mtok} in USD.
   @prices [
+    {"deepseek-v4-flash", {0.089, 0.18}},
+    {"gpt-5-mini", {0.25, 2.00}},
+    {"gemini-3.1-pro", {2.00, 12.00}},
     {"gemini-2.5-flash", {0.30, 2.50}},
     {"gemini-2.5-pro", {1.25, 10.00}},
     {"gemini-2.0-flash", {0.10, 0.40}},
