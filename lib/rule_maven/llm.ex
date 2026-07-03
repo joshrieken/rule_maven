@@ -317,11 +317,15 @@ defmodule RuleMaven.LLM do
   OCR/extraction artifacts while preserving the wording verbatim (so the Q&A
   flow can still quote it). Returns `{:ok, text, status}` or `{:error, reason}`,
   where `status` is `:cleaned` (model output kept), `:kept_raw` (output rejected
-  by the drop guard, raw page returned), or `:empty` (blank input).
+  by the drop guard, raw page returned), `:guard_fired` (output kept despite
+  guard threshold when `soft_guard: true` for critic adjudication), or `:empty`
+  (blank input).
 
   Empty/whitespace input is returned unchanged. If the model returns an empty
   result or drops more characters than the level allows (a likely
-  truncation/refusal), the original page is kept instead.
+  truncation/refusal), the original page is kept instead. Pass `soft_guard: true`
+  in opts to keep non-empty below-threshold output and report `:guard_fired`,
+  allowing a critic to adjudicate rather than blanket reverting to raw.
 
   The drop guard is level-aware: light/standard are near-verbatim, so a >50%
   shrink signals a problem and the raw page is kept. Aggressive deliberately
@@ -344,14 +348,18 @@ defmodule RuleMaven.LLM do
           trimmed = String.trim(cleaned)
           min_keep = round(String.length(page_text) * min_kept_ratio(level))
 
-          # Output collapsed below the length floor → treat as a truncation/refusal
-          # and keep the raw page. Report `:kept_raw` so the caller can surface
-          # that the cleaner was rejected (otherwise it looks identical to a real
-          # clean — the page is silently left as its raw extraction).
-          if trimmed == "" or String.length(trimmed) < min_keep do
-            {:ok, page_text, :kept_raw}
-          else
-            {:ok, cleaned, :cleaned}
+          # Output collapsed below the length floor → likely truncation/refusal.
+          # Hard guard (default): keep the raw page (:kept_raw). Soft guard
+          # (auto-clean loop): keep the short output and report :guard_fired so
+          # the critic can adjudicate — an aggressive clean of a junk-heavy page
+          # legitimately shrinks past the floor, and blanket reverts were baking
+          # raw junk back in. An empty output has nothing to adjudicate and
+          # reverts either way.
+          cond do
+            trimmed == "" -> {:ok, page_text, :kept_raw}
+            String.length(trimmed) >= min_keep -> {:ok, cleaned, :cleaned}
+            opts[:soft_guard] -> {:ok, cleaned, :guard_fired}
+            true -> {:ok, page_text, :kept_raw}
           end
 
         {:error, reason} ->
