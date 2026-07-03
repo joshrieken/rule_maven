@@ -138,4 +138,16 @@ defmodule RuleMavenWeb.PrepareRenderTest do
     refute has_element?(view, "button[phx-click=\"reset_all\"]")
     assert has_element?(view, "button[disabled]", "Reset all")
   end
+
+  test "source preview links to the admin PDF view", %{conn: conn} do
+    admin = admin!("prep_pdf_admin")
+    game = game_fixture(%{name: "Prep PDF Game", bgg_id: 7789})
+    doc = with_doc(game)
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, _view, html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    assert html =~ "View PDF"
+    assert html =~ "/rulebooks/#{RuleMaven.Hashid.encode(doc.id)}/pdf"
+  end
 end

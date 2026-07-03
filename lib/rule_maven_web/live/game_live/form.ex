@@ -3387,9 +3387,16 @@ defmodule RuleMavenWeb.GameLive.Form do
                       title="Open the full-screen reader (press f to toggle; f again or Esc closes it)"
                       style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
                     >⤢ Expand reader (f)</button>
-                    <%!-- No raw-PDF link: rulebooks may be copyrighted, so we
-                          don't offer the original file for download. The HTML is
-                          our extracted text (admin view only). --%>
+                    <%!-- PDF + HTML are admin-view only: rulebooks may be
+                          copyrighted, so nothing here is reachable by regular
+                          users (the controller 404s non-admins). --%>
+                    <%= if entry[:source_id] && entry[:pdf_path] do %>
+                      <.link
+                        href={~p"/rulebooks/#{RuleMaven.Hashid.encode(entry.source_id)}/pdf"}
+                        target="_blank"
+                        class="action-link"
+                      >View PDF</.link>
+                    <% end %>
                     <%= if entry[:source_id] && entry[:html_path] do %>
                       <.link
                         href={~p"/rulebooks/#{RuleMaven.Hashid.encode(entry.source_id)}/html"}

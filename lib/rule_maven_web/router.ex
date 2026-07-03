@@ -43,6 +43,8 @@ defmodule RuleMavenWeb.Router do
     # Extracted-text HTML view, admin-gated (rulebooks may be copyrighted; the
     # original PDF is never served over HTTP).
     get "/rulebooks/:id/html", RulebookController, :html
+    # Original PDF, same admin gate — rendered inline in the browser's viewer.
+    get "/rulebooks/:id/pdf", RulebookController, :pdf
     # Theme picker pings this on change so we can track theme usage.
     post "/theme-events", MetricsController, :theme
 

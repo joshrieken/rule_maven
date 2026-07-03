@@ -879,6 +879,12 @@ defmodule RuleMavenWeb.GameLive.Prepare do
             <li :for={d <- @preview}>
               {d.label || "Untitled"}
               <span style="color:var(--text-muted)">· {d.page_count || length(d.pages)} pages</span>
+              <.link
+                :if={is_binary(d.pdf_path)}
+                href={~p"/rulebooks/#{RuleMaven.Hashid.encode(d.id)}/pdf"}
+                target="_blank"
+                style="margin-left:0.4rem;font-size:0.75rem"
+              >View PDF</.link>
             </li>
           </ul>
         <% id when id in [:extract, :cleanup] -> %>
