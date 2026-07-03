@@ -1063,26 +1063,6 @@ defmodule RuleMavenWeb.GameLive.Form do
     {:noreply, assign_parent_state(socket, socket.assigns.game)}
   end
 
-  # Re-derives the base-game picker assigns (parent_selected_id/_name,
-  # extra_bases) straight from the DB. Must be called after every
-  # link_expansion/unlink_expansion write touching this game as an expansion,
-  # since a game can be linked to more than one base (BGG multi-parent
-  # linking) — overwriting the assigns from event params instead of
-  # re-deriving them clobbers whichever base isn't the one just
-  # linked/unlinked out of the UI, even though it stays linked in the DB.
-  defp assign_parent_state(socket, game) do
-    bases = Games.base_games_for(game)
-    parent = List.first(bases)
-
-    assign(socket,
-      parent_selected_id: parent && parent.id,
-      parent_selected_name: parent && parent.name,
-      extra_bases: Enum.drop(bases, 1),
-      parent_query: "",
-      parent_results: []
-    )
-  end
-
   @impl true
   def handle_event("download", %{"url" => url, "label" => label}, socket) do
     url = String.trim(url)
@@ -1357,6 +1337,26 @@ defmodule RuleMavenWeb.GameLive.Form do
       nil -> upload_msg
       msg -> "#{msg} #{upload_msg}"
     end
+  end
+
+  # Re-derives the base-game picker assigns (parent_selected_id/_name,
+  # extra_bases) straight from the DB. Must be called after every
+  # link_expansion/unlink_expansion write touching this game as an expansion,
+  # since a game can be linked to more than one base (BGG multi-parent
+  # linking) — overwriting the assigns from event params instead of
+  # re-deriving them clobbers whichever base isn't the one just
+  # linked/unlinked out of the UI, even though it stays linked in the DB.
+  defp assign_parent_state(socket, game) do
+    bases = Games.base_games_for(game)
+    parent = List.first(bases)
+
+    assign(socket,
+      parent_selected_id: parent && parent.id,
+      parent_selected_name: parent && parent.name,
+      extra_bases: Enum.drop(bases, 1),
+      parent_query: "",
+      parent_results: []
+    )
   end
 
   defp flash_upload_errors(socket, []), do: socket
