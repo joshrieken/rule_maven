@@ -40,6 +40,10 @@ defmodule RuleMaven.Games.Document do
       field :escalated, :boolean
       field :critic_rounds, :integer
       field :residual_defects, :integer
+      # Cleanup critic's residual defect descriptions for the *current* cleaned
+      # layer (distinct from `residual_defects`, the extraction critic's count).
+      # Non-empty flags the page for review; each re-clean replaces the list.
+      field :cleanup_defects, {:array, :string}
     end
 
     def changeset(page, attrs) do
@@ -61,7 +65,8 @@ defmodule RuleMaven.Games.Document do
           :gate_coverage,
           :escalated,
           :critic_rounds,
-          :residual_defects
+          :residual_defects,
+          :cleanup_defects
         ],
         empty_values: []
       )

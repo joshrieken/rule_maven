@@ -522,6 +522,9 @@ defmodule RuleMaven.LLM do
       trimmed
       |> String.split("\n", trim: true)
       |> Enum.map(&String.trim/1)
+      # Models usually bullet their defect lines; the marker is noise once the
+      # lines are stored/joined downstream (job log, page review UI).
+      |> Enum.map(&String.replace(&1, ~r/^[-*•]\s+/, ""))
       |> Enum.reject(&(&1 == "" or none_marker?(&1)))
 
     cond do

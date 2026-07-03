@@ -1229,13 +1229,21 @@ defmodule RuleMaven.Games do
   writes from the cleanup worker accumulate correctly on the embeds_many column.
   Does NOT re-chunk (the worker chunks once at the end).
   """
-  def set_page_cleaned(doc_id, index, cleaned) do
+  def set_page_cleaned(doc_id, index, cleaned, defects \\ nil) do
     doc = get_document!(doc_id)
 
     pages =
       Enum.map(doc.pages, fn p ->
         attrs = page_attrs(p)
-        if p.index == index, do: %{attrs | cleaned: cleaned}, else: attrs
+
+        cond do
+          p.index != index -> attrs
+          # A defects list (possibly empty) is the cleanup critic's verdict for
+          # this pass — it replaces whatever was recorded before, so a faithful
+          # re-clean un-flags the page. `nil` (manual edits) leaves it alone.
+          is_list(defects) -> %{attrs | cleaned: cleaned, cleanup_defects: defects}
+          true -> %{attrs | cleaned: cleaned}
+        end
       end)
 
     doc
@@ -1264,12 +1272,14 @@ defmodule RuleMaven.Games do
   @review_threshold 0.6
 
   @doc """
-  True when an extracted page's gate confidence is low enough to warrant review.
-  Pages with no confidence (native/clean-layer/legacy) are never flagged.
+  True when a page warrants human review: the extraction gate's confidence is
+  low, or the last cleanup pass left residual defects on record. Pages with no
+  confidence (native/clean-layer/legacy) and no defects are never flagged.
   """
   def page_needs_review?(page) do
     c = Map.get(page, :confidence)
-    is_number(c) and c < @review_threshold
+    defects = Map.get(page, :cleanup_defects)
+    (is_number(c) and c < @review_threshold) or (is_list(defects) and defects != [])
   end
 
   @doc "Count of pages on a document (or page list) flagged for review."
@@ -1291,7 +1301,8 @@ defmodule RuleMaven.Games do
       gate_coverage: Map.get(p, :gate_coverage),
       escalated: Map.get(p, :escalated),
       critic_rounds: Map.get(p, :critic_rounds),
-      residual_defects: Map.get(p, :residual_defects)
+      residual_defects: Map.get(p, :residual_defects),
+      cleanup_defects: Map.get(p, :cleanup_defects)
     }
   end
 

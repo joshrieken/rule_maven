@@ -143,6 +143,37 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
     assert Enum.map(cleared.pages, & &1.cleaned) == [nil, nil]
   end
 
+  defp run_summary(doc) do
+    [run_row] = Jobs.list_runs(scope_type: "document", scope_id: doc.id, kind: "cleanup", limit: 1)
+    run_row.summary
+  end
+
+  test "first-run summary does not claim re-chunked when the doc had no chunks" do
+    doc = doc_with_pages("alpha rules here\fbeta rules here")
+    # Mimic the upload→extract path, where chunking is a later explicit step
+    # (create_document auto-chunks only pasted/full_text sources).
+    Repo.delete_all(from(c in RuleMaven.Games.Chunk, where: c.document_id == ^doc.id))
+    refute Games.document_chunked?(doc.id)
+
+    run(doc)
+
+    refute Games.document_chunked?(doc.id)
+
+    summary = run_summary(doc)
+    assert summary =~ "Cleaned 2/2 pages"
+    refute summary =~ "re-chunked"
+  end
+
+  test "re-clean of an already-chunked doc reports re-chunked" do
+    doc = doc_with_pages("alpha rules here\fbeta rules here")
+    Games.chunk_document(doc)
+    assert Games.document_chunked?(doc.id)
+
+    run(doc, %{"mode" => "again"})
+
+    assert run_summary(doc) =~ "re-chunked"
+  end
+
   # ── Auto-escalation loop ──
 
   # Distinct system prompts per level so the mock can tell attempts apart, and
@@ -280,6 +311,28 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
     run_row = Jobs.list_runs(scope_type: "document", scope_id: doc.id, kind: "cleanup", limit: 1) |> hd()
     messages = Jobs.events(run_row.id) |> Enum.map(& &1.message)
     assert Enum.any?(messages, &(&1 =~ "cleanup review flagged"))
+
+    # …and persisted on the page itself so the Prepare page's ⚠ review UI
+    # (page_needs_review?) can surface it, not just the job log.
+    page = hd(pages)
+    assert page.cleanup_defects == ["GARBLE: soup"]
+    assert Games.page_needs_review?(page)
+  end
+
+  test "auto: a faithful re-clean clears defects a prior run recorded" do
+    agent = install_auto_mock(%{standard: @good_clean, light: "L", aggressive: "A"}, [])
+    doc = doc_with_pages(@good_page)
+    # Prior run left the page flagged (defects on record, junky cleaned copy).
+    Games.set_page_cleaned(doc.id, 0, @good_page, ["GARBLE: soup"])
+    assert Games.page_needs_review?(hd(Games.get_document!(doc.id).pages))
+
+    pages = run(doc, %{"level" => "auto", "mode" => "again"}) |> Map.fetch!(:pages)
+
+    page = hd(pages)
+    assert page.cleaned == @good_clean
+    assert page.cleanup_defects == []
+    refute Games.page_needs_review?(page)
+    assert calls(agent) == [:standard]
   end
 
   test "auto: guard-fired attempt whose critic call errors reverts to raw (legacy hard-guard)" do

@@ -267,5 +267,52 @@ defmodule RuleMaven.GamesPagesTest do
       pages = [%{confidence: 0.9}, %{confidence: 0.5}, %{confidence: nil}, %{confidence: 0.3}]
       assert Games.review_page_count(pages) == 2
     end
+
+    test "flags pages with residual defects regardless of confidence" do
+      assert Games.page_needs_review?(%{confidence: nil, cleanup_defects: ["GARBLE: soup"]})
+      assert Games.page_needs_review?(%{confidence: 0.9, cleanup_defects: ["JUNK: header"]})
+      refute Games.page_needs_review?(%{confidence: 0.9, cleanup_defects: []})
+      refute Games.page_needs_review?(%{confidence: 0.9, cleanup_defects: nil})
+    end
+  end
+
+  describe "set_page_cleaned/4 (defects)" do
+    setup do
+      {:ok, game} = Games.create_game(%{name: "Defects #{System.unique_integer([:positive])}"})
+
+      {:ok, doc} =
+        Games.create_document(%{
+          game_id: game.id,
+          label: "Rules",
+          full_text: "page one text\fpage two text"
+        })
+
+      %{doc: doc}
+    end
+
+    test "writes cleanup_defects alongside the cleaned text", %{doc: doc} do
+      {:ok, _} = Games.set_page_cleaned(doc.id, 0, "CLEANED", ["GARBLE: soup"])
+
+      page = Games.get_document!(doc.id).pages |> Enum.find(&(&1.index == 0))
+      assert page.cleaned == "CLEANED"
+      assert page.cleanup_defects == ["GARBLE: soup"]
+    end
+
+    test "an empty defects list clears previously recorded defects", %{doc: doc} do
+      {:ok, _} = Games.set_page_cleaned(doc.id, 0, "BAD", ["GARBLE: soup"])
+      {:ok, _} = Games.set_page_cleaned(doc.id, 0, "GOOD", [])
+
+      page = Games.get_document!(doc.id).pages |> Enum.find(&(&1.index == 0))
+      assert page.cleanup_defects == []
+    end
+
+    test "the 3-arity form leaves cleanup_defects untouched", %{doc: doc} do
+      {:ok, _} = Games.set_page_cleaned(doc.id, 0, "BAD", ["GARBLE: soup"])
+      {:ok, _} = Games.set_page_cleaned(doc.id, 0, "edited by hand")
+
+      page = Games.get_document!(doc.id).pages |> Enum.find(&(&1.index == 0))
+      assert page.cleaned == "edited by hand"
+      assert page.cleanup_defects == ["GARBLE: soup"]
+    end
   end
 end

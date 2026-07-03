@@ -97,11 +97,12 @@ defmodule RuleMaven.Workers.CleanupWorker do
       |> Enum.reduce(init, fn
         {:ok, {index, {:ok, cleaned, meta}}}, acc ->
           done = min(acc.done + 1, total)
-          Games.set_page_cleaned(doc_id, index, cleaned)
+          defects = meta[:defects] || []
+          # Defects go onto the page itself (not just the job log) so the
+          # Prepare page's ⚠ review UI (page_needs_review?) surfaces them.
+          Games.set_page_cleaned(doc_id, index, cleaned, defects)
           Games.set_cleaning_done(doc_id, done)
           Jobs.event(run, event_level(meta.status), page_event_msg(index, meta, done, total))
-
-          defects = meta[:defects] || []
 
           if defects != [] do
             Jobs.event(
@@ -154,7 +155,8 @@ defmodule RuleMaven.Workers.CleanupWorker do
     # the next pipeline step and is triggered explicitly (prepare page button
     # or the auto pipeline), never as a side effect of cleanup.
     doc = Games.get_document!(doc_id)
-    if Games.document_chunked?(doc_id), do: Games.chunk_document(doc)
+    rechunked? = Games.document_chunked?(doc_id)
+    if rechunked?, do: Games.chunk_document(doc)
     # Re-render the "View as HTML" file from the freshly cleaned text.
     Games.regenerate_document_html(doc)
     Games.invalidate_pool(doc.game_id)
@@ -165,7 +167,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
     # Clear the durable counter now the run is finished (idle = nil).
     Games.set_cleaning_done(doc_id, nil)
 
-    Jobs.finish_run(run, "done", finish_summary(stats, total))
+    Jobs.finish_run(run, "done", finish_summary(stats, total, rechunked?))
     Phoenix.PubSub.broadcast(RuleMaven.PubSub, topic, {:cleanup_done, doc_id})
     :ok
   end
@@ -380,7 +382,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
     "#{sign}#{abs(p)}%"
   end
 
-  defp finish_summary(stats, total) do
+  defp finish_summary(stats, total, rechunked?) do
     cleaned = Map.get(stats, :cleaned, 0)
 
     notes =
@@ -393,7 +395,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
       ]
       |> Enum.filter(& &1)
 
-    base = "Cleaned #{cleaned}/#{total} pages + re-chunked"
+    base = "Cleaned #{cleaned}/#{total} pages" <> if rechunked?, do: " + re-chunked", else: ""
     if notes == [], do: base <> ".", else: base <> " (" <> Enum.join(notes, ", ") <> ")."
   end
 

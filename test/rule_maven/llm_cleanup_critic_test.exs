@@ -10,11 +10,13 @@ defmodule RuleMaven.LLMCleanupCriticTest do
     - HEADER: running title not removed
     """
 
+    # Bullet markers are stripped — the lines are stored on the page and joined
+    # into log messages, where a leading "- " is noise.
     assert LLM.parse_critic_verdict(text) == %{
              verdict: :junk_remains,
              defects: [
-               ~s(- GARBLE: "~~ %% §§" still present mid-page),
-               "- HEADER: running title not removed"
+               ~s(GARBLE: "~~ %% §§" still present mid-page),
+               "HEADER: running title not removed"
              ]
            }
   end
@@ -39,7 +41,7 @@ defmodule RuleMaven.LLMCleanupCriticTest do
 
     on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
-    assert {:ok, %{verdict: :content_lost, defects: ["- DROPPED: the tiebreaker rule"]}} =
+    assert {:ok, %{verdict: :content_lost, defects: ["DROPPED: the tiebreaker rule"]}} =
              LLM.critique_cleanup("raw text", "cleaned text")
   end
 end
