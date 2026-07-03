@@ -94,7 +94,7 @@ defmodule RuleMaven.GamesDocumentTest do
     # Chunks reflect the new text, not the old (stale "original" chunks are gone).
     contents =
       Games.retrieve_chunks(game, "edited")
-      |> Enum.map_join(" ", fn {_label, content} -> content end)
+      |> Enum.map_join(" ", & &1.content)
 
     assert contents =~ "edited"
     refute contents =~ "original"

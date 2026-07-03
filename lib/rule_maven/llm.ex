@@ -137,7 +137,7 @@ defmodule RuleMaven.LLM do
     # Reuse the embedding already computed in ask/5 — no second embed call.
     retrieval_opts = if question_embedding, do: [embedding: question_embedding], else: []
     chunks = RuleMaven.Games.retrieve_chunks_for_games(game_ids, question, retrieval_opts)
-    context = Enum.map_join(chunks, "\n\n---\n\n", fn {_, text} -> text end)
+    context = Enum.map_join(chunks, "\n\n---\n\n", & &1.content)
     system_prompt = build_system_prompt(game.name, game.category, context, recent_context)
     provider_name = provider()
     model_name = model()
@@ -172,7 +172,7 @@ defmodule RuleMaven.LLM do
            raw_response: llm_result[:raw_response],
            # Retrieved chunk texts (each prefixed with a [Page N] marker) so the
            # worker can recover the page if the model drops it from the citation.
-           source_chunks: Enum.map(chunks, fn {_, text} -> text end)
+           source_chunks: Enum.map(chunks, & &1.content)
          }}
 
       {:error, reason} ->

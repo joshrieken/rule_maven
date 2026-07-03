@@ -2700,6 +2700,7 @@ defmodule RuleMaven.Games do
   """
   def retrieve_chunks_for_games(game_ids, question, opts \\ []) when is_list(game_ids) do
     limit = Keyword.get(opts, :limit, 6)
+    base_game_id = Keyword.get(opts, :base_game_id, List.first(game_ids))
 
     embed_result =
       case Keyword.get(opts, :embedding) do
@@ -2715,6 +2716,8 @@ defmodule RuleMaven.Games do
             from c in Chunk,
               join: d in Document,
               on: c.document_id == d.id,
+              join: g in Game,
+              on: g.id == d.game_id,
               where:
                 d.game_id in ^game_ids and d.status == "published" and
                   not is_nil(c.embedding),
@@ -2724,12 +2727,19 @@ defmodule RuleMaven.Games do
                   c.embedding,
                   ^Pgvector.new(question_vec)
                 ),
-              limit: ^limit,
+              # Over-fetch so dedup can drop near-duplicates and still fill the limit.
+              limit: ^(limit * 2),
               select: %{
                 id: c.id,
                 content: c.content,
                 section_label: c.section_label,
-                references_section: c.references_section
+                references_section: c.references_section,
+                embedding: c.embedding,
+                document_id: d.id,
+                label: d.label,
+                kind: d.kind,
+                game_id: d.game_id,
+                game_name: g.name
               }
           )
 
@@ -2737,14 +2747,47 @@ defmodule RuleMaven.Games do
           published_full_text_fallback(game_ids)
         else
           chunks
+          |> dedup_near_duplicates(base_game_id)
+          |> Enum.take(limit)
           |> pull_referenced_chunks(game_ids)
-          |> Enum.map(&{nil, &1.content})
+          |> Enum.map(&Map.drop(&1, [:embedding]))
         end
 
       {:error, _} ->
         # Fallback to keyword overlap across all games
         keyword_retrieve_multi(game_ids, question, limit)
     end
+  end
+
+  # Greedy near-duplicate collapse. Chunks arrive relevance-ordered; each is kept
+  # unless it's ≥ @dup_threshold cosine-similar to an already-kept chunk, in which
+  # case the more authoritative of the two survives (kind authority, then base
+  # game beats expansion). Guides restating the rulebook and expansions
+  # reprinting base rules stop crowding the retrieval budget.
+  @dup_threshold 0.97
+
+  defp dedup_near_duplicates(chunks, base_game_id) do
+    Enum.reduce(chunks, [], fn chunk, kept ->
+      case Enum.split_with(kept, &(cosine_sim(&1.embedding, chunk.embedding) >= @dup_threshold)) do
+        {[], _} -> kept ++ [chunk]
+        {[dup | _], rest} -> rest ++ [pick_authoritative(dup, chunk, base_game_id)]
+      end
+    end)
+  end
+
+  defp pick_authoritative(a, b, base_game_id) do
+    Enum.min_by([a, b], fn c ->
+      {RuleMaven.Games.Document.authority(c.kind), if(c.game_id == base_game_id, do: 0, else: 1)}
+    end)
+  end
+
+  defp cosine_sim(a, b) do
+    a = Pgvector.to_list(a)
+    b = Pgvector.to_list(b)
+    dot = Enum.zip_with(a, b, &*/2) |> Enum.sum()
+    na = :math.sqrt(Enum.sum(Enum.map(a, &(&1 * &1))))
+    nb = :math.sqrt(Enum.sum(Enum.map(b, &(&1 * &1))))
+    if na == 0.0 or nb == 0.0, do: 0.0, else: dot / (na * nb)
   end
 
   # Last-resort retrieval context when semantic + keyword search find nothing
@@ -2758,19 +2801,45 @@ defmodule RuleMaven.Games do
   @fallback_char_budget 12_000
 
   defp published_full_text_fallback(game_ids) do
-    text =
+    docs =
       Repo.all(
         from d in Document,
+          join: g in Game,
+          on: g.id == d.game_id,
           where: d.game_id in ^game_ids and d.status == "published",
           order_by: [asc: d.game_id, asc: d.id],
-          select: d.full_text
+          select: %{
+            full_text: d.full_text,
+            document_id: d.id,
+            label: d.label,
+            kind: d.kind,
+            game_id: d.game_id,
+            game_name: g.name
+          }
       )
-      |> Enum.map_join("\n\n", &(&1 || ""))
+
+    text =
+      docs
+      |> Enum.map_join("\n\n", &(&1.full_text || ""))
       |> String.trim()
 
     cond do
-      text == "" -> []
-      true -> [{nil, String.slice(text, 0, @fallback_char_budget)}]
+      text == "" ->
+        []
+
+      true ->
+        rep = Enum.find(docs, &(&1.full_text not in [nil, ""])) || List.first(docs)
+
+        [
+          %{
+            content: String.slice(text, 0, @fallback_char_budget),
+            document_id: rep.document_id,
+            label: rep.label,
+            kind: rep.kind,
+            game_id: rep.game_id,
+            game_name: rep.game_name
+          }
+        ]
     end
   end
 
@@ -2780,12 +2849,19 @@ defmodule RuleMaven.Games do
         from c in Chunk,
           join: d in Document,
           on: c.document_id == d.id,
+          join: g in Game,
+          on: g.id == d.game_id,
           where: d.game_id in ^game_ids and d.status == "published",
           select: %{
             id: c.id,
             content: c.content,
             section_label: c.section_label,
-            references_section: c.references_section
+            references_section: c.references_section,
+            document_id: d.id,
+            label: d.label,
+            kind: d.kind,
+            game_id: d.game_id,
+            game_name: g.name
           }
       )
 
@@ -2807,7 +2883,7 @@ defmodule RuleMaven.Games do
         published_full_text_fallback(game_ids)
       else
         top_chunks = Enum.map(scored, fn {_, c} -> c end)
-        top_chunks |> pull_referenced_chunks(game_ids) |> Enum.map(&{nil, &1.content})
+        top_chunks |> pull_referenced_chunks(game_ids)
       end
     end
   end
@@ -2912,6 +2988,8 @@ defmodule RuleMaven.Games do
           from c in Chunk,
             join: d in Document,
             on: c.document_id == d.id,
+            join: g in Game,
+            on: g.id == d.game_id,
             where:
               d.game_id in ^game_ids and d.status == "published" and
                 c.section_label in ^referenced_labels,
@@ -2919,7 +2997,12 @@ defmodule RuleMaven.Games do
               id: c.id,
               content: c.content,
               section_label: c.section_label,
-              references_section: c.references_section
+              references_section: c.references_section,
+              document_id: d.id,
+              label: d.label,
+              kind: d.kind,
+              game_id: d.game_id,
+              game_name: g.name
             }
         )
 
