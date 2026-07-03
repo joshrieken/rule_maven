@@ -97,5 +97,48 @@ defmodule RuleMaven.GamesExpansionLinksTest do
       assert ctx.base1.id in ids
       refute ctx.exp.id in ids
     end
+
+    test "expansion_pull_counts counts expansions missing bgg_data per base", ctx do
+      {:ok, _exp} = Games.update_game(ctx.exp, %{bgg_id: 12_345, bgg_data: nil})
+
+      counts = Games.expansion_pull_counts([ctx.base1.id, ctx.base2.id])
+      assert counts[ctx.base1.id] == 1
+      assert counts[ctx.base2.id] == 1
+
+      other_base = game("Ed3")
+      other_exp = game("HasData")
+      :ok = Games.link_expansion(other_exp.id, other_base.id)
+      {:ok, _} = Games.update_game(other_exp, %{bgg_id: 99_999, bgg_data: "<xml/>"})
+
+      no_pull_counts = Games.expansion_pull_counts([other_base.id])
+      assert no_pull_counts[other_base.id] == nil
+    end
+
+    test "expansion_with_doc_counts counts distinct expansions with published docs per base", ctx do
+      {:ok, doc1} =
+        Games.create_document(%{
+          game_id: ctx.exp.id,
+          label: "Promo rules",
+          full_text: "some promo rules text"
+        })
+
+      {:ok, _} = Games.update_document(doc1, %{status: "published"})
+
+      {:ok, doc2} =
+        Games.create_document(%{
+          game_id: ctx.exp.id,
+          label: "Promo rules v2",
+          full_text: "more promo rules text"
+        })
+
+      {:ok, _} = Games.update_document(doc2, %{status: "published"})
+
+      counts = Games.expansion_with_doc_counts([ctx.base1.id, ctx.base2.id])
+      assert counts[ctx.base1.id] == 1
+      assert counts[ctx.base2.id] == 1
+
+      empty_base = game("Ed3")
+      assert Games.expansion_with_doc_counts([empty_base.id]) == %{}
+    end
   end
 end
