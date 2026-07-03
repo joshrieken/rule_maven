@@ -18,6 +18,7 @@ defmodule RuleMaven.Games do
   alias RuleMaven.Games.UserFavorite
   alias RuleMaven.Games.AnswerFavorite
   alias RuleMaven.Games.SupportRequest
+  alias RuleMaven.Games.ExpansionLink
   alias Oban
 
   NimbleCSV.define(RuleMaven.Games.RankCSV, separator: ",", escape: "\"")
@@ -140,6 +141,40 @@ defmodule RuleMaven.Games do
   def expansions_for(%Game{} = game) do
     Repo.all(from g in Game, where: g.parent_game_id == ^game.id)
     |> Enum.sort_by(&String.downcase(&1.name))
+  end
+
+  @doc "Link an expansion to a base game. Idempotent (unique pair, conflict ignored)."
+  def link_expansion(expansion_id, base_game_id) do
+    now = DateTime.utc_now(:second)
+
+    Repo.insert_all(
+      ExpansionLink,
+      [%{expansion_id: expansion_id, base_game_id: base_game_id, inserted_at: now, updated_at: now}],
+      on_conflict: :nothing,
+      conflict_target: [:expansion_id, :base_game_id]
+    )
+
+    :ok
+  end
+
+  @doc "Remove one expansion/base pair link."
+  def unlink_expansion(expansion_id, base_game_id) do
+    Repo.delete_all(
+      from l in ExpansionLink,
+        where: l.expansion_id == ^expansion_id and l.base_game_id == ^base_game_id
+    )
+
+    :ok
+  end
+
+  @doc "Ids of every base game this expansion is linked to."
+  def base_ids_for(game_id) do
+    Repo.all(from l in ExpansionLink, where: l.expansion_id == ^game_id, select: l.base_game_id)
+  end
+
+  @doc "True when the game is linked as an expansion of at least one base."
+  def expansion?(game_id) do
+    Repo.exists?(from l in ExpansionLink, where: l.expansion_id == ^game_id)
   end
 
   @doc "Map of game_id => document count for the given ids (one query)."
