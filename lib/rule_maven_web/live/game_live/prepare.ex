@@ -492,8 +492,9 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     |> Map.delete(nil)
     |> Map.new(fn {step, runs} ->
       [latest | _] = runs = runs |> Enum.sort_by(& &1.id, :desc) |> Enum.take(3)
-      events = latest.id |> Jobs.events(40) |> Enum.reverse()
-      {step, %{runs: runs, events: events}}
+      # Newest line first (Jobs.events order) — latest progress stays visible
+      # at the top of the box without scrolling.
+      {step, %{runs: runs, events: Jobs.events(latest.id, 40)}}
     end)
   end
 
