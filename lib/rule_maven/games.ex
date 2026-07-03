@@ -1312,7 +1312,8 @@ defmodule RuleMaven.Games do
 
   @doc """
   Enqueue (or no-op if one is already active) a durable cleanup of a document's
-  pages at the given strength (`:light | :standard | :aggressive`).
+  pages at the given strength (`:auto | :light | :standard | :aggressive`;
+  auto = escalation loop).
 
   `mode`:
     * `:raw` (default) — full clean from the original extraction; clears any
@@ -1320,7 +1321,7 @@ defmodule RuleMaven.Games do
     * `:again` — a second pass over the *current* cleaned text to scrub leftover
       junk. Keeps the cleaned text (it's the input to the re-clean).
   """
-  def enqueue_cleanup(%Document{} = doc, level \\ :light, mode \\ :raw) do
+  def enqueue_cleanup(%Document{} = doc, level \\ :auto, mode \\ :raw) do
     if mode == :raw, do: clear_all_cleaned(doc)
     # Reset the durable progress counter so this run starts at 0/total.
     set_cleaning_done(doc.id, 0)
@@ -1337,7 +1338,7 @@ defmodule RuleMaven.Games do
   Same `unique`-per-document worker as `enqueue_cleanup/3`, so a page clean
   can't race a whole-document clean.
   """
-  def enqueue_cleanup_page(%Document{} = doc, index, level \\ :light) do
+  def enqueue_cleanup_page(%Document{} = doc, index, level \\ :auto) do
     set_cleaning_done(doc.id, 0)
 
     %{

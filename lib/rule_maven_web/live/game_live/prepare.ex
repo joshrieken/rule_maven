@@ -252,8 +252,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   end
 
   # Clean the extracted text on demand for every source that's been extracted but
-  # not yet cleaned. Each enqueues a durable CleanupWorker (strength :light, same
-  # as the auto pipeline); progress streams over the document Jobs topic.
+  # not yet cleaned. Each enqueues a durable CleanupWorker (strength :auto,
+  # escalation loop); progress streams over the document Jobs topic.
   def handle_event("clean_all", _params, socket) do
     cond do
       not Users.can?(socket.assigns.current_user, :admin) ->
@@ -273,7 +273,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               not Games.cleanup_running?(d.id)
           end)
 
-        Enum.each(pending, &Games.enqueue_cleanup(&1, :light))
+        Enum.each(pending, &Games.enqueue_cleanup(&1, :auto))
 
         {:noreply,
          socket

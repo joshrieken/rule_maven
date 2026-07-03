@@ -76,9 +76,6 @@ defmodule RuleMavenWeb.GameLive.Form do
         parent_selected_id: nil,
         parent_selected_name: nil,
         cleaning: %{},
-        # Cleanup strength applied by "Wipe & clean" / "Clean again". Persisted
-        # per-browser (localStorage → connect params) so it survives reloads.
-        clean_level: restore_clean_level(socket),
         # Which rulebook source the Manage tab shows (one at a time, picker/j-k
         # selectable). nil → falls back to the first source in the template.
         selected_source_id: nil,
@@ -537,17 +534,6 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     status_map = Map.put(socket.assigns.regen_html_status, sid, status)
     {:noreply, assign(socket, regen_html_status: status_map)}
-  end
-
-  # LLM cleanup of one rulebook source's extracted text. Runs async, cleans
-  # page-by-page (preserving the \f page separators), then drops the result
-  # back into the textarea for the user to review before saving.
-  def handle_event("set_clean_level", %{"level" => level}, socket)
-      when level in ~w(light standard aggressive) do
-    {:noreply,
-     socket
-     |> assign(clean_level: level)
-     |> push_event("save_clean_level", %{level: level})}
   end
 
   # Clean a single page (the one shown in the editor), durably via the same
@@ -1802,28 +1788,19 @@ defmodule RuleMavenWeb.GameLive.Form do
     {:noreply, socket}
   end
 
-  # Enqueue a durable, restart-survivable cleanup for one source at the selected
-  # strength, and mirror the reset in the open form so progress tracks from
-  # 0/total. `mode` is :raw (clean from the original extraction) or :again
-  # (re-clean the current cleaned text). Locally we blank the displayed cleaned
-  # layer either way so progress counts up live — the :again input is read from
-  # the DB by the worker before this blanking matters. No-op for an empty or
-  # already-cleaning source.
-  # Map the persisted clean-level string to the atom enqueue_cleanup wants.
-  # Explicit so we never rely on the :standard/:aggressive atoms already existing
-  # (String.to_existing_atom on "standard" raised — that atom is only a doc/guard
-  # string, never a compiled literal). Unknown → safest :light.
-  defp clean_level_atom("standard"), do: :standard
-  defp clean_level_atom("aggressive"), do: :aggressive
-  defp clean_level_atom(_), do: :light
-
+  # Enqueue a durable, restart-survivable cleanup for one source at the auto
+  # (escalation-loop) strength, and mirror the reset in the open form so
+  # progress tracks from 0/total. `mode` is :raw (clean from the original
+  # extraction) or :again (re-clean the current cleaned text). Locally we
+  # blank the displayed cleaned layer either way so progress counts up live —
+  # the :again input is read from the DB by the worker before this blanking
+  # matters. No-op for an empty or already-cleaning source.
   defp start_cleanup(socket, sid, mode) do
     entry = Enum.find(socket.assigns.source_entries, &(&1.source_id == sid))
-    level = clean_level_atom(socket.assigns.clean_level)
 
     if (entry && String.trim(entry.text || "") != "") and
          not Map.has_key?(socket.assigns.cleaning, sid) do
-      {:ok, _job} = Games.enqueue_cleanup(Games.get_document!(sid), level, mode)
+      {:ok, _job} = Games.enqueue_cleanup(Games.get_document!(sid), :auto, mode)
 
       entries =
         Enum.map(socket.assigns.source_entries, fn e ->
@@ -1845,11 +1822,10 @@ defmodule RuleMavenWeb.GameLive.Form do
   defp start_page_cleanup(socket, sid, index) do
     entry = Enum.find(socket.assigns.source_entries, &(&1.source_id == sid))
     page = entry && Enum.find(entry.pages, &(&1[:index] == index))
-    level = clean_level_atom(socket.assigns.clean_level)
 
     if (page && String.trim(page[:text] || "") != "") and
          not Map.has_key?(socket.assigns.cleaning, sid) do
-      {:ok, _job} = Games.enqueue_cleanup_page(Games.get_document!(sid), index, level)
+      {:ok, _job} = Games.enqueue_cleanup_page(Games.get_document!(sid), index, :auto)
       assign(socket, cleaning: Map.put(socket.assigns.cleaning, sid, {0, 1}))
     else
       socket
@@ -2463,18 +2439,6 @@ defmodule RuleMavenWeb.GameLive.Form do
     end
   rescue
     _ -> %{}
-  end
-
-  # Per-browser cleanup-strength preference (localStorage → connect params).
-  defp restore_clean_level(socket) do
-    if connected?(socket) do
-      case get_connect_params(socket) do
-        %{"clean_level" => l} when l in ~w(light standard aggressive) -> l
-        _ -> "standard"
-      end
-    else
-      "standard"
-    end
   end
 
   # ── Page-layer (Original/Cleaned) helpers ──
@@ -3334,24 +3298,9 @@ defmodule RuleMavenWeb.GameLive.Form do
                   ><%= layer_text(cur_page, layer) %></textarea>
 
                   <div class="mt-2 flex gap-3 items-center flex-wrap">
-                    <%!-- Cleanup strength: stronger levels fix more OCR damage but
-                          take more liberties with wording. --%>
                     <% cleaning? = @cleaning[entry.source_id] != nil %>
                     <% has_cleaned = Enum.any?(entry.pages, &is_binary(&1[:cleaned])) %>
                     <% cur_cleaned = cur_page && is_binary(cur_page[:cleaned]) %>
-                    <div
-                      title="How hard to scrub OCR/extraction artifacts. Light = layout only; Standard = + OCR bullets/columns; Aggressive = reflow & drop non-rule clutter."
-                      style="display:inline-flex;align-items:stretch;height:1.6rem;border:1px solid var(--border);border-radius:0.3rem;overflow:hidden"
-                    >
-                      <button
-                        :for={lvl <- ~w(light standard aggressive)}
-                        type="button"
-                        phx-click="set_clean_level"
-                        phx-value-level={lvl}
-                        disabled={cleaning?}
-                        style={"display:inline-flex;align-items:center;padding:0 0.5rem;font-size:0.66rem;text-transform:capitalize;border:none;cursor:pointer;background:#{if @clean_level == lvl, do: "var(--accent)", else: "var(--bg-subtle)"};color:#{if @clean_level == lvl, do: "white", else: "var(--text-secondary)"}"}
-                      >{lvl}</button>
-                    </div>
                     <%!-- Cleans only the page shown above; whole-document
                           cleanup keeps its own buttons below. --%>
                     <button
@@ -3369,7 +3318,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                         if cur_cleaned,
                           do:
                             "Discard this page's cleaned text and clean it again from the original extraction.",
-                          else: "Clean up this page's extracted text."
+                          else: "Cleans this page — strength auto-adjusts per page"
                       }
                       disabled={
                         cleaning? || cur_page == nil ||

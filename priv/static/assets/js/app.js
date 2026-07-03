@@ -812,8 +812,6 @@ let liveSocket = new LiveView.LiveSocket("/live", Phoenix.Socket, {
     _csrf_token: csrfToken,
     // Remembered game-list view (playable/mine/all) so it survives reloads.
     list_view: localStorage.getItem("rm:gamelist:view") || "",
-    // Remembered cleanup strength (light|standard|aggressive). Restored in mount.
-    clean_level: localStorage.getItem("rm:clean:level") || "",
     // Remembered game-edit tab per game ({gameId: tab}) so a refresh reopens it.
     edit_tab: localStorage.getItem("rm:edit:tab") || "",
     // Remembered rulebook reader page per source ({gameId: {srcId: page}}).
@@ -823,11 +821,6 @@ let liveSocket = new LiveView.LiveSocket("/live", Phoenix.Socket, {
     default_voice: localStorage.getItem("rm:default_voice") || ""
   }),
   hooks: Hooks
-});
-
-// Persist the cleanup strength choice.
-window.addEventListener("phx:save_clean_level", (e) => {
-  localStorage.setItem("rm:clean:level", e.detail.level);
 });
 
 // Merge a value into a {gameId: ...} JSON blob in localStorage. Tolerates a

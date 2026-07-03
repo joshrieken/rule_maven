@@ -368,7 +368,7 @@ defmodule RuleMaven.Readiness do
   defp run_cleanup(docs) do
     Enum.each(docs, fn doc ->
       unless doc_cleaned?(doc) or Games.cleanup_running?(doc.id) do
-        Games.enqueue_cleanup(doc, :light)
+        Games.enqueue_cleanup(doc, :auto)
       end
     end)
   end
