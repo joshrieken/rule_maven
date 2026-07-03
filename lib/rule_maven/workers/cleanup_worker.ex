@@ -37,13 +37,18 @@ defmodule RuleMaven.Workers.CleanupWorker do
     topic = "game_cleanup:#{game_id}"
     level = parse_level(Map.get(args, "level"))
     mode = Map.get(args, "mode", "raw")
+    page_index = Map.get(args, "page_index")
 
-    run =
-      Jobs.start_run("cleanup", {"document", doc_id}, "Clean up — #{doc.label}",
-        oban_job_id: oban_id
-      )
+    label =
+      if is_integer(page_index),
+        do: "Clean page #{page_index + 1} — #{doc.label}",
+        else: "Clean up — #{doc.label}"
+
+    run = Jobs.start_run("cleanup", {"document", doc_id}, label, oban_job_id: oban_id)
 
     # Which pages to (re)clean and what text to feed the cleaner:
+    #   page_index — a single-page clean (enqueue_cleanup_page/3): just that
+    #             page, always from its original extraction, cleaned or not.
     #   "raw"   — a fresh clean from the original extraction. enqueue_cleanup/3
     #             nulled all `cleaned` first, so todo is every page (a resumed
     #             run skips pages a prior attempt already persisted).
@@ -51,9 +56,14 @@ defmodule RuleMaven.Workers.CleanupWorker do
     #             junk. Cleaned text is kept (it's the input), so reprocess every
     #             page and feed its effective (cleaned||text) copy.
     todo =
-      if mode == "again", do: doc.pages, else: Enum.reject(doc.pages, &is_binary(&1.cleaned))
+      cond do
+        is_integer(page_index) -> Enum.filter(doc.pages, &(&1.index == page_index))
+        mode == "again" -> doc.pages
+        true -> Enum.reject(doc.pages, &is_binary(&1.cleaned))
+      end
 
-    total = length(doc.pages)
+    # A page run's progress counts against just its own page, not the book.
+    total = if is_integer(page_index), do: length(todo), else: length(doc.pages)
     # Resume from the durable counter so a restart continues the count instead of
     # restarting it (capped at total for "again", which reprocesses every page).
     start_done = doc.cleaning_done || 0

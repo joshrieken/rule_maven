@@ -550,6 +550,21 @@ defmodule RuleMavenWeb.GameLive.Form do
      |> push_event("save_clean_level", %{level: level})}
   end
 
+  # Clean a single page (the one shown in the editor), durably via the same
+  # CleanupWorker — always a fresh clean from that page's original extraction.
+  def handle_event("cleanup_page", %{"id" => id, "page" => page}, socket) do
+    id = String.to_integer(id)
+    page = String.to_integer(page)
+    entry = Enum.find(socket.assigns.source_entries, &(&1.id == id))
+
+    socket =
+      if entry && entry.source_id,
+        do: start_page_cleanup(socket, entry.source_id, page),
+        else: socket
+
+    {:noreply, socket}
+  end
+
   def handle_event("cleanup_source", %{"id" => id}, socket) do
     id = String.to_integer(id)
     entry = Enum.find(socket.assigns.source_entries, &(&1.id == id))
@@ -679,7 +694,7 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     # Ignore a switch to Cleaned when no cleaned text exists yet (the tab is
     # disabled client-side; this guards a forged/stale event too).
-    if tab == "cleaned" and entry && not cleaned_available?(entry) do
+    if (tab == "cleaned" and entry) && not cleaned_available?(entry) do
       {:noreply, socket}
     else
       {:noreply, assign(socket, editor_tab: Map.put(socket.assigns.editor_tab, id, tab))}
@@ -1361,6 +1376,7 @@ defmodule RuleMavenWeb.GameLive.Form do
     case socket.assigns.flash["error"] do
       nil ->
         put_flash(socket, :error, upload_msg)
+
       existing_msg ->
         combined = combine_error_messages(existing_msg, errors)
         put_flash(socket, :error, combined)
@@ -1805,7 +1821,8 @@ defmodule RuleMavenWeb.GameLive.Form do
     entry = Enum.find(socket.assigns.source_entries, &(&1.source_id == sid))
     level = clean_level_atom(socket.assigns.clean_level)
 
-    if (entry && String.trim(entry.text || "") != "") and not Map.has_key?(socket.assigns.cleaning, sid) do
+    if (entry && String.trim(entry.text || "") != "") and
+         not Map.has_key?(socket.assigns.cleaning, sid) do
       {:ok, _job} = Games.enqueue_cleanup(Games.get_document!(sid), level, mode)
 
       entries =
@@ -1817,6 +1834,23 @@ defmodule RuleMavenWeb.GameLive.Form do
         source_entries: entries,
         cleaning: Map.put(socket.assigns.cleaning, sid, {0, length(entry.pages)})
       )
+    else
+      socket
+    end
+  end
+
+  # Single-page variant of start_cleanup/3: enqueue a durable clean of just
+  # `index`. No layer reset — the page's cleaned text is swapped in place when
+  # the worker broadcasts {:page_cleaned, ...}.
+  defp start_page_cleanup(socket, sid, index) do
+    entry = Enum.find(socket.assigns.source_entries, &(&1.source_id == sid))
+    page = entry && Enum.find(entry.pages, &(&1[:index] == index))
+    level = clean_level_atom(socket.assigns.clean_level)
+
+    if (page && String.trim(page[:text] || "") != "") and
+         not Map.has_key?(socket.assigns.cleaning, sid) do
+      {:ok, _job} = Games.enqueue_cleanup_page(Games.get_document!(sid), index, level)
+      assign(socket, cleaning: Map.put(socket.assigns.cleaning, sid, {0, 1}))
     else
       socket
     end
@@ -3248,7 +3282,11 @@ defmodule RuleMavenWeb.GameLive.Form do
                   <% editable =
                     layer_editable?(entry, layer) and @cleaning[entry.source_id] == nil and
                       not regenerating? %>
-                  <.layer_tabs id={entry.id} current={layer} cleaned_available={cleaned_available?(entry)} />
+                  <.layer_tabs
+                    id={entry.id}
+                    current={layer}
+                    cleaned_available={cleaned_available?(entry)}
+                  />
                   <.page_nav id={entry.id} pages={entry.pages} cur={cur} />
                   <.page_detection_badge
                     id={entry.id}
@@ -3300,6 +3338,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                           take more liberties with wording. --%>
                     <% cleaning? = @cleaning[entry.source_id] != nil %>
                     <% has_cleaned = Enum.any?(entry.pages, &is_binary(&1[:cleaned])) %>
+                    <% cur_cleaned = cur_page && is_binary(cur_page[:cleaned]) %>
                     <div
                       title="How hard to scrub OCR/extraction artifacts. Light = layout only; Standard = + OCR bullets/columns; Aggressive = reflow & drop non-rule clutter."
                       style="display:inline-flex;align-items:stretch;height:1.6rem;border:1px solid var(--border);border-radius:0.3rem;overflow:hidden"
@@ -3313,6 +3352,40 @@ defmodule RuleMavenWeb.GameLive.Form do
                         style={"display:inline-flex;align-items:center;padding:0 0.5rem;font-size:0.66rem;text-transform:capitalize;border:none;cursor:pointer;background:#{if @clean_level == lvl, do: "var(--accent)", else: "var(--bg-subtle)"};color:#{if @clean_level == lvl, do: "white", else: "var(--text-secondary)"}"}
                       >{lvl}</button>
                     </div>
+                    <%!-- Cleans only the page shown above; whole-document
+                          cleanup keeps its own buttons below. --%>
+                    <button
+                      type="button"
+                      phx-click="cleanup_page"
+                      phx-value-id={entry.id}
+                      phx-value-page={(cur_page && cur_page[:index]) || cur}
+                      data-confirm={
+                        if cur_cleaned,
+                          do:
+                            "Discard this page's cleaned text and re-clean it from the original extraction? This can't be undone.",
+                          else: nil
+                      }
+                      title={
+                        if cur_cleaned,
+                          do:
+                            "Discard this page's cleaned text and clean it again from the original extraction.",
+                          else: "Clean up this page's extracted text."
+                      }
+                      disabled={
+                        cleaning? || cur_page == nil ||
+                          String.trim(cur_page[:text] || "") == ""
+                      }
+                      style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                    >
+                      <%= case @cleaning[entry.source_id] do %>
+                        <% nil -> %>
+                          {if cur_cleaned, do: "✨ Re-clean page", else: "✨ Clean page"}
+                        <% {d, t} when t > 1 -> %>
+                          Cleaning {d}/{t}…
+                        <% _ -> %>
+                          Cleaning…
+                      <% end %>
+                    </button>
                     <button
                       type="button"
                       phx-click="cleanup_source"
@@ -3320,26 +3393,19 @@ defmodule RuleMavenWeb.GameLive.Form do
                       data-confirm={
                         if has_cleaned,
                           do:
-                            "Discard the existing cleaned text and re-clean from the original extraction? This can't be undone.",
+                            "Discard the existing cleaned text and re-clean every page from the original extraction? This can't be undone.",
                           else: nil
                       }
                       title={
                         if has_cleaned,
                           do:
-                            "Discard the existing cleaned text and clean again from the original extraction.",
-                          else: "Clean up the extracted rulebook text."
+                            "Discard the existing cleaned text and clean every page again from the original extraction.",
+                          else: "Clean up the whole rulebook's extracted text."
                       }
                       disabled={cleaning? || String.trim(entry.text || "") == ""}
                       style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
                     >
-                      <%= case @cleaning[entry.source_id] do %>
-                        <% nil -> %>
-                          {if has_cleaned, do: "✨ Wipe & clean", else: "✨ Clean"}
-                        <% {0, 0} -> %>
-                          Cleaning…
-                        <% {d, t} -> %>
-                          Cleaning {d}/{t}…
-                      <% end %>
+                      {if has_cleaned, do: "✨ Wipe & clean all", else: "✨ Clean all"}
                     </button>
                     <button
                       :if={has_cleaned}
@@ -3439,7 +3505,11 @@ defmodule RuleMavenWeb.GameLive.Form do
                       </div>
 
                       <div style="margin-left:0.5rem">
-                        <.layer_tabs id={reader.id} current={layer} cleaned_available={cleaned_available?(reader)} />
+                        <.layer_tabs
+                          id={reader.id}
+                          current={layer}
+                          cleaned_available={cleaned_available?(reader)}
+                        />
                       </div>
 
                       <div

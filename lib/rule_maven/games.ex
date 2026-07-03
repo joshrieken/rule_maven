@@ -1330,6 +1330,27 @@ defmodule RuleMaven.Games do
     |> Oban.insert()
   end
 
+  @doc """
+  Enqueue a durable cleanup of a single page (by `index`) — always a fresh
+  clean from that page's original extraction; the page's existing cleaned text
+  is replaced when the worker persists the result, other pages are untouched.
+  Same `unique`-per-document worker as `enqueue_cleanup/3`, so a page clean
+  can't race a whole-document clean.
+  """
+  def enqueue_cleanup_page(%Document{} = doc, index, level \\ :light) do
+    set_cleaning_done(doc.id, 0)
+
+    %{
+      document_id: doc.id,
+      game_id: doc.game_id,
+      level: to_string(level),
+      mode: "raw",
+      page_index: index
+    }
+    |> RuleMaven.Workers.CleanupWorker.new()
+    |> Oban.insert()
+  end
+
   @extract_worker "RuleMaven.Workers.ExtractWorker"
 
   @doc """
