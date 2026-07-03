@@ -20,13 +20,13 @@ defmodule RuleMaven.Workers.CleanupWorker do
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
-  alias RuleMaven.{Games, Jobs, Settings}
+  alias RuleMaven.{Games, Jobs}
 
   # LLM fan-out within a single job process; the writes back to the document are
   # funneled through Enum.each below, so they stay serialized (no embeds race).
   @max_concurrency 12
 
-  @valid_levels ~w(light standard aggressive)
+  @valid_levels ~w(auto light standard aggressive)
 
   @impl Oban.Worker
   def perform(%Oban.Job{
@@ -68,17 +68,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
     # restarting it (capped at total for "again", which reprocesses every page).
     start_done = doc.cleaning_done || 0
 
-    # Opt-in adversarial check that cleanup didn't drop/alter rule content. Off by
-    # default — it's a second LLM call per cleaned page.
-    critic? = Settings.get("cleanup_critic") == "true"
-
-    note = if critic?, do: " · critic on", else: ""
-
-    Jobs.event(
-      run,
-      "info",
-      "Cleaning #{length(todo)} of #{total} pages (#{mode}, #{level})#{note}…"
-    )
+    Jobs.event(run, "info", "Cleaning #{length(todo)} of #{total} pages (#{mode}, #{level})…")
 
     # Progress is funneled through this serial Enum.reduce (the async fan-out is
     # above), so the counter increments without races. Each step persists the
@@ -97,7 +87,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
     stats =
       todo
       |> Task.async_stream(
-        fn page -> {page.index, clean_one(page, level, mode, critic?, game_id)} end,
+        fn page -> {page.index, clean_one(page, level, mode, game_id)} end,
         max_concurrency: @max_concurrency,
         ordered: false,
         timeout: :infinity,
@@ -180,29 +170,21 @@ defmodule RuleMaven.Workers.CleanupWorker do
     :ok
   end
 
+  alias RuleMaven.Extract.CleanCheck
+
   # Never let one page crash the job. Returns {:ok, cleaned, meta} on success or
   # :failed on any error — the caller leaves failed pages' `cleaned` nil so they
-  # can be retried, instead of persisting raw text as if it were cleaned. `meta`
-  # carries the in/out char counts and a status (:cleaned | :unchanged |
-  # :kept_raw | :empty) so the job log can report what actually happened.
-  defp clean_one(page, level, mode, critic?, game_id) do
-    # "again" re-cleans the current cleaned copy; "raw" cleans the original.
+  # can be retried. `meta` carries in/out char counts, a status (:cleaned |
+  # :unchanged | :kept_raw | :empty), the level `:path` taken, and `:defects`
+  # (non-empty = page flagged for review).
+  defp clean_one(page, level, mode, game_id) do
     body = if mode == "again", do: Games.effective_page_text(page), else: page.text || ""
-    # The printed page number lives on the page separately — strip it from the
-    # body (deterministic for isolated footers; the LLM handles glued cases).
     body = Games.strip_printed_number(body, page.printed)
 
     try do
-      case RuleMaven.LLM.cleanup_page(body, level, page.printed, game_id: game_id) do
-        {:ok, text, status} ->
-          meta = clean_meta(status, body, text)
-
-          {:ok, text,
-           Map.put(meta, :defects, maybe_critique(critic?, meta.status, body, text, game_id))}
-
-        {:error, _} ->
-          :failed
-      end
+      if level == :auto,
+        do: clean_auto(body, page, game_id),
+        else: clean_fixed(body, page, level, game_id)
     rescue
       _ -> :failed
     catch
@@ -210,21 +192,122 @@ defmodule RuleMaven.Workers.CleanupWorker do
     end
   end
 
-  # Only worth critiquing a page the model actually rewrote (:cleaned). An error
-  # from the critic must never fail the page — fall back to "no defects".
-  defp maybe_critique(true, :cleaned, body, text, game_id) do
-    case RuleMaven.LLM.critique_cleanup(body, text, game_id: game_id) do
-      {:ok, %{defects: defects}} -> defects
-      {:error, _} -> []
+  # Legacy single-shot path for explicit levels (mix tasks, queued jobs).
+  defp clean_fixed(body, page, level, game_id) do
+    case RuleMaven.LLM.cleanup_page(body, level, page.printed, game_id: game_id) do
+      {:ok, text, status} ->
+        {:ok, text, body |> clean_meta(status, text) |> Map.put(:defects, [])}
+
+      {:error, _} ->
+        :failed
     end
   end
 
-  defp maybe_critique(_critic?, _status, _body, _text, _game_id), do: []
+  # The auto loop: clean at :standard, judge cheaply, retry once in the
+  # direction the critic indicates, persist the best attempt. Per-page budget:
+  # ≤2 clean calls + ≤2 critic calls, paid only by suspect pages.
+  defp clean_auto(body, page, game_id) do
+    case attempt(body, :standard, page, game_id) do
+      :failed ->
+        :failed
+
+      {:ok, first} ->
+        case judge(body, first, game_id) do
+          {:accept, first} ->
+            finish(body, first, [first])
+
+          {:retry, next_level, first} ->
+            case attempt(body, next_level, page, game_id) do
+              # Retry call failed — fall back to the judged first attempt.
+              :failed ->
+                finish(body, first, [first])
+
+              {:ok, second} ->
+                second = %{second | verdict: critic_verdict(body, second, game_id)}
+                best = Enum.max_by([first, second], &rank/1)
+                finish(body, best, [first, second])
+            end
+        end
+    end
+  end
+
+  # One clean attempt at a concrete level. Soft guard: a below-floor output is
+  # kept (:guard_fired) so the critic adjudicates instead of a blanket revert.
+  defp attempt(body, level, page, game_id) do
+    case RuleMaven.LLM.cleanup_page(body, level, page.printed,
+           game_id: game_id,
+           soft_guard: true
+         ) do
+      {:ok, text, status} ->
+        {:ok, %{level: level, text: text, status: status, verdict: nil, defects: []}}
+
+      {:error, _} ->
+        :failed
+    end
+  end
+
+  # Tier 1: free heuristics. Accept ends the page (no critic). Suspect pays one
+  # critic call whose typed verdict picks the retry direction. Both outcomes
+  # return the (possibly verdict-carrying) attempt so ranking/flagging can see
+  # what the critic said.
+  defp judge(body, att, game_id) do
+    case CleanCheck.check(body, att.text, att.level, att.status) do
+      :accept -> {:accept, att}
+      {:suspect, _dir} -> accept_or_retry(body, att, game_id)
+    end
+  end
+
+  defp accept_or_retry(body, att, game_id) do
+    att = %{att | verdict: critic_verdict(body, att, game_id)}
+
+    case att.verdict do
+      %{verdict: :faithful} -> {:accept, att}
+      %{verdict: :junk_remains} -> {:retry, :aggressive, att}
+      %{verdict: :content_lost} -> {:retry, :light, att}
+    end
+  end
+
+  # Critic failure never blocks: treat as faithful with no defects.
+  defp critic_verdict(body, att, game_id) do
+    case RuleMaven.LLM.critique_cleanup(body, att.text, game_id: game_id) do
+      {:ok, verdict_map} -> verdict_map
+      {:error, _} -> %{verdict: :faithful, defects: []}
+    end
+  end
+
+  # Rank attempts: faithful beats any defect verdict; among equals, fewer
+  # defects wins (Enum.max_by keeps the FIRST max on ties → the standard
+  # attempt, the least surprising output).
+  defp rank(%{verdict: nil}), do: {2, 0}
+  defp rank(%{verdict: %{verdict: :faithful, defects: d}}), do: {2, -length(d)}
+  defp rank(%{verdict: %{defects: d}}), do: {1, -length(d)}
+
+  # Assemble the winning attempt's result. Defects flow into meta only when the
+  # winner's verdict is still bad — that's what flags the page in the job log.
+  defp finish(body, winner, attempts) do
+    defects =
+      case winner.verdict do
+        %{verdict: v, defects: d} when v != :faithful -> d
+        _ -> []
+      end
+
+    # :guard_fired means the critic accepted a legitimately short output — for
+    # stats/log purposes that page was cleaned.
+    status = if winner.status == :guard_fired, do: :cleaned, else: winner.status
+
+    meta =
+      body
+      |> clean_meta(status, winner.text)
+      |> Map.put(:defects, defects)
+      |> Map.put(:path, Enum.map_join(attempts, "→", & &1.level))
+
+    {:ok, winner.text, meta}
+  end
 
   # Per-page result detail for the job log. A model that returned its input
   # essentially unchanged is reported as :unchanged (distinct from :kept_raw,
   # where the drop guard *rejected* a too-short output).
-  defp clean_meta(status, body, text) do
+  defp clean_meta(body, status, text) do
     in_len = String.length(body)
     out_len = String.length(text)
 
@@ -241,8 +324,11 @@ defmodule RuleMaven.Workers.CleanupWorker do
   defp event_level(:kept_raw), do: "warn"
   defp event_level(_), do: "info"
 
-  defp page_event_msg(index, %{status: :cleaned} = m, done, total),
-    do: "Cleaned page #{index + 1} — #{m.in}→#{m.out} chars (#{pct(m)}) · #{done}/#{total} done"
+  defp page_event_msg(index, %{status: :cleaned} = m, done, total) do
+    path = if m[:path] && m.path != "standard", do: " (#{m.path})", else: ""
+
+    "Cleaned page #{index + 1}#{path} — #{m.in}→#{m.out} chars (#{pct(m)}) · #{done}/#{total} done"
+  end
 
   defp page_event_msg(index, %{status: :unchanged}, done, total),
     do: "Page #{index + 1} — no changes · #{done}/#{total} done"
@@ -280,5 +366,5 @@ defmodule RuleMaven.Workers.CleanupWorker do
   end
 
   defp parse_level(level) when level in @valid_levels, do: String.to_existing_atom(level)
-  defp parse_level(_), do: :light
+  defp parse_level(_), do: :auto
 end
