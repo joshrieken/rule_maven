@@ -198,23 +198,28 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # enqueues a durable ExtractWorker; progress streams over the document Jobs
   # topic (mount subscribes) and lights up the extract step's "Running…".
   def handle_event("extract", _params, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
-      docs = Games.list_documents(socket.assigns.game)
+    cond do
+      not Users.can?(socket.assigns.current_user, :admin) ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
 
-      pending =
-        Enum.reject(docs, fn d ->
-          Readiness.step_complete?(:extract, socket.assigns.game, [d]) or
-            Games.extract_running?(d.id)
-        end)
+      step_blocked?(socket, :extract) ->
+        {:noreply, blocked_flash(socket)}
 
-      Enum.each(pending, &Games.enqueue_extract/1)
+      true ->
+        docs = Games.list_documents(socket.assigns.game)
 
-      {:noreply,
-       socket
-       |> load()
-       |> put_flash(:info, "Extracting the rulebook text — running in the background…")}
-    else
-      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+        pending =
+          Enum.reject(docs, fn d ->
+            Readiness.step_complete?(:extract, socket.assigns.game, [d]) or
+              Games.extract_running?(d.id)
+          end)
+
+        Enum.each(pending, &Games.enqueue_extract/1)
+
+        {:noreply,
+         socket
+         |> load()
+         |> put_flash(:info, "Extracting the rulebook text — running in the background…")}
     end
   end
 
@@ -222,25 +227,30 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # not yet cleaned. Each enqueues a durable CleanupWorker (strength :light, same
   # as the auto pipeline); progress streams over the document Jobs topic.
   def handle_event("clean_all", _params, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
-      game = socket.assigns.game
-      docs = Games.list_documents(game)
+    cond do
+      not Users.can?(socket.assigns.current_user, :admin) ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
 
-      pending =
-        Enum.filter(docs, fn d ->
-          Readiness.step_complete?(:extract, game, [d]) and
-            not Readiness.step_complete?(:cleanup, game, [d]) and
-            not Games.cleanup_running?(d.id)
-        end)
+      step_blocked?(socket, :cleanup) ->
+        {:noreply, blocked_flash(socket)}
 
-      Enum.each(pending, &Games.enqueue_cleanup(&1, :light))
+      true ->
+        game = socket.assigns.game
+        docs = Games.list_documents(game)
 
-      {:noreply,
-       socket
-       |> load()
-       |> put_flash(:info, "Cleaning up the rulebook text — running in the background…")}
-    else
-      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+        pending =
+          Enum.filter(docs, fn d ->
+            Readiness.step_complete?(:extract, game, [d]) and
+              not Readiness.step_complete?(:cleanup, game, [d]) and
+              not Games.cleanup_running?(d.id)
+          end)
+
+        Enum.each(pending, &Games.enqueue_cleanup(&1, :light))
+
+        {:noreply,
+         socket
+         |> load()
+         |> put_flash(:info, "Cleaning up the rulebook text — running in the background…")}
     end
   end
 
@@ -248,28 +258,33 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # enqueues the durable EmbedChunksWorker; the nil-embedding chunk count drives
   # the "Embedding…" indicator until every vector lands.
   def handle_event("embed", _params, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
-      game = socket.assigns.game
-      docs = Games.list_documents(game)
+    cond do
+      not Users.can?(socket.assigns.current_user, :admin) ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
 
-      pending =
-        Enum.filter(docs, fn d ->
-          Readiness.step_complete?(:cleanup, game, [d]) and
-            not Readiness.step_complete?(:embed, game, [d]) and
-            not embed_in_flight?(d.id)
-        end)
+      step_blocked?(socket, :embed) ->
+        {:noreply, blocked_flash(socket)}
 
-      Enum.each(pending, &Games.chunk_document/1)
+      true ->
+        game = socket.assigns.game
+        docs = Games.list_documents(game)
 
-      {:noreply,
-       socket
-       |> load()
-       |> put_flash(
-         :info,
-         "Chunking and embedding the rulebook text — running in the background…"
-       )}
-    else
-      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+        pending =
+          Enum.filter(docs, fn d ->
+            Readiness.step_complete?(:cleanup, game, [d]) and
+              not Readiness.step_complete?(:embed, game, [d]) and
+              not embed_in_flight?(d.id)
+          end)
+
+        Enum.each(pending, &Games.chunk_document/1)
+
+        {:noreply,
+         socket
+         |> load()
+         |> put_flash(
+           :info,
+           "Chunking and embedding the rulebook text — running in the background…"
+         )}
     end
   end
 
@@ -294,8 +309,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         # Blocked steps (enrichments before embedding is done) can't run — the UI
         # hides the button, but re-check here since the client can't be trusted.
         if step_blocked?(socket, id) do
-          {:noreply,
-           put_flash(socket, :error, "That step is blocked — finish “Chunked & embedded” first.")}
+          {:noreply, blocked_flash(socket)}
         else
           do_regen_step(id, socket)
         end
@@ -384,6 +398,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     socket.assigns.game
     |> Readiness.state()
     |> Enum.any?(&(&1.id == id and &1.state == :blocked))
+  end
+
+  defp blocked_flash(socket) do
+    put_flash(socket, :error, "That step is blocked — complete the earlier steps first.")
   end
 
   defp regen_step(:suggestions, g) do
@@ -954,7 +972,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       |> assign(:regen?, assigns.step.id in @regen_steps and assigns.step.state != :blocked)
       |> assign(:clear?, assigns.step.id in @clear_steps)
       |> assign(:done?, assigns.step.state == :done)
-      |> assign(:extractable?, assigns.step.id == :extract and assigns.step.state != :done)
+      |> assign(:extractable?, assigns.step.id == :extract and assigns.step.state == :pending)
       # Cleanup can run once extraction is done (state :pending, not :blocked) and
       # it isn't already cleaned. `cleaning?` reflects an in-flight run — cleanup
       # jobs are document-scoped, so they don't show up in the game-scoped
