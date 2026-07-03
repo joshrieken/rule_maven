@@ -115,6 +115,35 @@ Elixir-side post-processing; no schema or pgvector query changes.
 - Kind badge on source rows.
 - Readiness ladder, publish gate, per-source pipeline: unchanged.
 
+### 7. Multi-parent expansions
+
+An expansion can be supported by several base games (e.g. a promo compatible
+with both the 1st and 2nd edition). The single `parent_game_id` FK can't
+express that; BGG itself models expansion → multiple bases.
+
+- New join table `game_expansion_links` (`expansion_id`, `base_game_id`,
+  unique pair, FKs `on_delete: :delete_all`).
+- Migration backfills existing `parent_game_id` rows into the join table,
+  then drops the column (and the `belongs_to :parent_game` /
+  `has_many :expansions` schema associations in favor of join-backed
+  queries).
+- **Population:** BGG enrich/sync parses every "expands" link from
+  `bgg_data` and creates links to catalog games matched by `bgg_id`;
+  unmatched links are ignored until that edition is imported. Admins can
+  add/remove links manually on the game editor.
+- **Ask flow:** a base game's show page offers toggles for every linked
+  expansion that has documents (`expansions_with_documents` reads the join).
+  The same expansion appears under each linked edition with one shared set
+  of documents. Retrieval is unchanged — it already takes an explicit id
+  list.
+- **Prompt/citations:** unaffected. An ask happens in one base game's
+  context, so the "EXPANSION" grouping and citation labels stay as specced.
+- Implementation order: this lands **first** — it's data-model groundwork
+  the rest builds on.
+- Blast radius to audit during planning: BGG import/enrich workers,
+  `expansions_with_documents`, catalog + game editor UI, every
+  `parent_game_id` call site.
+
 ## Out of scope
 
 - Per-game authority overrides (rejected: fiddly).
@@ -126,6 +155,9 @@ Elixir-side post-processing; no schema or pgvector query changes.
 
 ## Testing
 
+- Expansion links: backfill migration, BGG link parsing (multi-base, unmatched
+  bgg_ids ignored), `expansions_with_documents` via join, shared expansion
+  visible under both editions.
 - `kind` validation + migration default.
 - Prompt assembly: grouping headers, authority text present, expansion
   sources labelled with their game.
