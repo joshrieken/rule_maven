@@ -355,7 +355,7 @@ defmodule RuleMavenWeb.GameLive.Form do
       id: next_id,
       source_id: nil,
       label: "",
-      is_core: false,
+      kind: "rulebook",
       text: "",
       pages: [%{index: 0, sheet: 1, printed: nil, text: "", cleaned: nil}],
       pdf_path: nil,
@@ -366,27 +366,21 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   @impl true
-  def handle_event("toggle_core", %{"id" => id}, socket) do
+  def handle_event("set_kind", %{"id" => id, "kind" => kind}, socket) do
     id = String.to_integer(id)
-    game = socket.assigns.game
 
     entries =
       Enum.map(socket.assigns.source_entries, fn e ->
         if e.id == id do
-          now_core = !e[:is_core]
-          # Marking core overwrites the label with the derived name; unmarking
-          # leaves whatever's there so the admin can re-edit it.
-          label = if now_core, do: core_label(game), else: e.label
-
-          # Persist immediately for an already-saved source, so the flag (and its
-          # derived label) stick without routing a label rename through the
-          # label-keyed form save. New, unsaved entries persist on save instead.
+          # Persist immediately for an already-saved source, so the kind sticks
+          # without routing through the label-keyed form save. New, unsaved
+          # entries persist on save instead.
           if e[:source_id] do
             doc = Games.get_document!(e.source_id)
-            Games.update_document(doc, %{is_core: now_core, label: label})
+            Games.update_document(doc, %{kind: kind})
           end
 
-          %{e | is_core: now_core, label: label}
+          %{e | kind: kind}
         else
           e
         end
@@ -1197,12 +1191,7 @@ defmodule RuleMavenWeb.GameLive.Form do
     source_map =
       socket.assigns.source_entries
       |> Enum.map(fn entry ->
-        # A core source's label input is disabled (won't submit), so derive it;
-        # otherwise take the typed value.
-        label =
-          if entry[:is_core],
-            do: core_label(socket.assigns.game),
-            else: all_params["label_#{entry.id}"] || ""
+        label = all_params["label_#{entry.id}"] || ""
 
         # All three layers are kept current in socket state (edit_page + cleanup),
         # synced across the inline + expanded editors, so build straight from there.
@@ -1224,7 +1213,7 @@ defmodule RuleMavenWeb.GameLive.Form do
            full_text: Games.rebuild_full_text(pages),
            pages: pages,
            pdf_path: nil,
-           is_core: entry[:is_core] || false
+           kind: entry[:kind] || "rulebook"
          }}
       end)
       |> Enum.filter(fn {l, %{pages: pages}} ->
@@ -1927,18 +1916,12 @@ defmodule RuleMavenWeb.GameLive.Form do
   defp fmt_num(n) when is_integer(n), do: Integer.to_string(n)
   defp fmt_num(_), do: "—"
 
-  # The label a core source carries: "{Game Name} Core Rules".
-  defp core_label(%{name: name}) when is_binary(name) and name != "",
-    do: "#{name} Core Rules"
-
-  defp core_label(_), do: "Core Rules"
-
   defp source_entry(s, i) do
     %{
       id: i,
       source_id: s.id,
       label: s.label,
-      is_core: s.is_core,
+      kind: s.kind,
       text: s.full_text,
       pages: doc_pages(s),
       pdf_path: s.pdf_path,
@@ -3096,7 +3079,9 @@ defmodule RuleMavenWeb.GameLive.Form do
                       value={s.id}
                       selected={s.id == entry.id}
                     >
-                      {if String.trim(s.label) != "", do: s.label, else: "Untitled source"}
+                      {if String.trim(s.label) != "", do: s.label, else: "Untitled source"} · {Document.kind_label(
+                        s[:kind] || "rulebook"
+                      )}
                     </option>
                   </select>
                   <span style="font-size:0.72rem;color:var(--text-muted)">
@@ -3119,18 +3104,27 @@ defmodule RuleMavenWeb.GameLive.Form do
                         name={"label_#{entry.id}"}
                         value={entry.label}
                         placeholder="e.g. Core Rulebook"
-                        disabled={entry[:is_core]}
                         class="w-full border rounded px-3 py-2"
-                        style={if entry[:is_core], do: "opacity:0.6;cursor:not-allowed", else: ""}
                       />
-                      <label style="display:flex;align-items:center;gap:0.4rem;margin-top:0.4rem;font-size:0.72rem;color:var(--text-secondary);cursor:pointer">
-                        <input
-                          type="checkbox"
-                          checked={entry[:is_core]}
-                          phx-click="toggle_core"
+                      <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.4rem">
+                        <select
+                          name="kind"
+                          phx-change="set_kind"
                           phx-value-id={entry.id}
-                        /> Core rules — title as “{core_label(@game)}”
-                      </label>
+                          style="font-size:0.75rem;padding:0.15rem 0.4rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg);color:var(--text);cursor:pointer"
+                        >
+                          <option
+                            :for={k <- Document.kinds()}
+                            value={k}
+                            selected={(entry[:kind] || "rulebook") == k}
+                          >
+                            {Document.kind_label(k)}
+                          </option>
+                        </select>
+                        <span style="font-size:0.68rem;font-weight:600;padding:0.1rem 0.4rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary)">
+                          {Document.kind_label(entry[:kind] || "rulebook")}
+                        </span>
+                      </div>
                     </div>
                     <div class="flex gap-1 items-center">
                       <button
