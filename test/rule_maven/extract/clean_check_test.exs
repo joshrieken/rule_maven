@@ -23,6 +23,10 @@ defmodule RuleMaven.Extract.CleanCheckTest do
              {:suspect, :over}
   end
 
+  test "kept_raw accepts as-is regardless of content (legacy hard-guard revert)" do
+    assert CleanCheck.check(@clean_prose, @clean_prose, :standard, :kept_raw) == :accept
+  end
+
   test "unchanged on clean input accepts" do
     assert CleanCheck.check(@clean_prose, @clean_prose, :standard, :unchanged) == :accept
   end

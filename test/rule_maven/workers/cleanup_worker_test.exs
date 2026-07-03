@@ -3,6 +3,7 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
   use Oban.Testing, repo: RuleMaven.Repo
 
   alias RuleMaven.Games
+  alias RuleMaven.Jobs
   alias RuleMaven.Workers.CleanupWorker
 
   # Stub the LLM at do_request: uppercase the page text so the cleaned layer is
@@ -163,7 +164,8 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
       cond do
         system =~ "adversarial reviewer" ->
           Agent.get_and_update(agent, fn %{critic: [h | t]} = s ->
-            {{:ok, %{answer: h}}, %{s | critic: t, calls: s.calls ++ [:critic]}}
+            reply = if match?({:error, _}, h), do: h, else: {:ok, %{answer: h}}
+            {reply, %{s | critic: t, calls: s.calls ++ [:critic]}}
           end)
 
         system =~ "MARK_LIGHT" ->
@@ -272,6 +274,107 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
 
     assert Enum.map(pages, & &1.cleaned) == [@garbled_page <> " b"]
     assert calls(agent) == [:standard, :critic, :aggressive, :critic]
+
+    # The winning attempt still carried defects (junk_remains) → the page must
+    # be flagged in the job log, not silently accepted.
+    run_row = Jobs.list_runs(scope_type: "document", scope_id: doc.id, kind: "cleanup", limit: 1) |> hd()
+    messages = Jobs.events(run_row.id) |> Enum.map(& &1.message)
+    assert Enum.any?(messages, &(&1 =~ "cleanup review flagged"))
+  end
+
+  test "auto: guard-fired attempt whose critic call errors reverts to raw (legacy hard-guard)" do
+    # Below-floor output at standard with soft guard kept → :guard_fired. If the
+    # critic call itself fails (not a bad verdict — a network/parse error),
+    # there's nothing vouching for a likely-truncated output, so it reverts to
+    # the raw page rather than silently persisting it.
+    tiny = "Draw five cards. Play one card. Move three."
+
+    agent =
+      install_auto_mock(%{standard: tiny, light: "L", aggressive: "A"}, [{:error, :boom}])
+
+    doc = doc_with_pages(@good_page)
+
+    pages = run(doc, %{"level" => "auto"}) |> Map.fetch!(:pages)
+
+    assert Enum.map(pages, & &1.cleaned) == [@good_page]
+    assert calls(agent) == [:standard, :critic]
+  end
+
+  test "auto: suspect (non-guard) attempt whose critic call errors persists the attempt as-is" do
+    # Standard leaves garble in → heuristic suspect :under (not guard_fired).
+    # The critic call errors — critic failure never blocks, so the attempt's
+    # own (unverified) text is persisted rather than reverted, and there's no
+    # retry (no verdict to pick a direction from).
+    agent =
+      install_auto_mock(
+        %{standard: @garbled_page <> " tidied", light: "L", aggressive: @good_clean},
+        [{:error, :boom}]
+      )
+
+    doc = doc_with_pages(@garbled_page)
+
+    pages = run(doc, %{"level" => "auto"}) |> Map.fetch!(:pages)
+
+    assert Enum.map(pages, & &1.cleaned) == [@garbled_page <> " tidied"]
+    assert calls(agent) == [:standard, :critic]
+  end
+
+  test "auto: second attempt's critic call errors → persists the already-judged first attempt" do
+    # First attempt is judged (junk_remains), retry runs, but the retry's
+    # critic call errors — the unranked/unverified second attempt must not be
+    # allowed to win over the already-judged first.
+    agent =
+      install_auto_mock(
+        %{standard: @garbled_page <> " a", light: "L", aggressive: @garbled_page <> " b"},
+        ["VERDICT: junk_remains\n- GARBLE: soup", {:error, :boom}]
+      )
+
+    doc = doc_with_pages(@garbled_page)
+
+    pages = run(doc, %{"level" => "auto"}) |> Map.fetch!(:pages)
+
+    assert Enum.map(pages, & &1.cleaned) == [@garbled_page <> " a"]
+    assert calls(agent) == [:standard, :critic, :aggressive, :critic]
+  end
+
+  test "auto: junky input returned verbatim at standard is suspect and gets a critic call" do
+    # No single line has a garble-line's ≥3-token minimum (each line pairs one
+    # wordish word with a 2-char code), yet the overall wordish ratio is well
+    # under 0.6 — junky by the low-wordishness signal alone. `cleanup_page`
+    # returns this verbatim (`:cleaned` by its own logic since nothing shrank),
+    # so `attempt/4` must reclassify it to `:unchanged` before CleanCheck sees
+    # it, or the junky-verbatim suspect branch never fires.
+    fixture =
+      Enum.join(
+        [
+          "sword x7",
+          "shield q2",
+          "armor b3",
+          "potion c4",
+          "dragon d5",
+          "wizard e6",
+          "castle f7",
+          "forest g8",
+          "river h9",
+          "mountain j0"
+        ],
+        "\n"
+      )
+
+    assert RuleMaven.Extract.Gate.wordish_ratio(fixture) < 0.6
+    assert RuleMaven.Extract.CleanCheck.garble_lines(fixture) == 0
+
+    agent =
+      install_auto_mock(%{standard: fixture, light: "L", aggressive: "A"}, [
+        "VERDICT: faithful\nNONE"
+      ])
+
+    doc = doc_with_pages(fixture)
+
+    pages = run(doc, %{"level" => "auto"}) |> Map.fetch!(:pages)
+
+    assert Enum.map(pages, & &1.cleaned) == [fixture]
+    assert calls(agent) == [:standard, :critic]
   end
 
   test "explicit level still runs the single-shot legacy path (no critic)" do

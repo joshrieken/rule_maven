@@ -557,12 +557,23 @@ defmodule RuleMaven.LLM do
   older prompt override without the verdict line).
   """
   def parse_critic_verdict(text) do
+    require Logger
+
     trimmed = String.trim(text || "")
 
     verdict =
       case Regex.run(~r/^\s*verdict:\s*(faithful|junk_remains|content_lost)\b/im, trimmed) do
-        [_, v] -> String.to_existing_atom(String.downcase(v))
-        _ -> :faithful
+        [_, v] ->
+          String.to_existing_atom(String.downcase(v))
+
+        _ ->
+          if trimmed != "" do
+            Logger.warning(
+              "cleanup critic reply had no parsable VERDICT line; treating as faithful"
+            )
+          end
+
+          :faithful
       end
 
     defects =

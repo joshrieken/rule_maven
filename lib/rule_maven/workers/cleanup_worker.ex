@@ -223,9 +223,17 @@ defmodule RuleMaven.Workers.CleanupWorker do
                 finish(body, first, [first])
 
               {:ok, second} ->
-                second = %{second | verdict: critic_verdict(body, second, game_id)}
-                best = Enum.max_by([first, second], &rank/1)
-                finish(body, best, [first, second])
+                case critic_verdict(body, second, game_id) do
+                  {:ok, verdict} ->
+                    second = %{second | verdict: verdict}
+                    best = Enum.max_by([first, second], &rank/1)
+                    finish(body, best, [first, second])
+
+                  # Second attempt's critic call failed — it's unranked/unverified,
+                  # so don't let it compete with the already-judged first attempt.
+                  :error ->
+                    finish(body, first, [first])
+                end
             end
         end
     end
@@ -239,6 +247,14 @@ defmodule RuleMaven.Workers.CleanupWorker do
            soft_guard: true
          ) do
       {:ok, text, status} ->
+        # `cleanup_page` never returns :unchanged itself — reclassify here so
+        # CleanCheck's :unchanged branch (junky input returned verbatim →
+        # suspect) actually gets a chance to fire, mirroring clean_meta's logic.
+        status =
+          if status == :cleaned and String.trim(text) == String.trim(body),
+            do: :unchanged,
+            else: status
+
         {:ok, %{level: level, text: text, status: status, verdict: nil, defects: []}}
 
       {:error, _} ->
@@ -258,20 +274,36 @@ defmodule RuleMaven.Workers.CleanupWorker do
   end
 
   defp accept_or_retry(body, att, game_id) do
-    att = %{att | verdict: critic_verdict(body, att, game_id)}
+    case critic_verdict(body, att, game_id) do
+      {:ok, verdict} ->
+        att = %{att | verdict: verdict}
 
-    case att.verdict do
-      %{verdict: :faithful} -> {:accept, att}
-      %{verdict: :junk_remains} -> {:retry, :aggressive, att}
-      %{verdict: :content_lost} -> {:retry, :light, att}
+        case verdict do
+          %{verdict: :faithful} -> {:accept, att}
+          %{verdict: :junk_remains} -> {:retry, :aggressive, att}
+          %{verdict: :content_lost} -> {:retry, :light, att}
+        end
+
+      # Critic call itself failed (network/parse error, not a bad verdict). A
+      # guard-fired attempt is a likely truncation with nothing else vouching
+      # for it — revert to the raw page (legacy hard-guard behavior) rather
+      # than silently persisting it. Any other suspect attempt is accepted
+      # unverified: critic failure never blocks a cleanup.
+      :error ->
+        if att.status == :guard_fired do
+          {:accept, %{att | text: body, status: :kept_raw, verdict: nil}}
+        else
+          {:accept, att}
+        end
     end
   end
 
-  # Critic failure never blocks: treat as faithful with no defects.
+  # Returns `{:ok, verdict_map}` or `:error` — callers decide how to handle a
+  # critic failure (never a silent "faithful", per the guard-fired hardening).
   defp critic_verdict(body, att, game_id) do
     case RuleMaven.LLM.critique_cleanup(body, att.text, game_id: game_id) do
-      {:ok, verdict_map} -> verdict_map
-      {:error, _} -> %{verdict: :faithful, defects: []}
+      {:ok, verdict_map} -> {:ok, verdict_map}
+      {:error, _} -> :error
     end
   end
 
