@@ -199,6 +199,17 @@ defmodule RuleMaven.Workers.AskWorker do
                     llm_result[:cited_source]
                   )
 
+                # Normalize the model's raw cited_source string against the
+                # actual source_chunks labels before persisting/rendering it —
+                # a match resolves to the chunk's canonical label, a
+                # hallucinated label resolves to nil (UI falls back to
+                # "Rulebook") instead of storing an unverified model string.
+                cited_source =
+                  RuleMaven.Games.Citations.canonical_source(
+                    llm_result[:cited_source],
+                    llm_result[:source_chunks]
+                  )
+
                 update_attrs = %{
                   answer: answer,
                   # Preserve the raw question as typed; the normalized form is stored
@@ -206,7 +217,7 @@ defmodule RuleMaven.Workers.AskWorker do
                   question: question,
                   cited_passage: passage,
                   cited_page: cited_page,
-                  cited_source: llm_result[:cited_source],
+                  cited_source: cited_source,
                   citation_valid: citation_valid,
                   refused: refused?,
                   verdict: if(refused?, do: "silent", else: llm_result[:verdict]),

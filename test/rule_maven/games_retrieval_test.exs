@@ -129,6 +129,44 @@ defmodule RuleMaven.GamesRetrievalTest do
     assert hd(chunks).kind == "errata"
   end
 
+  test "a top-ranked duplicate cluster's survivor stays first and isn't dropped by take(limit)" do
+    {:ok, game} = Games.create_game(%{name: "Ordering #{System.unique_integer([:positive])}"})
+    doc = published_doc(game, "Rulebook", "rulebook")
+
+    # c1 and c5 are near-duplicates (cosine sim 0.9801 >= threshold); c2, c3, c4
+    # are distinct and don't collide with anything. Relevance order (via the
+    # query vector below) is c1, c2, c3, c4, c5 — so by the time c5 arrives and
+    # collides with c1, TWO non-colliding chunks (c2, c3... actually c2,c3,c4)
+    # sit between them in `kept`. The buggy `rest ++ [winner]` appends the
+    # survivor to the END of kept ([c2,c3,c4,winner]); with limit: 3,
+    # Enum.take(3) then silently drops the survivor entirely, even though it
+    # was the single most-relevant chunk retrieved.
+    mag = 0.99
+    sin = :math.sqrt(1 - mag * mag)
+    c1_vec = sparse_vec([{0, mag}, {10, sin}])
+    c5_vec = sparse_vec([{0, mag}, {11, sin}])
+    c2_vec = sparse_vec([{20, 1.0}])
+    c3_vec = sparse_vec([{21, 1.0}])
+    c4_vec = sparse_vec([{22, 1.0}])
+
+    put_chunk(doc, "[Page 1]\ntop dup A", c1_vec)
+    put_chunk(doc, "[Page 2]\nmiddle content two", c2_vec)
+    put_chunk(doc, "[Page 3]\nmiddle content three", c3_vec)
+    put_chunk(doc, "[Page 4]\nmiddle content four", c4_vec)
+    put_chunk(doc, "[Page 5]\ntop dup B", c5_vec)
+
+    # Query weighted so relevance order is exactly c1, c2, c3, c4, c5.
+    query_vec = sparse_vec([{0, 0.5}, {10, 5.0}, {20, 0.9}, {21, 0.8}, {22, 0.7}])
+
+    chunks =
+      Games.retrieve_chunks_for_games([game.id], "anything", embedding: query_vec, limit: 3)
+
+    assert length(chunks) == 3
+    assert hd(chunks).content =~ "top dup"
+    assert Enum.any?(chunks, &(&1.content =~ "middle content two"))
+    assert Enum.any?(chunks, &(&1.content =~ "middle content three"))
+  end
+
   test "full-text fallback attributes one entry per published document, not a merged blob" do
     {:ok, game} = Games.create_game(%{name: "Fallback #{System.unique_integer([:positive])}"})
     _rulebook = published_doc(game, "Core rules", "rulebook", "RULEBOOK full text body here.")

@@ -110,6 +110,7 @@ defmodule RuleMaven.LLM do
        answer: row.canonical_answer || row.answer,
        cited_passage: row.cited_passage,
        cited_page: row.cited_page,
+       cited_source: row.cited_source,
        verdict: row.verdict,
        provider: "pool",
        # Encode tier in the model field so it survives a page reload.

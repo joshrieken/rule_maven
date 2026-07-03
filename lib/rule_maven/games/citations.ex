@@ -55,6 +55,30 @@ defmodule RuleMaven.Games.Citations do
     grounded and not passage_bad and not page_bad
   end
 
+  @doc """
+  Normalizes a model-reported `cited_source` string against the actual
+  `source_chunks` labels before it's persisted or rendered. Matching is
+  case-insensitive; a match returns the chunk's CANONICAL label (its stored
+  casing), not the model's raw string. A `nil` cited_source, or one that
+  doesn't match any known label (a hallucinated source name), returns `nil` —
+  callers should fall back to a generic label (e.g. "Rulebook") in that case.
+  """
+  def canonical_source(nil, _source_chunks), do: nil
+
+  def canonical_source(cited_source, source_chunks) when is_binary(cited_source) do
+    target = String.downcase(cited_source)
+
+    source_chunks
+    |> to_chunk_maps()
+    |> Enum.find(&(String.downcase(&1.label || "") == target))
+    |> case do
+      %{label: label} when is_binary(label) -> label
+      _ -> nil
+    end
+  end
+
+  def canonical_source(_cited_source, _source_chunks), do: nil
+
   defp to_chunk_maps(chunks) when is_list(chunks) do
     Enum.flat_map(chunks, fn
       %{content: _} = chunk -> [Map.put_new(chunk, :label, nil)]

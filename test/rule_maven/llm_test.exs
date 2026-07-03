@@ -207,6 +207,7 @@ defmodule RuleMaven.LLMTest do
           answer: "Provisional answer.",
           cited_passage: "see p.7",
           cited_page: 7,
+          cited_source: "FAQ",
           visibility: "private",
           pooled: true
         })
@@ -227,6 +228,7 @@ defmodule RuleMaven.LLMTest do
       assert result.model == "cached-unverified"
       assert result.answer == "Provisional answer."
       assert result[:source_question_log_id] == q.id
+      assert result[:cited_source] == "FAQ"
       # Anonymization: never leak the source row's wording or author.
       refute Map.has_key?(result, :question)
       refute Map.has_key?(result, :user_id)

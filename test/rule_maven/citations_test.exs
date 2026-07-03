@@ -65,4 +65,34 @@ defmodule RuleMaven.Games.CitationsTest do
       assert Citations.valid?("most banners wins the region", 5, [@rulebook, @faq], nil)
     end
   end
+
+  describe "canonical_source/2" do
+    @rulebook %{label: "Core rules", content: "[Page 5]\nThe player with the most banners wins the region."}
+    @faq %{label: "Official FAQ", content: "[Page 2]\nTies award the region to no one."}
+
+    test "mixed-case match returns the chunk's canonical label" do
+      assert Citations.canonical_source("core RULES", [@rulebook, @faq]) == "Core rules"
+    end
+
+    test "exact-case match returns the canonical label" do
+      assert Citations.canonical_source("Official FAQ", [@rulebook, @faq]) == "Official FAQ"
+    end
+
+    test "hallucinated label with no match returns nil" do
+      assert Citations.canonical_source("Errata Sheet", [@rulebook, @faq]) == nil
+    end
+
+    test "nil cited_source returns nil" do
+      assert Citations.canonical_source(nil, [@rulebook, @faq]) == nil
+    end
+
+    test "no source context returns nil" do
+      assert Citations.canonical_source("Core rules", []) == nil
+      assert Citations.canonical_source("Core rules", nil) == nil
+    end
+
+    test "accepts plain-string chunks (no label) and returns nil" do
+      assert Citations.canonical_source("Core rules", ["[Page 1]\nsome text"]) == nil
+    end
+  end
 end

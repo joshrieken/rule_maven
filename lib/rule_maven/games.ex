@@ -2794,8 +2794,22 @@ defmodule RuleMaven.Games do
   defp dedup_near_duplicates(chunks, base_game_id) do
     Enum.reduce(chunks, [], fn chunk, kept ->
       case Enum.split_with(kept, &(cosine_sim(&1.embedding, chunk.embedding) >= @dup_threshold)) do
-        {[], _} -> kept ++ [chunk]
-        {matches, rest} -> rest ++ [pick_authoritative([chunk | matches], base_game_id)]
+        {[], _} ->
+          kept ++ [chunk]
+
+        {matches, _rest} ->
+          winner = pick_authoritative([chunk | matches], base_game_id)
+          # Preserve relevance order: the survivor takes the EARLIEST position
+          # among the colliding cluster's members in `kept`, rather than being
+          # appended to the end. Appending would push a top-ranked cluster's
+          # survivor past `limit` in the caller's `Enum.take(limit)` and
+          # silently drop it, as well as scrambling result ordering.
+          matched_indices = for {k, i} <- Enum.with_index(kept), k in matches, do: i
+          insert_at = Enum.min(matched_indices)
+
+          kept
+          |> Enum.reject(&(&1 in matches))
+          |> List.insert_at(insert_at, winner)
       end
     end)
   end

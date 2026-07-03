@@ -356,9 +356,15 @@ defmodule RuleMavenWeb.GameLive.Form do
     {:noreply, assign(socket, source_entries: entries ++ [new_entry])}
   end
 
+  # Set the document kind for one source entry. The select lives inside the
+  # save form, so LiveView serializes the whole form on change; phx-value-*
+  # is NOT sent for change events, so the entry id is encoded in the select's
+  # name ("kind_<id>") and read back from _target (same pattern as
+  # set_source_page/pagesel_<id> above).
   @impl true
-  def handle_event("set_kind", %{"id" => id, "kind" => kind}, socket) do
-    id = String.to_integer(id)
+  def handle_event("set_kind", %{"_target" => ["kind_" <> id_str]} = params, socket) do
+    id = String.to_integer(id_str)
+    kind = params["kind_" <> id_str]
 
     entries =
       Enum.map(socket.assigns.source_entries, fn e ->
@@ -3192,9 +3198,8 @@ defmodule RuleMavenWeb.GameLive.Form do
                       />
                       <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.4rem">
                         <select
-                          name="kind"
+                          name={"kind_#{entry.id}"}
                           phx-change="set_kind"
-                          phx-value-id={entry.id}
                           style="font-size:0.75rem;padding:0.15rem 0.4rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg);color:var(--text);cursor:pointer"
                         >
                           <option

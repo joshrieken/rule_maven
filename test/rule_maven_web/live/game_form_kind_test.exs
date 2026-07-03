@@ -64,11 +64,14 @@ defmodule RuleMavenWeb.GameFormKindTest do
     conn = login(conn, user)
     {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/edit")
 
+    # Real LiveView change-event payload for a per-row named select
+    # ("kind_<entry.id>"): only "_target" + the field's own key are sent, no
+    # injected "id" — phx-value-* is NOT included in phx-change payloads.
     # source_entry/2 assigns entry.id = its index in the (single-source) list.
     html =
       view
-      |> element(~s(select[phx-value-id="0"]))
-      |> render_change(%{"id" => "0", "kind" => "errata"})
+      |> element(~s(select[name="kind_0"]))
+      |> render_change(%{"_target" => ["kind_0"], "kind_0" => "errata"})
 
     assert html =~ Document.kind_label("errata")
     assert Games.get_document!(doc.id).kind == "errata"
