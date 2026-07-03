@@ -119,7 +119,7 @@ defmodule RuleMaven.Prompts do
   - Headings and defined-term labels that introduce real rules text.\
   """
 
-  @cleanup_output "Output ONLY the cleaned text, with no commentary and no code fences."
+  @cleanup_output "Output ONLY the cleaned text, with no commentary and no code fences. If the text needs no repairs at all, output exactly NO_CHANGES instead of repeating the text."
 
   @cleanup_light """
   You are a text-cleanup tool for board-game rulebook OCR/PDF extraction.

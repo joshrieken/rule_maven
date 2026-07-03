@@ -382,6 +382,10 @@ defmodule RuleMaven.LLM do
           # raw junk back in. An empty output has nothing to adjudicate and
           # reverts either way.
           cond do
+            # Sentinel from the cleanup prompt: page needs no repairs. Returning
+            # the original text as :cleaned lets the worker's identical-text
+            # reclassification route it through the normal :unchanged path.
+            trimmed == "NO_CHANGES" -> {:ok, page_text, :cleaned}
             trimmed == "" -> {:ok, page_text, :kept_raw}
             String.length(trimmed) >= min_keep -> {:ok, cleaned, :cleaned}
             opts[:soft_guard] -> {:ok, cleaned, :guard_fired}

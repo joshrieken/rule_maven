@@ -25,6 +25,16 @@ defmodule RuleMaven.LLMCleanupGuardTest do
     assert {:ok, @raw, :kept_raw} = LLM.cleanup_page(@raw, :light, nil, soft_guard: true)
   end
 
+  test "NO_CHANGES sentinel returns the raw page as cleaned output" do
+    mock("NO_CHANGES")
+    assert {:ok, @raw, :cleaned} = LLM.cleanup_page(@raw, :light)
+  end
+
+  test "NO_CHANGES with surrounding whitespace still counts" do
+    mock("  NO_CHANGES\n")
+    assert {:ok, @raw, :cleaned} = LLM.cleanup_page(@raw, :light, nil, soft_guard: true)
+  end
+
   test "output above the floor is :cleaned either way" do
     mock(String.upcase(@raw))
     assert {:ok, _, :cleaned} = LLM.cleanup_page(@raw, :light, nil, soft_guard: true)
