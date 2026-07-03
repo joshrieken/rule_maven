@@ -44,13 +44,16 @@ defmodule RuleMaven.GamesExpansionLinksTest do
     assert Games.get_game(exp.id)
   end
 
-  test "migration backfilled existing parent_game_id rows" do
-    exp = game("Legacy")
-    base = game("Base")
-    {:ok, exp} = Games.update_game(exp, %{parent_game_id: base.id})
-    # Simulate what the backfill does for pre-existing rows.
+  test "search_catalog excludes linked expansions but includes base games" do
+    tag = System.unique_integer([:positive])
+    base = game("ZCatalog Base #{tag}")
+    exp = game("ZCatalog Exp #{tag}")
     :ok = Games.link_expansion(exp.id, base.id)
-    assert Games.base_ids_for(exp.id) == [base.id]
+
+    ids = Games.search_catalog("ZCatalog") |> Enum.map(& &1.id)
+
+    assert base.id in ids
+    refute exp.id in ids
   end
 
   describe "join-backed queries" do

@@ -30,9 +30,6 @@ defmodule RuleMaven.Games.Game do
     field :takedown_reason, :string
     field :takedown_complainant, :string
 
-    belongs_to :parent_game, RuleMaven.Games.Game, foreign_key: :parent_game_id
-    has_many :expansions, RuleMaven.Games.Game, foreign_key: :parent_game_id
-
     timestamps(type: :utc_datetime)
   end
 
@@ -53,7 +50,6 @@ defmodule RuleMaven.Games.Game do
       :max_players,
       :playing_time,
       :image_url,
-      :parent_game_id,
       :bgg_data,
       :category,
       :theme_palette

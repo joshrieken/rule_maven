@@ -446,12 +446,12 @@ defmodule RuleMaven.Games do
 
     base =
       from g in Game,
-        where: is_nil(g.parent_game_id),
         where: ilike(g.name, ^term),
         order_by: [asc_nulls_last: g.bgg_rank, asc: g.name],
         limit: ^limit
 
     base
+    |> not_expansion()
     |> maybe_category(category)
     |> Repo.all()
   end
@@ -476,13 +476,13 @@ defmodule RuleMaven.Games do
 
   @doc "Base games in a user's collection, sorted by name."
   def list_collection(user_id) when is_integer(user_id) do
-    Repo.all(
-      from g in Game,
-        join: uc in UserCollection,
-        on: uc.game_id == g.id,
-        where: uc.user_id == ^user_id,
-        where: is_nil(g.parent_game_id)
+    (from g in Game,
+       join: uc in UserCollection,
+       on: uc.game_id == g.id,
+       where: uc.user_id == ^user_id
     )
+    |> not_expansion()
+    |> Repo.all()
     |> Enum.sort_by(&String.downcase(&1.name))
   end
 
@@ -520,13 +520,13 @@ defmodule RuleMaven.Games do
 
   @doc "Base games a user has favorited, sorted by name."
   def list_favorites(user_id) when is_integer(user_id) do
-    Repo.all(
-      from g in Game,
-        join: uf in UserFavorite,
-        on: uf.game_id == g.id,
-        where: uf.user_id == ^user_id,
-        where: is_nil(g.parent_game_id)
+    (from g in Game,
+       join: uf in UserFavorite,
+       on: uf.game_id == g.id,
+       where: uf.user_id == ^user_id
     )
+    |> not_expansion()
+    |> Repo.all()
     |> Enum.sort_by(&String.downcase(&1.name))
   end
 
