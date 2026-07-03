@@ -75,6 +75,7 @@ defmodule RuleMavenWeb.GameLive.Form do
         parent_results: [],
         parent_selected_id: nil,
         parent_selected_name: nil,
+        extra_bases: [],
         cleaning: %{},
         # Which rulebook source the Manage tab shows (one at a time, picker/j-k
         # selectable). nil → falls back to the first source in the template.
@@ -319,11 +320,13 @@ defmodule RuleMavenWeb.GameLive.Form do
           socket =
             assign(socket, draft_categories: draft_categories, saved_categories: saved_categories)
 
-          parent = if game.parent_game_id, do: Games.get_game!(game.parent_game_id)
+          bases = Games.base_games_for(game)
+          parent = List.first(bases)
 
           assign(socket,
-            parent_selected_id: game.parent_game_id,
+            parent_selected_id: parent && parent.id,
             parent_selected_name: parent && parent.name,
+            extra_bases: Enum.drop(bases, 1),
             parent_query: "",
             parent_results: []
           )
@@ -840,8 +843,7 @@ defmodule RuleMavenWeb.GameLive.Form do
   @impl true
   def handle_event("unlink_expansion", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
-    exp = Games.get_game!(id)
-    Games.update_game(exp, %{parent_game_id: nil})
+    Games.unlink_expansion(id, socket.assigns.game.id)
 
     game = Games.get_game!(socket.assigns.game.id)
 
@@ -1048,9 +1050,12 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   def handle_event("select_parent", %{"id" => id, "name" => name}, socket) do
+    base_id = String.to_integer(id)
+    Games.link_expansion(socket.assigns.game.id, base_id)
+
     {:noreply,
      assign(socket,
-       parent_selected_id: String.to_integer(id),
+       parent_selected_id: base_id,
        parent_selected_name: name,
        parent_query: "",
        parent_results: []
@@ -1058,6 +1063,10 @@ defmodule RuleMavenWeb.GameLive.Form do
   end
 
   def handle_event("clear_parent", _params, socket) do
+    if socket.assigns.parent_selected_id do
+      Games.unlink_expansion(socket.assigns.game.id, socket.assigns.parent_selected_id)
+    end
+
     {:noreply,
      assign(socket,
        parent_selected_id: nil,
@@ -1621,7 +1630,7 @@ defmodule RuleMavenWeb.GameLive.Form do
     # only when BGG actually lists expansions for the game.
     prompt? =
       socket.assigns.bgg_refresh_pending and not is_nil(game) and
-        is_nil(game.parent_game_id) and not socket.assigns.exp_syncing and
+        not Games.expansion?(game.id) and not socket.assigns.exp_syncing and
         RuleMaven.BGG.expansion_link_count(game) > 0
 
     {:noreply,
@@ -2962,8 +2971,6 @@ defmodule RuleMavenWeb.GameLive.Form do
                   <span class="text-gray-400">(optional — set if this is an expansion)</span>
                 </label>
 
-                <input type="hidden" name="game[parent_game_id]" value={@parent_selected_id} />
-
                 <%= if @parent_selected_id do %>
                   <div class="flex items-center gap-2 mb-2">
                     <span style="font-size:0.8rem">
@@ -2975,6 +2982,12 @@ defmodule RuleMavenWeb.GameLive.Form do
                       data-confirm="Remove this game's expansion link to its parent?"
                       style="font-size:0.7rem;color:var(--red);background:none;border:none;cursor:pointer;font-weight:600"
                     >Clear</button>
+                  </div>
+                <% end %>
+
+                <%= if @extra_bases != [] do %>
+                  <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem">
+                    Also linked to: {Enum.map_join(@extra_bases, ", ", & &1.name)}
                   </div>
                 <% end %>
 

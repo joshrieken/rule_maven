@@ -314,40 +314,27 @@ defmodule RuleMaven.BGG do
   defp parse_int(str), do: String.to_integer(str)
 
   @doc """
-  After enriching a game, auto-link its expansions.
-  Looks for games in the DB with matching BGG IDs from the link data.
+  After enriching a game, link its expansions via `game_expansion_links`.
+  inbound="true": this game is an expansion of the linked game — link to EVERY
+  matched base (an expansion can be supported by several editions).
+  inbound="false": the linked game is an expansion of this game.
+  Unmatched bgg_ids are ignored (linked when that edition is imported and
+  enriched/relinked). Idempotent.
   """
   def link_expansions(game, expansion_links) do
-    # inbound="true" means THIS game is an expansion of the linked game
-    # Set this game's parent to the linked game
-    inbound = Enum.filter(expansion_links, &(&1.inbound == "true"))
+    {inbound, outbound} = Enum.split_with(expansion_links, &(&1.inbound == "true"))
 
-    # An expansion can list several inbound parents on BGG (e.g. also linked to a
-    # bundle or a standalone). Only adopt a parent when this game has none yet —
-    # never overwrite an existing parent, or re-enriching one expansion would
-    # yank it out from under the base whose outbound link already claimed it.
-    if inbound != [] and is_nil(game.parent_game_id) do
-      parent =
-        inbound
-        |> Enum.map(&RuleMaven.Repo.get_by(RuleMaven.Games.Game, bgg_id: &1.id))
-        |> Enum.find(& &1)
-
-      if parent do
-        RuleMaven.Games.update_game(game, %{parent_game_id: parent.id})
-      end
+    for link <- inbound,
+        base = RuleMaven.Repo.get_by(RuleMaven.Games.Game, bgg_id: link.id),
+        base != nil do
+      RuleMaven.Games.link_expansion(game.id, base.id)
     end
 
-    # inbound="false" means the linked game is an expansion OF this game
-    # Find those games in DB and set their parent to this game
-    outbound = Enum.filter(expansion_links, &(&1.inbound != "true"))
-
-    Enum.each(outbound, fn link ->
-      expansion = RuleMaven.Repo.get_by(RuleMaven.Games.Game, bgg_id: link.id)
-
-      if expansion && is_nil(expansion.parent_game_id) do
-        RuleMaven.Games.update_game(expansion, %{parent_game_id: game.id})
-      end
-    end)
+    for link <- outbound,
+        expansion = RuleMaven.Repo.get_by(RuleMaven.Games.Game, bgg_id: link.id),
+        expansion != nil do
+      RuleMaven.Games.link_expansion(expansion.id, game.id)
+    end
 
     :ok
   end
