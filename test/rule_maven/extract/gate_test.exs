@@ -40,6 +40,56 @@ defmodule RuleMaven.Extract.GateTest do
     end
   end
 
+  # Mirrors real `pdftotext -layout` output on a two-column page (DungeonQuest
+  # Rules Reference): left and right columns rendered side by side, so reading
+  # the lines top-to-bottom interleaves the columns out of order.
+  @two_column """
+  This Rules Reference for DungeonQuest Revised Edition serves          his first turn of the game.
+  as a supplement to the game's Learn to Play booklet. If you have
+  never played the game, read the Learn to Play booklet first. Among    Torchlight
+  other things, the Rules Reference explains how to resolve unusual     This optional rule allows players to see a few chambers ahead
+  circumstances that may arise during a game.                           entering a chamber.
+  The Rules Reference contains a few optional rules as well as a        Immediately after a player enters a chamber, be it on an explored
+  chamber effects, but the majority of this document is the glossary    space or after placing a chamber tile when moving into an
+  which lists detailed rules clarifications in alphabetical order       unexplored space, he chooses a hall on the chamber he entered
+  Optional Rules                                                        leads to an unexplored space and is not blocked by a door. Then
+  The following entries describe optional game rules that players       draws one tile and places it so that its entry arrow is adjacent
+  use during a game of DungeonQuest. If all players agree, they can     hall he chose. He does this for each hall in the chamber
+  implement any number of these rules before playing a game.            that is not blocked by a door. Then, he resolves the effects
+  """
+
+  describe "column_suspect?/1" do
+    test "flags side-by-side two-column -layout output" do
+      assert Gate.column_suspect?(@two_column)
+    end
+
+    test "does not flag ordinary single-column prose" do
+      refute Gate.column_suspect?(@prose)
+    end
+
+    test "does not flag empty or short text" do
+      refute Gate.column_suspect?("")
+      refute Gate.column_suspect?(nil)
+      refute Gate.column_suspect?("Setup                    Place the board in the center")
+    end
+
+    test "does not flag prose with an occasional aligned line" do
+      text =
+        @prose <>
+          "Players: 2-4                    Time: 60 minutes\n" <>
+          @prose
+
+      refute Gate.column_suspect?(text)
+    end
+  end
+
+  describe "clean_text_layer?/1 with columns" do
+    test "does not trust a column-suspect layer even when wordish" do
+      assert Gate.wordish_ratio(@two_column) >= 0.75
+      refute Gate.clean_text_layer?(@two_column)
+    end
+  end
+
   describe "majority/2" do
     test "two of three reads agree → returns the richer of the agreeing pair" do
       a = "gain two plants and one heat then place a city tile"

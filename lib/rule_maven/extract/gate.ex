@@ -31,6 +31,16 @@ defmodule RuleMaven.Extract.Gate do
   # Floor on token count: below this there's too little text to trust on structure
   # alone (a near-empty/caption page), so cross-check it — the insurance is cheap.
   @clean_layer_min_tokens 12
+  # Column detection (`column_suspect?/1`): a line whose text sits on both sides
+  # of a run of ≥3 spaces is a "gapped" line — on `pdftotext -layout` output
+  # that's the signature of two columns rendered side by side. Measured on real
+  # rulebooks: two-column pages (DungeonQuest, Ethnos, Gloomhaven) run 28–64%
+  # gapped lines; single-column pages ≤7%. A false positive only costs one
+  # cheap cross-check (recall bias), so the fraction sits well below the
+  # two-column floor rather than above the single-column ceiling.
+  @column_gap ~r/\S {3,}\S/
+  @column_min_gapped_lines 6
+  @column_gapped_fraction 0.2
 
   @doc """
   Lowercased alphanumeric token list for a chunk of text.
@@ -95,15 +105,37 @@ defmodule RuleMaven.Extract.Gate do
   end
 
   @doc """
+  Does this text layer look like two (or more) columns rendered side by side —
+  `pdftotext -layout` output on a multi-column page? Such a layer contains the
+  right words but in the wrong order (lines interleave the columns), which the
+  order-blind token-set signals here can never catch — so it must be detected
+  structurally and the page read from the image instead.
+  """
+  def column_suspect?(layer) do
+    lines =
+      (layer || "")
+      |> String.split("\n")
+      |> Enum.map(&String.trim_trailing/1)
+      |> Enum.reject(&(String.trim(&1) == ""))
+
+    gapped = Enum.count(lines, &Regex.match?(@column_gap, &1))
+
+    gapped >= @column_min_gapped_lines and
+      gapped / max(length(lines), 1) >= @column_gapped_fraction
+  end
+
+  @doc """
   Is this text layer clean enough to trust on its own — no second reader needed?
-  True only for clearly-wordish, non-trivial text (born-digital pages). Anything
-  borderline returns false and gets cross-checked, per the recall bias.
+  True only for clearly-wordish, non-trivial text (born-digital pages) with no
+  sign of side-by-side column interleaving. Anything borderline returns false
+  and gets cross-checked, per the recall bias.
   """
   def clean_text_layer?(layer) do
     trimmed = String.trim(layer || "")
 
     trimmed != "" and length(tokens(trimmed)) >= @clean_layer_min_tokens and
-      wordish_ratio(trimmed) >= @clean_layer_wordish
+      wordish_ratio(trimmed) >= @clean_layer_wordish and
+      not column_suspect?(layer)
   end
 
   @doc """

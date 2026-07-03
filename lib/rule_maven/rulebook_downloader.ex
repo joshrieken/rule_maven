@@ -845,9 +845,11 @@ defmodule RuleMaven.RulebookDownloader do
     if length(trimmed) == n, do: trimmed, else: []
   end
 
-  # Whole-document text layer split into physical pages. "-layout" preserves
-  # columns/reading order for the clean-layer case. Empty list on failure — every
-  # page then falls through to OCR/vision.
+  # Whole-document text layer split into physical pages. NOTE: "-layout"
+  # renders multi-column pages side by side — right words, wrong reading order.
+  # Gate.column_suspect?/1 detects that shape; such pages skip the text layer
+  # and are read from the image (OCR + vision) instead. Empty list on failure —
+  # every page then falls through to OCR/vision.
   defp pdftext_pages(full_path) do
     case cmd("pdftotext", ["-layout", full_path, "-"], @pdftotext_timeout) do
       {:ok, {text, 0}} -> String.split(text, "\f")
@@ -910,7 +912,14 @@ defmodule RuleMaven.RulebookDownloader do
   # `sampled?` is the pre-drawn drift-sample decision (drawn before rendering,
   # in decide_page_lazy — a trusted page only renders when sampled).
   defp decide_page(image, layer, sampled?, ctx) do
-    layer = String.trim(layer)
+    # A column-suspect layer (side-by-side columns from `pdftotext -layout`)
+    # has the right words in the wrong order. Every signal downstream —
+    # agreement, coverage, wordish, richer — is order-blind, so if the layer
+    # stays in the candidate set it cross-checks clean against a vision read
+    # and then WINS the richer() pick, storing the misordered text. Drop it
+    # entirely: the page reads like a layerless one (OCR + vision, both from
+    # the image, both in true reading order).
+    layer = if Gate.column_suspect?(layer), do: "", else: String.trim(layer)
 
     if Gate.clean_text_layer?(layer) do
       # T0 drift sample (the only way a clean layer reaches here): cross-check +
