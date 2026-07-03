@@ -46,4 +46,23 @@ defmodule RuleMaven.Games.CitationsTest do
     refute Citations.valid?("turn", nil, @chunks)
     assert Citations.valid?("turn", 3, @chunks)
   end
+
+  describe "source-scoped validation" do
+    @rulebook %{label: "Core rules", content: "[Page 5]\nThe player with the most banners wins the region."}
+    @faq %{label: "Official FAQ", content: "[Page 2]\nTies award the region to no one."}
+
+    test "cited page must exist in the cited source" do
+      # Page 5 exists in Core rules, not in the FAQ.
+      assert Citations.valid?("most banners wins the region", 5, [@rulebook, @faq], "Core rules")
+      refute Citations.valid?("most banners wins the region", 5, [@rulebook, @faq], "Official FAQ")
+    end
+
+    test "unknown source label falls back to pooled validation" do
+      assert Citations.valid?("most banners wins the region", 5, [@rulebook, @faq], "Nonexistent")
+    end
+
+    test "nil source keeps legacy pooled behavior" do
+      assert Citations.valid?("most banners wins the region", 5, [@rulebook, @faq], nil)
+    end
+  end
 end

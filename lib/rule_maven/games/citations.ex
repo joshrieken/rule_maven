@@ -22,7 +22,23 @@ defmodule RuleMaven.Games.Citations do
 
   @doc "True if the citation is grounded in `source_chunks` (a list of strings)."
   def valid?(passage, cited_page, source_chunks) do
-    chunks = normalize_chunks(source_chunks)
+    valid?(passage, cited_page, source_chunks, nil)
+  end
+
+  @doc """
+  Like `valid?/3`, but when `cited_source` matches a chunk's `label`
+  (case-insensitive), grounding is checked against that source's chunks only.
+  A `nil` or unmatched label falls back to the pooled behavior (all chunks).
+
+  `source_chunks` accepts either a list of `%{label:, content:}` maps or plain
+  strings (wrapped as `%{label: nil, content: s}` for backward compatibility).
+  """
+  def valid?(passage, cited_page, source_chunks, cited_source) do
+    maps = to_chunk_maps(source_chunks)
+    scoped = scope_chunks(maps, cited_source)
+
+    texts = Enum.map(scoped, & &1.content)
+    chunks = normalize_chunks(texts)
     has_passage = is_binary(passage) and String.trim(passage) != ""
     has_page = is_integer(cited_page)
 
@@ -31,13 +47,36 @@ defmodule RuleMaven.Games.Citations do
     passage_match = checkable_passage and Enum.any?(chunks, &String.contains?(&1, needle))
     passage_bad = checkable_passage and not passage_match
 
-    page_match = has_page and cited_page in chunk_pages(source_chunks)
+    page_match = has_page and cited_page in chunk_pages(texts)
     page_bad = has_page and not page_match
 
     grounded = passage_match or page_match
 
     grounded and not passage_bad and not page_bad
   end
+
+  defp to_chunk_maps(chunks) when is_list(chunks) do
+    Enum.flat_map(chunks, fn
+      %{content: _} = chunk -> [Map.put_new(chunk, :label, nil)]
+      s when is_binary(s) -> [%{label: nil, content: s}]
+      _ -> []
+    end)
+  end
+
+  defp to_chunk_maps(_), do: []
+
+  defp scope_chunks(chunks, nil), do: chunks
+
+  defp scope_chunks(chunks, cited_source) when is_binary(cited_source) do
+    target = String.downcase(cited_source)
+
+    case Enum.filter(chunks, &(String.downcase(&1.label || "") == target)) do
+      [] -> chunks
+      scoped -> scoped
+    end
+  end
+
+  defp scope_chunks(chunks, _), do: chunks
 
   defp passage_needle(passage) when is_binary(passage) do
     passage

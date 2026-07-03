@@ -195,7 +195,8 @@ defmodule RuleMaven.Workers.AskWorker do
                   RuleMaven.Games.Citations.valid?(
                     passage,
                     cited_page,
-                    llm_result[:source_chunks]
+                    llm_result[:source_chunks],
+                    llm_result[:cited_source]
                   )
 
                 update_attrs = %{
@@ -205,6 +206,7 @@ defmodule RuleMaven.Workers.AskWorker do
                   question: question,
                   cited_passage: passage,
                   cited_page: cited_page,
+                  cited_source: llm_result[:cited_source],
                   citation_valid: citation_valid,
                   refused: refused?,
                   verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
@@ -437,7 +439,9 @@ defmodule RuleMaven.Workers.AskWorker do
     if String.length(needle) < 12 do
       nil
     else
-      Enum.find_value(chunks, fn text ->
+      Enum.find_value(chunks, fn chunk ->
+        text = chunk_text(chunk)
+
         if String.contains?(normalize_for_match(text), needle),
           do: parse_cited_page(text),
           else: nil
@@ -446,6 +450,10 @@ defmodule RuleMaven.Workers.AskWorker do
   end
 
   defp infer_page_from_chunks(_passage, _chunks), do: nil
+
+  defp chunk_text(%{content: content}), do: content
+  defp chunk_text(text) when is_binary(text), do: text
+  defp chunk_text(_), do: ""
 
   defp normalize_for_match(text) do
     text
