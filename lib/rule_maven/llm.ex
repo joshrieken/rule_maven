@@ -173,7 +173,7 @@ defmodule RuleMaven.LLM do
            raw_response: llm_result[:raw_response],
            # Retrieved chunk texts (each prefixed with a [Page N] marker) so the
            # worker can recover the page if the model drops it from the citation.
-           source_chunks: Enum.map(chunks, & &1.content)
+           source_chunks: Enum.map(chunks, &%{label: &1.label, content: &1.content})
          }}
 
       {:error, reason} ->
