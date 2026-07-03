@@ -1,6 +1,6 @@
 defmodule RuleMavenWeb.RulebookController do
   @moduledoc """
-  Serves the extracted-text HTML view of a rulebook to admins only.
+  Serves the extracted-text HTML view and the original PDF of a rulebook to admins only.
 
   Rulebooks may be copyrighted, so the original PDF is never served over HTTP
   (the `uploads` dir is no longer in `static_paths`), and the extracted-text
@@ -21,6 +21,26 @@ defmodule RuleMavenWeb.RulebookController do
          true <- File.exists?(full_path) do
       conn
       |> put_resp_content_type("text/html")
+      |> send_file(200, full_path)
+    else
+      # 404 (not 403) so the route doesn't reveal which documents exist to
+      # non-admins.
+      _ -> conn |> put_status(:not_found) |> text("Not found")
+    end
+  end
+
+  def pdf(conn, %{"id" => id}) do
+    user = conn.assigns[:current_user]
+
+    with true <- user && Users.can?(user, :admin),
+         {:ok, doc_id} <- RuleMaven.Hashid.decode(id),
+         %Games.Document{pdf_path: pdf_path} when is_binary(pdf_path) <-
+           Games.get_document(doc_id),
+         full_path = Application.app_dir(:rule_maven, "priv/static/#{pdf_path}"),
+         true <- File.exists?(full_path) do
+      conn
+      |> put_resp_content_type("application/pdf")
+      |> put_resp_header("content-disposition", "inline")
       |> send_file(200, full_path)
     else
       # 404 (not 403) so the route doesn't reveal which documents exist to
