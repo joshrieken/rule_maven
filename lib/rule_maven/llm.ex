@@ -362,10 +362,11 @@ defmodule RuleMaven.LLM do
 
   @doc """
   Adversarial check that a page's cleanup preserved its rule content. Given the
-  raw extraction and the cleaned text, returns `{:ok, defects}` where `defects`
-  is a list of concrete defect lines (empty = faithful), or `{:error, reason}`.
-  Uses the cleanup model by default (text-only, cheap). Callers treat an error as
-  "no defects" — a critic failure must never block or revert a cleanup.
+  raw extraction and the cleaned text, returns `{:ok, %{verdict, defects}}`
+  where `verdict` is `:faithful | :junk_remains | :content_lost` and `defects`
+  is a list of concrete defect lines. Uses the cleanup model by default
+  (text-only, cheap). Callers treat an error as faithful — a critic failure
+  must never block or revert a cleanup.
   """
   def critique_cleanup(raw, cleaned, opts \\ []) do
     user =
@@ -378,7 +379,7 @@ defmodule RuleMaven.LLM do
            operation: "cleanup",
            game_id: opts[:game_id]
          ) do
-      {:ok, text} -> {:ok, parse_defects(text)}
+      {:ok, text} -> {:ok, parse_critic_verdict(text)}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -535,6 +536,33 @@ defmodule RuleMaven.LLM do
     |> String.replace(~r/[^\p{L}]/u, "")
     |> String.upcase()
     |> Kernel.==("NONE")
+  end
+
+  @critic_verdicts [:faithful, :junk_remains, :content_lost]
+  def critic_verdicts, do: @critic_verdicts
+
+  @doc """
+  Parses a typed cleanup-critic reply: a `VERDICT: <word>` line plus defect
+  lines (parsed by `parse_defects/1`, so NONE/blank handling matches the vision
+  critic). A missing or unrecognized verdict falls back to `:faithful` — the
+  critic must never block a cleanup on a malformed reply (e.g. an admin's
+  older prompt override without the verdict line).
+  """
+  def parse_critic_verdict(text) do
+    trimmed = String.trim(text || "")
+
+    verdict =
+      case Regex.run(~r/^\s*verdict:\s*(faithful|junk_remains|content_lost)\b/im, trimmed) do
+        [_, v] -> String.to_existing_atom(String.downcase(v))
+        _ -> :faithful
+      end
+
+    defects =
+      trimmed
+      |> String.replace(~r/^\s*verdict:.*$/im, "")
+      |> parse_defects()
+
+    %{verdict: verdict, defects: defects}
   end
 
   @doc """

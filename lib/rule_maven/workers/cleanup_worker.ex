@@ -214,7 +214,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
   # from the critic must never fail the page — fall back to "no defects".
   defp maybe_critique(true, :cleaned, body, text, game_id) do
     case RuleMaven.LLM.critique_cleanup(body, text, game_id: game_id) do
-      {:ok, defects} -> defects
+      {:ok, %{defects: defects}} -> defects
       {:error, _} -> []
     end
   end

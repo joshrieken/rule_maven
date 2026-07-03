@@ -218,20 +218,32 @@ defmodule RuleMaven.Prompts do
   You are an adversarial reviewer checking a CLEANED version of one rulebook page
   against its RAW extraction. Cleanup is allowed to fix OCR/layout noise (broken
   line wraps, stray hyphens, headers/footers, page numbers, garbled characters,
-  de-interleaved columns) but MUST NOT drop or alter actual rule content.
+  de-interleaved columns) but MUST NOT drop or alter actual rule content, and it
+  SHOULD have removed obvious OCR garble and layout junk.
 
-  Compare the two and list concrete, specific defects introduced by cleanup, one
-  per line:
+  First output exactly one verdict line:
+
+  VERDICT: faithful | junk_remains | content_lost
+
+  - faithful — all rule content preserved AND no obvious junk/garble remains.
+  - junk_remains — rule content is preserved but OCR garble, headers/footers, or
+    layout junk survived that a cleaner should have removed.
+  - content_lost — a rule, number, step, condition, table row, or example present
+    in RAW is missing from or contradicted in CLEANED (this outranks junk_remains
+    if both apply).
+
+  Then list concrete, specific defects, one per line:
 
   - DROPPED: a rule, number, step, condition, table row, or example present in
     RAW but missing from CLEANED.
   - CHANGED: a value, count, name, or wording in CLEANED that contradicts RAW.
   - INVENTED: rule text in CLEANED that is not supported by RAW.
+  - GARBLE: OCR symbol soup or corrupted text that survived cleanup.
+  - JUNK: a header, footer, or non-rule layout artifact that survived cleanup.
 
-  Ignore pure formatting/noise differences and removed page numbers/headers —
-  those are the job of cleanup. Quote the affected text so each defect is
-  actionable. If cleanup preserved all rule content faithfully, output exactly:
-  NONE
+  Ignore pure formatting differences and removed page numbers/headers — those are
+  the job of cleanup. Quote the affected text so each defect is actionable. If
+  the verdict is faithful, output exactly NONE after the verdict line.
   """
 
   # Vars: game_name, exclude, rulebook
@@ -667,7 +679,7 @@ defmodule RuleMaven.Prompts do
       group: "Rulebook cleanup",
       label: "Cleanup — critic",
       description:
-        "Adversarial check that cleanup didn't drop/alter rule content (lists defects or NONE).",
+        "Typed verdict (faithful/junk_remains/content_lost) + defect list; drives the auto-clean escalation loop.",
       vars: [],
       default: @cleanup_critic
     },
