@@ -70,16 +70,16 @@ defmodule RuleMaven.Games do
     # Base games + expansions that have published documents.
     # Returns base games sorted by name.
     base_ids =
-      Repo.all(
-        from g in Game,
-          join: d in Document,
-          on: d.game_id == g.id,
-          where: d.status == "published",
-          where: is_nil(g.parent_game_id),
-          where: is_nil(g.taken_down_at),
-          distinct: true,
-          select: g.id
+      (from g in Game,
+         join: d in Document,
+         on: d.game_id == g.id,
+         where: d.status == "published",
+         where: is_nil(g.taken_down_at),
+         distinct: true,
+         select: g.id
       )
+      |> not_expansion()
+      |> Repo.all()
 
     Repo.all(from g in Game, where: g.id in ^base_ids)
     |> Enum.sort_by(&String.downcase(&1.name))
@@ -92,12 +92,12 @@ defmodule RuleMaven.Games do
   no per-row document join.
   """
   def list_playable_games do
-    Repo.all(
-      from g in Game,
-        where: g.playable == true,
-        where: is_nil(g.parent_game_id),
-        where: is_nil(g.taken_down_at)
+    (from g in Game,
+       where: g.playable == true,
+       where: is_nil(g.taken_down_at)
     )
+    |> not_expansion()
+    |> Repo.all()
     |> Enum.sort_by(&String.downcase(&1.name))
   end
 
@@ -108,14 +108,14 @@ defmodule RuleMaven.Games do
   BGG rank (ranked games first) then name.
   """
   def list_games_needing_bgg(limit \\ 20) do
-    Repo.all(
-      from g in Game,
-        where: is_nil(g.parent_game_id),
-        where: not is_nil(g.bgg_id),
-        where: is_nil(g.bgg_data),
-        order_by: [asc_nulls_last: g.bgg_rank, asc: g.name],
-        limit: ^limit
+    (from g in Game,
+       where: not is_nil(g.bgg_id),
+       where: is_nil(g.bgg_data),
+       order_by: [asc_nulls_last: g.bgg_rank, asc: g.name],
+       limit: ^limit
     )
+    |> not_expansion()
+    |> Repo.all()
   end
 
   @doc """
@@ -123,23 +123,34 @@ defmodule RuleMaven.Games do
   "Requested" view). Bounded set, returned in full.
   """
   def list_requested_games do
-    Repo.all(
-      from g in Game,
-        join: r in SupportRequest,
-        on: r.game_id == g.id,
-        where: is_nil(g.parent_game_id),
-        group_by: [g.id],
-        order_by: [desc: count(r.id), asc: g.name]
+    (from g in Game,
+       join: r in SupportRequest,
+       on: r.game_id == g.id,
+       group_by: [g.id],
+       order_by: [desc: count(r.id), asc: g.name]
     )
+    |> not_expansion()
+    |> Repo.all()
   end
 
   def list_base_games do
-    Repo.all(from g in Game, where: is_nil(g.parent_game_id))
+    (from g in Game) |> not_expansion() |> Repo.all()
     |> Enum.sort_by(&String.downcase(&1.name))
   end
 
+  # "Is a base game" filter: not linked as an expansion of anything.
+  defp not_expansion(query) do
+    where(query, [g], g.id not in subquery(from l in ExpansionLink, select: l.expansion_id))
+  end
+
   def expansions_for(%Game{} = game) do
-    Repo.all(from g in Game, where: g.parent_game_id == ^game.id)
+    Repo.all(
+      from g in Game,
+        join: l in ExpansionLink,
+        on: l.expansion_id == g.id,
+        where: l.base_game_id == ^game.id,
+        select: g
+    )
     |> Enum.sort_by(&String.downcase(&1.name))
   end
 
@@ -191,10 +202,10 @@ defmodule RuleMaven.Games do
   @doc "Map of base game_id => expansion count for the given ids (one query)."
   def expansion_counts(game_ids) do
     Repo.all(
-      from g in Game,
-        where: g.parent_game_id in ^game_ids,
-        group_by: g.parent_game_id,
-        select: {g.parent_game_id, count(g.id)}
+      from l in ExpansionLink,
+        where: l.base_game_id in ^game_ids,
+        group_by: l.base_game_id,
+        select: {l.base_game_id, count(l.expansion_id)}
     )
     |> Map.new()
   end
@@ -206,12 +217,13 @@ defmodule RuleMaven.Games do
   """
   def expansion_pull_counts(game_ids) do
     Repo.all(
-      from g in Game,
-        where: g.parent_game_id in ^game_ids,
-        where: not is_nil(g.bgg_id),
-        where: is_nil(g.bgg_data),
-        group_by: g.parent_game_id,
-        select: {g.parent_game_id, count(g.id)}
+      from l in ExpansionLink,
+        join: g in Game,
+        on: g.id == l.expansion_id,
+        where: l.base_game_id in ^game_ids,
+        where: not is_nil(g.bgg_id) and is_nil(g.bgg_data),
+        group_by: l.base_game_id,
+        select: {l.base_game_id, count(l.expansion_id)}
     )
     |> Map.new()
   end
@@ -219,12 +231,12 @@ defmodule RuleMaven.Games do
   @doc "Map of base game_id => count of expansions that have published documents."
   def expansion_with_doc_counts(game_ids) do
     Repo.all(
-      from g in Game,
+      from l in ExpansionLink,
         join: d in Document,
-        on: d.game_id == g.id and d.status == "published",
-        where: g.parent_game_id in ^game_ids,
-        group_by: g.parent_game_id,
-        select: {g.parent_game_id, count(g.id, :distinct)}
+        on: d.game_id == l.expansion_id and d.status == "published",
+        where: l.base_game_id in ^game_ids,
+        group_by: l.base_game_id,
+        select: {l.base_game_id, count(l.expansion_id, :distinct)}
     )
     |> Map.new()
   end
@@ -232,21 +244,31 @@ defmodule RuleMaven.Games do
   def expansions_with_documents(%Game{} = base_game) do
     Repo.all(
       from g in Game,
+        join: l in ExpansionLink,
+        on: l.expansion_id == g.id,
         join: d in Document,
         on: d.game_id == g.id,
-        where: g.parent_game_id == ^base_game.id,
-        where: d.status == "published",
+        where: l.base_game_id == ^base_game.id and d.status == "published",
         distinct: true,
         select: g
     )
     |> Enum.sort_by(&String.downcase(&1.name))
   end
 
-  def base_game_for(%Game{} = game) do
-    if game.parent_game_id do
-      Repo.get(Game, game.parent_game_id)
-    end
+  @doc "All base games this expansion is linked to, name-sorted ([] for base games)."
+  def base_games_for(%Game{} = game) do
+    Repo.all(
+      from g in Game,
+        join: l in ExpansionLink,
+        on: l.base_game_id == g.id,
+        where: l.expansion_id == ^game.id,
+        select: g
+    )
+    |> Enum.sort_by(&String.downcase(&1.name))
   end
+
+  @doc "First linked base game (legacy single-parent shape), nil for base games."
+  def base_game_for(%Game{} = game), do: game |> base_games_for() |> List.first()
 
   def get_game!(id), do: Repo.get!(Game, id)
 

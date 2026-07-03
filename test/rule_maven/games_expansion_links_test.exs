@@ -52,4 +52,50 @@ defmodule RuleMaven.GamesExpansionLinksTest do
     :ok = Games.link_expansion(exp.id, base.id)
     assert Games.base_ids_for(exp.id) == [base.id]
   end
+
+  describe "join-backed queries" do
+    setup do
+      exp = game("Promo")
+      base1 = game("Ed1")
+      base2 = game("Ed2")
+      :ok = Games.link_expansion(exp.id, base1.id)
+      :ok = Games.link_expansion(exp.id, base2.id)
+      %{exp: exp, base1: base1, base2: base2}
+    end
+
+    test "expansions_for lists the expansion under every linked base", ctx do
+      assert Enum.map(Games.expansions_for(ctx.base1), & &1.id) == [ctx.exp.id]
+      assert Enum.map(Games.expansions_for(ctx.base2), & &1.id) == [ctx.exp.id]
+    end
+
+    test "expansion_counts counts per base", ctx do
+      counts = Games.expansion_counts([ctx.base1.id, ctx.base2.id])
+      assert counts[ctx.base1.id] == 1
+      assert counts[ctx.base2.id] == 1
+    end
+
+    test "expansions_with_documents needs a published doc", ctx do
+      assert Games.expansions_with_documents(ctx.base1) == []
+
+      {:ok, doc} =
+        Games.create_document(%{game_id: ctx.exp.id, label: "Promo rules", full_text: "some promo rules text"})
+
+      {:ok, _} = Games.update_document(doc, %{status: "published"})
+      assert Enum.map(Games.expansions_with_documents(ctx.base1), & &1.id) == [ctx.exp.id]
+    end
+
+    test "base_games_for returns all bases; base_game_for the first", ctx do
+      assert Games.base_games_for(ctx.exp) |> Enum.map(& &1.id) |> Enum.sort() ==
+               Enum.sort([ctx.base1.id, ctx.base2.id])
+
+      assert Games.base_game_for(ctx.exp).id in [ctx.base1.id, ctx.base2.id]
+      assert Games.base_game_for(ctx.base1) == nil
+    end
+
+    test "list_base_games excludes linked expansions", ctx do
+      ids = Games.list_base_games() |> Enum.map(& &1.id)
+      assert ctx.base1.id in ids
+      refute ctx.exp.id in ids
+    end
+  end
 end
