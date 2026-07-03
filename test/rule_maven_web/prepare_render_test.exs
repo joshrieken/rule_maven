@@ -29,14 +29,27 @@ defmodule RuleMavenWeb.PrepareRenderTest do
 
   test "prepare page renders for a saved-but-unextracted source", %{conn: conn} do
     admin = admin!("prep_render_admin")
-    game = game_fixture(%{name: "Prep Test Game", bgg_id: 7788})
+    # BGG data is the required first pipeline step; without it the extract step
+    # is :blocked and its button is gated off, so give the game pulled data.
+    game = game_fixture(%{name: "Prep Test Game", bgg_id: 7788, bgg_data: "<items/>"})
     with_doc(game)
 
     conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
-    {:ok, _view, html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+    {:ok, view, html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
 
     assert html =~ "Prepare Prep Test Game"
-    assert html =~ "Extract"
+    assert has_element?(view, "button[phx-click=\"extract\"]", "Extract")
+  end
+
+  test "Extract button is gated off until BGG data is pulled", %{conn: conn} do
+    admin = admin!("prep_gated_admin")
+    game = game_fixture(%{name: "Gated Prep Game", bgg_id: 7788})
+    with_doc(game)
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    refute has_element?(view, "button[phx-click=\"extract\"]")
   end
 
   test "reset button is active and wipes the pipeline when there are no questions",
