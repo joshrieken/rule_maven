@@ -19,9 +19,12 @@ defmodule RuleMavenWeb.GameLive.Faq do
   defp mount_game(game, socket) do
     is_admin = RuleMaven.Users.can?(socket.assigns.current_user, :admin)
     categories = Games.list_game_categories(game)
-    community_questions = Games.faq_questions(game)
+    user_id = socket.assigns.current_user.id
 
+    community_questions = Games.faq_questions(game)
     question_ids = Enum.map(community_questions, & &1.id)
+    favorited_ids = Games.favorited_answer_ids(user_id, question_ids)
+    community_questions = sort_favorited_first(community_questions, favorited_ids)
     category_map = Games.categories_for_questions(question_ids)
 
     {:ok,
@@ -30,6 +33,7 @@ defmodule RuleMavenWeb.GameLive.Faq do
        is_admin: is_admin,
        categories: categories,
        community_questions: community_questions,
+       favorited_ids: favorited_ids,
        category_map: category_map,
        filter_category: nil,
        page_title: "FAQ — #{game.name}"
@@ -88,13 +92,39 @@ defmodule RuleMavenWeb.GameLive.Faq do
     {:noreply, reload(socket)}
   end
 
+  @impl true
+  def handle_event("favorite_community_answer", %{"id" => id_str}, socket) do
+    with {id, ""} <- Integer.parse(id_str),
+         {:ok, _favorited?} <-
+           Games.toggle_answer_favorite(socket.assigns.current_user.id, id) do
+      {:noreply, reload(socket)}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
   defp reload(socket) do
     game = socket.assigns.game
+    user_id = socket.assigns.current_user.id
+
     community_questions = Games.faq_questions(game)
     question_ids = Enum.map(community_questions, & &1.id)
+    favorited_ids = Games.favorited_answer_ids(user_id, question_ids)
+    community_questions = sort_favorited_first(community_questions, favorited_ids)
     category_map = Games.categories_for_questions(question_ids)
 
-    assign(socket, community_questions: community_questions, category_map: category_map)
+    assign(socket,
+      community_questions: community_questions,
+      favorited_ids: favorited_ids,
+      category_map: category_map
+    )
+  end
+
+  # Favorited questions float to the top within whatever list they're
+  # rendered in (a category bucket, the untagged group, …); Enum.sort_by is
+  # stable, so ties keep their original (faq_questions-ranked) order.
+  defp sort_favorited_first(questions, favorited_ids) do
+    Enum.sort_by(questions, fn q -> if MapSet.member?(favorited_ids, q.id), do: 0, else: 1 end)
   end
 
   defp questions_for_category(questions, category_map, cat_id) do
@@ -193,7 +223,7 @@ defmodule RuleMavenWeb.GameLive.Faq do
           <% end %>
           <div style="display:flex;flex-direction:column;gap:0.6rem">
             <%= for q <- filtered do %>
-              <.question_card q={q} is_admin={@is_admin} game={@game} />
+              <.question_card q={q} is_admin={@is_admin} game={@game} favorited_ids={@favorited_ids} />
             <% end %>
             <p :if={filtered == []} style="font-size:0.75rem;color:var(--text-muted)">
               No questions in this category yet.
@@ -213,7 +243,7 @@ defmodule RuleMavenWeb.GameLive.Faq do
                 </h2>
                 <div style="display:flex;flex-direction:column;gap:0.6rem">
                   <%= for q <- cat_qs do %>
-                    <.question_card q={q} is_admin={@is_admin} game={@game} />
+                    <.question_card q={q} is_admin={@is_admin} game={@game} favorited_ids={@favorited_ids} />
                   <% end %>
                 </div>
               </div>
@@ -228,7 +258,7 @@ defmodule RuleMavenWeb.GameLive.Faq do
               </h2>
               <div style="display:flex;flex-direction:column;gap:0.6rem">
                 <%= for q <- untagged do %>
-                  <.question_card q={q} is_admin={@is_admin} game={@game} />
+                  <.question_card q={q} is_admin={@is_admin} game={@game} favorited_ids={@favorited_ids} />
                 <% end %>
               </div>
             </div>
@@ -306,14 +336,24 @@ defmodule RuleMavenWeb.GameLive.Faq do
             </span>
           </div>
         </div>
-        <%= if @is_admin do %>
+        <div style="display:flex;align-items:center;gap:0.3rem;flex-shrink:0">
+          <% fav? = MapSet.member?(@favorited_ids, @q.id) %>
           <button
-            phx-click="reject"
+            type="button"
+            phx-click="favorite_community_answer"
             phx-value-id={@q.id}
-            style="color:var(--text-muted);background:var(--bg-subtle);border:1px solid var(--border);font-size:0.65rem;cursor:pointer;padding:0.1rem 0.35rem;border-radius:0.25rem;flex-shrink:0"
-            title="Remove from community"
-          >✕</button>
-        <% end %>
+            style={"background:none;border:none;padding:0;line-height:1;font-size:0.95rem;cursor:pointer;#{if fav?, do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
+            title={if fav?, do: "Remove from your favorites", else: "Favorite — moves to top of this list"}
+          >{if fav?, do: "♥", else: "♡"}</button>
+          <%= if @is_admin do %>
+            <button
+              phx-click="reject"
+              phx-value-id={@q.id}
+              style="color:var(--text-muted);background:var(--bg-subtle);border:1px solid var(--border);font-size:0.65rem;cursor:pointer;padding:0.1rem 0.35rem;border-radius:0.25rem"
+              title="Remove from community"
+            >✕</button>
+          <% end %>
+        </div>
       </div>
     </div>
     """
