@@ -3445,137 +3445,6 @@ defmodule RuleMavenWeb.GameLive.Form do
               <button type="button" phx-click="add_source" class="btn-add-source">+ Add manual rules entry</button>
             </div>
 
-            <%!-- Rulebook reader modal: roomy, page-separated, read-only view of
-                 the in-memory source text (so a just-cleaned, unsaved result shows). --%>
-            <%= if @expanded_source_id != nil do %>
-              <% reader = Enum.find(@source_entries, &(&1.id == @expanded_source_id)) %>
-              <%= if reader do %>
-                <% pages = reader.pages %>
-                <% page_count = length(pages) %>
-                <% cur =
-                  @source_page |> Map.get(reader.id, 0) |> max(0) |> min(max(page_count - 1, 0)) %>
-                <% cur_page = Enum.at(pages, cur) %>
-                <% layer = editor_layer(reader, @editor_tab) %>
-                <% page_head =
-                  "font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:0 0 0.4rem 0;text-align:center" %>
-                <% page_label = fn p ->
-                  if p.printed, do: "Page #{p.printed} · Sheet #{p.sheet}", else: "Sheet #{p.sheet}"
-                end %>
-                <% tab_style = fn active ->
-                  "font-size:0.72rem;padding:0.2rem 0.7rem;border-radius:0.3rem;cursor:pointer;border:1px solid var(--border);background:#{if active, do: "var(--accent)", else: "var(--bg-subtle)"};color:#{if active, do: "white", else: "var(--text-secondary)"}"
-                end %>
-                <div style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:stretch;justify-content:center;padding:1.5rem">
-                  <div
-                    id="reader-modal"
-                    phx-hook="ReaderKeys"
-                    data-reader-id={reader.id}
-                    phx-click-away="close_source"
-                    phx-window-keydown="close_source"
-                    phx-key="Escape"
-                    style="background:var(--bg);border-radius:0.6rem;width:100%;height:100%;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,0.4)"
-                  >
-                    <div style="display:flex;align-items:center;gap:0.6rem;padding:0.4rem 1.1rem;border-bottom:1px solid var(--border)">
-                      <strong style="font-size:0.95rem;flex-shrink:0">
-                        {if String.trim(reader.label) != "", do: reader.label, else: "Rulebook"}
-                      </strong>
-                      <div style="display:flex;gap:0.35rem;margin-left:0.5rem">
-                        <button
-                          type="button"
-                          phx-click="set_reader_mode"
-                          phx-value-mode="scroll"
-                          style={tab_style.(@reader_mode == "scroll")}
-                        >Scroll</button>
-                        <button
-                          type="button"
-                          phx-click="set_reader_mode"
-                          phx-value-mode="paginated"
-                          style={tab_style.(@reader_mode == "paginated")}
-                        >Paginated</button>
-                      </div>
-
-                      <div style="margin-left:0.5rem">
-                        <.layer_tabs
-                          id={reader.id}
-                          current={layer}
-                          cleaned_available={cleaned_available?(reader)}
-                        />
-                      </div>
-
-                      <div
-                        :if={@reader_mode == "paginated" and page_count > 0}
-                        style="margin-left:auto"
-                      >
-                        <.page_nav id={reader.id} pages={pages} cur={cur} />
-                      </div>
-                      <div style={
-                        if(@reader_mode == "paginated" and page_count > 0,
-                          do: "",
-                          else: "margin-left:auto"
-                        )
-                      }>
-                        <.page_detection_badge
-                          id={reader.id}
-                          pages={pages}
-                          page_one={@page_one_input[reader.id]}
-                        />
-                      </div>
-
-                      <button
-                        type="button"
-                        phx-click="close_source"
-                        style={"font-size:1.1rem;line-height:1;background:none;border:none;cursor:pointer;color:var(--text-muted)#{if @reader_mode == "paginated", do: ";margin-left:0.5rem", else: ";margin-left:auto"}"}
-                      >✕</button>
-                    </div>
-
-                    <% regenerating? = Map.get(@reextracting, reader.source_id, 0) > 0 %>
-                    <% editable =
-                      layer_editable?(reader, layer) and @cleaning[reader.source_id] == nil and
-                        not regenerating? %>
-                    <% edit_style =
-                      "width:100%;box-sizing:border-box;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.9rem;line-height:1.6;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:0.4rem;padding:1rem;resize:vertical#{if not editable, do: ";opacity:0.7;background:var(--bg-subtle)"}" %>
-                    <%!-- Paginated mode: the box itself doesn't scroll — the top
-                          matter (heading, flags, log) stays put and the textarea
-                          fills the remaining height and scrolls internally. Scroll
-                          mode (continuous read-only) does scroll the whole area. --%>
-                    <div
-                      id="reader-scroll"
-                      style={"padding:0.5rem clamp(1.5rem,8vw,8rem) 1rem;flex:1;min-height:0;display:flex;flex-direction:column;overflow:#{if @reader_mode == "paginated", do: "hidden", else: "auto"}"}
-                    >
-                      <%= if @reader_mode == "paginated" do %>
-                        <%= if cur_page do %>
-                          <div style={page_head}>— {page_label.(cur_page)} —</div>
-                          <.review_flag
-                            id={reader.id}
-                            pages={pages}
-                            cur={cur}
-                            can_reextract={reextractable_source?(reader)}
-                            busy={regenerating?}
-                          />
-                          <textarea
-                            name={"pgm_#{reader.id}_#{cur}_#{layer_field(layer)}"}
-                            phx-change="edit_page"
-                            phx-debounce="250"
-                            style={"#{edit_style};flex:1;min-height:0;resize:none"}
-                            readonly={not editable}
-                          >{layer_text(cur_page, layer)}</textarea>
-                        <% else %>
-                          <p style="color:var(--text-muted)">No pages.</p>
-                        <% end %>
-                      <% else %>
-                        <%!-- Scroll = read-only continuous view of the selected
-                              layer (editing happens in the paginated mode). --%>
-                        <%= for p <- pages do %>
-                          <div style={page_head}>— {page_label.(p)} —</div>
-                          <div style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.9rem;line-height:1.6;white-space:pre-wrap;color:var(--text)">
-                            {layer_text(p, layer)}
-                          </div>
-                        <% end %>
-                      <% end %>
-                    </div>
-                  </div>
-                </div>
-              <% end %>
-            <% end %>
           </div>
 
           <%!-- Danger tab --%>
@@ -3916,6 +3785,142 @@ defmodule RuleMavenWeb.GameLive.Form do
         <% end %>
       </div>
     </div>
+
+    <%!-- Rulebook reader modal: roomy, page-separated, read-only view of the
+         in-memory source text (so a just-cleaned, unsaved result shows).
+         Rendered as a sibling of .game-form (not nested inside it) — that
+         wrapper's z-index:1 stacking context would otherwise cap this modal
+         below the sticky header (z-index:100) no matter how high the modal's
+         own z-index is set. --%>
+    <%= if @expanded_source_id != nil do %>
+      <% reader = Enum.find(@source_entries, &(&1.id == @expanded_source_id)) %>
+      <%= if reader do %>
+        <% pages = reader.pages %>
+        <% page_count = length(pages) %>
+        <% cur =
+          @source_page |> Map.get(reader.id, 0) |> max(0) |> min(max(page_count - 1, 0)) %>
+        <% cur_page = Enum.at(pages, cur) %>
+        <% layer = editor_layer(reader, @editor_tab) %>
+        <% page_head =
+          "font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:0 0 0.4rem 0;text-align:center" %>
+        <% page_label = fn p ->
+          if p.printed, do: "Page #{p.printed} · Sheet #{p.sheet}", else: "Sheet #{p.sheet}"
+        end %>
+        <% tab_style = fn active ->
+          "font-size:0.72rem;padding:0.2rem 0.7rem;border-radius:0.3rem;cursor:pointer;border:1px solid var(--border);background:#{if active, do: "var(--accent)", else: "var(--bg-subtle)"};color:#{if active, do: "white", else: "var(--text-secondary)"}"
+        end %>
+        <div style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:stretch;justify-content:center;padding:1.5rem">
+          <div
+            id="reader-modal"
+            phx-hook="ReaderKeys"
+            data-reader-id={reader.id}
+            phx-click-away="close_source"
+            phx-window-keydown="close_source"
+            phx-key="Escape"
+            style="background:var(--bg);border-radius:0.6rem;width:100%;height:100%;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,0.4)"
+          >
+            <div style="display:flex;align-items:center;gap:0.6rem;padding:0.4rem 1.1rem;border-bottom:1px solid var(--border)">
+              <strong style="font-size:0.95rem;flex-shrink:0">
+                {if String.trim(reader.label) != "", do: reader.label, else: "Rulebook"}
+              </strong>
+              <div style="display:flex;gap:0.35rem;margin-left:0.5rem">
+                <button
+                  type="button"
+                  phx-click="set_reader_mode"
+                  phx-value-mode="scroll"
+                  style={tab_style.(@reader_mode == "scroll")}
+                >Scroll</button>
+                <button
+                  type="button"
+                  phx-click="set_reader_mode"
+                  phx-value-mode="paginated"
+                  style={tab_style.(@reader_mode == "paginated")}
+                >Paginated</button>
+              </div>
+
+              <div style="margin-left:0.5rem">
+                <.layer_tabs
+                  id={reader.id}
+                  current={layer}
+                  cleaned_available={cleaned_available?(reader)}
+                />
+              </div>
+
+              <div
+                :if={@reader_mode == "paginated" and page_count > 0}
+                style="margin-left:auto"
+              >
+                <.page_nav id={reader.id} pages={pages} cur={cur} />
+              </div>
+              <div style={
+                if(@reader_mode == "paginated" and page_count > 0,
+                  do: "",
+                  else: "margin-left:auto"
+                )
+              }>
+                <.page_detection_badge
+                  id={reader.id}
+                  pages={pages}
+                  page_one={@page_one_input[reader.id]}
+                />
+              </div>
+
+              <button
+                type="button"
+                phx-click="close_source"
+                style={"font-size:1.1rem;line-height:1;background:none;border:none;cursor:pointer;color:var(--text-muted)#{if @reader_mode == "paginated", do: ";margin-left:0.5rem", else: ";margin-left:auto"}"}
+              >✕</button>
+            </div>
+
+            <% regenerating? = Map.get(@reextracting, reader.source_id, 0) > 0 %>
+            <% editable =
+              layer_editable?(reader, layer) and @cleaning[reader.source_id] == nil and
+                not regenerating? %>
+            <% edit_style =
+              "width:100%;box-sizing:border-box;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.9rem;line-height:1.6;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:0.4rem;padding:1rem;resize:vertical#{if not editable, do: ";opacity:0.7;background:var(--bg-subtle)"}" %>
+            <%!-- Paginated mode: the box itself doesn't scroll — the top
+                  matter (heading, flags, log) stays put and the textarea
+                  fills the remaining height and scrolls internally. Scroll
+                  mode (continuous read-only) does scroll the whole area. --%>
+            <div
+              id="reader-scroll"
+              style={"padding:0.5rem clamp(1.5rem,8vw,8rem) 1rem;flex:1;min-height:0;display:flex;flex-direction:column;overflow:#{if @reader_mode == "paginated", do: "hidden", else: "auto"}"}
+            >
+              <%= if @reader_mode == "paginated" do %>
+                <%= if cur_page do %>
+                  <div style={page_head}>— {page_label.(cur_page)} —</div>
+                  <.review_flag
+                    id={reader.id}
+                    pages={pages}
+                    cur={cur}
+                    can_reextract={reextractable_source?(reader)}
+                    busy={regenerating?}
+                  />
+                  <textarea
+                    name={"pgm_#{reader.id}_#{cur}_#{layer_field(layer)}"}
+                    phx-change="edit_page"
+                    phx-debounce="250"
+                    style={"#{edit_style};flex:1;min-height:0;resize:none"}
+                    readonly={not editable}
+                  >{layer_text(cur_page, layer)}</textarea>
+                <% else %>
+                  <p style="color:var(--text-muted)">No pages.</p>
+                <% end %>
+              <% else %>
+                <%!-- Scroll = read-only continuous view of the selected
+                      layer (editing happens in the paginated mode). --%>
+                <%= for p <- pages do %>
+                  <div style={page_head}>— {page_label.(p)} —</div>
+                  <div style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.9rem;line-height:1.6;white-space:pre-wrap;color:var(--text)">
+                    {layer_text(p, layer)}
+                  </div>
+                <% end %>
+              <% end %>
+            </div>
+          </div>
+        </div>
+      <% end %>
+    <% end %>
     """
   end
 
