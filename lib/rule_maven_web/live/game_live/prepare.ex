@@ -544,7 +544,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     ~H"""
     {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
     <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
-    <div style="max-width:52rem;margin:0 auto;padding:1.25rem 1.5rem;position:relative;z-index:1">
+    <div style="max-width:52rem;margin:0 auto;padding:0 1.5rem 1.25rem;position:relative;z-index:1">
       <div class="mb-4 flex items-center justify-between">
         <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">
           &larr; Back to games
