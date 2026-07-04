@@ -2992,7 +2992,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       phx-value-id={@msg_id}
       phx-value-voice={@voice.id}
       class="card-menu__item"
-      style={"display:flex;width:100%;justify-content:flex-start;align-items:flex-start;#{if @selected, do: "background:var(--accent);color:var(--accent-text,#fff)"}"}
+      style={"display:flex;width:100%;justify-content:flex-start;align-items:flex-start;white-space:normal;#{if @selected, do: "background:var(--accent);color:var(--accent-text,#fff)"}"}
     >
       <span aria-hidden="true" style="flex:none;width:1.3rem;text-align:center">{@voice.emoji}</span>
       <span style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;text-align:left">
