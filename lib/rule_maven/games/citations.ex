@@ -79,6 +79,21 @@ defmodule RuleMaven.Games.Citations do
 
   def canonical_source(_cited_source, _source_chunks), do: nil
 
+  @doc """
+  Filters a list of `%{"quote" => , "page" => , "source" => }` citation maps
+  down to the ones grounded in `source_chunks`, via `valid?/4`. Order is
+  preserved; ungrounded entries are dropped silently rather than failing the
+  whole list — one hallucinated citation among several good ones shouldn't
+  wipe out the rest of the answer's citations.
+  """
+  def valid_citations(citations, source_chunks) when is_list(citations) do
+    Enum.filter(citations, fn c ->
+      valid?(c["quote"], c["page"], source_chunks, c["source"])
+    end)
+  end
+
+  def valid_citations(_citations, _source_chunks), do: []
+
   defp to_chunk_maps(chunks) when is_list(chunks) do
     Enum.flat_map(chunks, fn
       %{content: _} = chunk -> [Map.put_new(chunk, :label, nil)]

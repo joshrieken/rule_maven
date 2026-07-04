@@ -95,4 +95,37 @@ defmodule RuleMaven.Games.CitationsTest do
       assert Citations.canonical_source("Core rules", ["[Page 1]\nsome text"]) == nil
     end
   end
+
+  describe "valid_citations/2" do
+    @chunks [
+      "[Page 3] Each player draws three cards at the start of their turn.",
+      "[Page 7] Scoring happens at the end of the round, summing all face-up tokens."
+    ]
+
+    test "keeps only the grounded entries, preserving order" do
+      citations = [
+        %{"quote" => "draws three cards at the start of their turn", "page" => 3, "source" => nil},
+        %{"quote" => "the dragon devours two villages each dawn", "page" => 3, "source" => nil},
+        %{"quote" => "summing all face-up tokens", "page" => 7, "source" => nil}
+      ]
+
+      assert Citations.valid_citations(citations, @chunks) == [
+               %{"quote" => "draws three cards at the start of their turn", "page" => 3, "source" => nil},
+               %{"quote" => "summing all face-up tokens", "page" => 7, "source" => nil}
+             ]
+    end
+
+    test "empty input yields empty output" do
+      assert Citations.valid_citations([], @chunks) == []
+    end
+
+    test "all-ungrounded input yields empty output" do
+      citations = [%{"quote" => "invented nonsense", "page" => 99, "source" => nil}]
+      assert Citations.valid_citations(citations, @chunks) == []
+    end
+
+    test "non-list input yields empty output" do
+      assert Citations.valid_citations(nil, @chunks) == []
+    end
+  end
 end
