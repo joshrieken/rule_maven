@@ -2918,17 +2918,19 @@ defmodule RuleMaven.Games do
     Repo.exists?(from(c in Chunk, where: c.document_id == ^doc_id))
   end
 
-  def retrieve_chunks(%Game{} = game, question, limit \\ 6) do
+  def retrieve_chunks(%Game{} = game, question, limit \\ 10) do
     retrieve_chunks_for_games([game.id], question, limit: limit)
   end
 
   @doc """
   Semantic chunk retrieval. Pass `:embedding` to reuse a question vector already
   computed upstream (avoids a redundant embedding API call); otherwise embeds
-  here. `:limit` caps returned chunks (default 6).
+  here. `:limit` caps returned chunks (default 10 — broad/multi-topic questions
+  need enough headroom that a relevant chunk ranked outside the old top-6 still
+  reaches the LLM).
   """
   def retrieve_chunks_for_games(game_ids, question, opts \\ []) when is_list(game_ids) do
-    limit = Keyword.get(opts, :limit, 6)
+    limit = Keyword.get(opts, :limit, 10)
     base_game_id = Keyword.get(opts, :base_game_id, List.first(game_ids))
 
     embed_result =
