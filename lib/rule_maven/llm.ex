@@ -151,7 +151,7 @@ defmodule RuleMaven.LLM do
 
     body = %{
       model: model_name,
-      max_tokens: 1024,
+      max_tokens: 2048,
       response_format: %{type: "json_object"},
       messages: [
         %{role: "system", content: system_prompt},
@@ -268,7 +268,9 @@ defmodule RuleMaven.LLM do
 
     case chat(user, "normalize_question",
            system: RuleMaven.Prompts.template("normalize_question_system"),
-           max_tokens: 64,
+           # Ceiling, not spend — the canonical question is one line, but a
+           # reasoning model needs thinking budget before it (64 starved it).
+           max_tokens: 2000,
            model: model(:cheap),
            operation: "normalize",
            game_id: game.id,
@@ -418,7 +420,7 @@ defmodule RuleMaven.LLM do
 
     case chat(user, "cleanup_critic",
            system: RuleMaven.Prompts.template("cleanup_critic"),
-           max_tokens: 1024,
+           max_tokens: 2048,
            model: opts[:model] || model(:cleanup),
            operation: "cleanup",
            game_id: opts[:game_id]
@@ -740,12 +742,45 @@ defmodule RuleMaven.LLM do
 
   defp do_request(body, attempt, opts) do
     # Test-mode mock injection point. Set via Application.put_env(:rule_maven, :llm_mock, fn body -> ... end)
-    if mock = Application.get_env(:rule_maven, :llm_mock) do
-      do_request_mock(body, opts, mock)
+    result =
+      if mock = Application.get_env(:rule_maven, :llm_mock) do
+        do_request_mock(body, opts, mock)
+      else
+        do_request_real(body, attempt, opts)
+      end
+
+    maybe_retry_truncated(result, body, attempt, opts)
+  end
+
+  # Reasoning models spend completion budget thinking; a cap sized for the
+  # visible answer can come back cut off ("length") with little or no content.
+  # Retry ONCE with a doubled cap. The retry must also alter the messages
+  # array: the LLM proxy caches responses keyed by messages (ignoring
+  # max_tokens), so an unchanged request would replay the truncated response.
+  @truncation_retry_marker %{
+    role: "system",
+    content: "(Your previous response was cut off by the token limit. Answer again, in full.)"
+  }
+
+  defp maybe_retry_truncated({:ok, res} = result, body, attempt, opts) do
+    if res[:finish_reason] in ["length", "max_tokens"] and
+         not Keyword.get(opts, :truncation_retried, false) do
+      require Logger
+
+      Logger.warning(
+        "LLM response truncated (operation=#{opts[:operation]}, max_tokens=#{body[:max_tokens]}) — retrying with doubled cap"
+      )
+
+      body
+      |> Map.update(:max_tokens, 4096, &(&1 * 2))
+      |> Map.update!(:messages, &(&1 ++ [@truncation_retry_marker]))
+      |> do_request(attempt, Keyword.put(opts, :truncation_retried, true))
     else
-      do_request_real(body, attempt, opts)
+      result
     end
   end
+
+  defp maybe_retry_truncated(result, _body, _attempt, _opts), do: result
 
   # Mirrors the log_llm call on the real HTTP path so mocked tests can assert
   # on llm_logs rows (operation/game_id/user_id) same as production traffic —
@@ -1455,7 +1490,7 @@ defmodule RuleMaven.LLM do
            operation: "did_you_know_verify",
            game_id: game_id,
            system: RuleMaven.Prompts.template("did_you_know_verify_system"),
-           max_tokens: 600
+           max_tokens: 2000
          ) do
       {:ok, text} ->
         case parse_keep_indices(text, length(facts)) do
@@ -1701,7 +1736,7 @@ defmodule RuleMaven.LLM do
              ]
            }
          ],
-         body = %{model: vision_model(), max_tokens: 600, messages: messages},
+         body = %{model: vision_model(), max_tokens: 2000, messages: messages},
          # Read :raw_response, not :answer — decode_answer/1 assumes the Q&A JSON
          # schema and would extract a nonexistent "answer" key from our palette
          # JSON, yielding "". raw_response is the unparsed model content.

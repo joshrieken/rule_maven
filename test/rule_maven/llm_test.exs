@@ -547,6 +547,70 @@ defmodule RuleMaven.LLMTest do
     end
   end
 
+  describe "truncation auto-retry" do
+    test "retries once with doubled cap and a cache-busting marker" do
+      test_pid = self()
+
+      mock_llm(fn body ->
+        send(test_pid, {:call, body[:max_tokens], length(body[:messages])})
+
+        if length(body[:messages]) == 1 do
+          # First attempt: reasoning ate the whole budget.
+          {:ok, %{answer: "", finish_reason: "length"}}
+        else
+          {:ok, %{answer: "The answer.", finish_reason: "stop"}}
+        end
+      end)
+
+      assert {:ok, "The answer."} = LLM.chat("What is the rule?", "test", max_tokens: 500)
+
+      assert_received {:call, 500, 1}
+      # Retry doubles the cap AND appends a marker message — the LLM proxy
+      # caches by messages (ignoring max_tokens), so an unchanged messages
+      # array would replay the same truncated response forever.
+      assert_received {:call, 1000, 2}
+    end
+
+    test "does not retry more than once" do
+      test_pid = self()
+
+      mock_llm(fn body ->
+        send(test_pid, :call)
+        {:ok, %{answer: "partial", finish_reason: "length"}}
+      end)
+
+      {:ok, "partial"} = LLM.chat("What is the rule?", "test", max_tokens: 500)
+
+      assert_received :call
+      assert_received :call
+      refute_received :call
+    end
+
+    test "reject_truncated still errors when the retry is also truncated" do
+      mock_llm(fn _body -> {:ok, %{answer: "partial", finish_reason: "length"}} end)
+
+      assert {:error, :truncated} =
+               LLM.chat("What is the rule?", "test", max_tokens: 500, reject_truncated: true)
+    end
+  end
+
+  describe "normalize cap floor" do
+    test "normalize requests a reasoning-safe completion budget" do
+      test_pid = self()
+
+      mock_llm(fn body ->
+        send(test_pid, {:max_tokens, body[:max_tokens]})
+        {:ok, %{answer: "What is the maximum hand size?", finish_reason: "stop"}}
+      end)
+
+      {:ok, game} = Games.create_game(%{name: "NormCap Game"})
+      LLM.normalize_question(game, "hand size limit", [])
+
+      assert_received {:max_tokens, max_tokens}
+      assert max_tokens >= 1024
+    end
+  end
+
   describe "suggest_questions/3" do
     test "rejects a truncated response instead of parsing partial output" do
       mock_llm(fn _body -> {:ok, %{answer: "", finish_reason: "length"}} end)
