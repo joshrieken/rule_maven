@@ -545,9 +545,24 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
     <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
     <div style="max-width:52rem;margin:0 auto;padding:1.25rem 1.5rem;position:relative;z-index:1">
-      <.link navigate={~p"/games/#{@game}/edit"} class="back-link">
-        &larr; Back to {String.slice(@game.name, 0, 30)}
-      </.link>
+      <div class="mb-4 flex items-center justify-between">
+        <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">
+          &larr; Back to games
+        </.link>
+        <div style="display:flex;align-items:center;gap:1rem">
+          <.link navigate={~p"/games/#{@game}/edit"} class="back-link" style="margin-bottom:0">
+            Edit game &rarr;
+          </.link>
+          <.link
+            :if={@playable?}
+            navigate={~p"/games/#{@game}"}
+            class="back-link"
+            style="margin-bottom:0"
+          >
+            Ask questions &rarr;
+          </.link>
+        </div>
+      </div>
 
       <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:0.25rem 0 0.35rem">
         <div style="display:flex;align-items:center;gap:0.75rem">
