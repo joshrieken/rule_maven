@@ -70,7 +70,10 @@ defmodule RuleMavenWeb.GameLive.Show do
        # Setup checklist (durable, per-game) + per-session checked items.
        setup_status: nil,
        setup_checklist: nil,
-       checklist_done: MapSet.new()
+       checklist_done: MapSet.new(),
+       # Deltas for the currently-included expansions that have one stored (see
+       # `load_expansion_deltas/2`); empty until the connected mount fills it in.
+       expansion_deltas: []
      )}
   end
 
@@ -126,6 +129,10 @@ defmodule RuleMavenWeb.GameLive.Show do
         RuleMaven.PubSub,
         RuleMaven.Workers.VoiceSuggestionsWorker.topic(game.id)
       )
+
+      for exp <- Games.expansions_with_documents(game) do
+        Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.ExpansionDelta.topic(exp.id))
+      end
     end
 
     grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
@@ -205,6 +212,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         sources: sources,
         expansions: expansions,
         included_expansions: included_expansions,
+        expansion_deltas: load_expansion_deltas(expansions, included_expansions),
         expansions_seeded: true,
         source_count: length(sources),
         question: "",
@@ -490,7 +498,11 @@ defmodule RuleMavenWeb.GameLive.Show do
       Map.keys(included)
     )
 
-    {:noreply, assign(socket, included_expansions: included)}
+    {:noreply,
+     assign(socket,
+       included_expansions: included,
+       expansion_deltas: load_expansion_deltas(socket.assigns.expansions, included)
+     )}
   end
 
   @impl true
@@ -1366,6 +1378,14 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
+  def handle_info({:delta_done, _game_id}, socket) do
+    {:noreply,
+     assign(socket,
+       expansion_deltas:
+         load_expansion_deltas(socket.assigns.expansions, socket.assigns.included_expansions)
+     )}
+  end
+
   def handle_info({:voice_ready, ql_id, voice, content}, socket) do
     cache = Map.put(socket.assigns.voice_cache, {ql_id, voice}, content)
     pending = MapSet.delete(socket.assigns.voice_pending, {ql_id, voice})
@@ -1492,6 +1512,48 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       {:noreply, assign(socket, stale_timer: timer)}
     end
+  end
+
+  # One checklist row shared by the base setup checklist (Gather/Steps) and the
+  # per-expansion delta sections: a toggle button keyed into @checklist_done.
+  # `plain: true` renders a single-line item (Gather / delta components);
+  # otherwise renders a bold title with an optional detail line (Steps / delta
+  # setup steps) — `detail` is nil for plain items.
+  attr :key, :string, required: true
+  attr :checked, :boolean, required: true
+  attr :title, :string, required: true
+  attr :detail, :string, default: nil
+  attr :plain, :boolean, default: false
+
+  defp checklist_item(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-click="toggle_step"
+      phx-value-key={@key}
+      style={"display:flex;gap:0.5rem;align-items:flex-start;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:#{if @plain, do: "0.2rem", else: "0.3rem"} 0;font-size:0.82rem;line-height:1.4;color:#{if @checked, do: "var(--text-muted)", else: "var(--text)"}"}
+    >
+      <span aria-hidden="true" style="flex-shrink:0">
+        {if @checked, do: "☑️", else: "⬜"}
+      </span>
+      <%= if @plain do %>
+        <span style={"flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere;#{if @checked, do: "text-decoration:line-through", else: ""}"}>
+          {@title}
+        </span>
+      <% else %>
+        <span style="flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere">
+          <span style={"font-weight:600;#{if @checked, do: "text-decoration:line-through", else: ""}"}>
+            {@title}
+          </span>
+          <%= if @detail not in [nil, "", "nil"] do %>
+            <span style="display:block;font-size:0.74rem;color:var(--text-muted)">
+              {@detail}
+            </span>
+          <% end %>
+        </span>
+      <% end %>
+    </button>
+    """
   end
 
   @impl true
@@ -1952,8 +2014,13 @@ defmodule RuleMavenWeb.GameLive.Show do
 
               <%= if @setup_checklist && (@setup_checklist["components"] != [] || @setup_checklist["setup"] != []) do %>
                 <div style="margin:1.25rem auto 0;max-width:30rem;text-align:left">
+                  <% delta_total =
+                    Enum.reduce(@expansion_deltas, 0, fn {_e, d}, acc ->
+                      acc + length(d["components"]) + length(d["setup"])
+                    end) %>
                   <% total =
-                    length(@setup_checklist["components"]) + length(@setup_checklist["setup"]) %>
+                    length(@setup_checklist["components"]) + length(@setup_checklist["setup"]) +
+                      delta_total %>
                   <% done = MapSet.size(@checklist_done) %>
                   <div
                     id="setup-checklist"
@@ -1983,20 +2050,12 @@ defmodule RuleMavenWeb.GameLive.Show do
                       </div>
                       <%= for {item, i} <- Enum.with_index(@setup_checklist["components"]) do %>
                         <% key = "c-#{i}" %>
-                        <% checked = MapSet.member?(@checklist_done, key) %>
-                        <button
-                          type="button"
-                          phx-click="toggle_step"
-                          phx-value-key={key}
-                          style={"display:flex;gap:0.5rem;align-items:flex-start;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:0.2rem 0;font-size:0.82rem;line-height:1.4;color:#{if checked, do: "var(--text-muted)", else: "var(--text)"}"}
-                        >
-                          <span aria-hidden="true" style="flex-shrink:0">
-                            {if checked, do: "☑️", else: "⬜"}
-                          </span>
-                          <span style={"flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere;#{if checked, do: "text-decoration:line-through", else: ""}"}>
-                            {item}
-                          </span>
-                        </button>
+                        <.checklist_item
+                          key={key}
+                          checked={MapSet.member?(@checklist_done, key)}
+                          title={item}
+                          plain={true}
+                        />
                       <% end %>
                     <% end %>
 
@@ -2006,27 +2065,36 @@ defmodule RuleMavenWeb.GameLive.Show do
                       </div>
                       <%= for {step, i} <- Enum.with_index(@setup_checklist["setup"]) do %>
                         <% key = "s-#{i}" %>
-                        <% checked = MapSet.member?(@checklist_done, key) %>
-                        <button
-                          type="button"
-                          phx-click="toggle_step"
-                          phx-value-key={key}
-                          style={"display:flex;gap:0.5rem;align-items:flex-start;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:0.3rem 0;font-size:0.82rem;line-height:1.4;color:#{if checked, do: "var(--text-muted)", else: "var(--text)"}"}
-                        >
-                          <span aria-hidden="true" style="flex-shrink:0">
-                            {if checked, do: "☑️", else: "⬜"}
-                          </span>
-                          <span style="flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere">
-                            <span style={"font-weight:600;#{if checked, do: "text-decoration:line-through", else: ""}"}>
-                              {step["title"]}
-                            </span>
-                            <%= if step["detail"] not in [nil, "", "nil"] do %>
-                              <span style="display:block;font-size:0.74rem;color:var(--text-muted)">
-                                {step["detail"]}
-                              </span>
-                            <% end %>
-                          </span>
-                        </button>
+                        <.checklist_item
+                          key={key}
+                          checked={MapSet.member?(@checklist_done, key)}
+                          title={step["title"]}
+                          detail={step["detail"]}
+                        />
+                      <% end %>
+                    <% end %>
+
+                    <%= for {exp, delta} <- @expansion_deltas do %>
+                      <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--accent);margin:0.8rem 0 0.3rem">
+                        ➕ {exp.name}
+                      </div>
+                      <%= for {item, i} <- Enum.with_index(delta["components"]) do %>
+                        <% key = "xc-#{exp.id}-#{i}" %>
+                        <.checklist_item
+                          key={key}
+                          checked={MapSet.member?(@checklist_done, key)}
+                          title={item}
+                          plain={true}
+                        />
+                      <% end %>
+                      <%= for {step, i} <- Enum.with_index(delta["setup"]) do %>
+                        <% key = "xs-#{exp.id}-#{i}" %>
+                        <.checklist_item
+                          key={key}
+                          checked={MapSet.member?(@checklist_done, key)}
+                          title={step["title"]}
+                          detail={step["detail"]}
+                        />
                       <% end %>
                     <% end %>
 
@@ -2997,6 +3065,19 @@ defmodule RuleMavenWeb.GameLive.Show do
   # Generation is not automatic — it runs at finalize. Returns {status, checklist}.
   defp load_setup(game, _sources) do
     {RuleMaven.Setup.status(game.id), RuleMaven.Setup.stored_checklist(game.id)}
+  end
+
+  # Deltas for the currently-included expansions that have one stored, in
+  # expansion-name order (the `expansions` assign is already name-sorted).
+  defp load_expansion_deltas(expansions, included) do
+    expansions
+    |> Enum.filter(&Map.get(included, &1.id))
+    |> Enum.flat_map(fn exp ->
+      case RuleMaven.ExpansionDelta.stored(exp.id) do
+        nil -> []
+        delta -> [{exp, delta}]
+      end
+    end)
   end
 
   # Push the current checked-item set to the browser so the ChecklistStore hook
