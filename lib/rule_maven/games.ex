@@ -763,6 +763,27 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
+  Re-run the upload-time auto-publish quality check on a `pending_review` doc.
+
+  The insert-time check in `insert_document/1` can only pass for a source that
+  already carries extracted text; a source saved first and extracted later
+  (`ExtractWorker`) would otherwise stay `pending_review` forever — invisible to
+  retrieval even after the game goes playable, so answers ran against an empty
+  rulebook. Respects the same `auto_approve_documents` kill switch; docs in any
+  other status (published, rejected) are left untouched.
+  """
+  def maybe_auto_publish(%Document{status: "pending_review"} = doc) do
+    if RuleMaven.Settings.get("auto_approve_documents") != "false" and
+         quality_ok?(doc.full_text || "") do
+      approve_document(doc)
+    else
+      {:ok, doc}
+    end
+  end
+
+  def maybe_auto_publish(%Document{} = doc), do: {:ok, doc}
+
+  @doc """
   Admin manual approval: publish a `pending_review` document, record who/when,
   and (re)enqueue embedding generation. The embed enqueue heals docs whose
   upload-time embed job failed or never ran — `EmbedChunksWorker` only touches

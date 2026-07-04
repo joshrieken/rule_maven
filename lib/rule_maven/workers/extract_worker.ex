@@ -50,6 +50,17 @@ defmodule RuleMaven.Workers.ExtractWorker do
 
         case RulebookDownloader.extract_document(doc, on_progress) do
           {:ok, updated} ->
+            # A doc saved before extraction skipped the insert-time auto-publish
+            # quality check; re-run it now so the doc doesn't sit pending_review
+            # (and thus invisible to retrieval) after a clean extraction.
+            case Games.maybe_auto_publish(updated) do
+              {:ok, %{status: "published"}} when updated.status != "published" ->
+                Jobs.event(run, "info", "Quality check passed — auto-published.")
+
+              _ ->
+                :noop
+            end
+
             # finish_run (kind "extract") advances readiness centrally.
             Jobs.finish_run(run, "done", "Extracted #{length(updated.pages)} page(s).")
             :ok

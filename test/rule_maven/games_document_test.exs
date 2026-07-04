@@ -68,6 +68,66 @@ defmodule RuleMaven.GamesDocumentTest do
     assert doc.status == "pending_review"
   end
 
+  describe "maybe_auto_publish/1" do
+    # Simulates the save-then-extract path: the doc is inserted without text
+    # (status pending_review), extraction fills full_text later, and nothing
+    # used to re-run the auto-publish quality check — the doc stayed
+    # pending_review forever, invisible to retrieval even on a playable game.
+    @good_text """
+    Setup: Each player receives five cards from the deck. Place the remaining
+    cards in the center of the table. The youngest player goes first. Shuffle
+    all remaining cards thoroughly before starting.
+
+    Turn Structure: On your turn, draw one card and play one card. Cards have
+    various effects that may modify the rules. After playing, pass the turn
+    clockwise. You must announce your action before drawing additional cards.
+    The maximum hand size is seven cards at all times during the game.
+
+    Combat: When two players occupy the same space, combat begins immediately.
+    Each player rolls a die and adds their strength modifier. The higher total
+    wins the combat. The loser retreats to the nearest empty space.
+
+    Winning: The first player to collect ten victory points wins the game.
+    Victory points are earned by completing quests and defeating opponents.
+    A player may hold at most five quests at any time during the game session.
+    """
+
+    defp saved_then_extracted(game, text) do
+      {:ok, doc} = Games.create_document(%{game_id: game.id, label: "Rules"})
+      assert doc.status == "pending_review"
+      {:ok, doc} = Games.update_document(doc, %{full_text: text})
+      doc
+    end
+
+    test "publishes a pending doc whose extracted text passes the quality check", %{game: game} do
+      doc = saved_then_extracted(game, @good_text)
+      {:ok, published} = Games.maybe_auto_publish(doc)
+      assert published.status == "published"
+    end
+
+    test "leaves a pending doc with junk text unpublished", %{game: game} do
+      doc = saved_then_extracted(game, "!@#$%^&*() xyz 123 ### ??? --- ___")
+      {:ok, unchanged} = Games.maybe_auto_publish(doc)
+      assert unchanged.status == "pending_review"
+    end
+
+    test "respects the auto_approve_documents kill switch", %{game: game} do
+      RuleMaven.Settings.put("auto_approve_documents", "false")
+      on_exit(fn -> RuleMaven.Settings.put("auto_approve_documents", "true") end)
+
+      doc = saved_then_extracted(game, @good_text)
+      {:ok, unchanged} = Games.maybe_auto_publish(doc)
+      assert unchanged.status == "pending_review"
+    end
+
+    test "does not touch a doc that is not pending_review", %{game: game} do
+      doc = saved_then_extracted(game, @good_text)
+      {:ok, rejected} = Games.update_document(doc, %{status: "rejected"})
+      {:ok, unchanged} = Games.maybe_auto_publish(rejected)
+      assert unchanged.status == "rejected"
+    end
+  end
+
   test "update_document persists edited text, re-derives pages, and re-chunks", %{game: game} do
     {:ok, doc} =
       Games.create_document(%{
