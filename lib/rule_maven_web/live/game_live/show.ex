@@ -2451,14 +2451,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                         title="Total helpful votes"
                       >{Map.get(counts, :up, 0)}</span>
                     </span>
-                    <% fav? = MapSet.member?(@favorited_answer_ids, msg[:id]) %>
-                    <button
-                      type="button"
-                      phx-click="favorite_community_answer"
-                      phx-value-id={msg[:id]}
-                      style={"background:none;border:none;padding:0;line-height:1;font-size:0.85rem;cursor:pointer;#{if fav?, do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
-                      title={if fav?, do: "Remove from your favorites", else: "Add to your favorites"}
-                    >{if fav?, do: "♥", else: "♡"}</button>
                   <% else %>
                     <%= if msg[:pool_hit] && msg[:pool_source_id] do %>
                       <!-- Pool hit (trusted or provisional): vote accrues to the
@@ -2518,17 +2510,30 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% end %>
                   <% end %>
 
-                  <!-- Category pills, pushed to the far right of the action row.
-                       Categories live in the (community) FAQ, so only show on
-                       community questions — except admins, who see them on any
-                       answer to audit tagging before it goes community. -->
+                  <%!-- Everything but the vote tally right-aligns in one group:
+                        favorite heart, category pills, then the overflow menu. --%>
+                  <span style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-left:auto">
+                  <%= if is_community_msg do %>
+                    <% fav? = MapSet.member?(@favorited_answer_ids, msg[:id]) %>
+                    <button
+                      type="button"
+                      phx-click="favorite_community_answer"
+                      phx-value-id={msg[:id]}
+                      style={"background:none;border:none;padding:0;line-height:1;font-size:0.85rem;cursor:pointer;#{if fav?, do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
+                      title={if fav?, do: "Remove from your favorites", else: "Add to your favorites"}
+                    >{if fav?, do: "♥", else: "♡"}</button>
+                  <% end %>
+                  <!-- Category pills. Categories live in the (community) FAQ, so
+                       only show on community questions — except admins, who see
+                       them on any answer to audit tagging before it goes
+                       community. -->
                   <% msg_cats =
                     if (is_community_msg || @is_admin) && msg.role == :assistant && msg[:id],
                       do: Map.get(@question_categories, msg[:id], []),
                       else: [] %>
                   <span
                     :if={msg_cats != []}
-                    style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.25rem;margin-left:auto"
+                    style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.25rem"
                   >
                     <span style="font-size:0.55rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);font-weight:600">
                       Categories
@@ -2543,7 +2548,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </span>
 
                   <!-- Overflow: secondary actions (copy, regenerate) -->
-                  <details class="card-menu" style="margin-left:auto">
+                  <details class="card-menu">
                     <summary class="card-menu__trigger" title="More actions">
                       ⋯
                     </summary>
@@ -2588,6 +2593,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <% end %>
                     </div>
                   </details>
+                  </span>
                 </div>
 
                 <!-- Message actions (admin only) -->
