@@ -2510,19 +2510,28 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% end %>
                   <% end %>
 
-                  <%!-- Everything but the vote tally right-aligns in one group:
-                        favorite heart, category pills, then the overflow menu. --%>
-                  <span style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-left:auto">
-                  <%= if is_community_msg do %>
-                    <% fav? = MapSet.member?(@favorited_answer_ids, msg[:id]) %>
+                  <%!-- Favorite heart, next to the vote tally. Community answers
+                        favorite their own row; pool hits favorite the shared
+                        source row (the backend only allows community/pooled). --%>
+                  <% fav_id =
+                    cond do
+                      is_community_msg -> msg[:id]
+                      msg[:pool_hit] && msg[:pool_source_id] -> msg[:pool_source_id]
+                      true -> nil
+                    end %>
+                  <%= if fav_id do %>
+                    <% fav? = MapSet.member?(@favorited_answer_ids, fav_id) %>
                     <button
                       type="button"
                       phx-click="favorite_community_answer"
-                      phx-value-id={msg[:id]}
+                      phx-value-id={fav_id}
                       style={"background:none;border:none;padding:0;line-height:1;font-size:0.85rem;cursor:pointer;#{if fav?, do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
                       title={if fav?, do: "Remove from your favorites", else: "Add to your favorites"}
                     >{if fav?, do: "♥", else: "♡"}</button>
                   <% end %>
+                  <%!-- Everything else right-aligns in one group: category pills,
+                        then the overflow menu. --%>
+                  <span style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-left:auto">
                   <!-- Category pills. Categories live in the (community) FAQ, so
                        only show on community questions — except admins, who see
                        them on any answer to audit tagging before it goes

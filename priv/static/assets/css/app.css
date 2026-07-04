@@ -1504,13 +1504,16 @@ h1 span.subtitle {
    "Did you know?" banner pinned at the top doesn't cover its first line. */
 .chat-msg { scroll-margin-top: 2.75rem; }
 
+/* End at transform:none (not translate3d(0,0,0)) — a retained transform makes
+   every bubble a stacking context, which buries card-menu popups from earlier
+   messages beneath later siblings. */
 @keyframes msg-in-left {
   from { opacity: 0; transform: translate3d(-14px, 6px, 0); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+  to   { opacity: 1; transform: none; }
 }
 @keyframes msg-in-right {
   from { opacity: 0; transform: translate3d(14px, 6px, 0); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* The answer body is a fresh node when it replaces the "Thinking…" indicator,
@@ -1518,7 +1521,7 @@ h1 span.subtitle {
 .answer-in { animation: answer-rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
 @keyframes answer-rise {
   from { opacity: 0; transform: translate3d(0, 6px, 0); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* The verdict stamp pops in once, after the answer settles. */
