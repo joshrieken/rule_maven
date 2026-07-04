@@ -55,4 +55,23 @@ defmodule RuleMaven.ExpansionDeltaTest do
       assert RuleMaven.ExpansionDelta.parse_sections("no sections here") == nil
     end
   end
+
+  describe "readiness kicks delta generation for expansions" do
+    test "ensure_enrichments seeds the delta state machine for an expansion, not a base game" do
+      {:ok, base} = RuleMaven.Games.create_game(%{name: "DeltaBase #{System.unique_integer([:positive])}"})
+      {:ok, exp} = RuleMaven.Games.create_game(%{name: "DeltaExp #{System.unique_integer([:positive])}"})
+      RuleMaven.Games.link_expansion(exp.id, base.id)
+
+      # drive/1 reaches ensure_enrichments only at :done; call the enrichment
+      # kick directly via a full drive on a game with everything missing is
+      # complex — instead assert the public seam: generate_async seeds state,
+      # and Readiness.ensure_enrichments/1 (exposed for this test) enqueues for
+      # expansions only.
+      RuleMaven.Readiness.ensure_enrichments(exp)
+      assert RuleMaven.ExpansionDelta.status(exp.id) == "generating"
+
+      RuleMaven.Readiness.ensure_enrichments(base)
+      assert RuleMaven.ExpansionDelta.status(base.id) == nil
+    end
+  end
 end
