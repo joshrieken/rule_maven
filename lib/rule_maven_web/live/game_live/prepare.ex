@@ -815,8 +815,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         >
           &#9656;
         </span>
-        <span style={"font-size:0.7rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:1rem;white-space:nowrap;#{chip_style(@step.state)}"}>
-          {chip_label(@step.state)}
+        <span style={"font-size:0.7rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:1rem;white-space:nowrap;#{chip_style(@step.state, @running)}"}>
+          {chip_label(@step.state, @running)}
         </span>
         <span style="flex:1;font-size:0.85rem;font-weight:600;color:var(--text)">
           {@step.label}
@@ -1482,18 +1482,22 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   ## Style helpers -----------------------------------------------------------
 
-  defp chip_style(:done),
+  defp chip_style(:done, _running),
     do: "background:color-mix(in srgb,var(--green) 20%,var(--bg-surface));color:var(--green)"
 
-  defp chip_style(:blocked),
+  defp chip_style(:blocked, _running),
     do: "background:var(--bg-subtle);color:var(--text-muted)"
 
-  defp chip_style(_),
+  defp chip_style(_state, true),
+    do: "background:color-mix(in srgb,var(--accent) 20%,var(--bg-surface));color:var(--accent)"
+
+  defp chip_style(_state, _running),
     do: "background:var(--bg-subtle);color:var(--text-secondary)"
 
-  defp chip_label(:done), do: "Done"
-  defp chip_label(:blocked), do: "Blocked"
-  defp chip_label(_), do: "Pending"
+  defp chip_label(:done, _running), do: "Done"
+  defp chip_label(:blocked, _running), do: "Blocked"
+  defp chip_label(_state, true), do: "Running…"
+  defp chip_label(_state, _running), do: "Pending"
 
   defp tag_style(:required), do: "color:var(--accent)"
   defp tag_style(_), do: "color:var(--text-muted)"
