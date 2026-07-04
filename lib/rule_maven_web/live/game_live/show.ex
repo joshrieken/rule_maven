@@ -2155,6 +2155,57 @@ defmodule RuleMavenWeb.GameLive.Show do
                 style={"display:flex;flex-direction:column;align-items:#{if msg.role == :user, do: "flex-end", else: "flex-start"}"}
               >
                 <div style={"max-width:85%;padding:0.75rem 1rem;border-radius:0.85rem;font-size:0.95rem;line-height:1.4;box-shadow:0 1px 3px rgba(0,0,0,0.08);#{if msg.role == :user, do: "background:var(--accent);color:var(--accent-text,#fff);border-bottom-right-radius:0.25rem;margin-left:auto", else: "background:var(--bg-surface);color:var(--text);border-bottom-left-radius:0.25rem"}#{if msg[:refused], do: ";opacity:0.72", else: ""}"}>
+                  <%!-- Voice byline: which persona is speaking this answer, up top
+                        where it's visible before reading; doubles as the switcher. --%>
+                  <%= if msg.role == :assistant && !msg[:refused] &&
+                         msg.content != "Thinking..." && !msg[:pending] &&
+                         not String.starts_with?(to_string(msg.content), "⚠️") do %>
+                    <% cur_voice = Map.get(@voice_sel, msg[:id], @default_voice) %>
+                    <% cur = Enum.find(@voices, &(&1.id == cur_voice)) || hd(@voices) %>
+                    <% is_default = cur_voice == @default_voice %>
+                    <% speaking = cur_voice != "neutral" %>
+                    <details class="card-menu" style="margin-bottom:0.5rem">
+                      <summary
+                        style={"font-size:0.65rem;font-weight:600;border-radius:999px;padding:0.12rem 0.5rem;#{if speaking, do: "border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--text)", else: "border:1px solid var(--border);background:var(--bg-surface);color:var(--text-muted)"}"}
+                        title="Answer voice — click to change"
+                      >
+                        <span aria-hidden="true">{cur.emoji}</span>
+                        <span>{if speaking, do: "#{cur.label} speaking", else: cur.label}</span>
+                        <span style="opacity:0.6">▾</span>
+                      </summary>
+                      <div class="card-menu__pop">
+                        <button
+                          :for={v <- @voices}
+                          type="button"
+                          phx-click="set_voice"
+                          phx-value-id={msg[:id]}
+                          phx-value-voice={v.id}
+                          class="card-menu__item"
+                          style={
+                            if cur_voice == v.id,
+                              do: "background:var(--accent);color:var(--accent-text,#fff)"
+                          }
+                        >
+                          <span aria-hidden="true">{v.emoji}</span>
+                          <span>{v.label}</span>
+                        </button>
+                        <button
+                          type="button"
+                          phx-click="set_default_voice"
+                          phx-value-voice={cur_voice}
+                          class="card-menu__item"
+                          style="border-top:1px solid var(--border);border-radius:0;margin-top:0.15rem;padding-top:0.35rem;color:var(--text-muted)"
+                          title={
+                            if is_default,
+                              do: "This voice is your default on every answer",
+                              else: "Use this voice by default on every answer"
+                          }
+                        >
+                          {if is_default, do: "★ Default voice", else: "☆ Set as default"}
+                        </button>
+                      </div>
+                    </details>
+                  <% end %>
                   <% stamp =
                     msg.role == :assistant && msg.content != "Thinking..." &&
                       verdict_stamp(msg[:verdict]) %>
@@ -2376,51 +2427,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                   }
                   style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;padding:0.25rem 0.25rem 0"
                 >
-                  <!-- Persona voice switcher (collapsed into a dropdown) -->
-                  <% cur_voice = Map.get(@voice_sel, msg[:id], @default_voice) %>
-                  <% cur =
-                    Enum.find(@voices, &(&1.id == cur_voice)) ||
-                      hd(@voices) %>
-                  <% is_default = cur_voice == @default_voice %>
-                  <details class="card-menu">
-                    <summary style="font-size:0.65rem;color:var(--text-muted);font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.12rem 0.5rem;background:var(--bg-surface)">
-                      <span aria-hidden="true">🎭</span>
-                      <span>{cur.label}</span>
-                      <span style="opacity:0.6">▾</span>
-                    </summary>
-                    <div class="card-menu__pop card-menu__pop--up">
-                      <button
-                        :for={v <- @voices}
-                        type="button"
-                        phx-click="set_voice"
-                        phx-value-id={msg[:id]}
-                        phx-value-voice={v.id}
-                        class="card-menu__item"
-                        style={
-                          if cur_voice == v.id,
-                            do: "background:var(--accent);color:var(--accent-text,#fff)"
-                        }
-                      >
-                        <span aria-hidden="true">{v.emoji}</span>
-                        <span>{v.label}</span>
-                      </button>
-                      <button
-                        type="button"
-                        phx-click="set_default_voice"
-                        phx-value-voice={cur_voice}
-                        class="card-menu__item"
-                        style="border-top:1px solid var(--border);border-radius:0;margin-top:0.15rem;padding-top:0.35rem;color:var(--text-muted)"
-                        title={
-                          if is_default,
-                            do: "This voice is your default on every answer",
-                            else: "Use this voice by default on every answer"
-                        }
-                      >
-                        {if is_default, do: "★ Default voice", else: "☆ Set as default"}
-                      </button>
-                    </div>
-                  </details>
-
                   <% q_text = find_question_for_answer(@conversation, msg) %>
                   <% plain_text = strip_markdown(msg.content) %>
                   <% can_regen =
