@@ -184,7 +184,7 @@ defmodule RuleMaven.BGG do
   Returns `{:ok, info_map}` or `{:error, reason}`.
   """
   def fetch_game_info(bgg_id) do
-    url = "#{@base}/thing?id=#{bgg_id}"
+    url = "#{@base}/thing?id=#{bgg_id}&stats=1"
     headers = build_headers(nil)
 
     require Logger

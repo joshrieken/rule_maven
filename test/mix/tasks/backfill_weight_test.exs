@@ -1,38 +1,35 @@
 defmodule Mix.Tasks.RuleMaven.BackfillWeightTest do
   use RuleMaven.DataCase
+  use Oban.Testing, repo: RuleMaven.Repo
 
   alias RuleMaven.Games
+  alias RuleMaven.Workers.BggEnrichWorker
 
-  @sample_xml """
-  <items>
-    <item type="boardgame" id="1">
-      <statistics>
-        <ratings>
-          <averageweight value="3.14" />
-        </ratings>
-      </statistics>
-    </item>
-  </items>
-  """
+  # Oban isn't supervised in test (config :rule_maven, Oban, testing: :manual),
+  # but the Mix task's `Oban.insert/1` needs a named, configured instance to
+  # insert against. Start a queueless/pluginless one under the default name so
+  # the plain (unnamed) insert call resolves for real.
+  setup do
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
 
-  test "backfills weight from cached bgg_data, skipping already-set rows" do
+    :ok
+  end
+
+  test "enqueues a BggEnrichWorker job for games with a bgg_id but no weight yet" do
     {:ok, needs_backfill} =
-      Games.create_game(%{name: "Needs Backfill", bgg_id: 1, bgg_data: @sample_xml})
+      Games.create_game(%{name: "Needs Backfill", bgg_id: 1})
 
     {:ok, already_set} =
-      Games.create_game(%{
-        name: "Already Set",
-        bgg_id: 2,
-        bgg_data: @sample_xml,
-        weight: 1.0
-      })
+      Games.create_game(%{name: "Already Set", bgg_id: 2, weight: 1.0})
 
-    {:ok, no_cache} = Games.create_game(%{name: "No Cache", bgg_id: 3})
+    {:ok, no_bgg_id} = Games.create_game(%{name: "No BGG Id"})
 
     Mix.Tasks.RuleMaven.BackfillWeight.run([])
 
-    assert_in_delta Games.get_game!(needs_backfill.id).weight, 3.14, 0.001
-    assert Games.get_game!(already_set.id).weight == 1.0
-    assert Games.get_game!(no_cache.id).weight == nil
+    assert_enqueued worker: BggEnrichWorker, args: %{game_id: needs_backfill.id}
+    refute_enqueued worker: BggEnrichWorker, args: %{game_id: already_set.id}
+    refute_enqueued worker: BggEnrichWorker, args: %{game_id: no_bgg_id.id}
   end
 end
