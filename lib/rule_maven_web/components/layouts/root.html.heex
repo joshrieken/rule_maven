@@ -101,15 +101,19 @@
 
           <div class="header-right">
             <div class="header-controls">
-              <select class="theme-select" id="theme-select" aria-label="Theme">
-                <option
-                  :for={{slug, label} <- RuleMaven.Metrics.game_themes()}
-                  value={slug}
-                  class="game-theme-option"
-                  hidden
-                >
-                  ✨ {label}
+              <select
+                class="theme-select"
+                id="game-theme-select"
+                aria-label="Game theme"
+                title="Match this game's colors on its Q&A and FAQ pages"
+                hidden
+              >
+                <option value="0">🎨 Off</option>
+                <option :for={{slug, label} <- RuleMaven.Metrics.game_themes()} value={slug}>
+                  🎨 {label}
                 </option>
+              </select>
+              <select class="theme-select" id="theme-select" aria-label="Theme">
                 <option :for={{slug, label} <- RuleMaven.Metrics.themes()} value={slug}>
                   {label}
                 </option>
@@ -223,17 +227,17 @@
     <script>
       (function() {
         var select = document.getElementById('theme-select');
+        var gameSelect = document.getElementById('game-theme-select');
         var html = document.documentElement;
 
-        // True when the current page exposes a per-game palette (the show page
-        // injects `#game-theme`). The "Game-Specific" option only works here.
+        // True when the current page exposes a per-game palette (the Q&A/FAQ
+        // pages inject `#game-theme`). The game control only appears here.
         function gameThemeAvailable() {
           return !!document.getElementById('game-theme');
         }
 
-        // The user's last real (static) theme — the fallback used on pages that
-        // have no game palette. "game" is never stored here, so non-game pages
-        // can never end up on a broken/undefined theme.
+        // The user's static theme — the look used everywhere a game palette
+        // isn't active. Never holds "game-light"/"game-dark".
         function baseTheme() {
           var s = localStorage.getItem('theme');
           if (s) {
@@ -247,49 +251,30 @@
           return v === 'game-light' || v === 'game-dark';
         }
 
-        function apply(value) {
-          if (isGameTheme(value)) {
-            // Remember which game variant the user chose, separately from their
-            // static fallback theme, so non-game pages never land on it.
-            localStorage.setItem('themeGameMatch', value);
-            if (gameThemeAvailable()) {
-              html.setAttribute('data-theme', value);
-              select.value = value;
-            }
-            return;
-          }
-          localStorage.setItem('themeGameMatch', '0');
-          localStorage.setItem('theme', value);
-          html.setAttribute('data-theme', value);
-          select.value = value;
-        }
-
-        // Sync the active theme to the current page: prefer the chosen game
-        // variant when the user opted in AND this page offers one; otherwise fall
-        // back to the saved static theme. Re-run after LiveView navigations
-        // because the per-game `#game-theme` style block comes and goes.
+        // Sync both controls and the active theme to the current page: the
+        // chosen game variant wins on pages that offer one; otherwise the
+        // static theme. Re-run after LiveView navigations because the
+        // per-game `#game-theme` style block comes and goes.
         function syncTheme() {
           var base = baseTheme();
           localStorage.setItem('theme', base);
           var available = gameThemeAvailable();
-          Array.prototype.forEach.call(
-            document.querySelectorAll('.game-theme-option'),
-            function(o) { o.hidden = !available; }
-          );
+          gameSelect.hidden = !available;
 
           var match = localStorage.getItem('themeGameMatch');
           if (available && isGameTheme(match)) {
             html.setAttribute('data-theme', match);
-            select.value = match;
+            gameSelect.value = match;
           } else {
             html.setAttribute('data-theme', base);
-            select.value = base;
+            if (available) gameSelect.value = '0';
           }
+          select.value = base;
         }
 
         syncTheme();
         // LiveView swaps page content without a full reload; re-sync so leaving a
-        // game page can't strand us on the now-undefined "game" theme.
+        // game page can't strand us on the now-undefined game theme.
         window.addEventListener('phx:page-loading-stop', syncTheme);
 
         function track(value) {
@@ -304,9 +289,26 @@
           }).catch(function() {});
         }
 
+        // Static theme picker: sets the fallback theme only. Deliberately does
+        // NOT clear the game-match preference — that's the game control's job,
+        // so game pages return to the chosen game variant on the next sync.
         select.addEventListener('change', function() {
-          apply(this.value);
+          localStorage.setItem('theme', this.value);
+          html.setAttribute('data-theme', this.value);
           track(this.value);
+        });
+
+        // Game-theme control: opt in/out of matching the game's palette on
+        // pages that have one. Only rendered visible on those pages.
+        gameSelect.addEventListener('change', function() {
+          if (isGameTheme(this.value)) {
+            localStorage.setItem('themeGameMatch', this.value);
+            html.setAttribute('data-theme', this.value);
+            track(this.value);
+          } else {
+            localStorage.setItem('themeGameMatch', '0');
+            html.setAttribute('data-theme', baseTheme());
+          }
         });
 
         // Ambient-animation toggle.
