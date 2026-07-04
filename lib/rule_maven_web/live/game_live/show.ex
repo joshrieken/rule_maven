@@ -2510,7 +2510,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       type="button"
                       phx-click="favorite_community_answer"
                       phx-value-id={msg[:id]}
-                      style={"background:none;border:none;padding:0;line-height:1;font-size:0.85rem;cursor:pointer;#{if fav?, do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
+                      style={"background:none;border:none;padding:0;margin-left:0.4rem;line-height:1;font-size:0.85rem;cursor:pointer;#{if fav?, do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
                       title={if fav?, do: "Remove from your favorites", else: "Add to your favorites"}
                     >{if fav?, do: "♥", else: "♡"}</button>
                   <% else %>
@@ -2520,7 +2520,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       type="button"
                       phx-click="favorite_question"
                       phx-value-id={msg.id}
-                      style={"background:none;border:none;padding:0;line-height:1;font-size:0.85rem;cursor:pointer;#{if msg[:favorited], do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
+                      style={"background:none;border:none;padding:0;margin-left:0.4rem;line-height:1;font-size:0.85rem;cursor:pointer;#{if msg[:favorited], do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
                       title={
                         if msg[:favorited],
                           do: "Unfavorite",
