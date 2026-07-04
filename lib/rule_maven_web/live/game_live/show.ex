@@ -2184,13 +2184,24 @@ defmodule RuleMavenWeb.GameLive.Show do
                             style={"font-size:0.65rem;font-weight:600;border-radius:999px;padding:0.12rem 0.5rem;#{if speaking, do: "border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--text)", else: "border:1px solid var(--border);background:var(--bg-surface);color:var(--text-muted)"}"}
                             title="Answer voice — your pick applies to every answer and is remembered"
                           >
+                            <span
+                              :if={String.starts_with?(cur_voice, "g:")}
+                              aria-hidden="true"
+                              style="color:var(--accent)"
+                              title={"#{@game.name} voice"}
+                            >✦</span>
                             <span aria-hidden="true">{cur.emoji}</span>
                             <span>{if speaking, do: "#{cur.label} speaking", else: cur.label}</span>
                             <span style="opacity:0.6">▾</span>
                           </summary>
-                          <div class="card-menu__pop">
+                          <% {game_voices, builtin_voices} =
+                            Enum.split_with(@voices, &String.starts_with?(&1.id, "g:")) %>
+                          <div class="card-menu__pop" style="min-width:220px;max-width:280px">
+                            <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);padding:0.2rem 0.4rem 0.05rem">
+                              Built-in
+                            </div>
                             <button
-                              :for={v <- @voices}
+                              :for={v <- builtin_voices}
                               type="button"
                               phx-click="set_voice"
                               phx-value-id={msg[:id]}
@@ -2202,8 +2213,40 @@ defmodule RuleMavenWeb.GameLive.Show do
                               }
                             >
                               <span aria-hidden="true">{v.emoji}</span>
-                              <span>{v.label}</span>
+                              <span style="display:flex;flex-direction:column;align-items:flex-start;text-align:left">
+                                <span>{v.label}</span>
+                                <span
+                                  :if={v[:description]}
+                                  style="font-size:0.6rem;font-weight:400;opacity:0.7;line-height:1.3"
+                                >{v.description}</span>
+                              </span>
                             </button>
+                            <%= if game_voices != [] do %>
+                              <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);padding:0.35rem 0.4rem 0.05rem;border-top:1px solid var(--border);margin-top:0.15rem">
+                                ✦ {@game.name}
+                              </div>
+                              <button
+                                :for={v <- game_voices}
+                                type="button"
+                                phx-click="set_voice"
+                                phx-value-id={msg[:id]}
+                                phx-value-voice={v.id}
+                                class="card-menu__item"
+                                style={
+                                  if cur_voice == v.id,
+                                    do: "background:var(--accent);color:var(--accent-text,#fff)"
+                                }
+                              >
+                                <span aria-hidden="true">{v.emoji}</span>
+                                <span style="display:flex;flex-direction:column;align-items:flex-start;text-align:left">
+                                  <span>{v.label}</span>
+                                  <span
+                                    :if={v[:description]}
+                                    style="font-size:0.6rem;font-weight:400;opacity:0.7;line-height:1.3"
+                                  >{v.description}</span>
+                                </span>
+                              </button>
+                            <% end %>
                           </div>
                         </details>
                       <% end %>

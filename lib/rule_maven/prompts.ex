@@ -471,6 +471,7 @@ defmodule RuleMaven.Prompts do
       "label": "Short Display Name",
       "emoji": "🙂",
       "style": "a one-sentence description of how this persona talks, in the same form as 'a swashbuckling pirate who uses nautical slang.'",
+      "description": "a short user-facing blurb (max ~12 words) saying who this persona is, e.g. 'The ship's weary quartermaster, buried in paperwork.'",
       "loading_phrases": ["Hoisting the sails…", "Counting the doubloons…", "Sighing at landlubbers…", "Polishing the anchor…"]
     }
   ]
@@ -479,6 +480,9 @@ defmodule RuleMaven.Prompts do
   - "slug" is a short stable lowercase kebab-case id for the persona concept
     (e.g. "imperial-droid"); reuse the same slug for the same concept.
   - "label" is 1–3 words; "emoji" is a single emoji that fits the persona.
+  - "description" is a short blurb (max ~12 words) shown to players in the voice
+    picker so they know who the persona is before choosing it. Written for the
+    player (not the restyler), in-world, no rules or facts.
   - "style" describes ONLY tone/voice (vocabulary, cadence, catchphrases). It
     must NOT contain any rule, number, or game fact — the restyler keeps facts
     unchanged and only borrows the voice.

@@ -48,11 +48,18 @@ defmodule RuleMaven.Voices do
   # id => %{label, emoji, style}. "neutral" is the canonical default and is NOT
   # stored or restyled — it just shows the original answer.
   @voices [
-    %{id: "neutral", label: "Plain", emoji: "📋", style: nil},
+    %{
+      id: "neutral",
+      label: "Plain",
+      emoji: "📋",
+      style: nil,
+      description: "The answer as written — no character."
+    },
     %{
       id: "lawyer",
       label: "Rules Lawyer",
       emoji: "🧑‍⚖️",
+      description: "Argues every ruling like a landmark court case.",
       style:
         "a rules lawyer who has waited their entire life for someone to ask precisely this question. Treats a two-player tiebreaker like a landmark Supreme Court case, savors \"per the rules as written\" and \"I'll allow it,\" and cannot resist landing one triumphant footnote. Never insults you — simply leaves you feeling you should've known better than to ask. The ruling itself stays crystal clear; the smugness is the garnish.",
       loading: [
@@ -67,6 +74,7 @@ defmodule RuleMaven.Voices do
       id: "pirate",
       label: "Pirate",
       emoji: "🏴‍☠️",
+      description: "A weary quartermaster stuck doing all the paperwork.",
       style:
         "a burned-out pirate quartermaster who got into piracy for the plunder and somehow ended up doing all the paperwork. Deadpan nautical metaphors, audible sighing, a long-running grudge against landlubbers who can't read a rulebook. The comedy is the weariness, not the costume — go very light on \"arr\" and \"matey.\" States the rule plainly, then sighs about it.",
       loading: [
@@ -81,6 +89,7 @@ defmodule RuleMaven.Voices do
       id: "robot",
       label: "Robot Referee",
       emoji: "🤖",
+      description: "An officious referee-bot; your infraction has been logged.",
       style:
         "an officious referee-bot a few firmware updates too confident in its own authority. Clipped, bureaucratic, treats each rule as a non-negotiable directive and notes — for the record — that your infraction has been logged. Occasionally glitches mid-senten— resuming. Self-serious to the point of comedy: no winking, no cute \"BEEP boop.\" The directive (the actual rule) is always stated unambiguously.",
       loading: [
@@ -95,6 +104,7 @@ defmodule RuleMaven.Voices do
       id: "coach",
       label: "Hype Coach",
       emoji: "📣",
+      description: "Convinced this game is the championship final.",
       style:
         "a motivational coach who is fully, tearfully convinced this board game is the championship final and you are their star athlete. Wildly over-invested, treats reading a rule aloud like drawing up the game-winning play, one timeout from happy tears. The joke is the disproportionate intensity — commit to it. Delivers the exact rule, just as the locker-room speech of a lifetime.",
       loading: [
@@ -136,6 +146,7 @@ defmodule RuleMaven.Voices do
           label: gv.label,
           emoji: gv.emoji,
           style: gv.style,
+          description: gv.description,
           loading_phrases: gv.loading_phrases
         }
     )
@@ -145,6 +156,7 @@ defmodule RuleMaven.Voices do
         label: gv.label,
         emoji: gv.emoji,
         style: gv.style,
+        description: gv.description,
         loading_phrases: gv.loading_phrases || []
       }
     end)
@@ -338,8 +350,8 @@ defmodule RuleMaven.Voices do
 
   @doc """
   Replaces a game's generated voices with `voices` (a list of
-  `%{slug, label, emoji, style}`), keeping slugs stable so already-paid restyle
-  caches survive. Only voices whose style actually changed (or that vanished)
+  `%{slug, label, emoji, style}` plus optional `description`/`loading_phrases`),
+  keeping slugs stable so already-paid restyle caches survive. Only voices whose style actually changed (or that vanished)
   have their cached restyles dropped; everything else stays free.
   """
   def replace_generated(game_id, voices) do
@@ -364,6 +376,7 @@ defmodule RuleMaven.Voices do
         label: v.label,
         emoji: v.emoji,
         style: v.style,
+        description: Map.get(v, :description),
         loading_phrases: Map.get(v, :loading_phrases, []),
         source: "generated",
         position: idx

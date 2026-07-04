@@ -1529,10 +1529,11 @@ defmodule RuleMaven.LLM do
 
     case chat(prompt, "generate_voices",
            system: RuleMaven.Prompts.template("generate_voices_system"),
-           # Each voice now carries 4-6 loading_phrases on top of its style, so
-           # a full 6-voice set needs noticeably more room. Too low and the JSON
-           # truncates mid-array → parse fails → no voices.
-           max_tokens: 2600
+           # Each voice now carries 4-6 loading_phrases and a picker description
+           # on top of its style, so a full 6-voice set needs noticeably more
+           # room. Too low and the JSON truncates mid-array → parse fails → no
+           # voices.
+           max_tokens: 3200
          ) do
       {:ok, text} ->
         {:ok, parse_voices(text)}
@@ -1576,8 +1577,21 @@ defmodule RuleMaven.LLM do
     slug = m |> Map.get("slug", label) |> to_string() |> slugify()
     loading = m |> Map.get("loading_phrases", []) |> coerce_phrases()
 
+    description =
+      case Map.get(m, "description") do
+        d when is_binary(d) -> d |> String.trim() |> String.slice(0, 120)
+        _ -> nil
+      end
+
     if label != "" and style != "" and slug != "" do
-      %{slug: slug, label: label, emoji: String.trim(emoji), style: style, loading_phrases: loading}
+      %{
+        slug: slug,
+        label: label,
+        emoji: String.trim(emoji),
+        style: style,
+        description: if(description == "", do: nil, else: description),
+        loading_phrases: loading
+      }
     end
   end
 
