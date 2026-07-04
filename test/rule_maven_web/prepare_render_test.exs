@@ -41,6 +41,31 @@ defmodule RuleMavenWeb.PrepareRenderTest do
     assert has_element?(view, "button[phx-click=\"extract\"]", "Extract")
   end
 
+  test "header shows the game image when the game has one", %{conn: conn} do
+    admin = admin!("prep_img_admin")
+
+    game =
+      game_fixture(%{name: "Pretty Game", image_url: "https://cf.example/box-art.jpg"})
+
+    with_doc(game)
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    assert has_element?(view, "img[src='https://cf.example/box-art.jpg'][alt='Pretty Game']")
+  end
+
+  test "header shows no image tag when the game has none", %{conn: conn} do
+    admin = admin!("prep_noimg_admin")
+    game = game_fixture(%{name: "Plain Game"})
+    with_doc(game)
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    refute has_element?(view, "img")
+  end
+
   test "Extract button is gated off until BGG data is pulled", %{conn: conn} do
     admin = admin!("prep_gated_admin")
     game = game_fixture(%{name: "Gated Prep Game", bgg_id: 7788})

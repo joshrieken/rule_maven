@@ -543,8 +543,16 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         &larr; Back to {String.slice(@game.name, 0, 30)}
       </.link>
 
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;margin:0.25rem 0 0.35rem">
-        <h1 style="font-size:1.5rem;font-weight:700">Prepare {@game.name}</h1>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:0.25rem 0 0.35rem">
+        <div style="display:flex;align-items:center;gap:0.75rem">
+          <img
+            :if={@game.image_url}
+            src={@game.image_url}
+            alt={@game.name}
+            style="width:3.5rem;height:3.5rem;object-fit:cover;border-radius:0.5rem;box-shadow:0 2px 8px rgba(0,0,0,0.18);flex-shrink:0"
+          />
+          <h1 style="font-size:1.5rem;font-weight:700">Prepare {@game.name}</h1>
+        </div>
       </div>
       <p style="font-size:0.85rem;font-weight:600;margin:0 0 1rem;color:var(--text-muted)">
         <%= cond do %>
