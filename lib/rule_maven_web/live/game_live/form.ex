@@ -3314,6 +3314,16 @@ defmodule RuleMavenWeb.GameLive.Form do
                       @keyframes rm-spin { to { transform: rotate(360deg); } }
                     </style>
                   </div>
+                  <div style="display:flex;justify-content:flex-end;margin-bottom:0.3rem">
+                    <button
+                      type="button"
+                      phx-click="expand_source"
+                      phx-value-id={entry.id}
+                      disabled={String.trim(entry.text || "") == ""}
+                      title="Open the full-screen reader (press f to toggle; f again or Esc closes it)"
+                      style="display:flex;align-items:center;justify-content:center;width:1.8rem;height:1.8rem;font-size:1rem;line-height:1;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                    >⛶</button>
+                  </div>
                   <%!-- Edits feed socket state via edit_page (layer encoded in the
                         name), so this stays in sync with the expanded reader. --%>
                   <textarea
@@ -3397,14 +3407,6 @@ defmodule RuleMavenWeb.GameLive.Form do
                       disabled={cleaning? || String.trim(entry.text || "") == ""}
                       style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
                     >↻ Clean again</button>
-                    <button
-                      type="button"
-                      phx-click="expand_source"
-                      phx-value-id={entry.id}
-                      disabled={String.trim(entry.text || "") == ""}
-                      title="Open the full-screen reader (press f to toggle; f again or Esc closes it)"
-                      style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
-                    >⤢ Expand reader (f)</button>
                     <%!-- PDF + HTML are admin-view only: rulebooks may be
                           copyrighted, so nothing here is reachable by regular
                           users (the controller 404s non-admins). --%>
