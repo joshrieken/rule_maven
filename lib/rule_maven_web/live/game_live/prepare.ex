@@ -600,7 +600,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       <p style="font-size:0.85rem;font-weight:600;margin:0 0 1rem;color:var(--text-muted)">
         <%= cond do %>
           <% @playable? -> %>
-            <span style="color:var(--green)">✓ Published</span>
+            <span style="color:var(--green)">✓ Ready</span>
           <% @required_complete? -> %>
             <span style="color:var(--yellow)">● Ready to publish — awaiting your approval</span>
           <% true -> %>
@@ -611,7 +611,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:0.6rem;margin-bottom:1rem">
         <.stat label="Remaining est. cost" value={"$#{fmt_cost(@remaining_cost)}"} />
         <.stat label="Actual cost so far" value={"$#{fmt_cost(@total_actual)}"} />
-        <.stat label="Published" value={if @playable?, do: "Yes", else: "No"} />
+        <.stat label="Ready" value={if @playable?, do: "Yes", else: "No"} />
       </div>
 
       <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
