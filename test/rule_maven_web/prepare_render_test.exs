@@ -66,6 +66,60 @@ defmodule RuleMavenWeb.PrepareRenderTest do
     refute has_element?(view, "img")
   end
 
+  test "Mark Ready shows disabled with remaining steps tooltip while unprepared",
+       %{conn: conn} do
+    admin = admin!("prep_gate_admin")
+    game = game_fixture(%{name: "Gated Publish Game", bgg_id: 9911, bgg_data: "<items/>"})
+    # Unextracted source: extract/review/cleanup/embed all remain incomplete.
+    with_doc(game)
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    assert has_element?(view, "button[disabled]", "Mark Ready")
+    refute has_element?(view, "button[phx-click=\"approve_publish\"]")
+
+    title =
+      view
+      |> element("button[disabled]", "Mark Ready")
+      |> render()
+
+    assert title =~ "Remaining before publish:"
+    assert title =~ "Text extracted"
+    assert title =~ "Chunked &amp; embedded"
+  end
+
+  test "Mark Ready is enabled once every required step is complete", %{conn: conn} do
+    admin = admin!("prep_ready_admin")
+    game = game_fixture(%{name: "Ready Publish Game", bgg_id: 9912, bgg_data: "<items/>"})
+
+    {:ok, doc} =
+      RuleMaven.Games.create_document(%{
+        game_id: game.id,
+        label: "Rulebook",
+        pdf_path: "uploads/rulebooks/x.pdf",
+        full_text: "rules"
+      })
+
+    # create_document derives pages from full_text (cleaned starts nil), so the
+    # cleaned layer must be stamped after the fact, like the cleanup worker does.
+    RuleMaven.Games.set_page_cleaned(doc.id, 0, "rules", [])
+
+    # create_document already chunked the doc; stamp embeddings on those chunks.
+    import Ecto.Query
+
+    RuleMaven.Repo.update_all(
+      from(c in RuleMaven.Games.Chunk, where: c.document_id == ^doc.id),
+      set: [embedding: Pgvector.new(List.duplicate(0.0, 768))]
+    )
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    assert has_element?(view, "button[phx-click=\"approve_publish\"]", "Mark Ready")
+    refute has_element?(view, "button[disabled]", "Mark Ready")
+  end
+
   test "Extract button is gated off until BGG data is pulled", %{conn: conn} do
     admin = admin!("prep_gated_admin")
     game = game_fixture(%{name: "Gated Prep Game", bgg_id: 7788})

@@ -607,11 +607,20 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         <% end %>
 
         <%!-- Manual publish gate: a fully-prepared game stays unpublished until
-              an admin approves it here. --%>
+              an admin approves it here. Shown greyed out (with the remaining
+              required steps in the tooltip) until every required step is done. --%>
         <button
           :if={@required_complete? && !@playable?}
           phx-click="approve_publish"
           style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;cursor:pointer"
+        >
+          ✓ Mark Ready
+        </button>
+        <button
+          :if={!@required_complete? && !@playable?}
+          disabled
+          title={"Remaining before publish: #{remaining_required_labels(@steps)}"}
+          style="background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border);padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;cursor:not-allowed"
         >
           ✓ Mark Ready
         </button>
@@ -1374,6 +1383,13 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   defp cost_or_dash(nil), do: "—"
   defp cost_or_dash(usd), do: "$#{fmt_cost(usd)}"
+
+  # Labels of required steps not yet done, for the disabled publish button's tooltip.
+  defp remaining_required_labels(steps) do
+    steps
+    |> Enum.filter(&(&1.category == :required and &1.state != :done))
+    |> Enum.map_join(", ", & &1.label)
+  end
 
   defp fmt_cost(n) when is_number(n), do: :erlang.float_to_binary(n * 1.0, decimals: 4)
   defp fmt_cost(_), do: "0.00"
