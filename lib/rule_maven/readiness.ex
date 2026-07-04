@@ -198,7 +198,18 @@ defmodule RuleMaven.Readiness do
 
   defp doc_cleaned?(%Document{status: "cleaned"}), do: true
   defp doc_cleaned?(%Document{pages: []}), do: false
-  defp doc_cleaned?(%Document{pages: pages}), do: Enum.all?(pages, &is_binary(&1.cleaned))
+
+  # A page counts as clean when the cleanup layer exists OR the auto cleanup
+  # would skip it (high-confidence vision/ensemble lane — raw text is already
+  # model output and the worker deliberately leaves `cleaned` nil). Without the
+  # skippable check, any doc with a skipped page held the cleanup step Pending
+  # forever, which also blocked embed and playable.
+  defp doc_cleaned?(%Document{pages: pages}) do
+    Enum.all?(pages, fn page ->
+      is_binary(page.cleaned) or
+        RuleMaven.Workers.CleanupWorker.skippable_page?(page, :auto, false)
+    end)
+  end
 
   defp doc_embedded?(%Document{id: doc_id}) do
     total = Repo.aggregate(from(c in Chunk, where: c.document_id == ^doc_id), :count)

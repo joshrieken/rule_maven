@@ -8,7 +8,8 @@ defmodule RuleMaven.ReadinessTest do
   import RuleMaven.GamesFixtures
 
   # Build a document with full control over its readiness signals.
-  #   pages:   list of {confidence, cleaned?} — text is always present
+  #   pages:   list of {confidence, cleaned?} or {confidence, cleaned?, lane} —
+  #            text is always present
   #   status:  document status
   #   embed:   :none | :pending | :done — chunk/embedding state
   defp doc_fixture(game, opts) do
@@ -16,13 +17,23 @@ defmodule RuleMaven.ReadinessTest do
       opts
       |> Keyword.get(:pages, [])
       |> Enum.with_index()
-      |> Enum.map(fn {{conf, cleaned?}, i} ->
-        %{
-          index: i,
-          text: "raw page #{i}",
-          cleaned: if(cleaned?, do: "clean page #{i}", else: nil),
-          confidence: conf
-        }
+      |> Enum.map(fn
+        {{conf, cleaned?}, i} ->
+          %{
+            index: i,
+            text: "raw page #{i}",
+            cleaned: if(cleaned?, do: "clean page #{i}", else: nil),
+            confidence: conf
+          }
+
+        {{conf, cleaned?, lane}, i} ->
+          %{
+            index: i,
+            text: "raw page #{i}",
+            cleaned: if(cleaned?, do: "clean page #{i}", else: nil),
+            confidence: conf,
+            lane: lane
+          }
       end)
 
     {:ok, doc} =
@@ -96,6 +107,28 @@ defmodule RuleMaven.ReadinessTest do
     test "cleanup step needs every page cleaned" do
       game = game_fixture()
       doc_fixture(game, pages: [{0.9, true}, {0.9, false}], status: "published")
+      docs = Games.list_documents(game)
+      refute Readiness.step_complete?(:cleanup, game, docs)
+    end
+
+    test "cleanup step counts vision-lane skippable pages as clean" do
+      # The cleanup worker deliberately skips high-confidence vision/ensemble
+      # pages (raw text is already model output) and leaves `cleaned` nil, so
+      # readiness must not hold the step Pending forever on those pages.
+      game = game_fixture()
+
+      doc_fixture(game,
+        pages: [{0.9, true}, {0.8, false, "ensemble"}, {0.8, false, "vision"}],
+        status: "published"
+      )
+
+      docs = Games.list_documents(game)
+      assert Readiness.step_complete?(:cleanup, game, docs)
+    end
+
+    test "cleanup step stays pending for a low-confidence vision page" do
+      game = game_fixture()
+      doc_fixture(game, pages: [{0.4, false, "ensemble"}], status: "published")
       docs = Games.list_documents(game)
       refute Readiness.step_complete?(:cleanup, game, docs)
     end
