@@ -2400,20 +2400,24 @@ defmodule RuleMavenWeb.GameLive.Show do
                     🔎 Unverified answer &mdash; single source, not yet community-reviewed.
                     Vote below to help, or regenerate a fresh answer.
                   </div>
-                </div>
 
-                <% is_community_msg =
-                  MapSet.member?(MapSet.new(@community_questions, & &1.id), msg[:id]) %>
+                  <% is_community_msg =
+                    MapSet.member?(MapSet.new(@community_questions, & &1.id), msg[:id]) %>
 
-                <!-- Answer actions: voice switcher + vote + overflow, one row -->
-                <div
-                  :if={
-                    msg.role == :assistant && !msg[:refused] &&
-                      msg.content != "Thinking..." && !msg[:pending] &&
-                      not String.starts_with?(msg.content, "⚠️")
-                  }
-                  style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;padding:0.25rem 0.25rem 0"
-                >
+                  <!-- Answer actions: voice switcher + vote + overflow, one row.
+                       Lives INSIDE the bubble (not a sibling below it) so it
+                       stretches to the bubble's actual rendered width instead
+                       of shrink-wrapping its own content — the outer chat-msg
+                       column uses align-items:flex-start, which sizes each
+                       sibling independently. -->
+                  <div
+                    :if={
+                      msg.role == :assistant && !msg[:refused] &&
+                        msg.content != "Thinking..." && !msg[:pending] &&
+                        not String.starts_with?(msg.content, "⚠️")
+                    }
+                    style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-top:0.5rem"
+                  >
                   <% q_text = find_question_for_answer(@conversation, msg) %>
                   <% plain_text = strip_markdown(msg.content) %>
                   <% can_regen =
@@ -2610,6 +2614,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                     </div>
                   </details>
                   </span>
+                </div>
                 </div>
 
                 <!-- Message actions (admin only) -->
