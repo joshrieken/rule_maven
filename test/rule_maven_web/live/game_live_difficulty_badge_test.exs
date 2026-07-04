@@ -33,6 +33,16 @@ defmodule RuleMavenWeb.GameLiveDifficultyBadgeTest do
     assert html =~ "Medium"
   end
 
+  test "renders Medium-Heavy at the 4.2 boundary (not Heavy)", %{conn: conn} do
+    user = setup_user("badge_boundary")
+    game = published_game_fixture(%{name: "Boundary Game", weight: 4.2})
+
+    conn = login(conn, user)
+    {:ok, _view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    assert html =~ "Medium-Heavy"
+  end
+
   test "hides difficulty badge when game has no weight", %{conn: conn} do
     user = setup_user("badge_absent")
     game = published_game_fixture(%{name: "Unweighted Game", weight: nil})

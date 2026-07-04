@@ -312,9 +312,9 @@ defmodule RuleMaven.BGG do
 
   @doc """
   Extracts BGG's community `averageweight` (1.0-5.0 complexity rating) from raw
-  item XML. Public so the one-time backfill Mix task can reparse cached
-  `bgg_data` without re-fetching from the BGG API. Returns nil when missing or
-  when BGG reports 0.0 (its sentinel for "not enough ratings yet").
+  item XML. Public so the test suite can unit-test the XML-parsing logic in
+  isolation, without going through the full fetch/enrich flow. Returns nil when
+  missing or when BGG reports 0.0 (its sentinel for "not enough ratings yet").
   """
   def extract_weight(xml) do
     xml

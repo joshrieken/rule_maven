@@ -22,11 +22,11 @@ Pure function, same pattern as `answer_confidence/1`:
 
 | Weight range | Label |
 |---|---|
-| 1.0–2.0 | Light |
-| 2.0–2.5 | Medium-Light |
+| < 1.5 | Light |
+| 1.5–2.5 | Medium-Light |
 | 2.5–3.5 | Medium |
-| 3.5–4.0 | Medium-Heavy |
-| 4.0–5.0 | Heavy |
+| 3.5–4.5 | Medium-Heavy |
+| ≥ 4.5 | Heavy |
 
 ## Expansion aggregation
 
