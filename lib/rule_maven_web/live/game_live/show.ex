@@ -717,90 +717,87 @@ defmodule RuleMavenWeb.GameLive.Show do
                  "Maximum #{@max_concurrent} concurrent questions. Please wait for one to finish."
                )}
             else
-              case Games.check_rate_limit(socket.assigns.current_user) do
-                :ok ->
-                  %{game: game, included_expansions: included} = socket.assigns
-                  expansion_ids = Map.keys(included)
+              %{game: game, included_expansions: included} = socket.assigns
+              expansion_ids = Map.keys(included)
 
-                  # `convo` is already scoped to the active thread (it's built
-                  # per-thread), so just drop in-flight "Thinking..." turns and
-                  # superseded regeneration history; keep the root + followup
-                  # turns in order. build_recent_pairs/1 takes the last two pairs.
-                  #
-                  # The old `m.id == active_thread_id` filter kept ONLY the root
-                  # pair — whose id equals the thread id — silently dropping every
-                  # followup, so a continued conversation lost its recent turns.
-                  recent =
-                    convo
-                    |> Enum.reject(&(&1[:pending] || &1[:history]))
-                    |> build_recent_pairs()
+              # `convo` is already scoped to the active thread (it's built
+              # per-thread), so just drop in-flight "Thinking..." turns and
+              # superseded regeneration history; keep the root + followup
+              # turns in order. build_recent_pairs/1 takes the last two pairs.
+              #
+              # The old `m.id == active_thread_id` filter kept ONLY the root
+              # pair — whose id equals the thread id — silently dropping every
+              # followup, so a continued conversation lost its recent turns.
+              recent =
+                convo
+                |> Enum.reject(&(&1[:pending] || &1[:history]))
+                |> build_recent_pairs()
 
-                  case Games.log_question(%{
-                         game_id: game.id,
+              case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
+                     game_id: game.id,
+                     question: question,
+                     answer: "Thinking...",
+                     user_id: socket.assigns.current_user.id,
+                     visibility: visibility,
+                     expansion_ids: Enum.sort(expansion_ids)
+                   }) do
+                {:ok, question_log} ->
+                  %{
+                    game_id: game.id,
+                    question_log_id: question_log.id,
+                    question: question,
+                    expansion_ids: expansion_ids,
+                    recent_context: recent,
+                    user_id: socket.assigns.current_user.id
+                  }
+                  |> RuleMaven.Workers.AskWorker.new()
+                  |> Oban.insert()
+
+                  {:noreply,
+                   socket
+                   |> assign(
+                     question: "",
+                     active_thread_id: question_log.id,
+                     rule_card: fact_card(socket.assigns.dyk_facts),
+                     pending_count: socket.assigns.pending_count + 1,
+                     conversation: [
+                       %{
+                         id: question_log.id,
+                         role: :user,
+                         content: question,
+                         timestamp: DateTime.utc_now()
+                       },
+                       %{
+                         id: question_log.id,
+                         role: :assistant,
+                         content: "Thinking...",
+                         pending: true,
+                         timestamp: DateTime.utc_now()
+                       }
+                     ],
+                     threads: [
+                       %{
+                         id: question_log.id,
                          question: question,
-                         answer: "Thinking...",
-                         user_id: socket.assigns.current_user.id,
-                         visibility: visibility,
-                         expansion_ids: Enum.sort(expansion_ids)
-                       }) do
-                    {:ok, question_log} ->
-                      %{
-                        game_id: game.id,
-                        question_log_id: question_log.id,
-                        question: question,
-                        expansion_ids: expansion_ids,
-                        recent_context: recent,
-                        user_id: socket.assigns.current_user.id
-                      }
-                      |> RuleMaven.Workers.AskWorker.new()
-                      |> Oban.insert()
+                         pending: true,
+                         refused: false,
+                         inserted_at: DateTime.utc_now()
+                       }
+                       | socket.assigns.threads
+                     ],
+                     community_questions:
+                       Games.community_questions(game, socket.assigns.current_user.id)
+                   )
+                   |> push_patch(
+                     to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}"
+                   )
+                   |> push_event("scroll_bottom", %{})}
 
-                      {:noreply,
-                       socket
-                       |> assign(
-                         question: "",
-                         active_thread_id: question_log.id,
-                         rule_card: fact_card(socket.assigns.dyk_facts),
-                         pending_count: socket.assigns.pending_count + 1,
-                         conversation: [
-                           %{
-                             id: question_log.id,
-                             role: :user,
-                             content: question,
-                             timestamp: DateTime.utc_now()
-                           },
-                           %{
-                             id: question_log.id,
-                             role: :assistant,
-                             content: "Thinking...",
-                             pending: true,
-                             timestamp: DateTime.utc_now()
-                           }
-                         ],
-                         threads: [
-                           %{
-                             id: question_log.id,
-                             question: question,
-                             pending: true,
-                             refused: false,
-                             inserted_at: DateTime.utc_now()
-                           }
-                           | socket.assigns.threads
-                         ],
-                         community_questions:
-                           Games.community_questions(game, socket.assigns.current_user.id)
-                       )
-                       |> push_patch(
-                         to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}"
-                       )
-                       |> push_event("scroll_bottom", %{})}
-
-                    {:error, _} ->
-                      {:noreply, put_flash(socket, :error, "Failed to save question")}
-                  end
-
-                {:error, reason} ->
+                {:error, reason} when is_binary(reason) ->
                   {:noreply, put_flash(socket, :error, reason)}
+
+                {:error, _changeset} ->
+                  {:noreply, put_flash(socket, :error, "Failed to save question")}
               end
             end
           end
@@ -1092,108 +1089,105 @@ defmodule RuleMavenWeb.GameLive.Show do
         {:noreply, socket}
 
       true ->
-        case Games.check_rate_limit(socket.assigns.current_user) do
-          :ok ->
-            # The answer is about to change — drop any cached persona restyles.
-            RuleMaven.Voices.clear_for_question(id)
+        # The answer is about to change — drop any cached persona restyles.
+        RuleMaven.Voices.clear_for_question(id)
 
-            %{game: game, included_expansions: included} = socket.assigns
-            expansion_ids = Map.keys(included)
+        %{game: game, included_expansions: included} = socket.assigns
+        expansion_ids = Map.keys(included)
 
-            old_q = find_question_log(game, id)
-            was_pending = old_q && old_q.answer == "Thinking..."
+        old_q = find_question_log(game, id)
+        was_pending = old_q && old_q.answer == "Thinking..."
 
-            if old_q, do: Games.delete_question(old_q)
+        if old_q, do: Games.delete_question(old_q)
 
-            visibility = if old_q, do: old_q.visibility, else: "private"
+        visibility = if old_q, do: old_q.visibility, else: "private"
 
-            now_dt = DateTime.utc_now()
+        now_dt = DateTime.utc_now()
 
-            # Collect recent Q&A for followup context (from current visible conversation)
-            remaining_convo =
-              Enum.reject(socket.assigns.conversation, fn
-                %{id: ^id} -> true
-                _ -> false
-              end)
+        # Collect recent Q&A for followup context (from current visible conversation)
+        remaining_convo =
+          Enum.reject(socket.assigns.conversation, fn
+            %{id: ^id} -> true
+            _ -> false
+          end)
 
-            # Scope context to the retried thread only
-            retried_tid = id
+        # Scope context to the retried thread only
+        retried_tid = id
 
-            recent =
-              remaining_convo
-              |> Enum.filter(fn m -> m.id == retried_tid end)
-              |> Enum.reject(& &1[:pending])
-              |> build_recent_pairs()
+        recent =
+          remaining_convo
+          |> Enum.filter(fn m -> m.id == retried_tid end)
+          |> Enum.reject(& &1[:pending])
+          |> build_recent_pairs()
 
-            case Games.log_question(%{
-                   game_id: game.id,
-                   question: question,
-                   answer: "Thinking...",
-                   user_id: socket.assigns.current_user.id,
-                   visibility: visibility,
-                   expansion_ids: Enum.sort(expansion_ids)
-                 }) do
-              {:ok, question_log} ->
+        case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
+               game_id: game.id,
+               question: question,
+               answer: "Thinking...",
+               user_id: socket.assigns.current_user.id,
+               visibility: visibility,
+               expansion_ids: Enum.sort(expansion_ids)
+             }) do
+          {:ok, question_log} ->
+            %{
+              game_id: game.id,
+              question_log_id: question_log.id,
+              question: question,
+              expansion_ids: expansion_ids,
+              recent_context: recent,
+              user_id: socket.assigns.current_user.id,
+              skip_pool: skip_pool
+            }
+            |> RuleMaven.Workers.AskWorker.new()
+            |> Oban.insert()
+
+            # Build threads list — remove old thread, add new pending one
+            threads =
+              [
                 %{
-                  game_id: game.id,
-                  question_log_id: question_log.id,
+                  id: question_log.id,
                   question: question,
-                  expansion_ids: expansion_ids,
-                  recent_context: recent,
-                  user_id: socket.assigns.current_user.id,
-                  skip_pool: skip_pool
+                  pending: true,
+                  refused: false,
+                  inserted_at: now_dt
                 }
-                |> RuleMaven.Workers.AskWorker.new()
-                |> Oban.insert()
+                | Enum.reject(socket.assigns.threads, &(&1.id == id))
+              ]
 
-                # Build threads list — remove old thread, add new pending one
-                threads =
-                  [
-                    %{
-                      id: question_log.id,
-                      question: question,
-                      pending: true,
-                      refused: false,
-                      inserted_at: now_dt
-                    }
-                    | Enum.reject(socket.assigns.threads, &(&1.id == id))
-                  ]
+            {:noreply,
+             socket
+             |> assign(
+               conversation: [
+                 %{id: question_log.id, role: :user, content: question, timestamp: now_dt},
+                 %{
+                   id: question_log.id,
+                   role: :assistant,
+                   content: "Thinking...",
+                   pending: true,
+                   timestamp: now_dt
+                 }
+               ],
+               threads: threads,
+               active_thread_id: question_log.id,
+               question: "",
+               pending_count:
+                 if(was_pending,
+                   do: socket.assigns.pending_count,
+                   else: socket.assigns.pending_count + 1
+                 ),
+               retry_cooldowns: Map.put(cooldowns, id, now),
+               community_questions:
+                 Games.community_questions(game, socket.assigns.current_user.id)
+             )
+             |> push_patch(
+               to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}"
+             )}
 
-                {:noreply,
-                 socket
-                 |> assign(
-                   conversation: [
-                     %{id: question_log.id, role: :user, content: question, timestamp: now_dt},
-                     %{
-                       id: question_log.id,
-                       role: :assistant,
-                       content: "Thinking...",
-                       pending: true,
-                       timestamp: now_dt
-                     }
-                   ],
-                   threads: threads,
-                   active_thread_id: question_log.id,
-                   question: "",
-                   pending_count:
-                     if(was_pending,
-                       do: socket.assigns.pending_count,
-                       else: socket.assigns.pending_count + 1
-                     ),
-                   retry_cooldowns: Map.put(cooldowns, id, now),
-                   community_questions:
-                     Games.community_questions(game, socket.assigns.current_user.id)
-                 )
-                 |> push_patch(
-                   to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}"
-                 )}
-
-              {:error, _} ->
-                {:noreply, put_flash(socket, :error, "Failed to retry question")}
-            end
-
-          {:error, reason} ->
+          {:error, reason} when is_binary(reason) ->
             {:noreply, put_flash(socket, :error, reason)}
+
+          {:error, _changeset} ->
+            {:noreply, put_flash(socket, :error, "Failed to retry question")}
         end
     end
   end
@@ -3159,8 +3153,11 @@ defmodule RuleMavenWeb.GameLive.Show do
   # expansions only add complexity, never reduce it.
   defp difficulty_weight(game, expansions_and_selection)
 
-  defp difficulty_weight(game, {expansions, included}) do
-    selected_ids = included |> Enum.filter(fn {_id, on?} -> on? end) |> Enum.map(&elem(&1, 0))
+  # `included` is the `@included_expansions` assign: a map of `expansion_id =>
+  # true` (toggling an expansion off deletes its key rather than setting
+  # false), so every present key is selected — no need to filter by value.
+  defp difficulty_weight(game, {expansions, included}) when is_map(included) do
+    selected_ids = Map.keys(included)
 
     selected_weights =
       expansions

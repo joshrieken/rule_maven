@@ -7,6 +7,16 @@ defmodule Mix.Tasks.RuleMaven.BackfillWeight do
   `bgg_data` for existing games predates requesting `stats=1` and so never
   contains an `averageweight` to reparse.
 
+  This is a one-time manual admin task, not something scheduled or re-run
+  automatically. Re-running it IS safe (the enrich job is idempotent and
+  `unique` per game_id), but note it re-fetches and overwrites every BGG-
+  sourced field on the game (players, playing time, image, etc.), not just
+  weight — and a game BGG genuinely has no weight for will be re-enqueued
+  and re-fetched on every subsequent run, since there's no way to distinguish
+  "never checked" from "checked, BGG has none" without a schema change. Both
+  are acceptable for an admin-triggered one-off; avoid adding this to a
+  recurring job without addressing that.
+
       mix rule_maven.backfill_weight
   """
 

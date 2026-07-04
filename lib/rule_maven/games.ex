@@ -817,6 +817,16 @@ defmodule RuleMaven.Games do
         reviewed_at: now
       })
 
+    # `update_document/2` only invalidates the pool when `full_text` changed,
+    # which is never true here (this changeset only touches status/review
+    # fields) — so a doc that already had content when it went pending_review
+    # would leave answers cached against it uninvalidated. Publishing always
+    # changes what's servable, so always invalidate on approval.
+    case result do
+      {:ok, updated} -> invalidate_pool(updated.game_id)
+      _ -> :ok
+    end
+
     ensure_embeddings(doc.id)
     result
   end
@@ -1412,25 +1422,30 @@ defmodule RuleMaven.Games do
   Does NOT re-chunk (the worker chunks once at the end).
   """
   def set_page_cleaned(doc_id, index, cleaned, defects \\ nil) do
-    doc = get_document!(doc_id)
+    Repo.transaction(fn ->
+      doc = lock_document!(doc_id)
 
-    pages =
-      Enum.map(doc.pages, fn p ->
-        attrs = page_attrs(p)
+      pages =
+        Enum.map(doc.pages, fn p ->
+          attrs = page_attrs(p)
 
-        cond do
-          p.index != index -> attrs
-          # A defects list (possibly empty) is the cleanup critic's verdict for
-          # this pass — it replaces whatever was recorded before, so a faithful
-          # re-clean un-flags the page. `nil` (manual edits) leaves it alone.
-          is_list(defects) -> %{attrs | cleaned: cleaned, cleanup_defects: defects}
-          true -> %{attrs | cleaned: cleaned}
-        end
-      end)
+          cond do
+            p.index != index -> attrs
+            # A defects list (possibly empty) is the cleanup critic's verdict for
+            # this pass — it replaces whatever was recorded before, so a faithful
+            # re-clean un-flags the page. `nil` (manual edits) leaves it alone.
+            is_list(defects) -> %{attrs | cleaned: cleaned, cleanup_defects: defects}
+            true -> %{attrs | cleaned: cleaned}
+          end
+        end)
 
-    doc
-    |> Document.changeset(%{pages: pages, full_text: rebuild_full_text(pages)})
-    |> Repo.update()
+      case doc
+           |> Document.changeset(%{pages: pages, full_text: rebuild_full_text(pages)})
+           |> Repo.update() do
+        {:ok, updated} -> updated
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
   end
 
   @doc """
@@ -1614,6 +1629,31 @@ defmodule RuleMaven.Games do
     %QuestionLog{}
     |> QuestionLog.changeset(attrs)
     |> Repo.insert()
+  end
+
+  @doc """
+  Atomically checks `check_rate_limit/1` and inserts the question log under a
+  per-user Postgres advisory lock, so concurrent asks from multiple tabs/
+  sockets can't each read the same under-limit count and all pass — the
+  check-then-insert used to happen as two separate, unlocked steps.
+  Returns `{:ok, question_log}`, `{:error, reason}` (rate-limit message
+  string), or `{:error, changeset}` (insert validation failure).
+  """
+  def log_question_with_rate_limit(user, attrs) do
+    Repo.transaction(fn ->
+      Repo.query!("SELECT pg_advisory_xact_lock($1)", [user.id])
+
+      case check_rate_limit(user) do
+        :ok ->
+          case log_question(attrs) do
+            {:ok, question_log} -> question_log
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
+
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+    end)
   end
 
   def log_question_update(%QuestionLog{} = q, attrs) do
@@ -2496,6 +2536,16 @@ defmodule RuleMaven.Games do
     update_document(doc, %{pages: pages, full_text: rebuild_full_text(pages)})
   end
 
+  # Row-locks the document for the duration of a read-modify-write on its
+  # embedded `pages` array. `replace_page` and `set_page_cleaned` both do this
+  # (reextract vs. cleanup can run concurrently on the same document), and
+  # without a lock the second writer's read predates the first writer's
+  # commit, silently clobbering its page edit.
+  defp lock_document!(id) do
+    from(d in Document, where: d.id == ^id, lock: "FOR UPDATE")
+    |> Repo.one!()
+  end
+
   @doc """
   Replaces one page's extracted text and provenance (used by a single-page
   re-extraction). `fields` is `%{text:, confidence:, lane:, source:}`. Clears any
@@ -2511,34 +2561,39 @@ defmodule RuleMaven.Games do
   meantime. Only `doc.id` from the passed-in struct is used.
   """
   def replace_page(%Document{} = doc, index, fields) do
-    doc = get_document!(doc.id)
+    Repo.transaction(fn ->
+      doc = lock_document!(doc.id)
 
-    pages =
-      doc.pages
-      |> Enum.sort_by(& &1.index)
-      |> Enum.map(fn p ->
-        if p.index == index do
-          %{
+      pages =
+        doc.pages
+        |> Enum.sort_by(& &1.index)
+        |> Enum.map(fn p ->
+          if p.index == index do
+            %{
+              page_attrs(p)
+              | text: fields.text,
+                cleaned: nil,
+                confidence: fields.confidence,
+                lane: fields.lane,
+                source: fields.source,
+                # A re-extract is a fresh decision: overwrite the detail (Map.get so
+                # callers passing only the core fields clear stale signals to nil).
+                gate_agreement: Map.get(fields, :gate_agreement),
+                gate_coverage: Map.get(fields, :gate_coverage),
+                escalated: Map.get(fields, :escalated),
+                critic_rounds: Map.get(fields, :critic_rounds),
+                residual_defects: Map.get(fields, :residual_defects)
+            }
+          else
             page_attrs(p)
-            | text: fields.text,
-              cleaned: nil,
-              confidence: fields.confidence,
-              lane: fields.lane,
-              source: fields.source,
-              # A re-extract is a fresh decision: overwrite the detail (Map.get so
-              # callers passing only the core fields clear stale signals to nil).
-              gate_agreement: Map.get(fields, :gate_agreement),
-              gate_coverage: Map.get(fields, :gate_coverage),
-              escalated: Map.get(fields, :escalated),
-              critic_rounds: Map.get(fields, :critic_rounds),
-              residual_defects: Map.get(fields, :residual_defects)
-          }
-        else
-          page_attrs(p)
-        end
-      end)
+          end
+        end)
 
-    update_document(doc, %{pages: pages, full_text: rebuild_full_text(pages)})
+      case update_document(doc, %{pages: pages, full_text: rebuild_full_text(pages)}) do
+        {:ok, updated} -> updated
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
   end
 
   @doc """
