@@ -2178,7 +2178,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <%= if show_voice do %>
                         <% cur_voice = Map.get(@voice_sel, msg[:id], @default_voice) %>
                         <% cur = Enum.find(@voices, &(&1.id == cur_voice)) || hd(@voices) %>
-                        <% is_default = cur_voice == @default_voice %>
+                        <%!-- "neutral" default means no default chosen — don't
+                              show the star as active for plain answers then. --%>
+                        <% is_default = cur_voice == @default_voice && @default_voice != "neutral" %>
                         <% speaking = cur_voice != "neutral" %>
                         <details class="card-menu">
                           <summary
