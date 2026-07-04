@@ -2178,14 +2178,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <%= if show_voice do %>
                         <% cur_voice = Map.get(@voice_sel, msg[:id], @default_voice) %>
                         <% cur = Enum.find(@voices, &(&1.id == cur_voice)) || hd(@voices) %>
-                        <%!-- "neutral" default means no default chosen — don't
-                              show the star as active for plain answers then. --%>
-                        <% is_default = cur_voice == @default_voice && @default_voice != "neutral" %>
                         <% speaking = cur_voice != "neutral" %>
                         <details class="card-menu">
                           <summary
                             style={"font-size:0.65rem;font-weight:600;border-radius:999px;padding:0.12rem 0.5rem;#{if speaking, do: "border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--text)", else: "border:1px solid var(--border);background:var(--bg-surface);color:var(--text-muted)"}"}
-                            title="Answer voice — click to change"
+                            title="Answer voice — your pick applies to every answer and is remembered"
                           >
                             <span aria-hidden="true">{cur.emoji}</span>
                             <span>{if speaking, do: "#{cur.label} speaking", else: cur.label}</span>
@@ -2209,23 +2206,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                             </button>
                           </div>
                         </details>
-                        <button
-                          type="button"
-                          phx-click="set_default_voice"
-                          phx-value-voice={cur_voice}
-                          style={"background:none;border:none;padding:0;line-height:1;font-size:0.85rem;cursor:pointer;#{if is_default, do: "color:var(--accent)", else: "color:var(--text-muted);opacity:0.6"}"}
-                          title={
-                            if is_default,
-                              do: "This voice is your default on every answer",
-                              else: "Use this voice by default on every answer"
-                          }
-                          aria-pressed={to_string(is_default)}
-                          aria-label={
-                            if is_default,
-                              do: "#{cur.label} is your default voice",
-                              else: "Set #{cur.label} as your default voice"
-                          }
-                        >{if is_default, do: "★", else: "☆"}</button>
                       <% end %>
                     </div>
                   <% end %>
