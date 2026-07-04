@@ -959,6 +959,8 @@ defmodule RuleMaven.Games do
   flagged `needs_review` so they stay out of the shared pool until a
   moderator re-approves them (`clear_needs_review/1`); private rows just
   silently stop matching `stale == false` and a fresh ask re-populates them.
+  When a game is an expansion, also invalidates base-game answers that
+  included it in their expansion set.
   Returns the number of rows touched (demoted + newly staled + newly
   flagged).
   """
@@ -967,7 +969,11 @@ defmodule RuleMaven.Games do
     # ask against the new text.
     {demoted, _} =
       Repo.update_all(
-        from(q in QuestionLog, where: q.game_id == ^game_id and q.pooled == true),
+        from(q in QuestionLog,
+          where:
+            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
+              q.pooled == true
+        ),
         set: [pooled: false]
       )
 
@@ -975,7 +981,11 @@ defmodule RuleMaven.Games do
     # signal the same-user cache tiers check, independent of moderation.
     {staled, _} =
       Repo.update_all(
-        from(q in QuestionLog, where: q.game_id == ^game_id and q.stale == false),
+        from(q in QuestionLog,
+          where:
+            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
+              q.stale == false
+        ),
         set: [stale: true]
       )
 
@@ -987,7 +997,9 @@ defmodule RuleMaven.Games do
     {flagged, _} =
       Repo.update_all(
         from(q in QuestionLog,
-          where: q.game_id == ^game_id and q.visibility == "community" and q.needs_review == false
+          where:
+            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
+              q.visibility == "community" and q.needs_review == false
         ),
         set: [needs_review: true]
       )

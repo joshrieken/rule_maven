@@ -152,4 +152,21 @@ defmodule RuleMaven.GamesExpansionCacheTest do
       assert Games.find_similar_question_in_pool(g.id, e0, expansion_ids: [99]) == nil
     end
   end
+
+  describe "invalidate_pool/1 reaches answers that used the changed expansion" do
+    test "staling an expansion stales base-game rows that included it" do
+      base = game("Base")
+      exp = game("Exp")
+
+      with_exp = pooled_q(base, [exp.id])
+      without_exp = pooled_q(base, [])
+
+      Games.invalidate_pool(exp.id)
+
+      assert Repo.get!(QuestionLog, with_exp.id).stale
+      assert Repo.get!(QuestionLog, with_exp.id).pooled == false
+      refute Repo.get!(QuestionLog, without_exp.id).stale
+      assert Repo.get!(QuestionLog, without_exp.id).pooled
+    end
+  end
 end
