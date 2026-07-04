@@ -1819,8 +1819,24 @@ defmodule RuleMavenWeb.GameLive.Show do
             Enum.reject(@threads, fn t -> t.refused || MapSet.member?(community_ids, t.id) end) %>
           <% refused = Enum.filter(@threads, & &1.refused) %>
           <% refused_count = length(refused) %>
-          <% groups = group_threads_by_time(answered) %>
+          <%!-- Favorites get their own section above the time groups (not just
+                floated within Today), so an old favorited question stays
+                pinned even once it's aged out of "Today". --%>
+          <% {favorited_threads, unfavorited} = Enum.split_with(answered, & &1.favorited) %>
+          <% favorited_threads =
+            Enum.filter(favorited_threads, fn t ->
+              @search_query == "" ||
+                String.contains?(String.downcase(t.question), String.downcase(@search_query))
+            end) %>
+          <% groups = group_threads_by_time(unfavorited) %>
           <% refused_groups = group_threads_by_time(refused) %>
+
+          <%= if favorited_threads != [] do %>
+            <div style="padding:0.3rem 0.75rem 0.1rem;font-size:0.6rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">
+              Favorites
+            </div>
+            <.thread_sidebar_item :for={t <- favorited_threads} t={t} active_thread_id={@active_thread_id} />
+          <% end %>
 
           <%= for {label, key} <- [{"Today", :today}, {"Last 7 Days", :week}, {"Older", :older}] do %>
             <% items =
@@ -1833,35 +1849,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               <div style="padding:0.3rem 0.75rem 0.1rem;font-size:0.6rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">
                 {label}
               </div>
-              <%= for t <- items do %>
-                <button
-                  id={"thread-#{t.id}"}
-                  type="button"
-                  class="sidebar-item"
-                  phx-click="switch_thread"
-                  phx-value-id={t.id}
-                  style={"display:block;text-align:left;border:none;cursor:pointer;padding:0.22rem 0.75rem;font-size:0.73rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == t.id, do: "var(--accent)", else: "transparent"};width:100%;color:var(--text)"}
-                >
-                  <div style="display:flex;align-items:baseline;gap:0.2rem">
-                    <%= if t.favorited do %>
-                      <span style="color:#e05c2a;font-size:0.55rem;flex-shrink:0">♥</span>
-                    <% end %>
-                    <%= if t.pending do %>
-                      <span
-                        class="animate-pulse"
-                        style="color:var(--accent-ink,var(--accent));font-size:0.45rem;flex-shrink:0"
-                      >●</span>
-                    <% end %>
-                    <%= if !t.pending && is_binary(t.answer) && String.starts_with?(t.answer, "⚠️") do %>
-                      <span
-                        style="color:var(--red,#e53e3e);font-size:0.55rem;flex-shrink:0"
-                        title="Failed"
-                      >⚠</span>
-                    <% end %>
-                    <span style="word-break:break-word;white-space:normal">{t.question}</span>
-                  </div>
-                </button>
-              <% end %>
+              <.thread_sidebar_item :for={t <- items} t={t} active_thread_id={@active_thread_id} />
             <% end %>
           <% end %>
 
@@ -2970,6 +2958,39 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> String.replace(~r/\*\*(.+?)\*\*/, "\\1")
     |> String.replace(~r/\*(.+?)\*/, "\\1")
     |> String.replace(~r/^[-*]\s+/m, "")
+  end
+
+  # One sidebar row: shared by the Favorites section and each time group
+  # (Today/Last 7 Days/Older) so the two render identically.
+  attr :t, :map, required: true
+  attr :active_thread_id, :any, required: true
+
+  defp thread_sidebar_item(assigns) do
+    ~H"""
+    <button
+      id={"thread-#{@t.id}"}
+      type="button"
+      class="sidebar-item"
+      phx-click="switch_thread"
+      phx-value-id={@t.id}
+      style={"display:block;text-align:left;border:none;cursor:pointer;padding:0.22rem 0.75rem;font-size:0.73rem;line-height:1.35;border-left:2px solid #{if @active_thread_id == @t.id, do: "var(--accent)", else: "transparent"};width:100%;color:var(--text)"}
+    >
+      <div style="display:flex;align-items:baseline;gap:0.2rem">
+        <span :if={@t.favorited} style="color:#e05c2a;font-size:0.55rem;flex-shrink:0">♥</span>
+        <span
+          :if={@t.pending}
+          class="animate-pulse"
+          style="color:var(--accent-ink,var(--accent));font-size:0.45rem;flex-shrink:0"
+        >●</span>
+        <span
+          :if={!@t.pending && is_binary(@t.answer) && String.starts_with?(@t.answer, "⚠️")}
+          style="color:var(--red,#e53e3e);font-size:0.55rem;flex-shrink:0"
+          title="Failed"
+        >⚠</span>
+        <span style="word-break:break-word;white-space:normal">{@t.question}</span>
+      </div>
+    </button>
+    """
   end
 
   # The voice picker popup, shared by the answer byline and the composer's
