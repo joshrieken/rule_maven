@@ -1215,7 +1215,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             }
           end)
 
-        {label,
+        {label, entry[:source_id],
          %{
            full_text: Games.rebuild_full_text(pages),
            pages: pages,
@@ -1223,10 +1223,18 @@ defmodule RuleMavenWeb.GameLive.Form do
            kind: entry[:kind] || "rulebook"
          }}
       end)
-      |> Enum.filter(fn {l, %{pages: pages}} ->
+      |> Enum.filter(fn {l, source_id, %{pages: pages}} ->
+        # Only new, never-saved entries (blank "add source" slots with no
+        # source_id) need real content before they're worth keeping. Existing
+        # persisted documents must never be dropped here just because they
+        # haven't finished extraction yet (pages still empty) — save_game
+        # prunes anything missing from source_map, so dropping them here
+        # would delete the document outright.
         String.trim(l) != "" and
-          Enum.any?(pages, &(String.trim(Games.effective_page_text(&1)) != ""))
+          (source_id != nil or
+             Enum.any?(pages, &(String.trim(Games.effective_page_text(&1)) != "")))
       end)
+      |> Enum.map(fn {l, source_id, attrs} -> Map.merge(attrs, %{label: l, source_id: source_id}) end)
 
     # Copy any pending PDF uploads into place now (consume_uploaded_entries deletes
     # the temp file once the callback returns). The source rows are created below,
@@ -1246,7 +1254,7 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     game = socket.assigns.game
 
-    case save_game(socket, game, game_params, Map.new(source_map)) do
+    case save_game(socket, game, game_params, source_map) do
       {:ok, saved} ->
         # Ingest new uploads *after* save_game — it prunes existing sources not
         # present in the form's source_map, so ingesting earlier would delete the
@@ -2103,11 +2111,11 @@ defmodule RuleMavenWeb.GameLive.Form do
   # Returns {:ok, socket} on success (flash + navigate queued) or
   # {:error, socket} with the invalid changeset assigned — the caller must not
   # ingest uploads or navigate on error.
-  defp save_game(socket, nil, game_params, source_map) do
+  defp save_game(socket, nil, game_params, source_list) do
     case Games.create_game(game_params) do
       {:ok, game} ->
-        Enum.each(source_map, fn {label, attrs} ->
-          Games.create_rulebook_source(Map.merge(attrs, %{game_id: game.id, label: label}))
+        Enum.each(source_list, fn attrs ->
+          Games.create_rulebook_source(Map.put(attrs, :game_id, game.id))
         end)
 
         {:ok,
@@ -2123,27 +2131,35 @@ defmodule RuleMavenWeb.GameLive.Form do
     end
   end
 
-  defp save_game(socket, game, game_params, source_map) do
+  defp save_game(socket, game, game_params, source_list) do
     case Games.update_game(game, game_params) do
       {:ok, game} ->
         existing = Games.list_rulebook_sources(game)
+        kept_ids = source_list |> Enum.map(& &1.source_id) |> MapSet.new()
 
         existing
-        |> Enum.filter(fn s -> not Map.has_key?(source_map, s.label) end)
+        |> Enum.filter(fn s -> not MapSet.member?(kept_ids, s.id) end)
         |> Enum.each(&Games.delete_rulebook_source/1)
 
-        existing_by_label = Map.new(existing, &{&1.label, &1})
+        existing_by_id = Map.new(existing, &{&1.id, &1})
 
-        Enum.each(source_map, fn {label, attrs} ->
-          case existing_by_label do
-            %{^label => doc} ->
-              # Persist the page layers (original/cleaned/edited) + derived
-              # full_text; leave pdf_path/metadata intact. update_document
-              # re-chunks only when full_text actually changes.
-              Games.update_document(doc, %{full_text: attrs.full_text, pages: attrs.pages})
+        Enum.each(source_list, fn attrs ->
+          case Map.fetch(existing_by_id, attrs.source_id) do
+            {:ok, doc} ->
+              # Persist the label (may have changed) + the page layers
+              # (original/cleaned/edited) + derived full_text; leave
+              # pdf_path/metadata intact. update_document re-chunks only
+              # when full_text actually changes. Matching by id (not label)
+              # is what lets a rename survive save instead of looking like
+              # the old document was removed and a blank one added.
+              Games.update_document(doc, %{
+                label: attrs.label,
+                full_text: attrs.full_text,
+                pages: attrs.pages
+              })
 
-            _ ->
-              Games.create_rulebook_source(Map.merge(attrs, %{game_id: game.id, label: label}))
+            :error ->
+              Games.create_rulebook_source(Map.put(attrs, :game_id, game.id))
           end
         end)
 
