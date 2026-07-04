@@ -329,6 +329,23 @@ defmodule RuleMavenWeb.GameLive.Prepare do
      |> put_flash(:info, "Paused — the pipeline will stop after the current step.")}
   end
 
+  # Nudge a paused auto pipeline forward (e.g. after clearing a "needs review"
+  # or "needs BGG id" blocker on the edit page). start_auto is idempotent and
+  # only drives whatever's still incomplete, so this is a plain resume, not a
+  # restart from scratch.
+  def handle_event("resume", _params, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      Readiness.start_auto(socket.assigns.game, socket.assigns.current_user)
+
+      {:noreply,
+       socket
+       |> load()
+       |> put_flash(:info, "Running the remaining steps…")}
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
   # Re-run a single enrichment step. Each path enqueues a durable Oban worker and
   # returns immediately; progress streams back over the game's job topic (mount
   # subscribes), which reloads this page and lights up the step's "Running…".
@@ -593,7 +610,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       </div>
 
       <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
-        <%= if @auto? do %>
+        <%= if @auto? && (is_nil(@pause_reason) || @pause_reason == "") do %>
           <span style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.85rem;font-weight:600;color:var(--accent)">
             <span style="display:inline-block;width:0.55rem;height:0.55rem;border-radius:50%;background:var(--accent)"></span>
             Running…
@@ -605,26 +622,44 @@ defmodule RuleMavenWeb.GameLive.Prepare do
             Pause
           </button>
         <% else %>
-          <%!-- Once the game is Ready, re-running the pipeline re-spends on
-                enrichments, so deemphasize the action and confirm-gate it. --%>
-          <button
-            phx-click="prepare"
-            data-confirm={
-              @playable? &&
-                "This game is already Ready. Re-run the pipeline (regenerates enrichments and spends)?"
-            }
-            style={
-              if @playable?,
-                do:
-                  "background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border);padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.82rem;font-weight:600;cursor:pointer",
-                else:
-                  "background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;cursor:pointer"
-            }
-          >
-            {if @playable?, do: "Re-run prepare", else: "Prepare game"} · est. ${fmt_cost(
-              if @playable?, do: @rerun_cost, else: @remaining_cost
-            )}
-          </button>
+          <%= if @auto? do %>
+            <%!-- Paused mid-pipeline (e.g. waiting on a human review step). The
+                  worker won't nudge itself forward here, so give the admin a
+                  direct way to continue once they've cleared the blocker. --%>
+            <button
+              phx-click="resume"
+              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;cursor:pointer"
+            >
+              ▶ Run remaining
+            </button>
+            <button
+              phx-click="stop"
+              style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.4rem 1rem;border-radius:0.375rem;font-size:0.82rem;font-weight:600;cursor:pointer"
+            >
+              Stop
+            </button>
+          <% else %>
+            <%!-- Once the game is Ready, re-running the pipeline re-spends on
+                  enrichments, so deemphasize the action and confirm-gate it. --%>
+            <button
+              phx-click="prepare"
+              data-confirm={
+                @playable? &&
+                  "This game is already Ready. Re-run the pipeline (regenerates enrichments and spends)?"
+              }
+              style={
+                if @playable?,
+                  do:
+                    "background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border);padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.82rem;font-weight:600;cursor:pointer",
+                  else:
+                    "background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;cursor:pointer"
+              }
+            >
+              {if @playable?, do: "Re-run prepare", else: "Prepare game"} · est. ${fmt_cost(
+                if @playable?, do: @rerun_cost, else: @remaining_cost
+              )}
+            </button>
+          <% end %>
         <% end %>
 
         <%!-- Manual publish gate: a fully-prepared game stays unpublished until
@@ -1353,7 +1388,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       style="color:var(--accent);font-weight:600"
     >
       edit page
-    </.link>, then re-click Prepare to resume.
+    </.link>, then click Run remaining to resume.
     """
   end
 
@@ -1381,7 +1416,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       style="color:var(--accent);font-weight:600"
     >
       review them on the edit page
-    </.link>, then re-click Prepare to resume.
+    </.link>, then click Run remaining to resume.
     """
   end
 
