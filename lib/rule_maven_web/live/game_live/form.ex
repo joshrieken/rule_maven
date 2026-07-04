@@ -2515,7 +2515,9 @@ defmodule RuleMavenWeb.GameLive.Form do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="game-form">
+    {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
+    <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game && @game.image_url} />
+    <div class="game-form" style="position:relative;z-index:1">
       <div
         :if={@expansion_prompt}
         style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;padding:1.5rem"

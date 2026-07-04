@@ -1,8 +1,20 @@
 defmodule RuleMavenWeb.GameLive.GameTheme do
   @moduledoc """
-  Shared rendering for the per-game theme + blurred cover background, used by the
-  Q&A (`Show`) and `FAQ` pages so both expose the Game Light / Dark themes and
-  the cover-art backdrop.
+  Shared rendering for the per-game theme + blurred cover background. Used by
+  every game-scoped page (Q&A `Show`, `FAQ`, `Review`, `Prepare`, `Form` edit)
+  so they all expose the Game Light / Dark themes and the cover-art backdrop —
+  any new game-scoped LiveView should call both at the top of its `render/1`:
+
+      {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
+      <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
+      <div style="position:relative;z-index:1">
+        ...
+      </div>
+
+  The wrapping div needs `position:relative;z-index:1` so its content stacks
+  above the fixed, `z-index:0` blur layer. `style_block/1` no-ops (renders
+  nothing) for `nil` — safe on pages like `Form`'s `:new` action where there's
+  no game yet.
   """
   use Phoenix.Component
 

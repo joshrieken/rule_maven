@@ -70,7 +70,9 @@ defmodule RuleMavenWeb.GameLive.Review do
   @impl true
   def render(assigns) do
     ~H"""
-    <div style="max-width:48rem;margin:0 auto;padding:1.5rem 1rem">
+    {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
+    <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
+    <div style="max-width:48rem;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index:1">
       <.link navigate={~p"/games/#{@game}"} class="back-link" style="margin-bottom:0">
         &larr; Back to {String.slice(@game.name, 0, 20)}
       </.link>
