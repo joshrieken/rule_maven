@@ -1646,11 +1646,16 @@ defmodule RuleMaven.LLM do
     full_prompt =
       RuleMaven.Prompts.render("categories", %{game_name: game_name, rulebook: sample})
 
+    # Reasoning models spend a few hundred tokens thinking before the list;
+    # 400 used to starve the answer entirely (all budget burned reasoning,
+    # empty content parsed as 0 categories). reject_truncated surfaces a cap
+    # cut as an error instead of a silent empty result.
     case chat(full_prompt, "generate_categories",
            operation: "categories",
            game_id: game_id,
            system: RuleMaven.Prompts.template("categories_system"),
-           max_tokens: 400
+           max_tokens: 2000,
+           reject_truncated: true
          ) do
       {:ok, text} ->
         cats =

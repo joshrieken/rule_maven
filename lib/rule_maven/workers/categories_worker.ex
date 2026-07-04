@@ -38,6 +38,13 @@ defmodule RuleMaven.Workers.CategoriesWorker do
     Jobs.event(run, :info, "Reading #{String.length(text)} chars to derive rule categories…")
 
     case RuleMaven.LLM.generate_categories(game.name, text, game_id) do
+      # Zero categories means the model produced nothing usable (empty or
+      # unparseable output) — surface as a failure so the job log doesn't show
+      # a green "done" run while the categories step stays pending.
+      {:ok, []} ->
+        broadcast(game_id, {:categories_ready, []})
+        Jobs.finish_run(run, "failed", "Model returned no categories — retry Categories.")
+
       {:ok, cats} ->
         Jobs.event(run, :info, "Derived #{length(cats)} categories: #{category_names(cats)}")
 

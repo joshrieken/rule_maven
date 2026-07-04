@@ -377,7 +377,7 @@ defmodule RuleMaven.Prompts do
   Movement: How investigators move between spaces and rooms.
   Setup: Game preparation, component placement, and starting conditions.
 
-  Only output the category lines — no headers, no numbering, no extra text.
+  Only output the category lines — no headers, no numbering, no preamble, no extra text.
 
   RULEBOOK (sample):
   {{rulebook}}

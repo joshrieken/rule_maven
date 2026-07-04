@@ -547,6 +547,30 @@ defmodule RuleMaven.LLMTest do
     end
   end
 
+  describe "generate_categories/3" do
+    test "rejects a truncated response instead of parsing partial output" do
+      # A reasoning model that burns the whole token budget thinking returns
+      # empty content with finish_reason "length" — must surface as an error,
+      # not {:ok, []} (which the worker would log as a successful 0-category run).
+      mock_llm(fn _body -> {:ok, %{answer: "", finish_reason: "length"}} end)
+
+      assert {:error, :truncated} = LLM.generate_categories("Test Game", "Some rulebook text.")
+    end
+
+    test "requests enough completion budget for a reasoning model" do
+      test_pid = self()
+
+      mock_llm(fn body ->
+        send(test_pid, {:max_tokens, body[:max_tokens]})
+        {:ok, %{answer: "Combat: fighting rules", finish_reason: "stop"}}
+      end)
+
+      {:ok, [%{name: "Combat"}]} = LLM.generate_categories("Test Game", "Some rulebook text.")
+      assert_received {:max_tokens, max_tokens}
+      assert max_tokens >= 1500
+    end
+  end
+
   defp mock_llm(fun) do
     Application.put_env(:rule_maven, :llm_mock, fun)
 
