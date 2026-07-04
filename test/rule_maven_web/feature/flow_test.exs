@@ -98,7 +98,7 @@ defmodule RuleMavenWeb.Feature.FlowTest do
     session
     |> login(user.username)
     |> visit("/games/#{RuleMaven.Hashid.encode(game.id)}")
-    |> assert_has(css("span", text: "Answer voice"))
+    |> assert_has(css("span", text: "Answer persona"))
     |> assert_has(css("details.card-menu summary", minimum: 1))
   end
 

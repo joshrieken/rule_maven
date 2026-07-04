@@ -76,7 +76,6 @@ defmodule RuleMaven.Workers.CategoriesWorker do
     Phoenix.PubSub.broadcast(RuleMaven.PubSub, topic(game_id), msg)
   end
 
-  defp category_names([]), do: "—"
   defp category_names(cats), do: Enum.map_join(cats, ", ", & &1.name)
 
   defp oban_running?, do: Application.get_env(:rule_maven, Oban)[:testing] != :manual

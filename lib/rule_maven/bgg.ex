@@ -326,7 +326,7 @@ defmodule RuleMaven.BGG do
     |> Map.get(:average_weight)
     |> case do
       nil -> nil
-      0.0 -> nil
+      w when w == 0.0 -> nil
       w -> w
     end
   end
