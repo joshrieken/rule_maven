@@ -138,6 +138,11 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       previews: build_previews(game, docs),
       running_steps: running_steps(game),
       playable?: Readiness.playable?(game),
+      # Distinct from playable?: playable flips true once just the *required*
+      # steps are done + approved, while enrichment steps (suggestions, cheat
+      # sheet, etc.) can still be running. Re-run wording/spend-warning should
+      # only kick in once literally nothing is left to do.
+      all_done?: Enum.all?(steps, &(&1.state == :done)),
       required_complete?: Readiness.required_complete?(game),
       publish_approved?: Readiness.publish_approved?(game.id),
       auto?: Readiness.auto?(game.id),
@@ -639,24 +644,27 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               Stop
             </button>
           <% else %>
-            <%!-- Once the game is Ready, re-running the pipeline re-spends on
-                  enrichments, so deemphasize the action and confirm-gate it. --%>
+            <%!-- Once literally everything (including enrichments) is done,
+                  re-running the pipeline re-spends on already-finished work,
+                  so deemphasize the action and confirm-gate it. Before that —
+                  even once required steps are done and the game is Ready —
+                  this just continues whatever enrichment is left. --%>
             <button
               phx-click="prepare"
               data-confirm={
-                @playable? &&
-                  "This game is already Ready. Re-run the pipeline (regenerates enrichments and spends)?"
+                @all_done? &&
+                  "This game is already fully prepared. Re-run the pipeline (regenerates enrichments and spends)?"
               }
               style={
-                if @playable?,
+                if @all_done?,
                   do:
                     "background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border);padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.82rem;font-weight:600;cursor:pointer",
                   else:
                     "background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;cursor:pointer"
               }
             >
-              {if @playable?, do: "Re-run prepare", else: "Prepare game"} · est. ${fmt_cost(
-                if @playable?, do: @rerun_cost, else: @remaining_cost
+              {if @all_done?, do: "Re-run prepare", else: "Prepare game"} · est. ${fmt_cost(
+                if @all_done?, do: @rerun_cost, else: @remaining_cost
               )}
             </button>
           <% end %>
