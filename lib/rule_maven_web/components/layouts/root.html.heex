@@ -108,14 +108,14 @@
                 title="Match this game's colors on its Q&A and FAQ pages"
                 hidden
               >
-                <option value="0">🎨 Off</option>
+                <option value="0">🖌️ Off</option>
                 <option :for={{slug, label} <- RuleMaven.Metrics.game_themes()} value={slug}>
-                  🎨 {label}
+                  🖌️ {label}
                 </option>
               </select>
               <select class="theme-select" id="theme-select" aria-label="Theme">
                 <option :for={{slug, label} <- RuleMaven.Metrics.themes()} value={slug}>
-                  🖌️ {label}
+                  🎨 {label}
                 </option>
               </select>
               <button
