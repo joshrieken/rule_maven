@@ -2196,57 +2196,27 @@ defmodule RuleMavenWeb.GameLive.Show do
                           </summary>
                           <% {game_voices, builtin_voices} =
                             Enum.split_with(@voices, &String.starts_with?(&1.id, "g:")) %>
-                          <div class="card-menu__pop" style="min-width:220px;max-width:280px">
-                            <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);padding:0.2rem 0.4rem 0.05rem">
-                              Built-in
-                            </div>
-                            <button
-                              :for={v <- builtin_voices}
-                              type="button"
-                              phx-click="set_voice"
-                              phx-value-id={msg[:id]}
-                              phx-value-voice={v.id}
-                              class="card-menu__item"
-                              style={
-                                if cur_voice == v.id,
-                                  do: "background:var(--accent);color:var(--accent-text,#fff)"
-                              }
-                            >
-                              <span aria-hidden="true">{v.emoji}</span>
-                              <span style="display:flex;flex-direction:column;align-items:flex-start;text-align:left">
-                                <span>{v.label}</span>
-                                <span
-                                  :if={v[:description]}
-                                  style="font-size:0.6rem;font-weight:400;opacity:0.7;line-height:1.3"
-                                >{v.description}</span>
-                              </span>
-                            </button>
+                          <div class="card-menu__pop" style="min-width:230px;max-width:280px">
                             <%= if game_voices != [] do %>
-                              <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);padding:0.35rem 0.4rem 0.05rem;border-top:1px solid var(--border);margin-top:0.15rem">
+                              <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);padding:0.2rem 0.4rem 0.05rem">
                                 ✦ {@game.name}
                               </div>
-                              <button
+                              <.voice_menu_item
                                 :for={v <- game_voices}
-                                type="button"
-                                phx-click="set_voice"
-                                phx-value-id={msg[:id]}
-                                phx-value-voice={v.id}
-                                class="card-menu__item"
-                                style={
-                                  if cur_voice == v.id,
-                                    do: "background:var(--accent);color:var(--accent-text,#fff)"
-                                }
-                              >
-                                <span aria-hidden="true">{v.emoji}</span>
-                                <span style="display:flex;flex-direction:column;align-items:flex-start;text-align:left">
-                                  <span>{v.label}</span>
-                                  <span
-                                    :if={v[:description]}
-                                    style="font-size:0.6rem;font-weight:400;opacity:0.7;line-height:1.3"
-                                  >{v.description}</span>
-                                </span>
-                              </button>
+                                voice={v}
+                                msg_id={msg[:id]}
+                                selected={cur_voice == v.id}
+                              />
                             <% end %>
+                            <div style={"font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);padding:0.2rem 0.4rem 0.05rem#{if game_voices != [], do: ";border-top:1px solid var(--border);margin-top:0.15rem;padding-top:0.35rem"}"}>
+                              Built-in
+                            </div>
+                            <.voice_menu_item
+                              :for={v <- builtin_voices}
+                              voice={v}
+                              msg_id={msg[:id]}
+                              selected={cur_voice == v.id}
+                            />
                           </div>
                         </details>
                       <% end %>
@@ -3006,6 +2976,34 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> String.replace(~r/\*\*(.+?)\*\*/, "\\1")
     |> String.replace(~r/\*(.+?)\*/, "\\1")
     |> String.replace(~r/^[-*]\s+/m, "")
+  end
+
+  # One row in the voice picker menu: fixed emoji gutter + left-aligned label
+  # with an optional muted description line, always full menu width.
+  attr :voice, :map, required: true
+  attr :msg_id, :any, required: true
+  attr :selected, :boolean, required: true
+
+  defp voice_menu_item(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-click="set_voice"
+      phx-value-id={@msg_id}
+      phx-value-voice={@voice.id}
+      class="card-menu__item"
+      style={"display:flex;width:100%;justify-content:flex-start;align-items:flex-start;#{if @selected, do: "background:var(--accent);color:var(--accent-text,#fff)"}"}
+    >
+      <span aria-hidden="true" style="flex:none;width:1.3rem;text-align:center">{@voice.emoji}</span>
+      <span style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;text-align:left">
+        <span>{@voice.label}</span>
+        <span
+          :if={@voice[:description]}
+          style="font-size:0.6rem;font-weight:400;opacity:0.7;line-height:1.3"
+        >{@voice.description}</span>
+      </span>
+    </button>
+    """
   end
 
   # ── Verdict stamp ──
