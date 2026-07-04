@@ -1427,6 +1427,8 @@ Also add `expansion_deltas: []` to the mount assigns so the dead render is safe.
 
 - [ ] **Step 2: Render delta sections**
 
+**DRY requirement:** the base checklist's Gather/Steps item markup and the delta sections below share one item shape. Extract ONE private function component in show.ex, e.g. `checklist_item(assigns)` taking `key`, `checked`, `title`, `detail` (detail nil for plain component items), and use it for the base `c-`/`s-` items AND the delta `xc-`/`xs-` items — do not paste the button markup twice. The heex below shows the required rendering/keys; realize it through the shared component.
+
 In the setup-checklist heex, two changes.
 
 The `total` count (line ~1932) becomes:
