@@ -305,13 +305,39 @@ defmodule RuleMaven.BGG do
        max_players: parsed.max_players,
        playing_time: parsed.playing_time,
        image_url: parsed.image_url,
+       weight: extract_weight(xml),
        expansion_links: parsed.links
      }}
+  end
+
+  @doc """
+  Extracts BGG's community `averageweight` (1.0-5.0 complexity rating) from raw
+  item XML. Public so the one-time backfill Mix task can reparse cached
+  `bgg_data` without re-fetching from the BGG API. Returns nil when missing or
+  when BGG reports 0.0 (its sentinel for "not enough ratings yet").
+  """
+  def extract_weight(xml) do
+    xml
+    |> parse()
+    |> xpath(
+      ~x"//items/item"e,
+      average_weight: ~x"./statistics/ratings/averageweight/@value"s |> transform_by(&parse_float/1)
+    )
+    |> Map.get(:average_weight)
+    |> case do
+      nil -> nil
+      0.0 -> nil
+      w -> w
+    end
   end
 
   defp parse_int(""), do: nil
   defp parse_int(nil), do: nil
   defp parse_int(str), do: String.to_integer(str)
+
+  defp parse_float(""), do: nil
+  defp parse_float(nil), do: nil
+  defp parse_float(str), do: elem(Float.parse(str), 0)
 
   @doc """
   After enriching a game, link its expansions via `game_expansion_links`.
