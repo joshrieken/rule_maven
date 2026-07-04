@@ -271,6 +271,22 @@ defmodule RuleMaven.Games do
   @doc "First linked base game (legacy single-parent shape), nil for base games."
   def base_game_for(%Game{} = game), do: game |> base_games_for() |> List.first()
 
+  @doc """
+  The theme palette a game should render with. Expansions never generate their
+  own (see `Readiness` step `:theme`) — they inherit whichever palette their
+  base game has, falling back to `nil` (default theme) if the base has none.
+  """
+  def effective_theme_palette(%Game{theme_palette: palette} = game) do
+    if expansion?(game.id) do
+      case base_game_for(game) do
+        %Game{theme_palette: p} -> p
+        nil -> nil
+      end
+    else
+      palette
+    end
+  end
+
   ## Expansion selection (per user, per base game) -----------------------------
 
   @doc """

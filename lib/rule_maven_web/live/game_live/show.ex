@@ -1400,7 +1400,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:noreply,
      socket
      |> assign(voice_pending: pending, voice_failed: failed)
-     |> put_flash(:error, "Couldn't apply that voice — showing the plain answer.")}
+     |> put_flash(:error, "Couldn't apply that persona — showing the plain answer.")}
   end
 
   def handle_info({:ask_error, data}, socket) do
@@ -2170,16 +2170,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                         <details class="card-menu">
                           <summary
                             style={"font-size:0.65rem;font-weight:600;border-radius:999px;padding:0.12rem 0.5rem;#{if speaking, do: "border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--text)", else: "border:1px solid var(--border);background:var(--bg-surface);color:var(--text-muted)"}"}
-                            title="Answer voice — your pick applies to every answer and is remembered"
+                            title="Answer persona — your pick applies to every answer and is remembered"
                           >
                             <span
                               :if={String.starts_with?(cur_voice, "g:")}
                               aria-hidden="true"
                               style="color:var(--accent)"
-                              title={"#{@game.name} voice"}
+                              title={"#{@game.name} persona"}
                             >✦</span>
                             <span aria-hidden="true">{cur.emoji}</span>
-                            <span>{if speaking, do: "#{cur.label} speaking", else: "#{cur.label} voice"}</span>
+                            <span>{if speaking, do: "#{cur.label} speaking", else: "#{cur.label} persona"}</span>
                             <span style="opacity:0.6">▾</span>
                           </summary>
                           <.voice_menu
@@ -2865,7 +2865,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               <span aria-hidden="true">💡</span> Suggested questions
             </button>
             <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto">
-              <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Answer voice</span>
+              <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Answer persona</span>
               <details class="card-menu">
                 <summary style="font-size:0.68rem;color:var(--text);font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;background:var(--bg-surface);cursor:pointer;list-style:none">
                   <span aria-hidden="true">{cur_default.emoji}</span>

@@ -31,7 +31,7 @@ defmodule RuleMaven.Readiness do
   alias RuleMaven.Games.{Game, Document, Chunk}
 
   @required ~w(bgg source extract review cleanup embed)a
-  @enrichment ~w(suggestions categories cheat_sheet setup did_you_know voices theme)a
+  @enrichment ~w(theme suggestions categories cheat_sheet setup did_you_know voices)a
 
   # Steps that spend LLM/embedding budget — the ones we estimate + total cost for.
   @llm_steps ~w(extract cleanup embed suggestions categories cheat_sheet setup did_you_know voices theme)a
@@ -40,8 +40,12 @@ defmodule RuleMaven.Readiness do
   def required_steps, do: @required
   @doc "Ordered enrichment steps (post-playable polish)."
   def enrichment_steps, do: @enrichment
-  @doc "All steps, required first."
-  def all_steps, do: @required ++ @enrichment
+  @doc """
+  All steps, display order. `:theme` is pulled out of its normal enrichment
+  slot and shown right after `:bgg` — it only needs the BGG cover image, so it
+  can (and should) run before the rulebook pipeline even starts.
+  """
+  def all_steps, do: [:bgg, :theme] ++ (@required -- [:bgg]) ++ (@enrichment -- [:theme])
 
   @doc "PubSub topic a page subscribes to for live readiness updates."
   def topic(game_id), do: "readiness:#{game_id}"
@@ -62,7 +66,7 @@ defmodule RuleMaven.Readiness do
   def label(:cheat_sheet), do: "Cheat sheet"
   def label(:setup), do: "Setup checklist"
   def label(:did_you_know), do: "“Did you know?” facts"
-  def label(:voices), do: "Persona voices"
+  def label(:voices), do: "Personas"
   def label(:theme), do: "Theme palette"
   def label(:bgg), do: "BoardGameGeek data"
 
@@ -88,6 +92,10 @@ defmodule RuleMaven.Readiness do
           cond do
             done -> :done
             category(step) == :required and not prev_done -> :blocked
+            # Theme only needs the BGG cover image, not the embedded rulebook —
+            # gate it on :bgg instead of the shared embed_done gate so it can run
+            # (and show as runnable) well before the rest of the pipeline.
+            step == :theme -> if step_complete?(:bgg, game, docs), do: :pending, else: :blocked
             category(step) == :enrichment and not embed_done -> :blocked
             true -> :pending
           end
@@ -189,7 +197,11 @@ defmodule RuleMaven.Readiness do
 
   def step_complete?(:did_you_know, %Game{id: id}, _docs), do: present?("did_you_know_#{id}")
   def step_complete?(:voices, %Game{id: id}, _docs), do: Voices.game_voice_defs(id) != []
-  def step_complete?(:theme, %Game{} = game, _docs), do: not is_nil(game.theme_palette)
+  # Expansions never generate their own palette — they inherit the base game's
+  # (see `Games.effective_theme_palette/1`), so there's nothing for this game's
+  # pipeline to do and the step reads as already satisfied.
+  def step_complete?(:theme, %Game{} = game, _docs),
+    do: Games.expansion?(game.id) or not is_nil(game.theme_palette)
   def step_complete?(:bgg, %Game{} = game, _docs), do: not is_nil(game.bgg_data)
 
   defp doc_extracted?(%Document{pages: pages}) do
@@ -410,7 +422,14 @@ defmodule RuleMaven.Readiness do
       Settings.put(key, "on")
       Games.generate_all(game.id)
       safe(fn -> CheatSheet.generate_async(game) end)
-      safe(fn -> RuleMaven.Workers.ThemePaletteWorker.enqueue(game) end)
+
+      # Theme is normally kicked off much earlier, right when BGG data lands
+      # (see `BggEnrichWorker`) — this is just a safety net for the rare case
+      # where that didn't happen (e.g. a game whose bgg_id was added after the
+      # BGG step already ran).
+      safe(fn ->
+        if is_nil(game.theme_palette), do: RuleMaven.Workers.ThemePaletteWorker.enqueue(game)
+      end)
 
       # Expansions additionally get a "what this expansion changes" delta,
       # composed into their base games' setup checklist + cheat sheet.

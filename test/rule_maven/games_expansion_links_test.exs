@@ -95,6 +95,19 @@ defmodule RuleMaven.GamesExpansionLinksTest do
       assert Games.base_game_for(ctx.base1) == nil
     end
 
+    test "effective_theme_palette inherits from the first linked base", ctx do
+      palette = %{"light" => %{"a" => "b"}, "dark" => %{"a" => "c"}}
+      {:ok, base1} = Games.update_game(ctx.base1, %{theme_palette: palette})
+
+      assert Games.effective_theme_palette(ctx.exp) == palette
+      # the expansion's own (absent) palette is never consulted
+      assert Games.effective_theme_palette(base1) == palette
+    end
+
+    test "effective_theme_palette is nil when the base has none", ctx do
+      assert Games.effective_theme_palette(ctx.exp) == nil
+    end
+
     test "list_base_games excludes linked expansions", ctx do
       ids = Games.list_base_games() |> Enum.map(& &1.id)
       assert ctx.base1.id in ids

@@ -11,14 +11,22 @@ defmodule RuleMavenWeb.GameLive.GameTheme do
   for a game, scoped via the `#game-theme` marker the picker script looks for.
   Only values we generated (hex/rgba) are interpolated — no user input — so
   raw/1 is safe. Renders nothing until a palette exists.
-  """
-  def style_block(%{theme_palette: %{"light" => light, "dark" => dark}})
-      when is_map(light) and is_map(dark) do
-    css =
-      ~s|[data-theme="game-light"]{#{RuleMaven.ThemePalette.to_css(light)}}| <>
-        ~s|[data-theme="game-dark"]{#{RuleMaven.ThemePalette.to_css(dark)}}|
 
-    Phoenix.HTML.raw(~s(<style id="game-theme">#{css}</style>))
+  Expansions don't generate their own palette; this resolves to the base
+  game's palette instead (see `RuleMaven.Games.effective_theme_palette/1`).
+  """
+  def style_block(%RuleMaven.Games.Game{} = game) do
+    case RuleMaven.Games.effective_theme_palette(game) do
+      %{"light" => light, "dark" => dark} when is_map(light) and is_map(dark) ->
+        css =
+          ~s|[data-theme="game-light"]{#{RuleMaven.ThemePalette.to_css(light)}}| <>
+            ~s|[data-theme="game-dark"]{#{RuleMaven.ThemePalette.to_css(dark)}}|
+
+        Phoenix.HTML.raw(~s(<style id="game-theme">#{css}</style>))
+
+      _ ->
+        Phoenix.HTML.raw("")
+    end
   end
 
   def style_block(_), do: Phoenix.HTML.raw("")

@@ -78,6 +78,29 @@ defmodule RuleMaven.ReadinessTest do
       assert Readiness.step_complete?(:source, game, docs)
     end
 
+    test "theme step needs a generated palette, unless the game is an expansion" do
+      game = game_fixture()
+      refute Readiness.step_complete?(:theme, game, [])
+
+      {:ok, game} = Games.update_game(game, %{theme_palette: %{"light" => %{}, "dark" => %{}}})
+      assert Readiness.step_complete?(:theme, game, [])
+
+      base =
+        game_fixture(%{
+          name: "base #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+
+      exp =
+        game_fixture(%{
+          name: "exp #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+      :ok = Games.link_expansion(exp.id, base.id)
+      # No palette of its own, but it's an expansion — inherits, so it's done.
+      assert Readiness.step_complete?(:theme, exp, [])
+    end
+
     test "review step fails while a low-confidence page is unreviewed" do
       game = game_fixture()
       doc_fixture(game, pages: [{0.9, true}, {0.3, true}])
@@ -185,9 +208,22 @@ defmodule RuleMaven.ReadinessTest do
 
       states = Map.new(Readiness.state(game), &{&1.id, &1.state})
 
-      for step <- Readiness.enrichment_steps() do
+      # :theme is gated on :bgg, not :embed — the fixture has no bgg_data, so
+      # it stays blocked here regardless of embed status (covered separately
+      # below).
+      for step <- Readiness.enrichment_steps() -- [:theme] do
         assert states[step] == :pending, "expected #{step} pending after embed"
       end
+
+      assert states[:theme] == :blocked
+    end
+
+    test "theme unblocks once bgg is done, independent of embed" do
+      game = game_fixture(%{bgg_data: "<xml/>"})
+      doc_fixture(game, pages: [{0.9, true}], embed: :pending)
+
+      states = Map.new(Readiness.state(game), &{&1.id, &1.state})
+      assert states[:theme] == :pending
     end
   end
 

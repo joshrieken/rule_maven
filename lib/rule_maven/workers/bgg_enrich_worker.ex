@@ -48,8 +48,17 @@ defmodule RuleMaven.Workers.BggEnrichWorker do
     status =
       case RuleMaven.BGG.enrich_game(game, force: true) do
         {:ok, updated} ->
-          # No LLM work here: theme palette (and other generation) is driven by
-          # the readiness pipeline's `theme` step, not the raw BGG pull.
+          # Theme palette is derivable from the BGG cover image alone, so kick it
+          # off right away rather than waiting for the full rulebook pipeline.
+          # `enqueue/1` itself no-ops for expansions (they inherit the base
+          # game's palette) and only a first-time pull needs a fresh generate.
+          # Oban isn't supervised in test (config :rule_maven, Oban, testing:
+          # :manual), so skip there rather than crash on the unconfigured insert.
+          if is_nil(updated.theme_palette) and
+               Application.get_env(:rule_maven, Oban)[:testing] != :manual do
+            RuleMaven.Workers.ThemePaletteWorker.enqueue(updated)
+          end
+
           {:ok, changed_fields(game, updated)}
 
         {:error, reason} ->

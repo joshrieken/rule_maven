@@ -68,8 +68,18 @@ defmodule RuleMavenWeb.PrepareRenderTest do
 
   test "next actionable step is flagged for auto-expand", %{conn: conn} do
     admin = admin!("prep_next_admin")
-    # bgg + source done, extract is the first pending step.
-    game = game_fixture(%{name: "Next Step Game", bgg_id: 9913, bgg_data: "<items/>"})
+    # bgg + theme + source done, extract is the first pending step. Theme is
+    # given a palette up front since it now sits right after bgg in the
+    # pipeline (derivable from the BGG cover image alone) — otherwise it, not
+    # extract, would be the flagged "next" step.
+    game =
+      game_fixture(%{
+        name: "Next Step Game",
+        bgg_id: 9913,
+        bgg_data: "<items/>",
+        theme_palette: %{"light" => %{}, "dark" => %{}}
+      })
+
     with_doc(game)
 
     conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})

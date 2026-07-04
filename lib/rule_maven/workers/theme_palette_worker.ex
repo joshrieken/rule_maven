@@ -99,9 +99,18 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
 
   defp build_palette(_), do: :skip
 
-  @doc "Enqueue palette generation for a game that has a cover image."
+  @doc """
+  Enqueue palette generation for a game that has a cover image. Expansions
+  never get their own — they inherit the base game's palette (see
+  `Games.effective_theme_palette/1`) — so this is a no-op for them regardless
+  of caller.
+  """
   def enqueue(%{id: id, image_url: url}) when is_binary(url) and url != "" do
-    %{game_id: id} |> new() |> Oban.insert()
+    if Games.expansion?(id) do
+      {:ok, :expansion_inherits}
+    else
+      %{game_id: id} |> new() |> Oban.insert()
+    end
   end
 
   def enqueue(_), do: {:ok, :no_image}

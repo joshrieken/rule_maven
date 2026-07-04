@@ -631,9 +631,9 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         <.link
           :if={@playable?}
           navigate={~p"/games/#{@game}"}
-          style="display:inline-flex;align-items:center;background:var(--accent);color:var(--accent-text,#fff);padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;text-decoration:none"
+          style="display:inline-flex;align-items:center;gap:0.3rem;white-space:nowrap;background:var(--accent);color:var(--accent-text,#fff);padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;text-decoration:none"
         >
-          Ask questions →
+          Ask questions <span aria-hidden="true">→</span>
         </.link>
         <button
           :if={@playable?}
@@ -1069,7 +1069,11 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     assigns =
       assigns
       |> assign(:link, step_link(assigns.step.id, assigns.game))
-      |> assign(:regen?, assigns.step.id in @regen_steps and assigns.step.state != :blocked)
+      |> assign(
+        :regen?,
+        assigns.step.id in @regen_steps and assigns.step.state != :blocked and
+          not (assigns.step.id == :theme and Games.expansion?(assigns.game.id))
+      )
       |> assign(:clear?, assigns.step.id in @clear_steps)
       |> assign(:done?, assigns.step.state == :done)
       |> assign(:extractable?, assigns.step.id == :extract and assigns.step.state == :pending)

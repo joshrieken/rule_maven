@@ -855,33 +855,33 @@ defmodule RuleMaven.Prompts do
     },
     %{
       key: "voice_restyle_system",
-      group: "Voice",
-      label: "Voice restyle — system",
-      description: "System primer for the persona voice restyler.",
+      group: "Persona",
+      label: "Persona restyle — system",
+      description: "System primer for the persona restyler.",
       vars: [],
       default: @voice_restyle_system
     },
     %{
       key: "voice_restyle",
-      group: "Voice",
-      label: "Voice restyle — prompt",
+      group: "Persona",
+      label: "Persona restyle — prompt",
       description: "Rewrites an answer in a persona's voice, keeping every fact identical.",
       vars: ~w(style answer),
       default: @voice_restyle
     },
     %{
       key: "generate_voices_system",
-      group: "Voice",
-      label: "Per-game voices — system",
-      description: "System primer for generating game-themed persona voices.",
+      group: "Persona",
+      label: "Per-game personas — system",
+      description: "System primer for generating game-themed personas.",
       vars: [],
       default: @generate_voices_system
     },
     %{
       key: "generate_voices",
-      group: "Voice",
-      label: "Per-game voices — prompt",
-      description: "Invents 3–6 persona voices themed to a specific game from its rulebook.",
+      group: "Persona",
+      label: "Per-game personas — prompt",
+      description: "Invents 3–6 personas themed to a specific game from its rulebook.",
       vars: ~w(game_name rulebook),
       default: @generate_voices
     },
