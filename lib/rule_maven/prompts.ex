@@ -405,6 +405,32 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
+  # ── Expansion delta: what an expansion changes about its base game. ──
+  @expansion_delta_system "You extract what a board game expansion adds or changes, using only its rulebook text. Never invent rules."
+
+  # Vars: game_name, rulebook
+  @expansion_delta """
+  This rulebook text is from "{{game_name}}", an EXPANSION for a board game.
+  Using only this text, list what the expansion adds or changes, in three
+  sections. Every item one line, prefixed "- ".
+
+  COMPONENTS:
+  (new components players must gather during setup)
+
+  SETUP:
+  (setup steps this expansion adds or changes; each a short imperative,
+  optionally followed by " — " and a brief clarifying sentence)
+
+  RULE CHANGES:
+  (base-game rules this expansion adds, changes, or overrides; one short,
+  self-contained bullet each — include the numbers)
+
+  If a section has nothing, output its header with no bullets.
+
+  RULEBOOK:
+  {{rulebook}}
+  """
+
   # ── Voice (persona) restyle. ──
   @voice_restyle_system "You are a tone restyler. You rewrite a board-game rules answer in a different VOICE while keeping every fact, number, name, and rule EXACTLY the same. You must not add, remove, or change any rule or fact. You must not add new information or invent rules. Keep it roughly the same length. Preserve markdown (**bold**, lists). Output ONLY the rewritten answer, no preamble."
 
@@ -805,6 +831,23 @@ defmodule RuleMaven.Prompts do
       description: "Extracts the components + ordered setup steps from the rulebook.",
       vars: ~w(game_name rulebook),
       default: @setup_generate
+    },
+    %{
+      key: "expansion_delta_system",
+      group: "Expansion delta",
+      label: "Expansion delta — system",
+      description: "System primer for the expansion-changes extractor.",
+      vars: [],
+      default: @expansion_delta_system
+    },
+    %{
+      key: "expansion_delta",
+      group: "Expansion delta",
+      label: "Expansion delta — generate",
+      description:
+        "Extracts the components / setup changes / rule changes an expansion makes, from its own rulebook.",
+      vars: ~w(game_name rulebook),
+      default: @expansion_delta
     },
     %{
       key: "voice_restyle_system",
