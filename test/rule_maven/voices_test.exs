@@ -117,7 +117,7 @@ defmodule RuleMaven.VoicesTest do
   end
 
   describe "replace_generated stability" do
-    test "unchanged style keeps the row id and any cached restyles" do
+    test "unchanged style and label keeps the row id and any cached restyles" do
       g = game()
       q = question(g)
 
@@ -131,16 +131,40 @@ defmodule RuleMaven.VoicesTest do
       # A paid-for restyle is cached under the namespaced id.
       Repo.insert!(%AnswerVoice{question_log_id: q.id, voice: "g:herald", content: "hark!"})
 
-      # Re-run with the SAME style — slug stable, cache preserved.
+      # Re-run with the SAME style and label — slug stable, cache preserved.
+      # Only the emoji changed, which isn't part of the persona's identity.
+      :ok =
+        Voices.replace_generated(g.id, [
+          %{slug: "herald", label: "H", emoji: "🦅", style: "courtly"}
+        ])
+
+      row2 = Repo.get_by!(GameVoice, game_id: g.id, slug: "herald")
+      assert row1.id == row2.id
+      assert row2.emoji == "🦅"
+      assert Voices.get(q.id, "g:herald") == "hark!"
+    end
+
+    test "changed label alone drops that voice's cached restyles" do
+      g = game()
+      q = question(g)
+
+      :ok =
+        Voices.replace_generated(g.id, [
+          %{slug: "herald", label: "H", emoji: "🦉", style: "courtly"}
+        ])
+
+      Repo.insert!(%AnswerVoice{question_log_id: q.id, voice: "g:herald", content: "hark!"})
+
+      # Slug reused with the SAME style text but a different label — this can
+      # happen if a regenerated persona's style prose happens to match the old
+      # one; the label is the user-visible identity, so a change there must
+      # still invalidate the cache even though `style` is byte-identical.
       :ok =
         Voices.replace_generated(g.id, [
           %{slug: "herald", label: "Herald II", emoji: "🦉", style: "courtly"}
         ])
 
-      row2 = Repo.get_by!(GameVoice, game_id: g.id, slug: "herald")
-      assert row1.id == row2.id
-      assert row2.label == "Herald II"
-      assert Voices.get(q.id, "g:herald") == "hark!"
+      assert Voices.get(q.id, "g:herald") == nil
     end
 
     test "changed style drops that voice's cached restyles" do
