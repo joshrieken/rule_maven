@@ -128,6 +128,48 @@ defmodule RuleMaven.GamesDocumentTest do
     end
   end
 
+  describe "ensure_embeddings/1" do
+    # Approving a doc with no chunks (save-then-extract path: chunking happens
+    # later, in the embed step) must not enqueue a no-op EmbedChunksWorker run —
+    # it would log a misleading "done — no chunks needed embedding" entry under
+    # the still-pending embed step.
+    test "no-ops when the doc has no chunks", %{game: game} do
+      {:ok, doc} = Games.create_document(%{game_id: game.id, label: "Rules"})
+      assert Games.ensure_embeddings(doc.id) == :noop
+    end
+
+    test "no-ops when every chunk is already embedded", %{game: game} do
+      {:ok, doc} = Games.create_document(%{game_id: game.id, label: "Rules"})
+
+      {:ok, _} =
+        %RuleMaven.Games.Chunk{}
+        |> RuleMaven.Games.Chunk.changeset(%{
+          document_id: doc.id,
+          chunk_index: 0,
+          content: "rule text",
+          embedding: List.duplicate(0.0, 768)
+        })
+        |> RuleMaven.Repo.insert()
+
+      assert Games.ensure_embeddings(doc.id) == :noop
+    end
+
+    test "enqueues when chunks are missing embeddings", %{game: game} do
+      {:ok, doc} = Games.create_document(%{game_id: game.id, label: "Rules"})
+
+      {:ok, _} =
+        %RuleMaven.Games.Chunk{}
+        |> RuleMaven.Games.Chunk.changeset(%{
+          document_id: doc.id,
+          chunk_index: 0,
+          content: "rule text"
+        })
+        |> RuleMaven.Repo.insert()
+
+      assert Games.ensure_embeddings(doc.id) == :enqueued
+    end
+  end
+
   test "update_document persists edited text, re-derives pages, and re-chunks", %{game: game} do
     {:ok, doc} =
       Games.create_document(%{

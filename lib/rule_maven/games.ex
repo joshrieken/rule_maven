@@ -823,14 +823,25 @@ defmodule RuleMaven.Games do
   Enqueue embedding generation for a document if any chunk is missing a vector.
   Idempotent: `EmbedChunksWorker` filters `embedding IS NULL`.
   """
+  # Enqueue embedding only when there is actually something to embed. A doc
+  # with no chunks yet (save-then-extract path — chunking happens later, in the
+  # embed step) or with all chunks embedded would produce a no-op worker run
+  # whose "done" entry misleads under the still-pending embed step in prepare.
   def ensure_embeddings(doc_id) do
-    unless testing?() do
-      %{document_id: doc_id}
-      |> RuleMaven.Workers.EmbedChunksWorker.new()
-      |> Oban.insert()
-    end
+    pending? =
+      Repo.exists?(from c in Chunk, where: c.document_id == ^doc_id and is_nil(c.embedding))
 
-    :ok
+    if pending? do
+      unless testing?() do
+        %{document_id: doc_id}
+        |> RuleMaven.Workers.EmbedChunksWorker.new()
+        |> Oban.insert()
+      end
+
+      :enqueued
+    else
+      :noop
+    end
   end
 
   def update_document(%Document{} = doc, attrs, opts \\ []) do
