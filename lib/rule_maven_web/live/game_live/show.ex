@@ -2970,8 +2970,13 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp thread_sidebar_item(assigns) do
     ~H"""
+    <%!-- id carries the favorited flag: a toggle moves this row into a
+          different section (Favorites <-> the time groups), and folding
+          favorited into the id forces LiveView to unmount/remount the node
+          instead of relocating the existing one, so the CSS entrance
+          animation (.sidebar-item) fires the same way in both directions. --%>
     <button
-      id={"thread-#{@t.id}"}
+      id={"thread-#{@t.id}-#{@t.favorited}"}
       type="button"
       class="sidebar-item"
       phx-click="switch_thread"
