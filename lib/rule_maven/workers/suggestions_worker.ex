@@ -51,6 +51,13 @@ defmodule RuleMaven.Workers.SuggestionsWorker do
     )
 
     case RuleMaven.LLM.suggest_questions(game.name, text, already_asked) do
+      # Zero suggestions = nothing usable from the model. Don't persist "[]" —
+      # the readiness step reads presence of the setting as done, which would
+      # mark the step complete with an empty suggestion list.
+      {:ok, []} ->
+        Jobs.finish_run(run, "failed", "Model returned no suggestions — retry.")
+        :ok
+
       {:ok, qs} ->
         Settings.put("suggestions_#{game_id}", Jason.encode!(qs))
         Jobs.finish_run(run, "done", "#{length(qs)} suggestions.")

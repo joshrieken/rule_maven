@@ -1342,11 +1342,15 @@ defmodule RuleMaven.LLM do
         rulebook: String.slice(rulebook_text, 0, 3000)
       })
 
+    # Reasoning models spend tokens thinking before the list; 512 could starve
+    # the answer (see generate_categories). reject_truncated surfaces a cap cut
+    # as an error instead of a silently empty suggestion set.
     case chat(prompt, "suggest_questions",
            system: RuleMaven.Prompts.template("suggest_questions_system"),
            model: model(:cheap),
            operation: "suggest_questions",
-           max_tokens: 512
+           max_tokens: 2000,
+           reject_truncated: true
          ) do
       {:ok, text} ->
         # Everything before the first "CATEGORY:" is preamble (e.g. "Here are
