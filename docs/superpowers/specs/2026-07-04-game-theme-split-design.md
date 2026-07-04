@@ -39,8 +39,8 @@ Two independent localStorage preferences:
   `game-theme-option` entries are removed. Selecting a static theme updates
   `theme` and applies it — it never touches `themeGameMatch`.
 - **Game-theme control**: a second small `<select>` next to the main dropdown,
-  same `.theme-select` styling, labeled with ✨. Options: `Off` /
-  `Game Light` / `Game Dark`. Hidden (like the current game options) unless the
+  same `.theme-select` styling, labeled with 🎨 (✨ is taken by the ambient
+  motion toggle). Options: `Off` / `Game Light` / `Game Dark`. Hidden (like the current game options) unless the
   page contains `#game-theme`; visibility toggled by `syncTheme` on load and
   `phx:page-loading-stop`.
 
