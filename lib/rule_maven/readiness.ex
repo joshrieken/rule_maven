@@ -411,32 +411,48 @@ defmodule RuleMaven.Readiness do
     Repo.exists?(from c in Chunk, where: c.document_id == ^doc_id and is_nil(c.embedding))
   end
 
-  # Fire the enrichment fan-out exactly once per game (Settings guard). The
-  # individual workers are `unique` per game and no-op in test, so this is
-  # safe-by-design; the guard just avoids redundant enqueues on re-drive.
+  # Fire whichever enrichment steps aren't done yet. Gated per-step on
+  # step_complete?/3 (not a single "fired once ever" flag) so a step that
+  # errored, or never actually finished, gets retried the next time this runs
+  # instead of being silently skipped forever. The individual workers are
+  # `unique` per game (and no-op in test), so calling this repeatedly is
+  # safe-by-design — it only ever enqueues what's still outstanding.
   @doc false
   def ensure_enrichments(%Game{} = game) do
-    key = "readiness_enrich_#{game.id}"
+    unless step_complete?(:suggestions, game, []),
+      do: RuleMaven.Workers.SuggestionsWorker.enqueue(game.id)
 
-    unless Settings.get(key) == "on" do
-      Settings.put(key, "on")
-      Games.generate_all(game.id)
-      safe(fn -> CheatSheet.generate_async(game) end)
+    unless step_complete?(:categories, game, []),
+      do: RuleMaven.Workers.CategoriesWorker.enqueue(game.id)
 
-      # Theme is normally kicked off much earlier, right when BGG data lands
-      # (see `BggEnrichWorker`) — this is just a safety net for the rare case
-      # where that didn't happen (e.g. a game whose bgg_id was added after the
-      # BGG step already ran).
-      safe(fn ->
-        if is_nil(game.theme_palette), do: RuleMaven.Workers.ThemePaletteWorker.enqueue(game)
-      end)
+    unless step_complete?(:did_you_know, game, []),
+      do: RuleMaven.Workers.DidYouKnowWorker.enqueue(game.id)
 
-      # Expansions additionally get a "what this expansion changes" delta,
-      # composed into their base games' setup checklist + cheat sheet.
-      safe(fn ->
-        if Games.expansion?(game.id), do: RuleMaven.ExpansionDelta.generate_async(game)
-      end)
-    end
+    unless step_complete?(:voices, game, []),
+      do: RuleMaven.Workers.VoiceSuggestionsWorker.enqueue(game.id)
+
+    unless step_complete?(:setup, game, []),
+      do: safe(fn -> RuleMaven.Setup.generate_async(game) end)
+
+    unless step_complete?(:cheat_sheet, game, []),
+      do: safe(fn -> CheatSheet.generate_async(game) end)
+
+    # Theme is normally kicked off much earlier, right when BGG data lands
+    # (see `BggEnrichWorker`) — this is just a safety net for the rare case
+    # where that didn't happen (e.g. a game whose bgg_id was added after the
+    # BGG step already ran).
+    unless step_complete?(:theme, game, []),
+      do: safe(fn -> RuleMaven.Workers.ThemePaletteWorker.enqueue(game) end)
+
+    # Expansions additionally get a "what this expansion changes" delta,
+    # composed into their base games' setup checklist + cheat sheet. Not a
+    # tracked readiness step, so fire it once (own Settings guard) rather than
+    # on every call — its generate_async isn't safe to re-fire on a timer.
+    safe(fn ->
+      if Games.expansion?(game.id) and is_nil(RuleMaven.ExpansionDelta.status(game.id)) do
+        RuleMaven.ExpansionDelta.generate_async(game)
+      end
+    end)
 
     :ok
   end
