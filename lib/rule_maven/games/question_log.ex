@@ -12,6 +12,7 @@ defmodule RuleMaven.Games.QuestionLog do
     field :llm_model, :string
     field :cited_page, :integer
     field :cited_source, :string
+    field :citations, {:array, :map}, default: []
     field :question_embedding, Pgvector.Ecto.Vector
     field :source_chunk_ids, {:array, :integer}
     field :feedback, :string
@@ -72,6 +73,7 @@ defmodule RuleMaven.Games.QuestionLog do
       :user_id,
       :cited_page,
       :cited_source,
+      :citations,
       :question_embedding,
       :source_chunk_ids,
       :feedback,
