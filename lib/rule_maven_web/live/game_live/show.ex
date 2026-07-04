@@ -2191,33 +2191,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                               title={"#{@game.name} voice"}
                             >✦</span>
                             <span aria-hidden="true">{cur.emoji}</span>
-                            <span>{if speaking, do: "#{cur.label} speaking", else: cur.label}</span>
+                            <span>{if speaking, do: "#{cur.label} speaking", else: "#{cur.label} voice"}</span>
                             <span style="opacity:0.6">▾</span>
                           </summary>
-                          <% {game_voices, builtin_voices} =
-                            Enum.split_with(@voices, &String.starts_with?(&1.id, "g:")) %>
-                          <div class="card-menu__pop" style="min-width:230px;max-width:280px">
-                            <%= if game_voices != [] do %>
-                              <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);padding:0.2rem 0.4rem 0.05rem">
-                                ✦ {@game.name}
-                              </div>
-                              <.voice_menu_item
-                                :for={v <- game_voices}
-                                voice={v}
-                                msg_id={msg[:id]}
-                                selected={cur_voice == v.id}
-                              />
-                            <% end %>
-                            <div style={"font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);padding:0.2rem 0.4rem 0.05rem#{if game_voices != [], do: ";border-top:1px solid var(--border);margin-top:0.15rem;padding-top:0.35rem"}"}>
-                              Built-in
-                            </div>
-                            <.voice_menu_item
-                              :for={v <- builtin_voices}
-                              voice={v}
-                              msg_id={msg[:id]}
-                              selected={cur_voice == v.id}
-                            />
-                          </div>
+                          <.voice_menu
+                            voices={@voices}
+                            game_name={@game.name}
+                            current={cur_voice}
+                            event="set_voice"
+                            msg_id={msg[:id]}
+                          />
                         </details>
                       <% end %>
                     </div>
@@ -2881,19 +2864,13 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <span>{cur_default.label}</span>
                   <span style="opacity:0.6">▾</span>
                 </summary>
-                <div class="card-menu__pop card-menu__pop--up">
-                  <button
-                    :for={v <- @voices}
-                    type="button"
-                    phx-click="set_default_voice"
-                    phx-value-voice={v.id}
-                    class="card-menu__item"
-                    style={if @default_voice == v.id, do: "background:var(--accent);color:var(--accent-text,#fff)"}
-                  >
-                    <span aria-hidden="true">{v.emoji}</span>
-                    <span>{v.label}</span>
-                  </button>
-                </div>
+                <.voice_menu
+                  voices={@voices}
+                  game_name={@game.name}
+                  current={@default_voice}
+                  event="set_default_voice"
+                  up={true}
+                />
               </details>
             </div>
           </div>
@@ -2978,17 +2955,64 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> String.replace(~r/^[-*]\s+/m, "")
   end
 
+  # The voice picker popup, shared by the answer byline and the composer's
+  # default-voice control: game-specific section first, then the built-ins.
+  attr :voices, :list, required: true
+  attr :game_name, :string, required: true
+  attr :current, :string, required: true
+  attr :event, :string, required: true
+  attr :msg_id, :any, default: nil
+  attr :up, :boolean, default: false
+
+  defp voice_menu(assigns) do
+    {game_voices, builtin_voices} =
+      Enum.split_with(assigns.voices, &String.starts_with?(&1.id, "g:"))
+
+    assigns = assign(assigns, game_voices: game_voices, builtin_voices: builtin_voices)
+
+    ~H"""
+    <div
+      class={["card-menu__pop", @up && "card-menu__pop--up"]}
+      style="min-width:230px;max-width:280px"
+    >
+      <%= if @game_voices != [] do %>
+        <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);padding:0.2rem 0.4rem 0.05rem">
+          ✦ {@game_name}
+        </div>
+        <.voice_menu_item
+          :for={v <- @game_voices}
+          voice={v}
+          event={@event}
+          msg_id={@msg_id}
+          selected={@current == v.id}
+        />
+      <% end %>
+      <div style={"font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);padding:0.2rem 0.4rem 0.05rem#{if @game_voices != [], do: ";border-top:1px solid var(--border);margin-top:0.15rem;padding-top:0.35rem"}"}>
+        Built-in
+      </div>
+      <.voice_menu_item
+        :for={v <- @builtin_voices}
+        voice={v}
+        event={@event}
+        msg_id={@msg_id}
+        selected={@current == v.id}
+      />
+    </div>
+    """
+  end
+
   # One row in the voice picker menu: fixed emoji gutter + left-aligned label
   # with an optional muted description line, always full menu width.
   attr :voice, :map, required: true
-  attr :msg_id, :any, required: true
+  attr :event, :string, required: true
+  attr :msg_id, :any, default: nil
   attr :selected, :boolean, required: true
 
   defp voice_menu_item(assigns) do
     ~H"""
     <button
       type="button"
-      phx-click="set_voice"
+      phx-click={@event}
       phx-value-id={@msg_id}
       phx-value-voice={@voice.id}
       class="card-menu__item"
