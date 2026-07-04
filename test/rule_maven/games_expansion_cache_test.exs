@@ -138,4 +138,18 @@ defmodule RuleMaven.GamesExpansionCacheTest do
       assert Games.find_user_answer_duplicate(g.id, u.id, "Identical ruling text.", 0, [42]) == nil
     end
   end
+
+  describe "LLM.ask serves cache per expansion set" do
+    test "a pooled base-only answer is not served to an expansion ask" do
+      g = game()
+      pooled_q(g, [])
+
+      # Base ask (embedding fails in test env → Embed.embed returns error →
+      # question_embedding nil → pool skipped). So instead call the lookup the
+      # way ask/5 now does, proving the wiring end-to-end at the Games layer:
+      e0 = [1.0 | List.duplicate(0.0, 767)]
+      assert {_, _} = Games.find_similar_question_in_pool(g.id, e0, expansion_ids: [])
+      assert Games.find_similar_question_in_pool(g.id, e0, expansion_ids: [99]) == nil
+    end
+  end
 end

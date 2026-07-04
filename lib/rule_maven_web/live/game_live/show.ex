@@ -707,7 +707,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                          question: question,
                          answer: "Thinking...",
                          user_id: socket.assigns.current_user.id,
-                         visibility: visibility
+                         visibility: visibility,
+                         expansion_ids: Enum.sort(expansion_ids)
                        }) do
                     {:ok, question_log} ->
                       %{
@@ -1096,7 +1097,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                    question: question,
                    answer: "Thinking...",
                    user_id: socket.assigns.current_user.id,
-                   visibility: visibility
+                   visibility: visibility,
+                   expansion_ids: Enum.sort(expansion_ids)
                  }) do
               {:ok, question_log} ->
                 %{

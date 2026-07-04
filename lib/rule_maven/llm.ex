@@ -34,6 +34,8 @@ defmodule RuleMaven.LLM do
   """
   def ask(game, question, expansion_ids \\ [], recent_context \\ [], opts \\ []) do
     skip_pool = Keyword.get(opts, :skip_pool, false)
+    # Canonical sorted form — cache rows store and match this exact set.
+    expansion_ids = Enum.sort(expansion_ids)
 
     # Step 0: normalize the question to a standalone canonical form FIRST, then
     # drive everything downstream off the cleaned text. Paraphrases and terse
@@ -57,18 +59,22 @@ defmodule RuleMaven.LLM do
     # match — the lookup intentionally doesn't filter by user (no user_id passed).
     pool_hit =
       !skip_pool && question_embedding &&
-        RuleMaven.Games.find_similar_question_in_pool(game.id, question_embedding)
+        RuleMaven.Games.find_similar_question_in_pool(game.id, question_embedding,
+          expansion_ids: expansion_ids
+        )
 
     # Same-user tiers: a returning asker is served their OWN prior answer even
     # when it never pooled. Exact (normalized-text) dedup first, then a tight
     # semantic fallback. Skipped when there's no signed-in asker or skip_pool.
     user_exact =
       !skip_pool && user_id &&
-        RuleMaven.Games.find_user_duplicate(game.id, user_id, match_text, question)
+        RuleMaven.Games.find_user_duplicate(game.id, user_id, match_text, question, expansion_ids)
 
     user_semantic =
       !skip_pool && user_id && question_embedding &&
-        RuleMaven.Games.find_user_similar(game.id, user_id, question_embedding)
+        RuleMaven.Games.find_user_similar(game.id, user_id, question_embedding,
+          expansion_ids: expansion_ids
+        )
 
     cond do
       # The asker's OWN exact (normalized-text) repeat wins over the pool lookup:
