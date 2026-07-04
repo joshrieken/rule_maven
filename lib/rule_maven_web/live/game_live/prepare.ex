@@ -688,13 +688,6 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         >
           ✓ Mark Ready
         </button>
-        <.link
-          :if={@playable?}
-          navigate={~p"/games/#{@game}"}
-          style="display:inline-flex;align-items:center;gap:0.3rem;white-space:nowrap;background:var(--accent);color:var(--accent-text,#fff);padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;text-decoration:none"
-        >
-          Ask questions <span aria-hidden="true">→</span>
-        </.link>
         <button
           :if={@playable?}
           phx-click="revoke_publish"
