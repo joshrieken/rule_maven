@@ -70,4 +70,74 @@ defmodule RuleMavenWeb.CheatSheetControllerTest do
     assert conn.status == 200
     assert conn.resp_body =~ "Game B secrets"
   end
+
+  describe "expansion delta appended to the active cheat sheet" do
+    setup %{conn: conn} do
+      user = create_user!("cheat_delta")
+      base = published_game_fixture(%{name: "Base Game", bgg_id: 90_101})
+      expansion = published_game_fixture(%{name: "Cool Expansion", bgg_id: 90_102})
+
+      RuleMaven.Games.link_expansion(expansion.id, base.id)
+
+      [doc_base] = RuleMaven.Games.list_documents(base)
+      {:ok, _version} = CheatSheet.save_version(doc_base.id, "# Base sheet", "compact")
+
+      RuleMaven.Settings.put(
+        "delta_content_#{expansion.id}",
+        Jason.encode!(%{
+          "components" => [],
+          "setup" => [%{"title" => "Add the extra board", "detail" => "next to the base board"}],
+          "rules" => ["Combat resolves before movement."]
+        })
+      )
+
+      %{conn: login(conn, user), user: user, base: base, expansion: expansion}
+    end
+
+    test "selected expansion's rules/setup changes appear on the active sheet", %{
+      conn: conn,
+      user: user,
+      base: base,
+      expansion: expansion
+    } do
+      RuleMaven.Games.put_expansion_selection(user.id, base.id, [expansion.id])
+
+      conn = get(conn, ~p"/games/#{Hashid.encode(base.id)}/cheatsheet")
+
+      assert conn.status == 200
+      assert conn.resp_body =~ "What Cool Expansion changes"
+      assert conn.resp_body =~ "Combat resolves before movement."
+      assert conn.resp_body =~ "Add the extra board"
+    end
+
+    test "deselected expansion produces no delta section", %{conn: conn, user: user, base: base} do
+      RuleMaven.Games.put_expansion_selection(user.id, base.id, [])
+
+      conn = get(conn, ~p"/games/#{Hashid.encode(base.id)}/cheatsheet")
+
+      assert conn.status == 200
+      refute conn.resp_body =~ "What Cool Expansion changes"
+    end
+
+    test "versioned cheat sheet never shows the delta", %{
+      conn: conn,
+      user: user,
+      base: base,
+      expansion: expansion
+    } do
+      RuleMaven.Games.put_expansion_selection(user.id, base.id, [expansion.id])
+
+      [doc_base] = RuleMaven.Games.list_documents(base)
+      version = CheatSheet.active_version(doc_base.id)
+
+      conn =
+        get(
+          conn,
+          ~p"/games/#{Hashid.encode(base.id)}/cheatsheet/#{Hashid.encode(version.id)}"
+        )
+
+      assert conn.status == 200
+      refute conn.resp_body =~ "What Cool Expansion changes"
+    end
+  end
 end
