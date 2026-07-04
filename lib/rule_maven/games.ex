@@ -19,6 +19,7 @@ defmodule RuleMaven.Games do
   alias RuleMaven.Games.AnswerFavorite
   alias RuleMaven.Games.SupportRequest
   alias RuleMaven.Games.ExpansionLink
+  alias RuleMaven.Games.ExpansionSelection
   alias Oban
 
   NimbleCSV.define(RuleMaven.Games.RankCSV, separator: ",", escape: "\"")
@@ -269,6 +270,70 @@ defmodule RuleMaven.Games do
 
   @doc "First linked base game (legacy single-parent shape), nil for base games."
   def base_game_for(%Game{} = game), do: game |> base_games_for() |> List.first()
+
+  ## Expansion selection (per user, per base game) -----------------------------
+
+  @doc """
+  Remember the expansion set a user plays `base_game_id` with. Upsert; stores
+  the set sorted. `[]` is a meaningful "base only" choice (distinct from no
+  row, which means "never chosen" and lets the collection-derived default
+  apply).
+  """
+  def put_expansion_selection(user_id, base_game_id, expansion_ids) do
+    now = DateTime.utc_now(:second)
+
+    Repo.insert_all(
+      ExpansionSelection,
+      [
+        %{
+          user_id: user_id,
+          game_id: base_game_id,
+          expansion_ids: Enum.sort(expansion_ids),
+          inserted_at: now,
+          updated_at: now
+        }
+      ],
+      on_conflict: {:replace, [:expansion_ids, :updated_at]},
+      conflict_target: [:user_id, :game_id]
+    )
+
+    :ok
+  end
+
+  @doc "The user's stored expansion set for a base game, or nil when never chosen."
+  def get_expansion_selection(user_id, base_game_id) do
+    Repo.one(
+      from s in ExpansionSelection,
+        where: s.user_id == ^user_id and s.game_id == ^base_game_id,
+        select: s.expansion_ids
+    )
+  end
+
+  @doc """
+  The expansion set to preselect for a user on a base game's page: their
+  explicit stored choice if any, else the expansions in their collection.
+  Always filtered to expansions that actually have published documents (a
+  stored id whose docs were unpublished, or an owned expansion with no
+  rulebook, silently drops out), sorted ascending.
+  """
+  def effective_expansion_ids(user_id, %Game{} = base_game) do
+    available = base_game |> expansions_with_documents() |> MapSet.new(& &1.id)
+
+    chosen =
+      case get_expansion_selection(user_id, base_game.id) do
+        nil ->
+          Repo.all(
+            from uc in UserCollection,
+              where: uc.user_id == ^user_id and uc.game_id in ^MapSet.to_list(available),
+              select: uc.game_id
+          )
+
+        ids ->
+          ids
+      end
+
+    chosen |> Enum.filter(&MapSet.member?(available, &1)) |> Enum.sort()
+  end
 
   def get_game!(id), do: Repo.get!(Game, id)
 
