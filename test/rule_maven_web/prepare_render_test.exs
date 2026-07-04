@@ -66,6 +66,20 @@ defmodule RuleMavenWeb.PrepareRenderTest do
     refute has_element?(view, "img")
   end
 
+  test "next actionable step is flagged for auto-expand", %{conn: conn} do
+    admin = admin!("prep_next_admin")
+    # bgg + source done, extract is the first pending step.
+    game = game_fixture(%{name: "Next Step Game", bgg_id: 9913, bgg_data: "<items/>"})
+    with_doc(game)
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, view, html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    assert has_element?(view, "[data-prepare-step=extract][data-prepare-next]")
+    # Exactly one row carries the flag.
+    assert length(String.split(html, "data-prepare-next")) == 2
+  end
+
   test "Mark Ready shows disabled with remaining steps tooltip while unprepared",
        %{conn: conn} do
     admin = admin!("prep_gate_admin")

@@ -127,8 +127,12 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     step_run_ids =
       step_logs |> Map.values() |> Enum.flat_map(& &1.runs) |> MapSet.new(& &1.id)
 
+    next_step = Enum.find(steps, &(&1.state == :pending))
+
     assign(socket,
       steps: steps,
+      # First pending step — the PrepareCollapse hook auto-expands its row.
+      next_step_id: next_step && next_step.id,
       step_logs: step_logs,
       step_run_ids: step_run_ids,
       previews: build_previews(game, docs),
@@ -697,6 +701,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               actual={Map.get(@actuals, step.id)}
               action={step_action(step, @game)}
               log={Map.get(@step_logs, step.id)}
+              next?={step.id == @next_step_id}
             />
           <% end %>
         </div>
@@ -713,6 +718,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   attr :actual, :any, required: true
   attr :action, :any, default: nil
   attr :log, :any, default: nil
+  attr :next?, :boolean, default: false
 
   defp step_row(assigns) do
     # A row is collapsible when it has a result to preview *or* an action to
@@ -729,6 +735,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     ~H"""
     <div
       data-prepare-step={@has_body && to_string(@step.id)}
+      data-prepare-next={@has_body && @next?}
       style={"border-top:1px solid var(--border-subtle);#{if @step.state == :blocked, do: "opacity:0.62", else: ""}"}
     >
       <div

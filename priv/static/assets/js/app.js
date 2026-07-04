@@ -536,6 +536,11 @@ Hooks.PrepareCollapse = {
     this.expanded.forEach((id) => {
       if (!live.has(id)) this.expanded.delete(id);
     });
+    // Auto-expand the next actionable step (server flags it). In-memory only —
+    // not saved — so the user's stored preferences stay theirs; collapsing it
+    // works normally, and the next visit expands whatever is next by then.
+    let next = this.el.querySelector("[data-prepare-next]");
+    if (next) this.expanded.add(next.dataset.prepareStep);
     this.el.addEventListener("click", (e) => {
       let allBtn = e.target.closest("[data-prepare-all]");
       if (allBtn) {
