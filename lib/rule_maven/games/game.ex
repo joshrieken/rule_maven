@@ -10,6 +10,7 @@ defmodule RuleMaven.Games.Game do
     field :min_players, :integer
     field :max_players, :integer
     field :playing_time, :integer
+    field :weight, :float
     field :image_url, :string
     field :bgg_data, :string
     field :category, :string, default: "board_game"
@@ -49,6 +50,7 @@ defmodule RuleMaven.Games.Game do
       :min_players,
       :max_players,
       :playing_time,
+      :weight,
       :image_url,
       :bgg_data,
       :category,

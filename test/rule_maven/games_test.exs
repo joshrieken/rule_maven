@@ -30,6 +30,13 @@ defmodule RuleMaven.GamesTest do
       assert game.bgg_id == 42
     end
 
+    test "create_game/1 persists weight" do
+      valid_attrs = %{name: "some name", bgg_id: 42, weight: 2.6667}
+
+      assert {:ok, %Game{} = game} = Games.create_game(valid_attrs)
+      assert_in_delta game.weight, 2.6667, 0.0001
+    end
+
     test "create_game/1 with invalid data returns error changeset" do
       assert {:error, %Ecto.Changeset{}} = Games.create_game(@invalid_attrs)
     end
