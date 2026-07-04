@@ -37,6 +37,7 @@ defmodule RuleMavenWeb.GameLive.Show do
        flagged_ids: MapSet.new(),
        asks_disabled: false,
        included_expansions: %{},
+       expansions_seeded: false,
        visibility: "private",
        search_query: "",
        community_questions: [],
@@ -161,6 +162,19 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     sources = Games.list_documents(game)
     expansions = Games.expansions_with_documents(game)
+
+    # First load of this game: restore the user's remembered expansion set
+    # (or default from their collection). Later handle_params runs (thread
+    # nav, ?t=) keep the in-session toggles.
+    included_expansions =
+      if socket.assigns.expansions_seeded do
+        socket.assigns.included_expansions
+      else
+        socket.assigns.current_user.id
+        |> Games.effective_expansion_ids(game)
+        |> Map.new(&{&1, true})
+      end
+
     community = Games.community_questions(game, socket.assigns.current_user.id)
     community_count = RuleMaven.Faq.community_count(game)
     cq_ids = Enum.map(community, & &1.id)
@@ -190,7 +204,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         active_thread_id: active_thread_id,
         sources: sources,
         expansions: expansions,
-        included_expansions: socket.assigns.included_expansions,
+        included_expansions: included_expansions,
+        expansions_seeded: true,
         source_count: length(sources),
         question: "",
         pending_count: pending_count,
@@ -468,6 +483,12 @@ defmodule RuleMavenWeb.GameLive.Show do
       else
         Map.put(included, id, true)
       end
+
+    Games.put_expansion_selection(
+      socket.assigns.current_user.id,
+      socket.assigns.game.id,
+      Map.keys(included)
+    )
 
     {:noreply, assign(socket, included_expansions: included)}
   end
