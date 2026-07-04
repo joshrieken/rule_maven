@@ -89,7 +89,7 @@ defmodule RuleMaven.Workers.BggEnrichWorker do
 
   # Names of the BGG-sourced fields whose value actually changed, for the job
   # summary (so the log says what the enrich did, not just that it ran).
-  @tracked_fields ~w(image_url year_published min_players max_players playing_time bgg_rank category)a
+  @tracked_fields ~w(image_url year_published min_players max_players playing_time bgg_rank category weight)a
   defp changed_fields(before, after_) do
     Enum.filter(@tracked_fields, fn f ->
       Map.get(before, f) != Map.get(after_, f)
