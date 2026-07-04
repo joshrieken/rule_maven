@@ -35,6 +35,18 @@ chrome_bin =
     Path.join(chrome_dir, "chrome")
   end
 
+# Reap orphaned Chrome-for-Testing processes from prior interrupted runs.
+# An abrupt BEAM exit kills chromedriver, but its Chrome children get
+# reparented to PID 1 and accumulate. Only PPID-1 processes are killed,
+# so a concurrently running suite (live chromedriver parent) is untouched.
+with {ps_out, 0} <- System.cmd("ps", ["-axo", "pid=,ppid=,command="]) do
+  for line <- String.split(ps_out, "\n", trim: true),
+      [_, pid, "1", cmd] <- [Regex.run(~r/^\s*(\d+)\s+(\d+)\s+(.*)$/, line)],
+      String.contains?(cmd, chrome_dir) do
+    System.cmd("kill", [pid])
+  end
+end
+
 if File.exists?(chrome_bin) and File.exists?(driver_bin) do
   Application.put_env(:wallaby, :chromedriver,
     headless: true,
