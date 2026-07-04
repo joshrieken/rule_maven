@@ -56,6 +56,22 @@ defmodule RuleMaven.ExpansionDeltaTest do
     end
   end
 
+  test "stored/1 decodes a step with missing detail to empty string, not \"nil\"" do
+    RuleMaven.Settings.put("delta_status_999001", "done")
+
+    RuleMaven.Settings.put(
+      "delta_content_999001",
+      Jason.encode!(%{
+        "components" => ["thing"],
+        "setup" => [%{"title" => "Do the thing"}],
+        "rules" => []
+      })
+    )
+
+    assert %{"setup" => [%{"title" => "Do the thing", "detail" => ""}]} =
+             RuleMaven.ExpansionDelta.stored(999_001)
+  end
+
   describe "readiness kicks delta generation for expansions" do
     test "ensure_enrichments seeds the delta state machine for an expansion, not a base game" do
       {:ok, base} = RuleMaven.Games.create_game(%{name: "DeltaBase #{System.unique_integer([:positive])}"})

@@ -191,7 +191,9 @@ defmodule RuleMaven.ExpansionDelta do
   defp step_list(v) when is_list(v) do
     v
     |> Enum.filter(&is_map/1)
-    |> Enum.map(fn s -> %{"title" => to_string(s["title"]), "detail" => to_string(s["detail"])} end)
+    |> Enum.map(fn s ->
+      %{"title" => to_string(s["title"]), "detail" => to_string(s["detail"] || "")}
+    end)
     |> Enum.reject(&(&1["title"] in [nil, "", "nil"]))
   end
 
