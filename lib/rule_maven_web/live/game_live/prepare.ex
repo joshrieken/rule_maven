@@ -714,7 +714,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
             Expand all
           </button>
         </div>
-        <div style="border:1px solid var(--border);border-radius:0.5rem;overflow:hidden">
+        <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;overflow:hidden">
           <%= for step <- @steps do %>
             <.step_row
               step={step}
