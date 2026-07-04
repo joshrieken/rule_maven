@@ -2603,9 +2603,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </details>
                   </span>
                 </div>
-                </div>
 
-                <!-- Message actions (admin only) -->
+                <!-- Message actions (admin only). Also inside the bubble (like
+                     the row above) so it stretches to the bubble's own width
+                     instead of shrink-wrapping — otherwise margin-left:auto on
+                     the model-name span below has no room to push into. -->
                 <div
                   :if={RuleMaven.Users.can?(@current_user, :admin) && msg.role == :assistant}
                   class="flex items-center gap-1 mt-0.5"
@@ -2744,7 +2746,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <%= if RuleMaven.Users.can?(@current_user, :admin) && (msg[:llm_provider] || msg[:llm_model]) do %>
                         <span
                           class="text-xs"
-                          style="color:var(--text-muted);margin-left:0.5rem;min-width:0;overflow-wrap:anywhere;word-break:break-word"
+                          style="color:var(--text-muted);margin-left:auto;min-width:0;overflow-wrap:anywhere;word-break:break-word;text-align:right"
                         >{msg[
                           :llm_provider
                         ]} &middot; {msg[:llm_model]}</span>
@@ -2759,6 +2761,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <pre style="white-space:pre-wrap;word-break:break-word;margin-top:0.15rem;padding:0.25rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem;max-height:12rem;overflow-y:auto"><%= msg[:raw_response] %></pre>
                   </details>
                 <% end %>
+                </div>
               </div>
             <% end %>
             <!-- end history else -->
