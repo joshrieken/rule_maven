@@ -105,7 +105,13 @@ defmodule RuleMaven.Workers.AskWorker do
             # persisting a duplicate. Own rows only, so no cross-user exposure.
             answer_dup =
               ql && !llm_result[:pool_hit] && !refused?(answer) &&
-                Games.find_user_answer_duplicate(game_id, user_id, answer, question_log_id)
+                Games.find_user_answer_duplicate(
+                  game_id,
+                  user_id,
+                  answer,
+                  question_log_id,
+                  Enum.sort(expansion_ids)
+                )
 
             cond do
               is_nil(ql) ->

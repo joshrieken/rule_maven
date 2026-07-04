@@ -44,7 +44,7 @@ defmodule RuleMavenWeb.CheatSheetController do
     content =
       Enum.find_value(docs, fn doc ->
         active = CheatSheet.active_version(doc.id)
-        if active, do: serve_content(conn, game.name, active.content)
+        if active, do: serve_content(conn, game.name, active.content <> delta_markdown(conn, game))
       end)
 
     if content do
@@ -53,6 +53,42 @@ defmodule RuleMavenWeb.CheatSheetController do
       conn
       |> put_flash(:error, "No cheatsheet yet. Generate one from the Edit page.")
       |> redirect(to: ~p"/games/#{game}")
+    end
+  end
+
+  # Appends a "what changes" section per expansion the viewer plays with (their
+  # persisted selection; base-only or no deltas → empty string). Versioned
+  # cheat sheets (show_version) stay pristine — deltas only decorate the
+  # active sheet.
+  defp delta_markdown(conn, game) do
+    user = conn.assigns[:current_user]
+    selected = if user, do: Games.effective_expansion_ids(user.id, game), else: []
+
+    if selected == [] do
+      ""
+    else
+      by_id = game |> Games.expansions_with_documents() |> Map.new(&{&1.id, &1})
+
+      sections =
+        selected
+        |> Enum.flat_map(fn id ->
+          with %{} = exp <- by_id[id],
+               %{"rules" => rules, "setup" => setup} when rules != [] or setup != [] <-
+                 RuleMaven.ExpansionDelta.stored(id) do
+            bullets =
+              Enum.map(rules, &"- #{&1}") ++
+                Enum.map(setup, fn s ->
+                  detail = if s["detail"] in [nil, ""], do: "", else: " — #{s["detail"]}"
+                  "- *Setup:* #{s["title"]}#{detail}"
+                end)
+
+            ["\n\n---\n\n## What #{exp.name} changes\n\n" <> Enum.join(bullets, "\n")]
+          else
+            _ -> []
+          end
+        end)
+
+      Enum.join(sections)
     end
   end
 

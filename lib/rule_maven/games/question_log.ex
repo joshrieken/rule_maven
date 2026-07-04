@@ -38,6 +38,10 @@ defmodule RuleMaven.Games.QuestionLog do
     # community/report-driven flags — stale is the content-invalidation signal
     # the same-user cache tiers (find_user_duplicate/find_user_similar) check.
     field :stale, :boolean, default: false
+    # The exact (sorted) expansion-id set the answer was computed against.
+    # [] = base game only. All cache tiers match on set equality so an answer
+    # never crosses expansion configurations.
+    field :expansion_ids, {:array, :integer}, default: []
     belongs_to :game, RuleMaven.Games.Game
     belongs_to :user, RuleMaven.Users.User
     belongs_to :document, RuleMaven.Games.Document
@@ -89,7 +93,8 @@ defmodule RuleMaven.Games.QuestionLog do
       :pool_source_id,
       :needs_review,
       :stale,
-      :favorited
+      :favorited,
+      :expansion_ids
     ])
     |> validate_required([:question, :answer, :game_id])
   end

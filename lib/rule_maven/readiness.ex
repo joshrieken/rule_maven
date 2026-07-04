@@ -391,7 +391,8 @@ defmodule RuleMaven.Readiness do
   # Fire the enrichment fan-out exactly once per game (Settings guard). The
   # individual workers are `unique` per game and no-op in test, so this is
   # safe-by-design; the guard just avoids redundant enqueues on re-drive.
-  defp ensure_enrichments(%Game{} = game) do
+  @doc false
+  def ensure_enrichments(%Game{} = game) do
     key = "readiness_enrich_#{game.id}"
 
     unless Settings.get(key) == "on" do
@@ -399,6 +400,12 @@ defmodule RuleMaven.Readiness do
       Games.generate_all(game.id)
       safe(fn -> CheatSheet.generate_async(game) end)
       safe(fn -> RuleMaven.Workers.ThemePaletteWorker.enqueue(game) end)
+
+      # Expansions additionally get a "what this expansion changes" delta,
+      # composed into their base games' setup checklist + cheat sheet.
+      safe(fn ->
+        if Games.expansion?(game.id), do: RuleMaven.ExpansionDelta.generate_async(game)
+      end)
     end
 
     :ok

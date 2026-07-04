@@ -19,6 +19,7 @@ defmodule RuleMaven.Games do
   alias RuleMaven.Games.AnswerFavorite
   alias RuleMaven.Games.SupportRequest
   alias RuleMaven.Games.ExpansionLink
+  alias RuleMaven.Games.ExpansionSelection
   alias Oban
 
   NimbleCSV.define(RuleMaven.Games.RankCSV, separator: ",", escape: "\"")
@@ -269,6 +270,70 @@ defmodule RuleMaven.Games do
 
   @doc "First linked base game (legacy single-parent shape), nil for base games."
   def base_game_for(%Game{} = game), do: game |> base_games_for() |> List.first()
+
+  ## Expansion selection (per user, per base game) -----------------------------
+
+  @doc """
+  Remember the expansion set a user plays `base_game_id` with. Upsert; stores
+  the set sorted. `[]` is a meaningful "base only" choice (distinct from no
+  row, which means "never chosen" and lets the collection-derived default
+  apply).
+  """
+  def put_expansion_selection(user_id, base_game_id, expansion_ids) do
+    now = DateTime.utc_now(:second)
+
+    Repo.insert_all(
+      ExpansionSelection,
+      [
+        %{
+          user_id: user_id,
+          game_id: base_game_id,
+          expansion_ids: Enum.sort(expansion_ids),
+          inserted_at: now,
+          updated_at: now
+        }
+      ],
+      on_conflict: {:replace, [:expansion_ids, :updated_at]},
+      conflict_target: [:user_id, :game_id]
+    )
+
+    :ok
+  end
+
+  @doc "The user's stored expansion set for a base game, or nil when never chosen."
+  def get_expansion_selection(user_id, base_game_id) do
+    Repo.one(
+      from s in ExpansionSelection,
+        where: s.user_id == ^user_id and s.game_id == ^base_game_id,
+        select: s.expansion_ids
+    )
+  end
+
+  @doc """
+  The expansion set to preselect for a user on a base game's page: their
+  explicit stored choice if any, else the expansions in their collection.
+  Always filtered to expansions that actually have published documents (a
+  stored id whose docs were unpublished, or an owned expansion with no
+  rulebook, silently drops out), sorted ascending.
+  """
+  def effective_expansion_ids(user_id, %Game{} = base_game) do
+    available = base_game |> expansions_with_documents() |> MapSet.new(& &1.id)
+
+    chosen =
+      case get_expansion_selection(user_id, base_game.id) do
+        nil ->
+          Repo.all(
+            from uc in UserCollection,
+              where: uc.user_id == ^user_id and uc.game_id in ^MapSet.to_list(available),
+              select: uc.game_id
+          )
+
+        ids ->
+          ids
+      end
+
+    chosen |> Enum.filter(&MapSet.member?(available, &1)) |> Enum.sort()
+  end
 
   def get_game!(id), do: Repo.get!(Game, id)
 
@@ -959,6 +1024,8 @@ defmodule RuleMaven.Games do
   flagged `needs_review` so they stay out of the shared pool until a
   moderator re-approves them (`clear_needs_review/1`); private rows just
   silently stop matching `stale == false` and a fresh ask re-populates them.
+  When a game is an expansion, also invalidates base-game answers that
+  included it in their expansion set.
   Returns the number of rows touched (demoted + newly staled + newly
   flagged).
   """
@@ -967,7 +1034,11 @@ defmodule RuleMaven.Games do
     # ask against the new text.
     {demoted, _} =
       Repo.update_all(
-        from(q in QuestionLog, where: q.game_id == ^game_id and q.pooled == true),
+        from(q in QuestionLog,
+          where:
+            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
+              q.pooled == true
+        ),
         set: [pooled: false]
       )
 
@@ -975,7 +1046,11 @@ defmodule RuleMaven.Games do
     # signal the same-user cache tiers check, independent of moderation.
     {staled, _} =
       Repo.update_all(
-        from(q in QuestionLog, where: q.game_id == ^game_id and q.stale == false),
+        from(q in QuestionLog,
+          where:
+            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
+              q.stale == false
+        ),
         set: [stale: true]
       )
 
@@ -987,7 +1062,9 @@ defmodule RuleMaven.Games do
     {flagged, _} =
       Repo.update_all(
         from(q in QuestionLog,
-          where: q.game_id == ^game_id and q.visibility == "community" and q.needs_review == false
+          where:
+            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
+              q.visibility == "community" and q.needs_review == false
         ),
         set: [needs_review: true]
       )
@@ -1962,15 +2039,24 @@ defmodule RuleMaven.Games do
 
   Distance threshold derives from the `pool_similarity_threshold` setting
   (cosine similarity, default 0.92); cosine distance = 1 - similarity.
+
+  Scoped by `opts[:expansion_ids]` (default `[]`, i.e. base game only) —
+  compared sorted ascending against the row's `expansion_ids`, so an answer
+  only serves asks made against the exact same expansion set.
   """
   def find_similar_question_in_pool(game_id, question_embedding, opts \\ []) do
     threshold = Keyword.get(opts, :threshold, pool_distance_threshold())
+    expansion_ids = opts |> Keyword.get(:expansion_ids, []) |> Enum.sort()
     floor = RuleMaven.Games.Trust.trusted_floor()
 
     row =
       Repo.one(
         from q in QuestionLog,
           where: q.game_id == ^game_id,
+          # An answer only serves asks made against the SAME expansion set —
+          # expansions change rules, so a base-only answer can be wrong with
+          # an expansion in play (and vice versa).
+          where: q.expansion_ids == ^expansion_ids,
           # Community rows are always eligible; private rows once citation-gated.
           where: q.pooled == true or q.visibility == "community",
           where: not is_nil(q.question_embedding),
@@ -2022,17 +2108,23 @@ defmodule RuleMaven.Games do
   match (`cleaned_question == cleaned`, case-insensitive; or `question == raw`
   when `cleaned_question` is null). Returns `{row, tier}` or nil; nil when
   `user_id` is nil.
-  """
-  def find_user_duplicate(_game_id, nil, _cleaned, _raw), do: nil
 
-  def find_user_duplicate(game_id, user_id, cleaned, raw) do
+  Scoped by `expansion_ids` (default `[]`) — compared sorted ascending
+  against the row's `expansion_ids`.
+  """
+  def find_user_duplicate(game_id, user_id, cleaned, raw, expansion_ids \\ [])
+  def find_user_duplicate(_game_id, nil, _cleaned, _raw, _expansion_ids), do: nil
+
+  def find_user_duplicate(game_id, user_id, cleaned, raw, expansion_ids) do
     cleaned = String.downcase(to_string(cleaned))
     raw = String.downcase(to_string(raw))
+    expansion_ids = Enum.sort(expansion_ids)
 
     row =
       Repo.one(
         from q in QuestionLog,
           where: q.game_id == ^game_id and q.user_id == ^user_id,
+          where: q.expansion_ids == ^expansion_ids,
           where:
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
@@ -2056,6 +2148,9 @@ defmodule RuleMaven.Games do
   default 0.95). Stricter because same-user history has no curation/trust gate —
   a loose match would serve a wrong answer with nothing behind it. Returns
   `{row, tier}` or nil; nil when `user_id` or `embedding` is nil.
+
+  Scoped by `opts[:expansion_ids]` (default `[]`) — compared sorted
+  ascending against the row's `expansion_ids`.
   """
   def find_user_similar(game_id, user_id, embedding, opts \\ [])
   def find_user_similar(_game_id, nil, _embedding, _opts), do: nil
@@ -2063,12 +2158,14 @@ defmodule RuleMaven.Games do
 
   def find_user_similar(game_id, user_id, embedding, opts) do
     threshold = Keyword.get(opts, :threshold, user_dup_distance_threshold())
+    expansion_ids = opts |> Keyword.get(:expansion_ids, []) |> Enum.sort()
     vec = Pgvector.new(embedding)
 
     row =
       Repo.one(
         from q in QuestionLog,
           where: q.game_id == ^game_id and q.user_id == ^user_id,
+          where: q.expansion_ids == ^expansion_ids,
           where:
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
@@ -2093,11 +2190,17 @@ defmodule RuleMaven.Games do
   text (near-zero false positives; no fuzzy matching). Excludes `exclude_id`
   (the provisional row) and non-final/refused rows. Returns the row or nil; nil
   when `user_id` is nil or the answer normalizes to empty.
-  """
-  def find_user_answer_duplicate(_game_id, nil, _answer, _exclude_id), do: nil
 
-  def find_user_answer_duplicate(game_id, user_id, answer, exclude_id) do
+  Scoped by `expansion_ids` (default `[]`) — compared sorted ascending
+  against the row's `expansion_ids`.
+  """
+  def find_user_answer_duplicate(game_id, user_id, answer, exclude_id, expansion_ids \\ [])
+
+  def find_user_answer_duplicate(_game_id, nil, _answer, _exclude_id, _expansion_ids), do: nil
+
+  def find_user_answer_duplicate(game_id, user_id, answer, exclude_id, expansion_ids) do
     norm = normalize_answer_text(answer)
+    expansion_ids = Enum.sort(expansion_ids)
 
     if norm == "" do
       nil
@@ -2105,6 +2208,7 @@ defmodule RuleMaven.Games do
       Repo.one(
         from q in QuestionLog,
           where: q.game_id == ^game_id and q.user_id == ^user_id and q.id != ^exclude_id,
+          where: q.expansion_ids == ^expansion_ids,
           where:
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
