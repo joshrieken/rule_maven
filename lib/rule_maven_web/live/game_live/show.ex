@@ -3146,6 +3146,22 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp conf_word(5), do: "Verified"
   defp conf_word(6), do: "Official"
 
+  # ── Difficulty badge ──
+  # Pure bucketing of BGG's community averageweight (1.0-5.0 scale) into a
+  # label. nil weight (unrated / not yet backfilled) means no badge — no
+  # fallback text, matching the "Did you know?" card's precedent.
+  defp difficulty_bucket(nil), do: nil
+
+  defp difficulty_bucket(weight) do
+    cond do
+      weight < 1.5 -> {"Light", "var(--green)"}
+      weight < 2.5 -> {"Medium-Light", "var(--blue)"}
+      weight < 3.5 -> {"Medium", "var(--yellow)"}
+      weight < 4.5 -> {"Medium-Heavy", "var(--orange, var(--yellow))"}
+      true -> {"Heavy", "var(--red)"}
+    end
+  end
+
   defp present?(s), do: is_binary(s) and String.trim(s) != ""
 
   # ── Random rule card ──
