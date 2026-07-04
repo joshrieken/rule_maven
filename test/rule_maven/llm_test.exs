@@ -64,12 +64,44 @@ defmodule RuleMaven.LLMTest do
   end
 
   describe "decode_answer" do
-    test "maps the source field" do
-      json = ~s({"answer":"x","citation":"y","page":3,"source":"X errata","verdict":"clear"})
+    test "parses a single-entry citations array and mirrors the scalar fields" do
+      json =
+        ~s({"answer":"x","citations":[{"quote":"y","page":3,"source":"X errata"}],"verdict":"clear"})
+
       result = LLM.decode_answer(json)
 
-      assert result[:cited_source] == "X errata"
+      assert result[:citations] == [%{"quote" => "y", "page" => 3, "source" => "X errata"}]
+      assert result[:cited_passage] == "y"
       assert result[:cited_page] == 3
+      assert result[:cited_source] == "X errata"
+    end
+
+    test "parses a multi-entry citations array, mirroring only the first" do
+      json =
+        ~s({"answer":"x","citations":[{"quote":"first quote","page":5,"source":"Core"},{"quote":"second quote","page":11,"source":"Core"}]})
+
+      result = LLM.decode_answer(json)
+
+      assert length(result[:citations]) == 2
+      assert Enum.at(result[:citations], 1)["page"] == 11
+      assert result[:cited_passage] == "first quote"
+      assert result[:cited_page] == 5
+    end
+
+    test "missing citations key yields empty list and nil scalar fields" do
+      json = ~s({"answer":"The rulebook does not cover this question."})
+      result = LLM.decode_answer(json)
+
+      assert result[:citations] == []
+      assert result[:cited_passage] == nil
+      assert result[:cited_page] == nil
+    end
+
+    test "malformed (non-list) citations yields empty list" do
+      json = ~s({"answer":"x","citations":"not a list"})
+      result = LLM.decode_answer(json)
+
+      assert result[:citations] == []
     end
   end
 

@@ -167,6 +167,7 @@ defmodule RuleMaven.LLM do
            cited_passage: passage,
            cited_page: llm_result[:cited_page],
            cited_source: llm_result[:cited_source],
+           citations: llm_result[:citations] || [],
            verdict: llm_result[:verdict],
            provider: provider_name,
            model: model_name,
@@ -948,11 +949,15 @@ defmodule RuleMaven.LLM do
 
     case json_object(content) do
       {:ok, map} ->
+        citations = parse_citations(map["citations"])
+        first = List.first(citations) || %{}
+
         %{
           answer: trimmed_string(map["answer"]),
-          cited_passage: nilable_string(map["citation"]),
-          cited_page: coerce_page(map["page"]),
-          cited_source: nilable_string(map["source"]),
+          citations: citations,
+          cited_passage: first["quote"],
+          cited_page: first["page"],
+          cited_source: first["source"],
           verdict: coerce_verdict(map["verdict"]),
           followups: string_list(map["followups"]),
           also_asked: string_list(map["also_asked"])
@@ -961,6 +966,7 @@ defmodule RuleMaven.LLM do
       :error ->
         %{
           answer: String.trim(content),
+          citations: [],
           cited_passage: nil,
           cited_page: nil,
           cited_source: nil,
@@ -970,6 +976,28 @@ defmodule RuleMaven.LLM do
         }
     end
   end
+
+  # Normalizes the model's raw "citations" JSON value into a list of
+  # string-keyed maps, tolerating a missing/non-list value or malformed
+  # entries. An entry with no usable content (no quote, page, or source) is
+  # dropped rather than kept as a placeholder.
+  defp parse_citations(list) when is_list(list) do
+    list
+    |> Enum.map(fn
+      %{} = c ->
+        %{
+          "quote" => nilable_string(c["quote"]),
+          "page" => coerce_page(c["page"]),
+          "source" => nilable_string(c["source"])
+        }
+
+      _ ->
+        %{"quote" => nil, "page" => nil, "source" => nil}
+    end)
+    |> Enum.reject(&(&1["quote"] == nil and &1["page"] == nil and &1["source"] == nil))
+  end
+
+  defp parse_citations(_), do: []
 
   # Parse a JSON object, tolerating ```json fences or stray prose around it.
   defp json_object(content) do
