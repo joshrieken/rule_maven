@@ -1962,15 +1962,24 @@ defmodule RuleMaven.Games do
 
   Distance threshold derives from the `pool_similarity_threshold` setting
   (cosine similarity, default 0.92); cosine distance = 1 - similarity.
+
+  Scoped by `opts[:expansion_ids]` (default `[]`, i.e. base game only) —
+  compared sorted ascending against the row's `expansion_ids`, so an answer
+  only serves asks made against the exact same expansion set.
   """
   def find_similar_question_in_pool(game_id, question_embedding, opts \\ []) do
     threshold = Keyword.get(opts, :threshold, pool_distance_threshold())
+    expansion_ids = opts |> Keyword.get(:expansion_ids, []) |> Enum.sort()
     floor = RuleMaven.Games.Trust.trusted_floor()
 
     row =
       Repo.one(
         from q in QuestionLog,
           where: q.game_id == ^game_id,
+          # An answer only serves asks made against the SAME expansion set —
+          # expansions change rules, so a base-only answer can be wrong with
+          # an expansion in play (and vice versa).
+          where: q.expansion_ids == ^expansion_ids,
           # Community rows are always eligible; private rows once citation-gated.
           where: q.pooled == true or q.visibility == "community",
           where: not is_nil(q.question_embedding),
@@ -2022,17 +2031,23 @@ defmodule RuleMaven.Games do
   match (`cleaned_question == cleaned`, case-insensitive; or `question == raw`
   when `cleaned_question` is null). Returns `{row, tier}` or nil; nil when
   `user_id` is nil.
-  """
-  def find_user_duplicate(_game_id, nil, _cleaned, _raw), do: nil
 
-  def find_user_duplicate(game_id, user_id, cleaned, raw) do
+  Scoped by `expansion_ids` (default `[]`) — compared sorted ascending
+  against the row's `expansion_ids`.
+  """
+  def find_user_duplicate(game_id, user_id, cleaned, raw, expansion_ids \\ [])
+  def find_user_duplicate(_game_id, nil, _cleaned, _raw, _expansion_ids), do: nil
+
+  def find_user_duplicate(game_id, user_id, cleaned, raw, expansion_ids) do
     cleaned = String.downcase(to_string(cleaned))
     raw = String.downcase(to_string(raw))
+    expansion_ids = Enum.sort(expansion_ids)
 
     row =
       Repo.one(
         from q in QuestionLog,
           where: q.game_id == ^game_id and q.user_id == ^user_id,
+          where: q.expansion_ids == ^expansion_ids,
           where:
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
@@ -2056,6 +2071,9 @@ defmodule RuleMaven.Games do
   default 0.95). Stricter because same-user history has no curation/trust gate —
   a loose match would serve a wrong answer with nothing behind it. Returns
   `{row, tier}` or nil; nil when `user_id` or `embedding` is nil.
+
+  Scoped by `opts[:expansion_ids]` (default `[]`) — compared sorted
+  ascending against the row's `expansion_ids`.
   """
   def find_user_similar(game_id, user_id, embedding, opts \\ [])
   def find_user_similar(_game_id, nil, _embedding, _opts), do: nil
@@ -2063,12 +2081,14 @@ defmodule RuleMaven.Games do
 
   def find_user_similar(game_id, user_id, embedding, opts) do
     threshold = Keyword.get(opts, :threshold, user_dup_distance_threshold())
+    expansion_ids = opts |> Keyword.get(:expansion_ids, []) |> Enum.sort()
     vec = Pgvector.new(embedding)
 
     row =
       Repo.one(
         from q in QuestionLog,
           where: q.game_id == ^game_id and q.user_id == ^user_id,
+          where: q.expansion_ids == ^expansion_ids,
           where:
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
@@ -2093,11 +2113,17 @@ defmodule RuleMaven.Games do
   text (near-zero false positives; no fuzzy matching). Excludes `exclude_id`
   (the provisional row) and non-final/refused rows. Returns the row or nil; nil
   when `user_id` is nil or the answer normalizes to empty.
-  """
-  def find_user_answer_duplicate(_game_id, nil, _answer, _exclude_id), do: nil
 
-  def find_user_answer_duplicate(game_id, user_id, answer, exclude_id) do
+  Scoped by `expansion_ids` (default `[]`) — compared sorted ascending
+  against the row's `expansion_ids`.
+  """
+  def find_user_answer_duplicate(game_id, user_id, answer, exclude_id, expansion_ids \\ [])
+
+  def find_user_answer_duplicate(_game_id, nil, _answer, _exclude_id, _expansion_ids), do: nil
+
+  def find_user_answer_duplicate(game_id, user_id, answer, exclude_id, expansion_ids) do
     norm = normalize_answer_text(answer)
+    expansion_ids = Enum.sort(expansion_ids)
 
     if norm == "" do
       nil
@@ -2105,6 +2131,7 @@ defmodule RuleMaven.Games do
       Repo.one(
         from q in QuestionLog,
           where: q.game_id == ^game_id and q.user_id == ^user_id and q.id != ^exclude_id,
+          where: q.expansion_ids == ^expansion_ids,
           where:
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
