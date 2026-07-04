@@ -1612,6 +1612,14 @@ defmodule RuleMavenWeb.GameLive.Show do
               &larr;
             </.link>
             <h1 class="text-sm font-bold truncate" style="max-width:300px">{@game.name}</h1>
+            <% difficulty = difficulty_bucket(difficulty_weight(@game, {@expansions, @included_expansions})) %>
+            <%= if difficulty do %>
+              <% {label, color} = difficulty %>
+              <span
+                class="pill-link"
+                style={"color:#{color};border-color:#{color}"}
+              >{label}</span>
+            <% end %>
             <.link patch={~p"/games/#{@game}?start=1"} class="pill-link pill-link-accent">
               Overview
             </.link>
@@ -3147,6 +3155,27 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp conf_word(6), do: "Official"
 
   # ── Difficulty badge ──
+  # Max weight across the base game and currently-selected expansions —
+  # expansions only add complexity, never reduce it.
+  defp difficulty_weight(game, expansions_and_selection)
+
+  defp difficulty_weight(game, {expansions, included}) do
+    selected_ids = included |> Enum.filter(fn {_id, on?} -> on? end) |> Enum.map(&elem(&1, 0))
+
+    selected_weights =
+      expansions
+      |> Enum.filter(&(&1.id in selected_ids))
+      |> Enum.map(& &1.weight)
+      |> Enum.reject(&is_nil/1)
+
+    [game.weight | selected_weights]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      weights -> Enum.max(weights)
+    end
+  end
+
   # Pure bucketing of BGG's community averageweight (1.0-5.0 scale) into a
   # label. nil weight (unrated / not yet backfilled) means no badge — no
   # fallback text, matching the "Did you know?" card's precedent.
