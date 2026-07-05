@@ -164,4 +164,85 @@ defmodule RuleMaven.Workers.AskWorkerCitationsTest do
     assert updated.cited_page == nil
     assert updated.citation_valid == false
   end
+
+  test "a cross-user pool hit preserves the pooled citations instead of re-validating against nothing",
+       %{game: game} do
+    author =
+      Repo.insert!(%RuleMaven.Users.User{
+        username: "pool_author_#{System.unique_integer([:positive])}",
+        email: "pool_author_#{System.unique_integer([:positive])}@test.com",
+        password_hash: "x"
+      })
+
+    embedding = List.duplicate(0.42, 768)
+
+    # The already-validated, pooled source row from a different user — its
+    # citations were computed and persisted the first time it was answered,
+    # against real retrieved chunks. There's no retrieval on a cache serve,
+    # so this pool hit must copy these values through unchanged rather than
+    # re-validating them against zero chunks.
+    {:ok, pooled} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: author.id,
+        question: "How is the d20 used to pick a player?",
+        answer: "The d20 picks the first player.",
+        cited_passage: "Roll the d20 to determine the first player.",
+        cited_page: 5,
+        cited_source: "Core rules",
+        citations: [
+          %{
+            "quote" => "Roll the d20 to determine the first player.",
+            "page" => 5,
+            "source" => "Core rules"
+          }
+        ],
+        citation_valid: true,
+        pooled: true,
+        visibility: "private"
+      })
+
+    Repo.update_all(
+      from(ql in RuleMaven.Games.QuestionLog, where: ql.id == ^pooled.id),
+      set: [question_embedding: Pgvector.new(embedding)]
+    )
+
+    # The fresh, differently-worded question from a different asker. Provisional
+    # row pre-logged by the LiveView, same as production flow.
+    {:ok, fresh} =
+      Games.log_question(%{
+        game_id: game.id,
+        question: "Who goes first — how do we decide?",
+        answer: "Thinking...",
+        user_id: nil
+      })
+
+    Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, embedding} end)
+    on_exit(fn -> Application.delete_env(:rule_maven, :embed_mock) end)
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => fresh.id,
+               "question" => fresh.question,
+               "expansion_ids" => [],
+               "user_id" => nil
+             })
+
+    updated = Games.get_question_log(fresh.id)
+
+    assert updated.citations == [
+             %{
+               "quote" => "Roll the d20 to determine the first player.",
+               "page" => 5,
+               "source" => "Core rules"
+             }
+           ]
+
+    assert updated.citation_valid == true
+    assert updated.cited_passage == "Roll the d20 to determine the first player."
+    assert updated.cited_page == 5
+    assert updated.cited_source == "Core rules"
+    assert updated.pool_source_id == pooled.id
+  end
 end

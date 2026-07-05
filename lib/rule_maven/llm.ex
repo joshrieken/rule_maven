@@ -117,6 +117,8 @@ defmodule RuleMaven.LLM do
        cited_passage: row.cited_passage,
        cited_page: row.cited_page,
        cited_source: row.cited_source,
+       citations: row.citations,
+       citation_valid: row.citation_valid,
        verdict: row.verdict,
        provider: "pool",
        # Encode tier in the model field so it survives a page reload.

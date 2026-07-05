@@ -156,38 +156,50 @@ defmodule RuleMaven.Workers.AskWorker do
                 )
 
               true ->
-                raw_citations =
-                  case llm_result[:citations] do
-                    list when is_list(list) and list != [] ->
-                      list
+                {valid_citations, citation_valid} =
+                  if llm_result[:pool_hit] do
+                    # Cache/pool hit: this answer was already validated once,
+                    # when it was first created (against real retrieved
+                    # chunks). There's no retrieval on a cache serve — no
+                    # `source_chunks` to re-validate against — so trust the
+                    # pooled values and pass them through unchanged instead
+                    # of re-running validation against zero chunks (which
+                    # would always fail and silently drop the citation).
+                    {llm_result[:citations] || [], llm_result[:citation_valid] || false}
+                  else
+                    raw_citations =
+                      case llm_result[:citations] do
+                        list when is_list(list) and list != [] ->
+                          list
 
-                    _ ->
-                      # Legacy/mock path: only the singular scalar fields were
-                      # supplied. Wrap them so downstream processing is uniform.
-                      if llm_result[:cited_passage] || llm_result[:cited_page] ||
-                           llm_result[:cited_source] do
-                        [
-                          %{
-                            "quote" => llm_result[:cited_passage],
-                            "page" => llm_result[:cited_page],
-                            "source" => llm_result[:cited_source]
-                          }
-                        ]
-                      else
-                        []
+                        _ ->
+                          # Legacy/mock path: only the singular scalar fields were
+                          # supplied. Wrap them so downstream processing is uniform.
+                          if llm_result[:cited_passage] || llm_result[:cited_page] ||
+                               llm_result[:cited_source] do
+                            [
+                              %{
+                                "quote" => llm_result[:cited_passage],
+                                "page" => llm_result[:cited_page],
+                                "source" => llm_result[:cited_source]
+                              }
+                            ]
+                          else
+                            []
+                          end
                       end
+
+                    processed_citations =
+                      Enum.map(raw_citations, &process_citation(&1, llm_result[:source_chunks]))
+
+                    valid =
+                      RuleMaven.Games.Citations.valid_citations(
+                        processed_citations,
+                        llm_result[:source_chunks]
+                      )
+
+                    {valid, valid != []}
                   end
-
-                processed_citations =
-                  Enum.map(raw_citations, &process_citation(&1, llm_result[:source_chunks]))
-
-                valid_citations =
-                  RuleMaven.Games.Citations.valid_citations(
-                    processed_citations,
-                    llm_result[:source_chunks]
-                  )
-
-                citation_valid = valid_citations != []
 
                 primary =
                   List.first(valid_citations) || %{"quote" => nil, "page" => nil, "source" => nil}
