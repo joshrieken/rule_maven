@@ -1,3 +1,25 @@
+# AGENTS.md (opencode)
+
+> Progressive disclosure: this file is the index. Load detail docs only when needed.
+
+## Quick Index
+
+| Topic | File |
+|-------|------|
+| Project overview, tech stack, setup, safety rails | [`.agents/overview.md`](../.agents/overview.md) |
+| Codebase map (every module, file, function) | [`.agents/codebase-map.md`](../.agents/codebase-map.md) |
+| Data flows (ask question, save rulebook, FAQ cluster) | [`.agents/data-flows.md`](../.agents/data-flows.md) |
+| Conventions (formatting, testing, git, LiveView patterns) | [`.agents/conventions.md`](../.agents/conventions.md) |
+
+## How to Use
+
+1. Read this file first.
+2. Scan the codebase map to find target files for your task.
+3. Load only those files. Do NOT scan the entire tree.
+4. Use the data flows doc to understand how things connect.
+
+## Style
+
 Respond terse like smart caveman. All technical substance stay. Only fluff die.
 
 Rules:
