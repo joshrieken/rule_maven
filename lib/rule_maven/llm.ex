@@ -1681,10 +1681,11 @@ defmodule RuleMaven.LLM do
 
     case chat(prompt, "generate_voices",
            system: RuleMaven.Prompts.template("generate_voices_system"),
-           # Each voice now carries 20+ loading_phrases and a picker description
-           # on top of its style, so a full 6-voice set needs a lot more room.
-           # Too low and the JSON truncates mid-array → parse fails → no voices.
-           max_tokens: 8000
+           # Each voice now carries 20+ loading_phrases, a picker description,
+           # and a popularity_rank on top of its style, so a full 10-voice set
+           # needs a lot more room. Too low and the JSON truncates mid-array →
+           # parse fails → no voices.
+           max_tokens: 13000
          ) do
       {:ok, text} ->
         {:ok, parse_voices(text)}
