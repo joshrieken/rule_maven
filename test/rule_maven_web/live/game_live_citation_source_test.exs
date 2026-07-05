@@ -69,4 +69,37 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
 
     assert html =~ "Rulebook · p.5"
   end
+
+  test "same-page citations merge into one card, ellipsis-joined, and cards sort by page", %{
+    conn: conn
+  } do
+    user = setup_user("cite_group")
+    game = published_game_fixture(%{name: "Cite Group Game"})
+
+    {:ok, _ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: user.id,
+        question: "How is the d20 used?",
+        answer: "It picks the first player and damages the Beholder.",
+        citations: [
+          %{"quote" => "Damage the Beholder's eyestalks.", "page" => 11, "source" => "Core rules"},
+          %{"quote" => "Roll the d20 to determine the first player.", "page" => 5, "source" => "Core rules"},
+          %{"quote" => "then blind its central antimagic eye.", "page" => 11, "source" => "Core rules"}
+        ],
+        visibility: "private"
+      })
+
+    conn = login(conn, user)
+    {:ok, _view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    # Same-page citations (p.11) are merged with ellipsis (apostrophe HTML-encoded as &#39;)
+    assert html =~ "Damage the Beholder&#39;s eyestalks. … then blind its central antimagic eye."
+
+    # Cards are sorted by page: p.5 appears before p.11
+    [_before_p5, after_p5] =
+      String.split(html, "Roll the d20 to determine the first player.", parts: 2)
+
+    assert after_p5 =~ "Damage the Beholder"
+  end
 end

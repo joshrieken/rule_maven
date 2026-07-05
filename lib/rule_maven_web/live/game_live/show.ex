@@ -3266,10 +3266,12 @@ defmodule RuleMavenWeb.GameLive.Show do
   # A message's citation list, preferring the new multi-citation field and
   # falling back to the legacy scalar fields for rows saved before the
   # `citations` column existed (or the mock/legacy-wrap path in AskWorker).
+  # The raw list is then grouped (same page + source merge into one card,
+  # quotes joined with an ellipsis) and sorted by page ascending.
   defp citation_list(msg) do
     case msg[:citations] do
       list when is_list(list) and list != [] ->
-        list
+        group_and_sort_citations(list)
 
       _ ->
         if msg[:cited_passage] do
@@ -3278,6 +3280,22 @@ defmodule RuleMavenWeb.GameLive.Show do
           []
         end
     end
+  end
+
+  # Merges citations that share the same {page, source} into one card (quotes
+  # joined with " … ", in original relative order), then sorts cards by page
+  # ascending. A citation with no page sorts after every page-bearing card —
+  # true textual contiguity between two quotes can't be determined from what's
+  # persisted (only the quote/page/source triple is stored, not the source
+  # rulebook text), so every merged (2+ quote) card always gets the ellipsis.
+  defp group_and_sort_citations(citations) do
+    citations
+    |> Enum.group_by(&{&1["page"], &1["source"]})
+    |> Enum.map(fn {{page, source}, group} ->
+      joined_quote = group |> Enum.map(& &1["quote"]) |> Enum.join(" … ")
+      %{"page" => page, "source" => source, "quote" => joined_quote}
+    end)
+    |> Enum.sort_by(fn %{"page" => page} -> {page == nil, page} end)
   end
 
   # ── Markdown rendering ──
