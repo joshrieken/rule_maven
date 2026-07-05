@@ -338,6 +338,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         cited_passage: g.primary.cited_passage,
         cited_page: g.primary.cited_page,
         cited_source: g.primary.cited_source,
+        citations: g.primary.citations,
         verdict: g.primary.verdict,
         llm_provider: g.primary.llm_provider,
         llm_model: g.primary.llm_model,
@@ -365,6 +366,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             cited_passage: h.cited_passage,
             cited_page: h.cited_page,
             cited_source: h.cited_source,
+            citations: h.citations,
             verdict: h.verdict,
             llm_provider: h.llm_provider,
             llm_model: h.llm_model,
@@ -1296,6 +1298,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 |> Map.put(:cited_passage, ql.cited_passage)
                 |> Map.put(:cited_page, data[:cited_page] || ql.cited_page)
                 |> Map.put(:cited_source, data[:cited_source] || ql.cited_source)
+                |> Map.put(:citations, ql.citations)
                 |> Map.put(:verdict, data[:verdict] || ql.verdict)
                 |> Map.put(:followups, data[:followups] || ql.followups)
                 |> Map.put(:also_asked, data[:also_asked] || ql.also_asked)
@@ -2246,26 +2249,21 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% end %>
                   </div>
 
-                  <%= if msg[:cited_passage] && msg.content != "Thinking..." do %>
-                    <% on_user = msg.role == :user %>
-                    <figure style={"margin:0.75rem 0 0;border-radius:0.5rem;overflow:hidden;border:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 25%,transparent)", else: "var(--border)"};background:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 10%,transparent)", else: "var(--bg-subtle)"}"}>
-                      <%= if msg[:cited_page] do %>
-                        <figcaption style={"display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.6rem;font-size:0.66rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;border-bottom:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 15%,transparent)", else: "var(--border-subtle)"};color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 85%,transparent)", else: "var(--text-muted)"}"}>
-                          <span aria-hidden="true">&#128206;</span>
-                          {msg[:cited_source] || "Rulebook"} &middot; p.{msg.cited_page}
-                        </figcaption>
-                      <% end %>
-                      <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 50%,transparent)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;word-break:break-word;color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 92%,transparent)", else: "var(--text)"}"}>
-                        {render_markdown(String.trim(msg.cited_passage))}
-                      </blockquote>
-                      <%= if msg[:cited_html_link] do %>
-                        <div style="padding:0 0.7rem 0.5rem 0.85rem">
-                          <.link href={msg.cited_html_link} target="_blank" class="action-link">
-                            View in rulebook &rarr;
-                          </.link>
-                        </div>
-                      <% end %>
-                    </figure>
+                  <%= if msg.content != "Thinking..." do %>
+                    <%= for c <- citation_list(msg) do %>
+                      <% on_user = msg.role == :user %>
+                      <figure style={"margin:0.75rem 0 0;border-radius:0.5rem;overflow:hidden;border:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 25%,transparent)", else: "var(--border)"};background:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 10%,transparent)", else: "var(--bg-subtle)"}"}>
+                        <%= if c["page"] do %>
+                          <figcaption style={"display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.6rem;font-size:0.66rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;border-bottom:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 15%,transparent)", else: "var(--border-subtle)"};color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 85%,transparent)", else: "var(--text-muted)"}"}>
+                            <span aria-hidden="true">&#128206;</span>
+                            {c["source"] || "Rulebook"} &middot; p.{c["page"]}
+                          </figcaption>
+                        <% end %>
+                        <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 50%,transparent)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;word-break:break-word;color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 92%,transparent)", else: "var(--text)"}"}>
+                          {render_markdown(String.trim(c["quote"] || ""))}
+                        </blockquote>
+                      </figure>
+                    <% end %>
                   <% end %>
 
                   <!-- Citation confidence pill (compact) -->
@@ -3263,6 +3261,23 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> String.replace(~r/\[Page\s*\d+\]/i, "")
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
+  end
+
+  # A message's citation list, preferring the new multi-citation field and
+  # falling back to the legacy scalar fields for rows saved before the
+  # `citations` column existed (or the mock/legacy-wrap path in AskWorker).
+  defp citation_list(msg) do
+    case msg[:citations] do
+      list when is_list(list) and list != [] ->
+        list
+
+      _ ->
+        if msg[:cited_passage] do
+          [%{"quote" => msg.cited_passage, "page" => msg[:cited_page], "source" => msg[:cited_source]}]
+        else
+          []
+        end
+    end
   end
 
   # ── Markdown rendering ──
