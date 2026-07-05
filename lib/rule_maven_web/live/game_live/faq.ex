@@ -26,6 +26,7 @@ defmodule RuleMavenWeb.GameLive.Faq do
     favorited_ids = Games.favorited_answer_ids(user_id, question_ids)
     community_questions = sort_favorited_first(community_questions, favorited_ids)
     category_map = Games.categories_for_questions(question_ids)
+    flagged_ids = Games.user_flagged_ids(user_id)
 
     {:ok,
      assign(socket,
@@ -35,6 +36,7 @@ defmodule RuleMavenWeb.GameLive.Faq do
        community_questions: community_questions,
        favorited_ids: favorited_ids,
        category_map: category_map,
+       flagged_ids: flagged_ids,
        filter_category: nil,
        page_title: "FAQ — #{game.name}"
      )}
@@ -102,6 +104,33 @@ defmodule RuleMavenWeb.GameLive.Faq do
       _ -> {:noreply, socket}
     end
   end
+
+  @impl true
+  def handle_event("report_answer", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    user = socket.assigns.current_user
+
+    # Scope to this game so a forged id from another game can't be flagged here.
+    if Enum.any?(socket.assigns.community_questions, &(&1.id == id)) do
+      case Games.report_answer(id, user) do
+        {:ok, %{pulled: pulled}} ->
+          socket =
+            socket
+            |> assign(flagged_ids: MapSet.put(socket.assigns.flagged_ids, id))
+            |> put_flash(:info, report_flash(pulled))
+
+          {:noreply, reload(socket)}
+
+        {:error, message} ->
+          {:noreply, put_flash(socket, :error, message)}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  defp report_flash(true), do: "Reported and pulled from the FAQ for review. Thanks!"
+  defp report_flash(false), do: "Reported — thanks. A moderator will take a look."
 
   defp reload(socket) do
     game = socket.assigns.game
@@ -223,7 +252,13 @@ defmodule RuleMavenWeb.GameLive.Faq do
           <% end %>
           <div style="display:flex;flex-direction:column;gap:0.6rem">
             <%= for q <- filtered do %>
-              <.question_card q={q} is_admin={@is_admin} game={@game} favorited_ids={@favorited_ids} />
+              <.question_card
+                q={q}
+                is_admin={@is_admin}
+                game={@game}
+                favorited_ids={@favorited_ids}
+                flagged_ids={@flagged_ids}
+              />
             <% end %>
             <p :if={filtered == []} style="font-size:0.75rem;color:var(--text-muted)">
               No questions in this category yet.
@@ -243,7 +278,13 @@ defmodule RuleMavenWeb.GameLive.Faq do
                 </h2>
                 <div style="display:flex;flex-direction:column;gap:0.6rem">
                   <%= for q <- cat_qs do %>
-                    <.question_card q={q} is_admin={@is_admin} game={@game} favorited_ids={@favorited_ids} />
+                    <.question_card
+                      q={q}
+                      is_admin={@is_admin}
+                      game={@game}
+                      favorited_ids={@favorited_ids}
+                      flagged_ids={@flagged_ids}
+                    />
                   <% end %>
                 </div>
               </div>
@@ -258,7 +299,13 @@ defmodule RuleMavenWeb.GameLive.Faq do
               </h2>
               <div style="display:flex;flex-direction:column;gap:0.6rem">
                 <%= for q <- untagged do %>
-                  <.question_card q={q} is_admin={@is_admin} game={@game} favorited_ids={@favorited_ids} />
+                  <.question_card
+                    q={q}
+                    is_admin={@is_admin}
+                    game={@game}
+                    favorited_ids={@favorited_ids}
+                    flagged_ids={@flagged_ids}
+                  />
                 <% end %>
               </div>
             </div>
@@ -345,6 +392,45 @@ defmodule RuleMavenWeb.GameLive.Faq do
             style={"background:none;border:none;padding:0;line-height:1;font-size:0.95rem;cursor:pointer;#{if fav?, do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
             title={if fav?, do: "Remove from your favorites", else: "Favorite — moves to top of this list"}
           >{if fav?, do: "♥", else: "♡"}</button>
+
+          <!-- Overflow: secondary actions (copy, regenerate, report) -->
+          <details class="card-menu">
+            <summary class="card-menu__trigger" title="More actions">⋯</summary>
+            <div class="card-menu__pop card-menu__pop--right">
+              <button
+                type="button"
+                id={"faq-copy-#{@q.id}"}
+                phx-hook="ClipboardCopy"
+                data-clipboard-text={"Q: #{QuestionLog.display_question(@q)}\n\nA: #{strip_markdown(@q.canonical_answer || @q.answer || "")}"}
+                class="card-menu__item"
+                title="Copy question and answer"
+              >📋 Copy Q&amp;A</button>
+              <.link
+                navigate={~p"/games/#{@game}?t=#{RuleMaven.Hashid.encode(@q.id)}"}
+                class="card-menu__item"
+                title="Open this answer in the chat to generate a fresh version"
+              >↻ Regenerate</.link>
+              <%= if MapSet.member?(@flagged_ids, @q.id) do %>
+                <button
+                  type="button"
+                  disabled
+                  class="card-menu__item"
+                  style="opacity:0.6;cursor:default"
+                  title="You reported this answer"
+                >✓ Reported</button>
+              <% else %>
+                <button
+                  type="button"
+                  phx-click="report_answer"
+                  phx-value-id={@q.id}
+                  data-confirm="Report this answer as wrong or unhelpful? A moderator will review it."
+                  class="card-menu__item"
+                  title="Report a wrong or unhelpful answer"
+                >🚩 Report</button>
+              <% end %>
+            </div>
+          </details>
+
           <%= if @is_admin do %>
             <button
               phx-click="reject"

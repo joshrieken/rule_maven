@@ -2438,6 +2438,28 @@ defmodule RuleMavenWeb.GameLive.Show do
                     </div>
                   <% end %>
 
+                  <!-- Refusal report: lets a player flag a wrong "not covered" so
+                       an admin can review — reuses flag_question, which also
+                       fetches a fresh (skip_pool) answer for the reporter. -->
+                  <%= if msg.role == :assistant && msg[:refused] && msg.content != "Thinking..." do %>
+                    <div style="margin-top:0.4rem">
+                      <%= if MapSet.member?(@flagged_ids, msg[:id]) do %>
+                        <span style="font-size:0.65rem;color:var(--text-muted)">
+                          ✓ Reported — thanks
+                        </span>
+                      <% else %>
+                        <button
+                          type="button"
+                          phx-click="flag_question"
+                          phx-value-id={msg.id}
+                          data-confirm="Report this as wrongly marked 'not covered'? A moderator will review it, and we'll fetch you a fresh answer."
+                          style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted)"
+                          title="This should be covered by the rulebook"
+                        >🚩 Report as miscategorized</button>
+                      <% end %>
+                    </div>
+                  <% end %>
+
                   <!-- Pool hit badge -->
                   <div
                     :if={msg[:pool_hit] && !msg[:pool_provisional]}
