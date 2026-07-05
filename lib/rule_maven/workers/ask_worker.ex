@@ -156,23 +156,45 @@ defmodule RuleMaven.Workers.AskWorker do
                 )
 
               true ->
-                raw_passage = llm_result[:cited_passage]
-                # Strip [Page N] markers from display passage AFTER extracting page number
-                passage =
-                  if raw_passage do
-                    raw_passage
-                    |> String.replace(~r/\[Page\s*\d+\]/i, "")
-                    |> String.replace(~r/\(Page\s*\d+\)/i, "")
-                    |> String.trim()
+                raw_citations =
+                  case llm_result[:citations] do
+                    list when is_list(list) and list != [] ->
+                      list
+
+                    _ ->
+                      # Legacy/mock path: only the singular scalar fields were
+                      # supplied. Wrap them so downstream processing is uniform.
+                      if llm_result[:cited_passage] || llm_result[:cited_page] ||
+                           llm_result[:cited_source] do
+                        [
+                          %{
+                            "quote" => llm_result[:cited_passage],
+                            "page" => llm_result[:cited_page],
+                            "source" => llm_result[:cited_source]
+                          }
+                        ]
+                      else
+                        []
+                      end
                   end
 
-                # Page citation is a hard requirement: trust the model's [Page N]
-                # marker first, else recover the page by matching the cited passage
-                # back to its source chunk (each chunk text carries a [Page N] prefix).
-                cited_page =
-                  llm_result[:cited_page] ||
-                    parse_cited_page(raw_passage) ||
-                    infer_page_from_chunks(passage, llm_result[:source_chunks])
+                processed_citations =
+                  Enum.map(raw_citations, &process_citation(&1, llm_result[:source_chunks]))
+
+                valid_citations =
+                  RuleMaven.Games.Citations.valid_citations(
+                    processed_citations,
+                    llm_result[:source_chunks]
+                  )
+
+                citation_valid = valid_citations != []
+
+                primary =
+                  List.first(valid_citations) || %{"quote" => nil, "page" => nil, "source" => nil}
+
+                passage = primary["quote"]
+                cited_page = primary["page"]
+                cited_source = primary["source"]
 
                 refused? = refused?(answer)
 
@@ -194,28 +216,6 @@ defmodule RuleMaven.Workers.AskWorker do
                     ""
                   end
 
-                # Validate the citation against the chunks the answer was generated
-                # from — a merely-present (possibly hallucinated) citation must not
-                # earn pooling or the trust bonus.
-                citation_valid =
-                  RuleMaven.Games.Citations.valid?(
-                    passage,
-                    cited_page,
-                    llm_result[:source_chunks],
-                    llm_result[:cited_source]
-                  )
-
-                # Normalize the model's raw cited_source string against the
-                # actual source_chunks labels before persisting/rendering it —
-                # a match resolves to the chunk's canonical label, a
-                # hallucinated label resolves to nil (UI falls back to
-                # "Rulebook") instead of storing an unverified model string.
-                cited_source =
-                  RuleMaven.Games.Citations.canonical_source(
-                    llm_result[:cited_source],
-                    llm_result[:source_chunks]
-                  )
-
                 update_attrs = %{
                   answer: answer,
                   # Preserve the raw question as typed; the normalized form is stored
@@ -224,6 +224,7 @@ defmodule RuleMaven.Workers.AskWorker do
                   cited_passage: passage,
                   cited_page: cited_page,
                   cited_source: cited_source,
+                  citations: valid_citations,
                   citation_valid: citation_valid,
                   refused: refused?,
                   verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
@@ -431,6 +432,33 @@ defmodule RuleMaven.Workers.AskWorker do
       # Very high proportion of non-prose characters
       non_prose_ratio > 0.4 || looks_base64 || looks_hex
     end
+  end
+
+  # Per-citation-entry cleanup: strips [Page N]/(Page N) markers from the
+  # quote (they're only needed to recover the page below), recovers a missing
+  # page the same way the old single-citation path did (trust the model's
+  # own page first, else parse it out of the raw quote, else infer it by
+  # matching the quote back to its source chunk), and canonicalizes the
+  # source label against the actual retrieved chunk labels.
+  defp process_citation(%{} = c, source_chunks) do
+    raw_quote = c["quote"]
+
+    quote_clean =
+      if raw_quote do
+        raw_quote
+        |> String.replace(~r/\[Page\s*\d+\]/i, "")
+        |> String.replace(~r/\(Page\s*\d+\)/i, "")
+        |> String.trim()
+      end
+
+    resolved_page =
+      c["page"] ||
+        parse_cited_page(raw_quote) ||
+        infer_page_from_chunks(quote_clean, source_chunks)
+
+    resolved_source = RuleMaven.Games.Citations.canonical_source(c["source"], source_chunks)
+
+    %{"quote" => quote_clean, "page" => resolved_page, "source" => resolved_source}
   end
 
   defp parse_cited_page(nil), do: nil
