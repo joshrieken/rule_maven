@@ -1681,11 +1681,10 @@ defmodule RuleMaven.LLM do
 
     case chat(prompt, "generate_voices",
            system: RuleMaven.Prompts.template("generate_voices_system"),
-           # Each voice now carries 4-6 loading_phrases and a picker description
-           # on top of its style, so a full 6-voice set needs noticeably more
-           # room. Too low and the JSON truncates mid-array → parse fails → no
-           # voices.
-           max_tokens: 3200
+           # Each voice now carries 20+ loading_phrases and a picker description
+           # on top of its style, so a full 6-voice set needs a lot more room.
+           # Too low and the JSON truncates mid-array → parse fails → no voices.
+           max_tokens: 8000
          ) do
       {:ok, text} ->
         {:ok, parse_voices(text)}
@@ -1749,13 +1748,13 @@ defmodule RuleMaven.LLM do
 
   defp coerce_voice(_), do: nil
 
-  # Keep only non-blank string phrases, trimmed, capped at 6.
+  # Keep only non-blank string phrases, trimmed, capped at 24.
   defp coerce_phrases(list) when is_list(list) do
     list
     |> Enum.filter(&is_binary/1)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
-    |> Enum.take(6)
+    |> Enum.take(24)
   end
 
   defp coerce_phrases(_), do: []

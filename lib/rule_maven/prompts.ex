@@ -509,10 +509,12 @@ defmodule RuleMaven.Prompts do
   - "style" describes ONLY tone/voice (vocabulary, cadence, catchphrases). It
     must NOT contain any rule, number, or game fact — the restyler keeps facts
     unchanged and only borrows the voice.
-  - "loading_phrases" is an array of 4-6 very short (≤ 5 words) in-character
-    "loading screen" status lines for THIS persona — playful nonsense in the
-    spirit of old SimCity loaders ("Reticulating splines…"), each ending with an
-    ellipsis. They are flavor ONLY: never a rule, number, or game fact.
+  - "loading_phrases" is an array of at least 20 (aim for 20-24) very short
+    (≤ 5 words) in-character "loading screen" status lines for THIS persona —
+    playful nonsense in the spirit of old SimCity loaders ("Reticulating
+    splines…"), each ending with an ellipsis. They are flavor ONLY: never a
+    rule, number, or game fact. Give every one real variety (different verbs,
+    objects, jokes) — do not pad with near-duplicates.
   - Make them distinct from each other and from the generic globals (plain,
     rules lawyer, pirate, robot, hype coach). Lean into THIS game's flavor.
   - Aim for genuinely funny and specific, not cheesy — a persona that would make
