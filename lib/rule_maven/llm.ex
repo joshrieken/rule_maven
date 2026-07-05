@@ -136,6 +136,12 @@ defmodule RuleMaven.LLM do
   # landed in the ambiguous band. Any error/timeout resolves to false (a
   # miss) — never blocks or fails the request, never serves an unmatched
   # answer.
+  # `asker_question` is untrusted (raw user input) and is substituted verbatim
+  # into the prompt via RuleMaven.Prompts.render/2's plain string substitution
+  # — no escaping. A crafted question can't exfiltrate anything or serve
+  # arbitrary content through this path; the worst case is coercing a "yes" on
+  # a candidate the asker was already within 0.85-0.92 cosine similarity of,
+  # which just serves an already-vetted, rulebook-derived pool answer early.
   defp paraphrase_equivalent?(row, asker_question, game, user_id) do
     candidate_question = RuleMaven.Games.QuestionLog.display_question(row)
 
@@ -145,20 +151,29 @@ defmodule RuleMaven.LLM do
         question_b: asker_question
       })
 
-    case chat(user, "pool_tiebreaker",
-           system: RuleMaven.Prompts.template("pool_tiebreaker_system"),
-           max_tokens: 10,
-           model: model(:cheap),
-           operation: "pool_tiebreaker",
-           game_id: game.id,
-           user_id: user_id
-         ) do
-      {:ok, text} ->
-        text |> to_string() |> String.trim() |> String.downcase() |> String.starts_with?("yes")
+    result =
+      case chat(user, "pool_tiebreaker",
+             system: RuleMaven.Prompts.template("pool_tiebreaker_system"),
+             max_tokens: 10,
+             model: model(:cheap),
+             operation: "pool_tiebreaker",
+             game_id: game.id,
+             user_id: user_id
+           ) do
+        {:ok, text} ->
+          text |> to_string() |> String.trim() |> String.downcase() |> String.starts_with?("yes")
 
-      {:error, _} ->
-        false
-    end
+        {:error, _} ->
+          false
+      end
+
+    require Logger
+
+    Logger.info(
+      "pool_tiebreaker decision=#{result} candidate_id=#{row.id} candidate_question=#{inspect(candidate_question)} asker_question=#{inspect(asker_question)}"
+    )
+
+    result
   end
 
   # Builds the cache-serving result from a `{row, tier}` and records the save.
