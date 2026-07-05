@@ -103,6 +103,20 @@ defmodule RuleMaven.LLMTest do
 
       assert result[:citations] == []
     end
+
+    test "parses an optional styled_answer field" do
+      json = ~s({"answer":"x","styled_answer":"Arr, x it be."})
+      result = LLM.decode_answer(json)
+
+      assert result[:styled_answer] == "Arr, x it be."
+    end
+
+    test "styled_answer is nil when the key is absent" do
+      json = ~s({"answer":"x"})
+      result = LLM.decode_answer(json)
+
+      assert result[:styled_answer] == nil
+    end
   end
 
   describe "system prompt" do
@@ -144,6 +158,107 @@ defmodule RuleMaven.LLMTest do
 
       assert prompt =~ "RECENT CONVERSATION"
       assert prompt =~ "What can I do?"
+    end
+  end
+
+  describe "persona-direct answer (voice opt)" do
+    test "neutral voice (default): system prompt carries no persona instructions, no styled_answer requested" do
+      {:ok, game} = Games.create_game(%{name: "Test"})
+      {:ok, agent} = Agent.start_link(fn -> nil end)
+
+      mock_llm(fn body ->
+        prompt = body.messages |> Enum.find(&(&1.role == "system")) |> Map.get(:content)
+        Agent.update(agent, fn _ -> prompt end)
+        {:ok, %{answer: "ok", cited_passage: "ok", followup: false, followups: []}}
+      end)
+
+      {:ok, result} = LLM.ask(game, "How many spaces?")
+
+      prompt = Agent.get(agent, & &1)
+      refute prompt =~ "styled_answer"
+      assert result[:styled_answer] == nil
+    end
+
+    test "non-neutral voice: system prompt asks for styled_answer in that persona's voice" do
+      {:ok, game} = Games.create_game(%{name: "Test"})
+      {:ok, agent} = Agent.start_link(fn -> nil end)
+
+      mock_llm(fn body ->
+        prompt = body.messages |> Enum.find(&(&1.role == "system")) |> Map.get(:content)
+        Agent.update(agent, fn _ -> prompt end)
+
+        {:ok,
+         %{
+           answer: "You move 4 spaces.",
+           styled_answer: "Arr, ye move 4 spaces, matey.",
+           cited_passage: "ok",
+           followup: false,
+           followups: []
+         }}
+      end)
+
+      {:ok, result} = LLM.ask(game, "How many spaces?", [], [], voice: "pirate")
+
+      prompt = Agent.get(agent, & &1)
+      assert prompt =~ "styled_answer"
+      assert prompt =~ "pirate quartermaster"
+      assert result[:styled_answer] == "Arr, ye move 4 spaces, matey."
+      assert result[:styled_voice] == "pirate"
+    end
+
+    test "a pool/cache hit never returns styled_answer, even with a voice requested" do
+      {:ok, game} = Games.create_game(%{name: "Test"})
+
+      vec = List.duplicate(0.1, 768)
+
+      {:ok, ql} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "How many spaces?",
+          answer: "You move 4 spaces.",
+          user_id: nil,
+          question_embedding: vec,
+          citation_valid: true
+        })
+
+      Games.mark_pooled(ql)
+
+      Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, vec} end)
+      on_exit(fn -> Application.delete_env(:rule_maven, :embed_mock) end)
+
+      # normalize_question/4 runs before the pool check on every ask/5 call and
+      # needs a mock too, even though this test expects the pool hit to short
+      # -circuit before call_llm/8 ever runs.
+      mock_llm(fn _body -> {:ok, %{answer: "How many spaces?"}} end)
+
+      {:ok, result} = LLM.ask(game, "How many spaces?", [], [], voice: "pirate")
+
+      assert result[:pool_hit] == true
+      refute Map.has_key?(result, :styled_answer)
+    end
+
+    test "a per-game generated voice never gets persona-direct styling — only built-in voices do" do
+      {:ok, game} = Games.create_game(%{name: "Test"})
+
+      :ok =
+        RuleMaven.Voices.replace_generated(game.id, [
+          %{slug: "herald", label: "H", emoji: "🦉", style: "a courtly herald"}
+        ])
+
+      {:ok, agent} = Agent.start_link(fn -> nil end)
+
+      mock_llm(fn body ->
+        prompt = body.messages |> Enum.find(&(&1.role == "system")) |> Map.get(:content)
+        Agent.update(agent, fn _ -> prompt end)
+        {:ok, %{answer: "ok", cited_passage: "ok", followup: false, followups: []}}
+      end)
+
+      {:ok, result} = LLM.ask(game, "some question", [], [], voice: "g:herald")
+
+      prompt = Agent.get(agent, & &1)
+      refute prompt =~ "styled_answer"
+      refute prompt =~ "courtly herald"
+      assert result[:styled_answer] == nil
     end
   end
 

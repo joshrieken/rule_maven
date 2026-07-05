@@ -67,7 +67,18 @@ defmodule RuleMaven.Voices do
         "Citing precedent nobody asked for…",
         "Objecting on principle…",
         "Approaching the bench…",
-        "Stamping the verdict…"
+        "Stamping the verdict…",
+        "Cross-examining the rulebook…",
+        "Requesting a sidebar…",
+        "Reviewing the fine print…",
+        "Drafting a footnote…",
+        "Consulting case law…",
+        "Overruling the objection…",
+        "Swearing in the witness…",
+        "Reading between the clauses…",
+        "Entering it into the record…",
+        "Adjourning for deliberation…",
+        "Polishing the gavel…"
       ]
     },
     %{
@@ -82,7 +93,18 @@ defmodule RuleMaven.Voices do
         "Consulting the charts…",
         "Filing the errata, again…",
         "Counting the doubloons…",
-        "Sighing at landlubbers…"
+        "Sighing at landlubbers…",
+        "Untangling the rigging…",
+        "Squinting at the ledger…",
+        "Checking the manifest…",
+        "Bribing the parrot for silence…",
+        "Plotting a course through the fine print…",
+        "Rationing the grog…",
+        "Patching the sails, again…",
+        "Grumbling below deck…",
+        "Reading the fine print by lantern light…",
+        "Swearing at the tide charts…",
+        "Signing yet another form…"
       ]
     },
     %{
@@ -97,7 +119,18 @@ defmodule RuleMaven.Voices do
         "Logging your infraction…",
         "Recalibrating authority…",
         "Reticulating compliance…",
-        "Asserting jurisdiction…"
+        "Asserting jurisdiction…",
+        "Cross-referencing subsection…",
+        "Compiling ruling…",
+        "Running integrity check…",
+        "Escalating to firmware…",
+        "Indexing precedent…",
+        "Verifying credentials…",
+        "Rebooting patience module…",
+        "Flagging for review…",
+        "Synchronizing directive cache…",
+        "Auditing rule compliance…",
+        "Finalizing verdict…"
       ]
     },
     %{
@@ -112,7 +145,18 @@ defmodule RuleMaven.Voices do
         "Drawing it up on the whiteboard…",
         "Calling the timeout…",
         "Believing in you…",
-        "Leaving it all on the table…"
+        "Leaving it all on the table…",
+        "Rallying the team…",
+        "Chalking up the strategy…",
+        "Fixing my headset…",
+        "Reviewing the game film…",
+        "Pumping up the crowd…",
+        "Diagramming the winning play…",
+        "Choking back tears of pride…",
+        "Bringing it in for a huddle…",
+        "Checking the scoreboard…",
+        "Blowing the whistle…",
+        "Giving the pregame speech…"
       ]
     }
   ]
@@ -189,18 +233,22 @@ defmodule RuleMaven.Voices do
 
   @doc """
   Loading-screen phrases for a voice within a game's scope: the voice's own
-  phrases (global `:loading` or a generated voice's `loading_phrases`) followed
-  by the shared generic pool, de-duplicated. Never returns an empty list.
+  phrases (global `:loading` or a generated voice's `loading_phrases`) if it
+  has any, else the shared generic pool. A voice's own phrases are never
+  mixed with the generic pool — each persona's loader stays in that
+  persona's voice throughout. Never returns an empty list.
   """
   def loading_phrases(voice, game) do
     own =
       case get_def(voice, game) do
-        %{loading: l} when is_list(l) -> l
-        %{loading_phrases: l} when is_list(l) -> l
+        %{loading: l} when is_list(l) and l != [] -> l
+        %{loading_phrases: l} when is_list(l) and l != [] -> l
         _ -> []
       end
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.uniq()
 
-    (own ++ @generic_loading) |> Enum.reject(&(&1 in [nil, ""])) |> Enum.uniq()
+    if own != [], do: own, else: @generic_loading
   end
 
   @doc "Cached restyle content for one (question, voice), or nil."
@@ -220,6 +268,21 @@ defmodule RuleMaven.Voices do
         select: {v.voice, v.content}
     )
     |> Map.new()
+  end
+
+  @doc """
+  Directly caches a styled answer that was already produced as part of the
+  original ask (the single-call persona-direct path in `RuleMaven.LLM.ask/5`)
+  — skips the LLM restyle call entirely. Same upsert semantics as the cache
+  write inside `restyle/5`: first write for a `(question_log_id, voice)` pair
+  wins, a concurrent duplicate is a no-op.
+  """
+  def store_direct(question_log_id, voice, content) do
+    case store(question_log_id, voice, content) do
+      {:ok, _} -> :ok
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """

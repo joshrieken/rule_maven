@@ -99,7 +99,8 @@ defmodule RuleMaven.LLM do
           recent_context,
           question_embedding,
           cleaned,
-          user_id
+          user_id,
+          opts[:voice] || "neutral"
         )
     end
   end
@@ -140,14 +141,15 @@ defmodule RuleMaven.LLM do
          recent_context,
          question_embedding,
          cleaned,
-         user_id
+         user_id,
+         voice
        ) do
     game_ids = [game.id | expansion_ids]
     # Reuse the embedding already computed in ask/5 — no second embed call.
     retrieval_opts = if question_embedding, do: [embedding: question_embedding], else: []
     chunks = RuleMaven.Games.retrieve_chunks_for_games(game_ids, question, retrieval_opts)
     context = build_context_block(chunks, game.id)
-    system_prompt = build_system_prompt(game.name, game.category, context, recent_context)
+    system_prompt = build_system_prompt(game.name, game.category, context, recent_context, voice, game)
     provider_name = provider()
     model_name = model()
 
@@ -183,7 +185,9 @@ defmodule RuleMaven.LLM do
            raw_response: llm_result[:raw_response],
            # Retrieved chunk texts (each prefixed with a [Page N] marker) so the
            # worker can recover the page if the model drops it from the citation.
-           source_chunks: Enum.map(chunks, &%{label: &1.label, content: &1.content})
+           source_chunks: Enum.map(chunks, &%{label: &1.label, content: &1.content}),
+           styled_answer: llm_result[:styled_answer],
+           styled_voice: voice
          }}
 
       {:error, reason} ->
@@ -897,7 +901,7 @@ defmodule RuleMaven.LLM do
     |> Repo.insert()
   end
 
-  defp build_system_prompt(game_name, category, full_text, recent_context) do
+  defp build_system_prompt(game_name, category, full_text, recent_context, voice, game) do
     kind = RuleMaven.Games.Category.context_noun(category)
 
     context_block =
@@ -914,8 +918,55 @@ defmodule RuleMaven.LLM do
       game_name: game_name,
       game_kind: kind,
       context_block: context_block,
-      rulebook: full_text
+      rulebook: full_text,
+      voice_style: voice_style_block(voice, game)
     })
+  end
+
+  # Empty for "neutral" (no persona) — {{voice_style}} then substitutes to "" and
+  # the schema's styled_answer key is correctly omitted by the model. Mirrors the
+  # tone guidance from RuleMaven.Voices' restyle prompt (voice_restyle template)
+  # so a persona reads the same whether it's generated here or via a later
+  # on-demand restyle.
+  defp voice_style_block("neutral", _game), do: ""
+
+  # Persona-direct styling is scoped to BUILT-IN voices only (lawyer, pirate,
+  # robot, coach) — `Voices.valid?/1` checks only the global/built-in id list,
+  # never a per-game generated (`g:`-prefixed) voice. A generated voice's
+  # `style` string is LLM output derived from the game's own uploaded rulebook
+  # content, so it must not be interpolated into this prompt (which has full
+  # rulebook access and produces the citation-grounded answer) — that would
+  # widen the trust boundary beyond what the design doc analyzed. Generated
+  # voices keep using the old `Voices.restyle/5` path exactly as before, which
+  # deliberately never shows the restyler the rulebook. Returning "" here means
+  # `LLM.ask/5` returns no `styled_answer` for these voices, so AskWorker's
+  # existing fallback (VoiceWorker / on-demand restyle) takes over unchanged.
+  defp voice_style_block(voice, game) do
+    if RuleMaven.Voices.valid?(voice) do
+      voice_style_instructions(voice, game)
+    else
+      ""
+    end
+  end
+
+  defp voice_style_instructions(voice, game) do
+    case RuleMaven.Voices.get_def(voice, game) do
+      %{style: style} when is_binary(style) ->
+        """
+
+
+        VOICE INSTRUCTIONS — the asker has an active persona selected. In ADDITION to "answer", include a "styled_answer" field: rewrite "answer" in the voice of #{style}
+
+        Commit fully to the bit — the funny comes from a sharp, specific point of view, not from stacking catchphrases, accents, or corny filler. Be witty and dry over loud and cheesy. One genuinely good line beats five clichés.
+
+        But the rule comes first. The reader must finish "styled_answer" knowing exactly which number, action, or ruling applies. If a joke would blur that, cut the joke — never the clarity. The voice is seasoning, never a disguise: land the rule plainly, then let the persona react to it.
+
+        Keep all facts and numbers in "styled_answer" identical to "answer". Do not add rules. Do not add a sign-off unless it is one short in-character phrase. Stay about as long as "answer" — no padding.
+        """
+
+      _ ->
+        ""
+    end
   end
 
   defp parse_response(body) do
@@ -962,7 +1013,8 @@ defmodule RuleMaven.LLM do
           cited_source: first["source"],
           verdict: coerce_verdict(map["verdict"]),
           followups: string_list(map["followups"]),
-          also_asked: string_list(map["also_asked"])
+          also_asked: string_list(map["also_asked"]),
+          styled_answer: nilable_string(map["styled_answer"])
         }
 
       :error ->
@@ -974,7 +1026,8 @@ defmodule RuleMaven.LLM do
           cited_source: nil,
           verdict: nil,
           followups: [],
-          also_asked: []
+          also_asked: [],
+          styled_answer: nil
         }
     end
   end

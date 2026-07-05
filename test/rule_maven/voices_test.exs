@@ -62,15 +62,20 @@ defmodule RuleMaven.VoicesTest do
       assert Voices.loading_phrases("does-not-exist", g) != []
     end
 
-    test "global voice phrases come before the generic pool and include both" do
+    test "a built-in persona's own phrases are returned exclusively, no generic mixed in" do
       g = game()
       phrases = Voices.loading_phrases("pirate", g)
       pirate_own = Voices.get_def("pirate").loading
-      assert pirate_own != []
-      # the voice's own phrases are present
-      assert Enum.all?(pirate_own, &(&1 in phrases))
-      # generic pool is blended in (more than just the voice's own)
-      assert length(phrases) > length(pirate_own)
+
+      assert phrases == pirate_own
+      refute "Reticulating splines…" in phrases
+    end
+
+    test "neutral still uses only the generic pool (no own phrases defined)" do
+      g = game()
+      assert Voices.loading_phrases("neutral", g) == Voices.loading_phrases("neutral", g)
+      # neutral has no `loading:` entry in @voices, so it must still fall back:
+      assert "Reticulating splines…" in Voices.loading_phrases("neutral", g)
     end
 
     test "de-duplicates phrases" do
@@ -78,10 +83,18 @@ defmodule RuleMaven.VoicesTest do
       phrases = Voices.loading_phrases("pirate", g)
       assert phrases == Enum.uniq(phrases)
     end
+
+    test "each built-in persona has a sizeable own phrase set (>= 15)" do
+      for id <- ~w(lawyer pirate robot coach) do
+        own = Voices.get_def(id).loading
+        assert length(own) >= 15, "#{id} has only #{length(own)} loading phrases"
+        assert own == Enum.uniq(own), "#{id} has duplicate loading phrases"
+      end
+    end
   end
 
   describe "loading_phrases/2 for generated voices" do
-    test "generated voice's stored phrases precede the generic pool" do
+    test "generated voice's own stored phrases are returned exclusively, no generic mixed in" do
       g = game()
 
       :ok =
@@ -96,10 +109,8 @@ defmodule RuleMaven.VoicesTest do
         ])
 
       phrases = Voices.loading_phrases("g:herald", g)
-      assert "Sounding the horn…" in phrases
-      assert "Unrolling the scroll…" in phrases
-      # generic pool still blended
-      assert "Reticulating splines…" in phrases
+      assert phrases == ["Sounding the horn…", "Unrolling the scroll…"]
+      refute "Reticulating splines…" in phrases
     end
 
     test "generated voice without loading_phrases falls back to generic only" do
@@ -113,6 +124,25 @@ defmodule RuleMaven.VoicesTest do
       phrases = Voices.loading_phrases("g:plain-gen", g)
       assert phrases != []
       assert "Reticulating splines…" in phrases
+    end
+  end
+
+  describe "store_direct/3" do
+    test "caches content without calling the LLM, and Voices.get/2 returns it" do
+      g = game()
+      q = question(g)
+
+      assert :ok = Voices.store_direct(q.id, "pirate", "Arr, that be the rule.")
+      assert Voices.get(q.id, "pirate") == "Arr, that be the rule."
+    end
+
+    test "a second store_direct for the same (question, voice) is a no-op (first write wins)" do
+      g = game()
+      q = question(g)
+
+      assert :ok = Voices.store_direct(q.id, "pirate", "First.")
+      assert :ok = Voices.store_direct(q.id, "pirate", "Second.")
+      assert Voices.get(q.id, "pirate") == "First."
     end
   end
 

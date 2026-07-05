@@ -71,6 +71,7 @@ defmodule RuleMaven.Prompts do
     "also_asked": [string]       // if the user's message contained more than one distinct question, the exact text of the additional questions (answer only the FIRST in "answer"). Empty array otherwise.
   }
   Output valid JSON only. Do not wrap it in ``` fences.
+  {{voice_style}}
   {{context_block}}
 
   RULEBOOK:
@@ -684,7 +685,7 @@ defmodule RuleMaven.Prompts do
       label: "Answer (Q&A system prompt)",
       description:
         "Drives every rulebook answer. Strict JSON schema — keep the schema block intact or answering breaks.",
-      vars: ~w(game_name game_kind context_block rulebook),
+      vars: ~w(game_name game_kind context_block rulebook voice_style),
       default: @answer
     },
     %{

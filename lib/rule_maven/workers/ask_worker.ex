@@ -16,6 +16,7 @@ defmodule RuleMaven.Workers.AskWorker do
     expansion_ids = args["expansion_ids"] || []
     user_id = args["user_id"]
     skip_pool = args["skip_pool"] || false
+    voice = args["voice"] || "neutral"
 
     recent_context =
       (args["recent_context"] || [])
@@ -80,7 +81,8 @@ defmodule RuleMaven.Workers.AskWorker do
 
         case RuleMaven.LLM.ask(game, question, expansion_ids, recent_context,
                user_id: user_id,
-               skip_pool: skip_pool
+               skip_pool: skip_pool,
+               voice: voice
              ) do
           {:ok, %{answer: raw_answer} = llm_result} ->
             answer =
@@ -261,6 +263,34 @@ defmodule RuleMaven.Workers.AskWorker do
                       unless pool_hit?, do: Games.mark_pooled(updated)
                     end
 
+                    # Persona-direct path: the single ask call already produced the
+                    # styled answer, so cache it now instead of enqueueing a
+                    # separate VoiceWorker restyle for this (question, voice) pair.
+                    styled_answer = llm_result[:styled_answer]
+                    styled_voice = llm_result[:styled_voice]
+
+                    # `styled_voice != "neutral"` is defense-in-depth: a neutral ask
+                    # never produces a styled_answer in the first place (voice_style_block
+                    # returns "" for "neutral"), so this branch of the guard can't
+                    # currently be reached — kept in case that ever changes.
+                    store_direct? =
+                      styled_answer && styled_voice && styled_voice != "neutral" &&
+                        not refused?
+
+                    if store_direct? do
+                      case RuleMaven.Voices.store_direct(question_log_id, styled_voice, styled_answer) do
+                        :ok ->
+                          :ok
+
+                        {:error, reason} ->
+                          require Logger
+
+                          Logger.warning(
+                            "AskWorker: failed to cache styled answer for question #{question_log_id} voice #{styled_voice}: #{inspect(reason)}"
+                          )
+                      end
+                    end
+
                     Phoenix.PubSub.broadcast(
                       RuleMaven.PubSub,
                       "game:#{game_id}",
@@ -277,7 +307,13 @@ defmodule RuleMaven.Workers.AskWorker do
                          cited_page: cited_page,
                          refused: refused?,
                          verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
-                         raw_response: llm_result[:raw_response]
+                         raw_response: llm_result[:raw_response],
+                         # Only ever carry a styled answer when the DB write above
+                         # actually happened (i.e. store_direct? was true) — a
+                         # refused question must not broadcast a styled answer even
+                         # if the model ignored the "don't style a refusal" framing.
+                         styled_voice: if(store_direct?, do: styled_voice, else: nil),
+                         styled_answer: if(store_direct?, do: styled_answer, else: nil)
                        }}
                     )
 
