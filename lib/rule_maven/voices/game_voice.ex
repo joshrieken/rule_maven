@@ -20,6 +20,9 @@ defmodule RuleMaven.Voices.GameVoice do
     # Short user-facing blurb ("who is this persona?") shown in the voice menu.
     field :description, :string
     field :loading_phrases, {:array, :string}, default: []
+    # LLM-judged rank among this game's fans; 1 = most popular. Drives default
+    # sort order in the voice picker (see Voices.game_voice_defs/1).
+    field :popularity_rank, :integer
     # "generated" (rulebook-derived) — leaves room for hand-authored later.
     field :source, :string, default: "generated"
     field :position, :integer, default: 0
@@ -38,6 +41,7 @@ defmodule RuleMaven.Voices.GameVoice do
       :style,
       :description,
       :loading_phrases,
+      :popularity_rank,
       :source,
       :position
     ])
