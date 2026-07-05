@@ -78,7 +78,11 @@ defmodule RuleMaven.Voices do
         "Reading between the clauses…",
         "Entering it into the record…",
         "Adjourning for deliberation…",
-        "Polishing the gavel…"
+        "Polishing the gavel…",
+        "Impaneling a jury of meeples…",
+        "Redacting the transcript…",
+        "Notarizing the ruling…",
+        "Billing in six-minute increments…"
       ]
     },
     %{
@@ -104,7 +108,11 @@ defmodule RuleMaven.Voices do
         "Grumbling below deck…",
         "Reading the fine print by lantern light…",
         "Swearing at the tide charts…",
-        "Signing yet another form…"
+        "Signing yet another form…",
+        "Haggling with the harbormaster…",
+        "Mopping the poop deck, again…",
+        "Refilling the inkwell…",
+        "Cursing the paperwork gods…"
       ]
     },
     %{
@@ -130,7 +138,11 @@ defmodule RuleMaven.Voices do
         "Flagging for review…",
         "Synchronizing directive cache…",
         "Auditing rule compliance…",
-        "Finalizing verdict…"
+        "Finalizing verdict…",
+        "Purging cache of doubt…",
+        "Executing compliance.exe…",
+        "Denying appeal, politely…",
+        "Backing up the ruling…"
       ]
     },
     %{
@@ -156,7 +168,11 @@ defmodule RuleMaven.Voices do
         "Bringing it in for a huddle…",
         "Checking the scoreboard…",
         "Blowing the whistle…",
-        "Giving the pregame speech…"
+        "Giving the pregame speech…",
+        "Watching the tape back…",
+        "Taping up the ankles…",
+        "Screaming into the towel…",
+        "Running one more lap…"
       ]
     }
   ]
