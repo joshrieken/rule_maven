@@ -2702,16 +2702,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                         >✕</button>
                       <% end %>
                     <% else %>
-                      <!-- normal answer: full actions -->
-                      <button
-                        :if={!msg[:pending]}
-                        type="button"
-                        phx-click="retry_question"
-                        phx-value-id={msg.id}
-                        disabled={@pending_count >= @max_concurrent}
-                        style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                        title="Re-ask"
-                      >↻</button>
+                      <!-- normal answer: full actions. Re-ask is dropped here —
+                           skip_pool:false just re-serves the same pooled
+                           answer, so it's a no-op vs the overflow menu's
+                           "Regenerate" (skip_pool:true, forces fresh). -->
                       <button
                         :if={@is_admin && !msg[:history] && !msg[:pool_hit]}
                         type="button"
