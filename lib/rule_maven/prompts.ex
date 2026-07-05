@@ -113,6 +113,25 @@ defmodule RuleMaven.Prompts do
   {{question}}
   """
 
+  # ──────────────────────────────────────────────────────────────────────────
+  # Pool tiebreaker. Called only when a cross-user pool candidate's cosine
+  # similarity lands in the 0.85-0.92 ambiguous band (below the direct-hit
+  # floor but above the tiebreaker floor) — see RuleMaven.LLM.find_pool_hit/6.
+  # Vars: question_a (pool candidate), question_b (new asker's question).
+  # ──────────────────────────────────────────────────────────────────────────
+  @pool_tiebreaker_system """
+  You judge whether two board-game rules questions are asking the SAME underlying question, just worded differently. Answer with exactly one word: "yes" or "no" — nothing else, no punctuation, no explanation.
+
+  Answer "yes" only when both questions would be answered by the exact same rule. Different word order, terse fragments vs. complete sentences, and synonyms do NOT matter. A question that is merely related, broader, narrower, or about a different game element must be "no".
+  """
+
+  @pool_tiebreaker """
+  Question A: {{question_a}}
+  Question B: {{question_b}}
+
+  Same underlying rules question? Answer yes or no.
+  """
+
   # Shared cleanup fragments, inlined into each level's default so each level is a
   # standalone editable template.
   @cleanup_preserve """
@@ -704,6 +723,24 @@ defmodule RuleMaven.Prompts do
         "Rewrites a raw question into a standalone canonical form before the pool lookup, so paraphrases share an embedding and hit the cache.",
       vars: ~w(game_name game_kind context_block question),
       default: @normalize_question
+    },
+    %{
+      key: "pool_tiebreaker_system",
+      group: "Q&A",
+      label: "Pool tiebreaker — system",
+      description:
+        "System primer for the yes/no equivalence check run on ambiguous-similarity pool candidates (0.85-0.92).",
+      vars: [],
+      default: @pool_tiebreaker_system
+    },
+    %{
+      key: "pool_tiebreaker",
+      group: "Q&A",
+      label: "Pool tiebreaker — prompt",
+      description:
+        "Asks whether a near-miss pool candidate and the new question are the same underlying rules question.",
+      vars: ~w(question_a question_b),
+      default: @pool_tiebreaker
     },
     %{
       key: "cleanup_light",
