@@ -200,14 +200,19 @@ defmodule RuleMaven.Voices do
     Repo.all(
       from gv in GameVoice,
         where: gv.game_id == ^game_id,
-        order_by: [asc: gv.position, asc: gv.id],
+        order_by: [
+          asc: fragment("? NULLS LAST", gv.popularity_rank),
+          asc: gv.position,
+          asc: gv.id
+        ],
         select: %{
           slug: gv.slug,
           label: gv.label,
           emoji: gv.emoji,
           style: gv.style,
           description: gv.description,
-          loading_phrases: gv.loading_phrases
+          loading_phrases: gv.loading_phrases,
+          popularity_rank: gv.popularity_rank
         }
     )
     |> Enum.map(fn gv ->
@@ -217,7 +222,8 @@ defmodule RuleMaven.Voices do
         emoji: gv.emoji,
         style: gv.style,
         description: gv.description,
-        loading_phrases: gv.loading_phrases || []
+        loading_phrases: gv.loading_phrases || [],
+        popularity_rank: gv.popularity_rank
       }
     end)
   end
@@ -457,6 +463,7 @@ defmodule RuleMaven.Voices do
         style: v.style,
         description: Map.get(v, :description),
         loading_phrases: Map.get(v, :loading_phrases, []),
+        popularity_rank: Map.get(v, :popularity_rank),
         source: "generated",
         position: idx
       }

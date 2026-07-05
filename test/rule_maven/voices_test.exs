@@ -232,6 +232,59 @@ defmodule RuleMaven.VoicesTest do
     end
   end
 
+  describe "popularity_rank" do
+    test "persists popularity_rank and orders game_voice_defs by it ascending" do
+      g = game()
+
+      :ok =
+        Voices.replace_generated(g.id, [
+          %{slug: "c", label: "C", emoji: "🙂", style: "x", popularity_rank: 3},
+          %{slug: "a", label: "A", emoji: "🙂", style: "x", popularity_rank: 1},
+          %{slug: "b", label: "B", emoji: "🙂", style: "x", popularity_rank: 2}
+        ])
+
+      gen_ids =
+        Voices.for_game(g)
+        |> Enum.filter(&String.starts_with?(&1.id, "g:"))
+        |> Enum.map(& &1.id)
+
+      assert gen_ids == ["g:a", "g:b", "g:c"]
+    end
+
+    test "changing only popularity_rank does not clear cached restyles" do
+      g = game()
+      q = question(g)
+
+      :ok =
+        Voices.replace_generated(g.id, [
+          %{slug: "herald", label: "H", emoji: "🦉", style: "courtly", popularity_rank: 5}
+        ])
+
+      Repo.insert!(%AnswerVoice{question_log_id: q.id, voice: "g:herald", content: "hark!"})
+
+      :ok =
+        Voices.replace_generated(g.id, [
+          %{slug: "herald", label: "H", emoji: "🦉", style: "courtly", popularity_rank: 1}
+        ])
+
+      row = Repo.get_by!(GameVoice, game_id: g.id, slug: "herald")
+      assert row.popularity_rank == 1
+      assert Voices.get(q.id, "g:herald") == "hark!"
+    end
+
+    test "missing popularity_rank does not crash replace_generated" do
+      g = game()
+
+      assert :ok =
+               Voices.replace_generated(g.id, [
+                 %{slug: "plain", label: "Plain", emoji: "🙂", style: "x"}
+               ])
+
+      row = Repo.get_by!(GameVoice, game_id: g.id, slug: "plain")
+      assert row.popularity_rank == nil
+    end
+  end
+
   describe "__plausible_restyle__/2 (dropped-answer guard)" do
     @answer "During a turn the active player may play any cards, buy from the display, then discard, draw, and pass to the next player in clockwise order."
 
