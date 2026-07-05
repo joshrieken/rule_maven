@@ -67,7 +67,18 @@ defmodule RuleMaven.Voices do
         "Citing precedent nobody asked for…",
         "Objecting on principle…",
         "Approaching the bench…",
-        "Stamping the verdict…"
+        "Stamping the verdict…",
+        "Cross-examining the rulebook…",
+        "Requesting a sidebar…",
+        "Reviewing the fine print…",
+        "Drafting a footnote…",
+        "Consulting case law…",
+        "Overruling the objection…",
+        "Swearing in the witness…",
+        "Reading between the clauses…",
+        "Entering it into the record…",
+        "Adjourning for deliberation…",
+        "Polishing the gavel…"
       ]
     },
     %{
@@ -82,7 +93,18 @@ defmodule RuleMaven.Voices do
         "Consulting the charts…",
         "Filing the errata, again…",
         "Counting the doubloons…",
-        "Sighing at landlubbers…"
+        "Sighing at landlubbers…",
+        "Untangling the rigging…",
+        "Squinting at the ledger…",
+        "Checking the manifest…",
+        "Bribing the parrot for silence…",
+        "Plotting a course through the fine print…",
+        "Rationing the grog…",
+        "Patching the sails, again…",
+        "Grumbling below deck…",
+        "Reading the fine print by lantern light…",
+        "Swearing at the tide charts…",
+        "Signing yet another form…"
       ]
     },
     %{
@@ -97,7 +119,18 @@ defmodule RuleMaven.Voices do
         "Logging your infraction…",
         "Recalibrating authority…",
         "Reticulating compliance…",
-        "Asserting jurisdiction…"
+        "Asserting jurisdiction…",
+        "Cross-referencing subsection…",
+        "Compiling ruling…",
+        "Running integrity check…",
+        "Escalating to firmware…",
+        "Indexing precedent…",
+        "Verifying credentials…",
+        "Rebooting patience module…",
+        "Flagging for review…",
+        "Synchronizing directive cache…",
+        "Auditing rule compliance…",
+        "Finalizing verdict…"
       ]
     },
     %{
@@ -112,7 +145,18 @@ defmodule RuleMaven.Voices do
         "Drawing it up on the whiteboard…",
         "Calling the timeout…",
         "Believing in you…",
-        "Leaving it all on the table…"
+        "Leaving it all on the table…",
+        "Rallying the team…",
+        "Chalking up the strategy…",
+        "Fixing my headset…",
+        "Reviewing the game film…",
+        "Pumping up the crowd…",
+        "Diagramming the winning play…",
+        "Choking back tears of pride…",
+        "Bringing it in for a huddle…",
+        "Checking the scoreboard…",
+        "Blowing the whistle…",
+        "Giving the pregame speech…"
       ]
     }
   ]

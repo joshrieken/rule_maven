@@ -78,6 +78,14 @@ defmodule RuleMaven.VoicesTest do
       phrases = Voices.loading_phrases("pirate", g)
       assert phrases == Enum.uniq(phrases)
     end
+
+    test "each built-in persona has a sizeable own phrase set (>= 15)" do
+      for id <- ~w(lawyer pirate robot coach) do
+        own = Voices.get_def(id).loading
+        assert length(own) >= 15, "#{id} has only #{length(own)} loading phrases"
+        assert own == Enum.uniq(own), "#{id} has duplicate loading phrases"
+      end
+    end
   end
 
   describe "loading_phrases/2 for generated voices" do
