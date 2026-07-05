@@ -79,4 +79,44 @@ defmodule RuleMaven.AuditTest do
       assert Audit.actions() == ["role.promote", "user.suspend"]
     end
   end
+
+  describe "question_history/2" do
+    test "matches on exact game_id + question text, newest first" do
+      admin = user_fixture("mod")
+
+      Audit.log(admin, "question.delete",
+        target_type: "question",
+        target_id: 1,
+        metadata: %{game_id: 42, question: "How does combat work?", answer: "First answer"}
+      )
+
+      Audit.log(admin, "question.delete",
+        target_type: "question",
+        target_id: 2,
+        metadata: %{game_id: 42, question: "How does combat work?", answer: "Second answer"}
+      )
+
+      # Different game, same question text — must not match.
+      Audit.log(admin, "question.delete",
+        target_type: "question",
+        target_id: 3,
+        metadata: %{game_id: 99, question: "How does combat work?", answer: "Other game"}
+      )
+
+      # Different question text, same game — must not match.
+      Audit.log(admin, "question.delete",
+        target_type: "question",
+        target_id: 4,
+        metadata: %{game_id: 42, question: "How does setup work?", answer: "Unrelated"}
+      )
+
+      [newest, oldest] = Audit.question_history(42, "How does combat work?")
+      assert newest.metadata["answer"] == "Second answer"
+      assert oldest.metadata["answer"] == "First answer"
+    end
+
+    test "returns [] when nothing matches" do
+      assert Audit.question_history(1, "Nothing asked yet") == []
+    end
+  end
 end
