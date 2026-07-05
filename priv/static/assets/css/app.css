@@ -761,8 +761,8 @@ body {
 a { color: inherit; text-decoration: inherit; }
 
 ::selection {
-  background: var(--accent);
-  color: var(--accent-text, var(--bg));
+  background: var(--selection-bg, var(--accent));
+  color: var(--selection-text, var(--accent-text, var(--bg)));
 }
 /* Yellow-accent themes need dark text on selection for contrast */
 [data-theme="golden-hour"] ::selection,

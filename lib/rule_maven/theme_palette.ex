@@ -123,6 +123,12 @@ defmodule RuleMaven.ThemePalette do
       "--accent-subtle" => hex(mix(bg, accent, 0.12)),
       "--shadow" => shadow,
       "--shadow-hover" => rgba(accent, 0.18),
+      # Text-selection highlight. Plain --accent isn't guaranteed to stand out
+      # against --bg (e.g. a dark red accent on a near-black cover reads as
+      # barely-there), so push it until it clears contrast, then pick
+      # black/white to sit on top of *that* — not the raw accent.
+      "--selection-bg" => hex(ensure_contrast(accent, bg, 7.0)),
+      "--selection-text" => hex(readable_on(ensure_contrast(accent, bg, 7.0))),
       # The header is always a dark, lightly accent-tinted gradient — like every
       # static theme. The whole header design (white text, glowing yellow icon,
       # the "Maven" gradient) assumes a dark bar, so we mix the accent into a
@@ -247,6 +253,22 @@ defmodule RuleMaven.ThemePalette do
   end
 
   defp step_toward(fg, _bg, _target, _ratio, _n), do: fg
+
+  @doc """
+  Backfill `--selection-bg` / `--selection-text` onto an already-derived
+  variant map (e.g. one persisted before these keys existed), using its own
+  `--accent` / `--bg` rather than re-deriving from scratch.
+  """
+  def add_selection_vars(%{"--accent" => accent, "--bg" => bg} = vars) do
+    {:ok, accent_rgb} = parse(accent)
+    {:ok, bg_rgb} = parse(bg)
+    selection_bg = ensure_contrast(accent_rgb, bg_rgb, 7.0)
+
+    Map.merge(vars, %{
+      "--selection-bg" => hex(selection_bg),
+      "--selection-text" => hex(readable_on(selection_bg))
+    })
+  end
 
   @doc """
   Render a variant's var map into a CSS declaration body (no selector), e.g.
