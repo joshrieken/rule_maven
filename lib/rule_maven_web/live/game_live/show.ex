@@ -750,7 +750,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                     question: question,
                     expansion_ids: expansion_ids,
                     recent_context: recent,
-                    user_id: socket.assigns.current_user.id
+                    user_id: socket.assigns.current_user.id,
+                    voice: socket.assigns.default_voice
                   }
                   |> RuleMaven.Workers.AskWorker.new()
                   |> Oban.insert()
@@ -1338,6 +1339,24 @@ defmodule RuleMavenWeb.GameLive.Show do
           community_questions: community,
           refresh: socket.assigns.refresh + 1
         )
+
+      # Persona-direct path (Task 5): the ask call already produced the styled
+      # answer in the same LLM response, so populate voice_cache straight from
+      # the broadcast — apply_default_voice/2 below already skips re-enqueuing
+      # a VoiceWorker restyle for a voice already present in voice_cache.
+      socket =
+        if data[:styled_answer] && data[:styled_voice] do
+          assign(socket,
+            voice_cache:
+              Map.put(
+                socket.assigns.voice_cache,
+                {question_log_id, data[:styled_voice]},
+                data[:styled_answer]
+              )
+          )
+        else
+          socket
+        end
 
       # A freshly-answered row inherits the current voice: restyle it to the
       # active default so it doesn't show plain while every other answer is in
