@@ -483,7 +483,7 @@ defmodule RuleMaven.Prompts do
   in character — pick personas a fan of THIS game would find delightful (a
   faction, a character archetype, an in-world narrator), not generic ones.
 
-  Return between 3 and 6 voices — fewer if the theme is thin; do not pad.
+  Return between 3 and 10 voices — fewer if the theme is thin; do not pad.
 
   Return ONLY a JSON array — no prose, no code fences — of objects with this
   exact shape:
@@ -495,7 +495,8 @@ defmodule RuleMaven.Prompts do
       "emoji": "🙂",
       "style": "a one-sentence description of how this persona talks, in the same form as 'a swashbuckling pirate who uses nautical slang.'",
       "description": "a short user-facing blurb (max ~12 words) saying who this persona is, e.g. 'The ship's weary quartermaster, buried in paperwork.'",
-      "loading_phrases": ["Hoisting the sails…", "Counting the doubloons…", "Sighing at landlubbers…", "Polishing the anchor…"]
+      "loading_phrases": ["Hoisting the sails…", "Counting the doubloons…", "Sighing at landlubbers…", "Polishing the anchor…"],
+      "popularity_rank": 1
     }
   ]
 
@@ -515,6 +516,10 @@ defmodule RuleMaven.Prompts do
     splines…"), each ending with an ellipsis. They are flavor ONLY: never a
     rule, number, or game fact. Give every one real variety (different verbs,
     objects, jokes) — do not pad with near-duplicates.
+  - "popularity_rank" is an integer, 1 = the persona fans of THIS specific
+    game would most want to use, ascending with no gaps, unique across the
+    personas you return (1, 2, 3, ...). Judge this by fit and fun for fans of
+    this game specifically - not generic persona appeal.
   - Make them distinct from each other and from the generic globals (plain,
     rules lawyer, pirate, robot, hype coach). Lean into THIS game's flavor.
   - Aim for genuinely funny and specific, not cheesy — a persona that would make
@@ -938,7 +943,7 @@ defmodule RuleMaven.Prompts do
       key: "generate_voices",
       group: "Persona",
       label: "Per-game personas — prompt",
-      description: "Invents 3–6 personas themed to a specific game from its rulebook.",
+      description: "Invents 3–10 personas themed to a specific game from its rulebook, ranked by predicted popularity.",
       vars: ~w(game_name rulebook),
       default: @generate_voices
     },
