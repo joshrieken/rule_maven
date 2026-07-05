@@ -962,7 +962,8 @@ defmodule RuleMaven.LLM do
           cited_source: first["source"],
           verdict: coerce_verdict(map["verdict"]),
           followups: string_list(map["followups"]),
-          also_asked: string_list(map["also_asked"])
+          also_asked: string_list(map["also_asked"]),
+          styled_answer: nilable_string(map["styled_answer"])
         }
 
       :error ->
@@ -974,7 +975,8 @@ defmodule RuleMaven.LLM do
           cited_source: nil,
           verdict: nil,
           followups: [],
-          also_asked: []
+          also_asked: [],
+          styled_answer: nil
         }
     end
   end

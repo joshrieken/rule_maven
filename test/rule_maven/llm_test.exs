@@ -103,6 +103,20 @@ defmodule RuleMaven.LLMTest do
 
       assert result[:citations] == []
     end
+
+    test "parses an optional styled_answer field" do
+      json = ~s({"answer":"x","styled_answer":"Arr, x it be."})
+      result = LLM.decode_answer(json)
+
+      assert result[:styled_answer] == "Arr, x it be."
+    end
+
+    test "styled_answer is nil when the key is absent" do
+      json = ~s({"answer":"x"})
+      result = LLM.decode_answer(json)
+
+      assert result[:styled_answer] == nil
+    end
   end
 
   describe "system prompt" do
