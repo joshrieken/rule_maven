@@ -20,6 +20,7 @@ defmodule RuleMaven.Games do
   alias RuleMaven.Games.SupportRequest
   alias RuleMaven.Games.ExpansionLink
   alias RuleMaven.Games.ExpansionSelection
+  alias RuleMaven.Audit
   alias Oban
 
   NimbleCSV.define(RuleMaven.Games.RankCSV, separator: ",", escape: "\"")
@@ -1961,7 +1962,52 @@ defmodule RuleMaven.Games do
     )
   end
 
-  def delete_question(%QuestionLog{} = q), do: Repo.delete(q)
+  @doc """
+  Deletes a question row. Always snapshots the full content (question, answer,
+  votes, pool/trust state) to the audit log first, since the delete is
+  permanent and no version history exists otherwise — `actor` is nil for
+  system-triggered deletes (retries, dedup redirects).
+  """
+  def delete_question(%QuestionLog{} = q, actor \\ nil, extra_metadata \\ %{}) do
+    {up, down} =
+      Repo.one(
+        from v in QuestionVote,
+          where: v.question_log_id == ^q.id,
+          select: {
+            sum(fragment("CASE WHEN ? = 'up' THEN 1 ELSE 0 END", v.value)),
+            sum(fragment("CASE WHEN ? = 'down' THEN 1 ELSE 0 END", v.value))
+          }
+      ) || {0, 0}
+
+    metadata =
+      Map.merge(
+        %{
+          answer: q.answer,
+          pooled: q.pooled,
+          needs_review: q.needs_review,
+          verified: q.verified,
+          trust_score: q.trust_score,
+          upvotes: up || 0,
+          downvotes: down || 0,
+          via: if(actor, do: "manual", else: "system")
+        },
+        extra_metadata
+      )
+
+    Audit.log(actor, "question.delete",
+      target_type: "question",
+      target_id: q.id,
+      target_label: q.question,
+      metadata: metadata
+    )
+
+    Repo.delete(q)
+  end
+
+  @doc "True if any votes have been cast on this question row."
+  def has_votes?(question_log_id) do
+    Repo.exists?(from v in QuestionVote, where: v.question_log_id == ^question_log_id)
+  end
 
   def recent_questions(%Game{} = game, limit \\ 20, opts \\ []) do
     user_id = Keyword.get(opts, :user_id)
@@ -2182,6 +2228,37 @@ defmodule RuleMaven.Games do
       nil -> nil
       q -> {q, pool_tier(q, floor)}
     end
+  end
+
+  @doc """
+  True if some other row for this game/expansion set, matching `embedding`
+  within the pool similarity threshold, currently has `needs_review: true`.
+
+  A moderation pull (quorum flag / admin) must not be undone by the very next
+  ask that happens to match the same topic — without this check, that ask
+  would generate a fresh (unreviewed) answer and `mark_pooled` would silently
+  re-pool it, erasing the pull with no review of the replacement. Blocks
+  re-pooling until an admin clears `needs_review` on the pulled row.
+  """
+  def under_review?(_game_id, _expansion_ids, nil), do: false
+
+  def under_review?(game_id, expansion_ids, embedding) do
+    expansion_ids = Enum.sort(expansion_ids)
+    threshold = pool_distance_threshold()
+
+    Repo.exists?(
+      from q in QuestionLog,
+        where: q.game_id == ^game_id,
+        where: q.expansion_ids == ^expansion_ids,
+        where: q.needs_review == true,
+        where: not is_nil(q.question_embedding),
+        where:
+          fragment(
+            "cosine_distance(?, ?::vector)",
+            q.question_embedding,
+            ^Pgvector.new(embedding)
+          ) <= ^threshold
+    )
   end
 
   @doc """

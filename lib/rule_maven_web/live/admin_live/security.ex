@@ -77,7 +77,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
         {:noreply, socket}
 
       q ->
-        case Games.delete_question(q) do
+        case Games.delete_question(q, socket.assigns.current_user) do
           {:ok, _} ->
             Audit.log(socket.assigns.current_user, "security.delete_blocked",
               target_type: "question",
