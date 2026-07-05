@@ -2865,25 +2865,36 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <% end %>
                     <% end %>
                   <% end %>
-                </div>
-                <!-- Admin debug: raw LLM response -->
-                <%= if RuleMaven.Users.can?(@current_user, :admin) && msg.role == :assistant && msg[:raw_response] && msg.content != "Thinking..." do %>
-                  <details style="margin-top:0.25rem;font-size:0.6rem;color:var(--text-muted);opacity:0.6">
+                  <!-- Admin debug: raw LLM response -->
+                  <details
+                    :if={
+                      RuleMaven.Users.can?(@current_user, :admin) && msg.role == :assistant &&
+                        msg[:raw_response] && msg.content != "Thinking..."
+                    }
+                    style="margin:0;font-size:0.6rem;color:var(--text-muted);opacity:0.6"
+                  >
                     <summary style="cursor:pointer">raw</summary>
                     <pre style="white-space:pre-wrap;word-break:break-word;margin-top:0.15rem;padding:0.25rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem;max-height:12rem;overflow-y:auto"><%= msg[:raw_response] %></pre>
                   </details>
-                <% end %>
-                <!-- Admin-only: version history (prior deleted regenerate/report
-                     versions of this Q&A — see Audit.question_history/2) -->
-                <%= if @is_admin && msg.role == :assistant && !msg[:history] && msg.content != "Thinking..." do %>
-                  <% q_text_hist = find_question_for_answer(@conversation, msg) %>
+                  <!-- Admin-only: version history (prior deleted regenerate/report
+                       versions of this Q&A — see Audit.question_history/2) -->
+                  <% q_text_hist =
+                    if @is_admin && msg.role == :assistant && !msg[:history] &&
+                         msg.content != "Thinking...",
+                       do: find_question_for_answer(@conversation, msg) %>
                   <button
+                    :if={
+                      @is_admin && msg.role == :assistant && !msg[:history] &&
+                        msg.content != "Thinking..."
+                    }
                     type="button"
                     phx-click="toggle_question_history"
                     phx-value-id={msg.id}
                     phx-value-question={q_text_hist}
-                    style="margin-top:0.25rem;color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer;text-align:left"
+                    style="margin:0;color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer;text-align:left"
                   >{if MapSet.member?(@history_open, msg.id), do: "▾", else: "▸"} History</button>
+                </div>
+                <%= if @is_admin && msg.role == :assistant && !msg[:history] && msg.content != "Thinking..." do %>
                   <div
                     :if={MapSet.member?(@history_open, msg.id)}
                     style="margin-top:0.25rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-subtle);display:flex;flex-direction:column;gap:0.4rem"
