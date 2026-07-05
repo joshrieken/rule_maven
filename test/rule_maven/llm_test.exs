@@ -688,6 +688,186 @@ defmodule RuleMaven.LLMTest do
     end
   end
 
+  describe "pool tiebreaker (paraphrase near-miss)" do
+    # theta = arccos(0.88) ~= 28.36 degrees — deterministic cosine similarity,
+    # independent of any real embedding model.
+    @near_miss_vec_a [1.0 | List.duplicate(0.0, 767)]
+    @near_miss_vec_b [0.88, 0.474_999_890_641_401_23 | List.duplicate(0.0, 766)]
+
+    setup do
+      {:ok, game} = Games.create_game(%{name: "TiebreakerGame"})
+
+      author =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "tb_author_#{System.unique_integer([:positive])}",
+          email: "tb_author_#{System.unique_integer([:positive])}@test.com",
+          password_hash: "x"
+        })
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: author.id,
+          question: "What is the d20 used for?",
+          answer: "It resolves any check requiring a d20 roll.",
+          visibility: "community",
+          citation_valid: true
+        })
+
+      Repo.update_all(
+        from(ql in QuestionLog, where: ql.id == ^q.id),
+        set: [question_embedding: Pgvector.new(@near_miss_vec_a)]
+      )
+
+      Application.put_env(:rule_maven, :embed_mock, fn _text -> {:ok, @near_miss_vec_b} end)
+      on_exit(fn -> Application.delete_env(:rule_maven, :embed_mock) end)
+
+      %{game: game, pool_row: q}
+    end
+
+    test "tiebreaker 'yes' serves the near-miss pool candidate", %{game: game, pool_row: q} do
+      mock_llm(fn body ->
+        content = body[:messages] |> List.last() |> Map.get(:content)
+
+        if content =~ "Same underlying rules question?" do
+          {:ok, %{answer: "yes"}}
+        else
+          {:ok, %{answer: "What does the d20 do?"}}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "What does the d20 do?")
+
+      assert result[:pool_hit] == true
+      assert result[:source_question_log_id] == q.id
+      assert result.provider == "pool"
+    end
+
+    test "tiebreaker 'no' falls through to fresh generation", %{game: game} do
+      mock_llm(fn body ->
+        content = body[:messages] |> List.last() |> Map.get(:content)
+
+        cond do
+          content =~ "Same underlying rules question?" ->
+            {:ok, %{answer: "no"}}
+
+          content =~ "canonical question" ->
+            {:ok, %{answer: "What does the d20 do?"}}
+
+          true ->
+            {:ok,
+             %{answer: "Fresh answer.", cited_passage: "p.1", followup: false, followups: []}}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "What does the d20 do?")
+
+      assert result[:pool_hit] != true
+      assert result.answer == "Fresh answer."
+    end
+
+    test "tiebreaker LLM error falls through to fresh generation, never raises", %{game: game} do
+      mock_llm(fn body ->
+        content = body[:messages] |> List.last() |> Map.get(:content)
+
+        cond do
+          content =~ "Same underlying rules question?" ->
+            {:error, "simulated timeout"}
+
+          content =~ "canonical question" ->
+            {:ok, %{answer: "What does the d20 do?"}}
+
+          true ->
+            {:ok,
+             %{answer: "Fresh answer.", cited_passage: "p.1", followup: false, followups: []}}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "What does the d20 do?")
+
+      assert result[:pool_hit] != true
+      assert result.answer == "Fresh answer."
+    end
+
+    test "below the 0.85 floor misses without any tiebreaker call", %{game: game} do
+      # Orthogonal vector: cosine similarity 0.0, well below the 0.85 floor.
+      orthogonal = [0.0, 1.0 | List.duplicate(0.0, 766)]
+      Application.put_env(:rule_maven, :embed_mock, fn _text -> {:ok, orthogonal} end)
+
+      mock_llm(fn body ->
+        content = body[:messages] |> List.last() |> Map.get(:content)
+
+        if content =~ "Same underlying rules question?" do
+          flunk("tiebreaker must not be called below the 0.85 floor")
+        else
+          {:ok,
+           %{answer: "Fresh answer.", cited_passage: "p.1", followup: false, followups: []}}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "Completely unrelated question")
+
+      assert result[:pool_hit] != true
+      assert result.answer == "Fresh answer."
+    end
+  end
+
+  describe "cache tier ordering" do
+    test "own-user semantic fallback wins over a cross-user pool candidate" do
+      {:ok, game} = Games.create_game(%{name: "OrderingGame"})
+
+      asker =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "order_asker",
+          email: "order_asker@test.com",
+          password_hash: "x"
+        })
+
+      other =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "order_other",
+          email: "order_other@test.com",
+          password_hash: "x"
+        })
+
+      shared_embedding = Enum.to_list(1..768)
+
+      # Asker's own un-pooled private answer.
+      {:ok, own_q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: asker.id,
+          question: "Own prior question",
+          answer: "Own prior answer.",
+          visibility: "private"
+        })
+
+      # A different user's community-pooled answer, same embedding (so both
+      # tiers would match at similarity 1.0 if reached).
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: other.id,
+        question: "Other user's question",
+        answer: "Other user's answer.",
+        visibility: "community"
+      })
+
+      Repo.update_all(
+        from(ql in QuestionLog, where: ql.game_id == ^game.id),
+        set: [question_embedding: Pgvector.new(shared_embedding)]
+      )
+
+      Application.put_env(:rule_maven, :embed_mock, fn _text -> {:ok, shared_embedding} end)
+      on_exit(fn -> Application.delete_env(:rule_maven, :embed_mock) end)
+
+      {:ok, result} = LLM.ask(game, "Any phrasing", [], [], user_id: asker.id)
+
+      assert result[:same_user_hit] == true
+      assert result[:source_question_log_id] == own_q.id
+      assert result.answer == "Own prior answer."
+    end
+  end
+
   defp mock_llm(fun) do
     Application.put_env(:rule_maven, :llm_mock, fun)
 
