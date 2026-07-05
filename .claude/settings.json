@@ -1,5 +1,18 @@
 {
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_TOOL_INPUT_COMMAND\" in *git\\ commit*) bash .claude/hooks/check-agents-docs.sh ;; esac"
+          }
+        ]
+      }
+    ]
   }
 }
