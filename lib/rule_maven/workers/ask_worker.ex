@@ -16,6 +16,7 @@ defmodule RuleMaven.Workers.AskWorker do
     expansion_ids = args["expansion_ids"] || []
     user_id = args["user_id"]
     skip_pool = args["skip_pool"] || false
+    voice = args["voice"] || "neutral"
 
     recent_context =
       (args["recent_context"] || [])
@@ -80,7 +81,8 @@ defmodule RuleMaven.Workers.AskWorker do
 
         case RuleMaven.LLM.ask(game, question, expansion_ids, recent_context,
                user_id: user_id,
-               skip_pool: skip_pool
+               skip_pool: skip_pool,
+               voice: voice
              ) do
           {:ok, %{answer: raw_answer} = llm_result} ->
             answer =
@@ -261,6 +263,17 @@ defmodule RuleMaven.Workers.AskWorker do
                       unless pool_hit?, do: Games.mark_pooled(updated)
                     end
 
+                    # Persona-direct path: the single ask call already produced the
+                    # styled answer, so cache it now instead of enqueueing a
+                    # separate VoiceWorker restyle for this (question, voice) pair.
+                    styled_answer = llm_result[:styled_answer]
+                    styled_voice = llm_result[:styled_voice]
+
+                    if styled_answer && styled_voice && styled_voice != "neutral" &&
+                         not refused? do
+                      RuleMaven.Voices.store_direct(question_log_id, styled_voice, styled_answer)
+                    end
+
                     Phoenix.PubSub.broadcast(
                       RuleMaven.PubSub,
                       "game:#{game_id}",
@@ -277,7 +290,9 @@ defmodule RuleMaven.Workers.AskWorker do
                          cited_page: cited_page,
                          refused: refused?,
                          verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
-                         raw_response: llm_result[:raw_response]
+                         raw_response: llm_result[:raw_response],
+                         styled_voice: if(styled_answer, do: styled_voice, else: nil),
+                         styled_answer: styled_answer
                        }}
                     )
 
