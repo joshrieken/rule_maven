@@ -342,6 +342,7 @@ defmodule RuleMaven.LLM do
         game_name: game.name,
         game_kind: RuleMaven.Games.Category.context_noun(game.category),
         context_block: normalize_context_block(recent_context),
+        canonical_questions_block: canonical_questions_block(game.id),
         question: raw
       })
 
@@ -378,6 +379,21 @@ defmodule RuleMaven.LLM do
   defp accept_normalized?(cleaned, raw) do
     cleaned != "" and String.length(cleaned) <= 200 and
       String.length(cleaned) <= max(String.length(raw) * 3, 80)
+  end
+
+  # Existing canonical questions this game already has a pooled/community
+  # answer for — passed to the normalize LLM as a rewrite hint (see rule 8 of
+  # `normalize_question_system`) so a fresh paraphrase converges on the SAME
+  # wording instead of drifting to a phrasing that misses the pool match.
+  defp canonical_questions_block(game_id) do
+    case RuleMaven.Games.list_canonical_questions(game_id) do
+      [] ->
+        ""
+
+      questions ->
+        bullets = Enum.map_join(questions, "\n", &"- #{&1}")
+        "\nAlready-answered questions for this game (reuse verbatim if this question means the same thing):\n#{bullets}\n"
+    end
   end
 
   defp normalize_context_block([]), do: ""

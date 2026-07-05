@@ -732,6 +732,80 @@ defmodule RuleMaven.GamesTest do
     end
   end
 
+  describe "list_canonical_questions/2" do
+    setup do
+      {:ok, game} = Games.create_game(%{name: "CanonGame"})
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "canon_user",
+          email: "canon@test.com",
+          password_hash: "x"
+        })
+
+      %{game: game, user: user}
+    end
+
+    test "returns cleaned_question text for pooled, eligible rows", %{game: game, user: user} do
+      {:ok, _q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "how many players can I do?",
+          cleaned_question: "What is the maximum number of players?",
+          answer: "5",
+          visibility: "private",
+          pooled: true
+        })
+
+      assert Games.list_canonical_questions(game.id) == ["What is the maximum number of players?"]
+    end
+
+    test "excludes refused, needs_review, and never-pooled/non-community rows", %{
+      game: game,
+      user: user
+    } do
+      base = %{game_id: game.id, user_id: user.id, answer: "A", visibility: "private"}
+
+      Games.log_question(Map.merge(base, %{question: "q1", cleaned_question: "Refused Q", refused: true, pooled: true}))
+      Games.log_question(Map.merge(base, %{question: "q2", cleaned_question: "Needs Review Q", needs_review: true, pooled: true}))
+      Games.log_question(Map.merge(base, %{question: "q3", cleaned_question: "Never Pooled Q", pooled: false}))
+
+      assert Games.list_canonical_questions(game.id) == []
+    end
+
+    test "community-visibility rows are eligible even when not pooled", %{game: game, user: user} do
+      {:ok, _q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "q",
+          cleaned_question: "Community Canonical Q",
+          answer: "A",
+          visibility: "community",
+          pooled: false
+        })
+
+      assert Games.list_canonical_questions(game.id) == ["Community Canonical Q"]
+    end
+
+    test "scoped to the given game only", %{game: game, user: user} do
+      {:ok, other_game} = Games.create_game(%{name: "OtherCanonGame"})
+
+      Games.log_question(%{
+        game_id: other_game.id,
+        user_id: user.id,
+        question: "q",
+        cleaned_question: "Other Game Q",
+        answer: "A",
+        visibility: "private",
+        pooled: true
+      })
+
+      assert Games.list_canonical_questions(game.id) == []
+    end
+  end
+
   describe "create_document/1 content-hash dedup" do
     import Ecto.Query
     alias RuleMaven.Games.Document

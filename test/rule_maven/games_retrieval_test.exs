@@ -167,6 +167,36 @@ defmodule RuleMaven.GamesRetrievalTest do
     assert Enum.any?(chunks, &(&1.content =~ "middle content three"))
   end
 
+  test "a lexically strong but vector-distant chunk is rescued into the results" do
+    {:ok, game} = Games.create_game(%{name: "Hybrid #{System.unique_integer([:positive])}"})
+    doc = published_doc(game, "Rulebook", "rulebook")
+
+    query_vec = sparse_vec([{0, 1.0}])
+    # Three "noise" chunks each sit close to the query vector (cosine sim
+    # 0.9 — closer than the lexical-match chunk below) but on distinct
+    # sub-dimensions, so they don't collapse into each other as near-dupes;
+    # none share any vocabulary with the question.
+    put_chunk(doc, "[Page 1]\nunrelated filler wombat gazebo", sparse_vec([{0, 0.9}, {1, 0.436}]))
+    put_chunk(doc, "[Page 2]\nanother filler paragraph zeppelin", sparse_vec([{0, 0.9}, {2, 0.436}]))
+    put_chunk(doc, "[Page 3]\nyet more filler content lighthouse", sparse_vec([{0, 0.9}, {3, 0.436}]))
+
+    # This chunk is embedded orthogonal to the query (cosine similarity 0),
+    # so pure vector search ranks it dead last / outside the limit — but its
+    # text is a near-exact lexical match for the question, which is exactly
+    # the "5 hero tiles => max players" style inference case from prod.
+    far_vec = sparse_vec([{50, 1.0}])
+    put_chunk(doc, "[Page 4]\n5 hero tiles 5 hero standees", far_vec)
+
+    chunks =
+      Games.retrieve_chunks_for_games([game.id], "how many hero tiles hero standees",
+        embedding: query_vec,
+        limit: 3
+      )
+
+    assert length(chunks) == 3
+    assert Enum.any?(chunks, &(&1.content =~ "hero tiles"))
+  end
+
   test "full-text fallback attributes one entry per published document, not a merged blob" do
     {:ok, game} = Games.create_game(%{name: "Fallback #{System.unique_integer([:positive])}"})
     _rulebook = published_doc(game, "Core rules", "rulebook", "RULEBOOK full text body here.")

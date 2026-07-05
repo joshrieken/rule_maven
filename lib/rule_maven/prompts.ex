@@ -82,7 +82,7 @@ defmodule RuleMaven.Prompts do
   # Question normalize. Runs before the pool lookup + retrieval so paraphrases
   # and terse fragments ("snack bar max limit") collapse onto one canonical
   # phrasing — paraphrases then share an embedding and hit the same cached answer.
-  # Vars: game_name, game_kind, context_block, question.
+  # Vars: game_name, game_kind, context_block, canonical_questions_block, question.
   # ──────────────────────────────────────────────────────────────────────────
   @normalize_question_system """
   You rewrite a board-game player's question into ONE canonical question. The goal is convergence: any two questions that mean the same thing MUST produce identical wording, so paraphrases and terse fragments map to the same cached answer.
@@ -95,6 +95,7 @@ defmodule RuleMaven.Prompts do
   5. Resolve pronouns using the recent conversation when present.
   6. Under 12 words. NEVER include the game's name.
   7. Preserve the meaning exactly — do not answer, narrow, or broaden it.
+  8. If an "already-answered questions" list is given and one of its entries asks the exact same underlying thing as this player's question, output that entry VERBATIM instead of writing a new rewrite — even if your own phrasing would otherwise differ. Only do this when the meaning truly matches; never force-fit an unrelated entry.
 
   Output ONLY the canonical question — no quotes, no preamble, no explanation.
 
@@ -108,7 +109,7 @@ defmodule RuleMaven.Prompts do
 
   @normalize_question """
   Game: {{game_name}} (a {{game_kind}}).
-  {{context_block}}
+  {{context_block}}{{canonical_questions_block}}
   Rewrite this player's question as a standalone canonical question (resolve pronouns, add missing context, under 12 words, no game name):
 
   {{question}}

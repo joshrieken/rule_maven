@@ -2241,6 +2241,29 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
+  Distinct `cleaned_question` texts already eligible for pool reuse in this
+  game (pooled or community, not refused/needs_review), most recent first,
+  capped at 20. Fed back into question normalization as a hint so a fresh
+  paraphrase of an already-answered question converges on the SAME canonical
+  wording — and therefore the same embedding — instead of drifting to a
+  slightly different phrasing that misses the pool/tiebreaker match entirely.
+  """
+  def list_canonical_questions(game_id, limit \\ 20) do
+    from(q in QuestionLog,
+      where: q.game_id == ^game_id,
+      where: q.pooled == true or q.visibility == "community",
+      where: q.refused == false,
+      where: q.needs_review == false,
+      where: not is_nil(q.cleaned_question),
+      order_by: [desc: q.inserted_at],
+      select: q.cleaned_question
+    )
+    |> Repo.all()
+    |> Enum.uniq()
+    |> Enum.take(limit)
+  end
+
+  @doc """
   True if some other row for this game/expansion set, matching `embedding`
   within the pool similarity threshold, currently has `needs_review: true`.
 
@@ -3083,6 +3106,7 @@ defmodule RuleMaven.Games do
         else
           chunks
           |> dedup_near_duplicates(base_game_id)
+          |> rescue_lexical_match(game_ids, question, limit)
           |> Enum.take(limit)
           |> pull_referenced_chunks(game_ids)
           |> Enum.map(&Map.drop(&1, [:embedding]))
@@ -3125,6 +3149,77 @@ defmodule RuleMaven.Games do
           |> List.insert_at(insert_at, winner)
       end
     end)
+  end
+
+  # Pure vector search can rank the actually-correct chunk outside `limit`
+  # when the question's embedding drifts from the chunk's (e.g. a paraphrase
+  # whose canonical rewrite lands in a different part of embedding space than
+  # the chunk's own wording, even though the words overlap heavily). Rescue
+  # the single strongest keyword-overlap match from a live keyword pass and
+  # substitute it for the weakest vector-ranked survivor of the top `limit`,
+  # so a literal-term match never gets crowded out by semantically-similar
+  # noise. `@lexical_rescue_min_overlap` is deliberately conservative (most
+  # of the question's content words must appear) to avoid promoting a
+  # tangential chunk that only shares a couple of common terms.
+  @lexical_rescue_min_overlap 3
+
+  defp rescue_lexical_match(chunks, game_ids, question, limit) do
+    top = Enum.take(chunks, limit)
+    question_words = tokenize(question)
+
+    if question_words == [] or Enum.any?(top, & &1[:content] |> to_string() |> lexical_hit?(question_words)) do
+      chunks
+    else
+      case best_lexical_candidate(game_ids, question_words, top) do
+        nil ->
+          chunks
+
+        winner ->
+          rest = Enum.drop(chunks, limit)
+
+          case top do
+            [] -> [winner | rest]
+            _ -> List.replace_at(top, -1, winner) ++ rest
+          end
+      end
+    end
+  end
+
+  defp lexical_hit?(content, question_words) do
+    relevance_score(content, question_words) >= @lexical_rescue_min_overlap
+  end
+
+  defp best_lexical_candidate(game_ids, question_words, already_kept) do
+    kept_ids = MapSet.new(already_kept, & &1.id)
+
+    candidate =
+      Repo.all(
+        from c in Chunk,
+          join: d in Document,
+          on: c.document_id == d.id,
+          join: g in Game,
+          on: g.id == d.game_id,
+          where: d.game_id in ^game_ids and d.status == "published",
+          select: %{
+            id: c.id,
+            content: c.content,
+            section_label: c.section_label,
+            references_section: c.references_section,
+            document_id: d.id,
+            label: d.label,
+            kind: d.kind,
+            game_id: d.game_id,
+            game_name: g.name
+          }
+      )
+      |> Enum.reject(&MapSet.member?(kept_ids, &1.id))
+      |> Enum.map(fn c -> {relevance_score(c.content, question_words), c} end)
+      |> Enum.max_by(&elem(&1, 0), fn -> {0, nil} end)
+
+    case candidate do
+      {score, chunk} when score >= @lexical_rescue_min_overlap -> chunk
+      _ -> nil
+    end
   end
 
   defp pick_authoritative(candidates, base_game_id) do

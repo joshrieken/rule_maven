@@ -742,6 +742,56 @@ defmodule RuleMaven.LLMTest do
     end
   end
 
+  describe "normalize_question canonical-form hint" do
+    test "the normalize prompt includes existing pooled canonical questions for this game" do
+      {:ok, game} = Games.create_game(%{name: "CanonHintGame"})
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "canon_hint_user",
+          email: "canon_hint@test.com",
+          password_hash: "x"
+        })
+
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: user.id,
+        question: "how many players can I do?",
+        cleaned_question: "What is the maximum number of players?",
+        answer: "5",
+        visibility: "private",
+        pooled: true
+      })
+
+      test_pid = self()
+
+      mock_llm(fn body ->
+        send(test_pid, {:prompt, List.last(body[:messages])[:content]})
+        {:ok, %{answer: "What is the maximum number of players?"}}
+      end)
+
+      LLM.normalize_question(game, "what is the player count?")
+
+      assert_received {:prompt, prompt}
+      assert prompt =~ "What is the maximum number of players?"
+    end
+
+    test "no existing questions yet: normalize prompt has no canonical hint block" do
+      {:ok, game} = Games.create_game(%{name: "NoCanonHintGame"})
+      test_pid = self()
+
+      mock_llm(fn body ->
+        send(test_pid, {:prompt, List.last(body[:messages])[:content]})
+        {:ok, %{answer: "What is the player count?"}}
+      end)
+
+      LLM.normalize_question(game, "how many players?")
+
+      assert_received {:prompt, prompt}
+      refute prompt =~ "already-answered"
+    end
+  end
+
   describe "truncation auto-retry" do
     test "retries once with doubled cap and a cache-busting marker" do
       test_pid = self()
