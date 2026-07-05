@@ -542,6 +542,54 @@ defmodule RuleMaven.LLMTest do
     end
   end
 
+  describe "voice parsing: popularity_rank" do
+    test "parses popularity_rank when present" do
+      json =
+        ~s([{"slug":"herald","label":"Herald","emoji":"🦉","style":"a courtly herald","popularity_rank":3}])
+
+      [v] = RuleMaven.LLM.__parse_voices__(json)
+      assert v.popularity_rank == 3
+    end
+
+    test "defaults popularity_rank to a large sentinel when missing" do
+      json = ~s([{"slug":"herald","label":"Herald","emoji":"🦉","style":"a courtly herald"}])
+      [v] = RuleMaven.LLM.__parse_voices__(json)
+      assert v.popularity_rank == 999_999
+    end
+
+    test "defaults popularity_rank to a large sentinel when non-integer" do
+      json =
+        ~s([{"slug":"herald","label":"Herald","emoji":"🦉","style":"a courtly herald","popularity_rank":"first"}])
+
+      [v] = RuleMaven.LLM.__parse_voices__(json)
+      assert v.popularity_rank == 999_999
+    end
+
+    test "sorts results by popularity_rank ascending regardless of input order" do
+      json = ~s([
+        {"slug":"c","label":"C","emoji":"🙂","style":"x","popularity_rank":3},
+        {"slug":"a","label":"A","emoji":"🙂","style":"x","popularity_rank":1},
+        {"slug":"b","label":"B","emoji":"🙂","style":"x","popularity_rank":2}
+      ])
+
+      slugs = RuleMaven.LLM.__parse_voices__(json) |> Enum.map(& &1.slug)
+      assert slugs == ["a", "b", "c"]
+    end
+
+    test "caps at 10 voices, keeping the 10 lowest (best) ranks" do
+      entries =
+        for i <- 1..12 do
+          ~s({"slug":"v#{i}","label":"V#{i}","emoji":"🙂","style":"x","popularity_rank":#{i}})
+        end
+
+      json = "[" <> Enum.join(entries, ",") <> "]"
+      result = RuleMaven.LLM.__parse_voices__(json)
+
+      assert length(result) == 10
+      assert Enum.map(result, & &1.slug) == for(i <- 1..10, do: "v#{i}")
+    end
+  end
+
   describe "same_user_hit flag" do
     test "false on a cross-user pool hit" do
       {:ok, game} = Games.create_game(%{name: "FlagPoolGame"})

@@ -1697,7 +1697,7 @@ defmodule RuleMaven.LLM do
 
   # Decode the voices JSON array, tolerating ```fences``` and stray prose, then
   # coerce each entry to a clean voice map. Bad/incomplete entries are dropped;
-  # slugs are normalized and de-duplicated; the list is capped at 6.
+  # slugs are normalized and de-duplicated; the list is capped at 10 and sorted by popularity_rank.
   defp parse_voices(text) do
     json =
       case Regex.run(~r/\[.*\]/s, text || "") do
@@ -1711,7 +1711,8 @@ defmodule RuleMaven.LLM do
         |> Enum.map(&coerce_voice/1)
         |> Enum.reject(&is_nil/1)
         |> Enum.uniq_by(& &1.slug)
-        |> Enum.take(6)
+        |> Enum.sort_by(& &1.popularity_rank)
+        |> Enum.take(10)
 
       _ ->
         []
@@ -1721,6 +1722,10 @@ defmodule RuleMaven.LLM do
   @doc false
   # Test seam for parse_voices/1.
   def __parse_voices__(text), do: parse_voices(text)
+
+  # Sorts last when the LLM omits or garbles the field, rather than crashing
+  # or silently defaulting to "most popular".
+  @popularity_rank_fallback 999_999
 
   defp coerce_voice(%{"label" => label, "emoji" => emoji, "style" => style} = m)
        when is_binary(label) and is_binary(emoji) and is_binary(style) do
@@ -1735,6 +1740,12 @@ defmodule RuleMaven.LLM do
         _ -> nil
       end
 
+    popularity_rank =
+      case Map.get(m, "popularity_rank") do
+        r when is_integer(r) -> r
+        _ -> @popularity_rank_fallback
+      end
+
     if label != "" and style != "" and slug != "" do
       %{
         slug: slug,
@@ -1742,7 +1753,8 @@ defmodule RuleMaven.LLM do
         emoji: String.trim(emoji),
         style: style,
         description: if(description == "", do: nil, else: description),
-        loading_phrases: loading
+        loading_phrases: loading,
+        popularity_rank: popularity_rank
       }
     end
   end
