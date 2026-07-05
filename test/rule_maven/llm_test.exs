@@ -236,6 +236,30 @@ defmodule RuleMaven.LLMTest do
       assert result[:pool_hit] == true
       refute Map.has_key?(result, :styled_answer)
     end
+
+    test "a per-game generated voice never gets persona-direct styling — only built-in voices do" do
+      {:ok, game} = Games.create_game(%{name: "Test"})
+
+      :ok =
+        RuleMaven.Voices.replace_generated(game.id, [
+          %{slug: "herald", label: "H", emoji: "🦉", style: "a courtly herald"}
+        ])
+
+      {:ok, agent} = Agent.start_link(fn -> nil end)
+
+      mock_llm(fn body ->
+        prompt = body.messages |> Enum.find(&(&1.role == "system")) |> Map.get(:content)
+        Agent.update(agent, fn _ -> prompt end)
+        {:ok, %{answer: "ok", cited_passage: "ok", followup: false, followups: []}}
+      end)
+
+      {:ok, result} = LLM.ask(game, "some question", [], [], voice: "g:herald")
+
+      prompt = Agent.get(agent, & &1)
+      refute prompt =~ "styled_answer"
+      refute prompt =~ "courtly herald"
+      assert result[:styled_answer] == nil
+    end
   end
 
   describe "pool hit cache" do

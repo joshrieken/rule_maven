@@ -68,6 +68,8 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
 
     on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
+    Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")
+
     assert :ok =
              perform(%{
                "game_id" => game.id,
@@ -85,6 +87,59 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
     assert Voices.get(ql.id, "pirate") == "Arr, the d20 be pickin' the first player."
 
     refute_enqueued worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id}
+
+    # The real broadcast shape must match what Voices.get/2 just proved got
+    # written — pins AskWorker's payload to the LiveView's expectations so the
+    # two don't silently drift apart (each has its own test hand-crafting the
+    # message shape otherwise).
+    assert_receive {:ask_complete,
+                    %{
+                      styled_voice: "pirate",
+                      styled_answer: "Arr, the d20 be pickin' the first player."
+                    }}
+  end
+
+  test "a refused question never broadcasts a styled answer, even if the LLM produced one", %{
+    game: game,
+    ql: ql
+  } do
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      {:ok,
+       %{
+         answer: "The rulebook does not cover this question.",
+         cited_passage: nil,
+         # Simulates a model that ignored the "don't style a refusal" framing —
+         # defense-in-depth: AskWorker must not forward this regardless.
+         styled_answer: "Arr, the scrolls be silent on this one, matey.",
+         citations: [],
+         verdict: "silent",
+         followups: [],
+         also_asked: []
+       }}
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => nil,
+               "skip_pool" => true,
+               "voice" => "pirate"
+             })
+
+    assert_receive {:ask_complete, data}
+    assert data.refused == true
+    assert data.styled_answer == nil
+    assert data.styled_voice == nil
+
+    # And the DB write must have been skipped too (same gate as the broadcast).
+    assert Voices.get(ql.id, "pirate") == nil
   end
 
   test "a fresh ask with no persona (neutral) never writes to answer_voices", %{

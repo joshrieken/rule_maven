@@ -930,7 +930,26 @@ defmodule RuleMaven.LLM do
   # on-demand restyle.
   defp voice_style_block("neutral", _game), do: ""
 
+  # Persona-direct styling is scoped to BUILT-IN voices only (lawyer, pirate,
+  # robot, coach) — `Voices.valid?/1` checks only the global/built-in id list,
+  # never a per-game generated (`g:`-prefixed) voice. A generated voice's
+  # `style` string is LLM output derived from the game's own uploaded rulebook
+  # content, so it must not be interpolated into this prompt (which has full
+  # rulebook access and produces the citation-grounded answer) — that would
+  # widen the trust boundary beyond what the design doc analyzed. Generated
+  # voices keep using the old `Voices.restyle/5` path exactly as before, which
+  # deliberately never shows the restyler the rulebook. Returning "" here means
+  # `LLM.ask/5` returns no `styled_answer` for these voices, so AskWorker's
+  # existing fallback (VoiceWorker / on-demand restyle) takes over unchanged.
   defp voice_style_block(voice, game) do
+    if RuleMaven.Voices.valid?(voice) do
+      voice_style_instructions(voice, game)
+    else
+      ""
+    end
+  end
+
+  defp voice_style_instructions(voice, game) do
     case RuleMaven.Voices.get_def(voice, game) do
       %{style: style} when is_binary(style) ->
         """

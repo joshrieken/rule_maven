@@ -269,9 +269,26 @@ defmodule RuleMaven.Workers.AskWorker do
                     styled_answer = llm_result[:styled_answer]
                     styled_voice = llm_result[:styled_voice]
 
-                    if styled_answer && styled_voice && styled_voice != "neutral" &&
-                         not refused? do
-                      RuleMaven.Voices.store_direct(question_log_id, styled_voice, styled_answer)
+                    # `styled_voice != "neutral"` is defense-in-depth: a neutral ask
+                    # never produces a styled_answer in the first place (voice_style_block
+                    # returns "" for "neutral"), so this branch of the guard can't
+                    # currently be reached — kept in case that ever changes.
+                    store_direct? =
+                      styled_answer && styled_voice && styled_voice != "neutral" &&
+                        not refused?
+
+                    if store_direct? do
+                      case RuleMaven.Voices.store_direct(question_log_id, styled_voice, styled_answer) do
+                        :ok ->
+                          :ok
+
+                        {:error, reason} ->
+                          require Logger
+
+                          Logger.warning(
+                            "AskWorker: failed to cache styled answer for question #{question_log_id} voice #{styled_voice}: #{inspect(reason)}"
+                          )
+                      end
                     end
 
                     Phoenix.PubSub.broadcast(
@@ -291,8 +308,12 @@ defmodule RuleMaven.Workers.AskWorker do
                          refused: refused?,
                          verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
                          raw_response: llm_result[:raw_response],
-                         styled_voice: if(styled_answer, do: styled_voice, else: nil),
-                         styled_answer: styled_answer
+                         # Only ever carry a styled answer when the DB write above
+                         # actually happened (i.e. store_direct? was true) — a
+                         # refused question must not broadcast a styled answer even
+                         # if the model ignored the "don't style a refusal" framing.
+                         styled_voice: if(store_direct?, do: styled_voice, else: nil),
+                         styled_answer: if(store_direct?, do: styled_answer, else: nil)
                        }}
                     )
 

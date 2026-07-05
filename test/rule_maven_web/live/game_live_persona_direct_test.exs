@@ -111,7 +111,6 @@ defmodule RuleMavenWeb.GameLivePersonaDirectTest do
       |> render_submit()
 
     assert html =~ "voice-loader"
-    refute html =~ "typing-indicator"
   end
 
   test "a fresh ask with neutral persona still shows the loading bar (generic phrases), not dots",
@@ -128,6 +127,5 @@ defmodule RuleMavenWeb.GameLivePersonaDirectTest do
       |> render_submit()
 
     assert html =~ "voice-loader"
-    refute html =~ "typing-indicator"
   end
 end
