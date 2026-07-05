@@ -254,7 +254,9 @@ defmodule RuleMavenWeb.PrepareRenderTest do
 
   test "Review link shows once extracted with a low-confidence page", %{conn: conn} do
     admin = admin!("prep_review_admin")
-    game = game_fixture(%{name: "Reviewable Prep"})
+    # BGG is the first required step, so it must be pulled before review
+    # becomes actionable — see the cleanup test above for the same pattern.
+    game = game_fixture(%{name: "Reviewable Prep", bgg_data: "<items/>"})
 
     {:ok, _doc} =
       RuleMaven.Games.create_document(%{
