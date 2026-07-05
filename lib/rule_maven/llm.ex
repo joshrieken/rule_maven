@@ -55,17 +55,12 @@ defmodule RuleMaven.LLM do
 
     user_id = opts[:user_id]
 
-    # Pooled/community answers are rulebook-derived, so any asker may be served a
-    # match — the lookup intentionally doesn't filter by user (no user_id passed).
-    pool_hit =
-      !skip_pool && question_embedding &&
-        RuleMaven.Games.find_similar_question_in_pool(game.id, question_embedding,
-          expansion_ids: expansion_ids
-        )
-
     # Same-user tiers: a returning asker is served their OWN prior answer even
     # when it never pooled. Exact (normalized-text) dedup first, then a tight
-    # semantic fallback. Skipped when there's no signed-in asker or skip_pool.
+    # semantic fallback. Both are plain cosine/text queries (no LLM call), so
+    # they're cheap to run eagerly and checked before the pool — a repeat in
+    # the asker's own words resolves for free, without spending a pool query
+    # or (in the ambiguous band) a tiebreaker LLM call.
     user_exact =
       !skip_pool && user_id &&
         RuleMaven.Games.find_user_duplicate(game.id, user_id, match_text, question, expansion_ids)
@@ -77,7 +72,7 @@ defmodule RuleMaven.LLM do
         )
 
     cond do
-      # The asker's OWN exact (normalized-text) repeat wins over the pool lookup:
+      # The asker's OWN exact (normalized-text) repeat wins over everything else:
       # the pool match is user-agnostic, so once the asker's row is pooled a plain
       # pool_hit would tag it same_user_hit=false and AskWorker would copy it into
       # a second row instead of redirecting. Check own-exact first so a repeat
@@ -85,11 +80,11 @@ defmodule RuleMaven.LLM do
       user_exact ->
         serve_from_cache(user_exact, question_embedding, cleaned, game.id, user_id, true)
 
-      pool_hit ->
-        serve_from_cache(pool_hit, question_embedding, cleaned, game.id, user_id, false)
-
       user_semantic ->
         serve_from_cache(user_semantic, question_embedding, cleaned, game.id, user_id, true)
+
+      pool_hit = find_pool_hit(game, question_embedding, expansion_ids, skip_pool, match_text, user_id) ->
+        serve_from_cache(pool_hit, question_embedding, cleaned, game.id, user_id, false)
 
       true ->
         call_llm(
@@ -103,6 +98,83 @@ defmodule RuleMaven.LLM do
           opts[:voice] || "neutral"
         )
     end
+  end
+
+  # Cross-user pool lookup, widened to also surface near-miss candidates
+  # (0.85-0.92 similarity) gated by an LLM equivalence tiebreaker. Pooled/
+  # community answers are rulebook-derived, so any asker may be served a
+  # match — the lookup intentionally doesn't filter by user (no user_id
+  # passed to find_similar_question_in_pool/2).
+  defp find_pool_hit(_game, nil, _expansion_ids, _skip_pool, _match_text, _user_id), do: nil
+  defp find_pool_hit(_game, _embedding, _expansion_ids, true, _match_text, _user_id), do: nil
+
+  defp find_pool_hit(game, question_embedding, expansion_ids, false, match_text, user_id) do
+    case RuleMaven.Games.find_similar_question_in_pool(game.id, question_embedding,
+           expansion_ids: expansion_ids,
+           threshold: RuleMaven.Games.pool_tiebreaker_distance_threshold()
+         ) do
+      nil ->
+        nil
+
+      {row, _tier} = hit ->
+        similarity =
+          RuleMaven.Games.cosine_sim(row.question_embedding, Pgvector.new(question_embedding))
+
+        cond do
+          similarity >= RuleMaven.Games.pool_similarity_floor() ->
+            hit
+
+          paraphrase_equivalent?(row, match_text, game, user_id) ->
+            hit
+
+          true ->
+            nil
+        end
+    end
+  end
+
+  # Cheap-model yes/no equivalence check for a pool candidate whose similarity
+  # landed in the ambiguous band. Any error/timeout resolves to false (a
+  # miss) — never blocks or fails the request, never serves an unmatched
+  # answer.
+  # `asker_question` is untrusted (raw user input) and is substituted verbatim
+  # into the prompt via RuleMaven.Prompts.render/2's plain string substitution
+  # — no escaping. A crafted question can't exfiltrate anything or serve
+  # arbitrary content through this path; the worst case is coercing a "yes" on
+  # a candidate the asker was already within 0.85-0.92 cosine similarity of,
+  # which just serves an already-vetted, rulebook-derived pool answer early.
+  defp paraphrase_equivalent?(row, asker_question, game, user_id) do
+    candidate_question = RuleMaven.Games.QuestionLog.display_question(row)
+
+    user =
+      RuleMaven.Prompts.render("pool_tiebreaker", %{
+        question_a: candidate_question,
+        question_b: asker_question
+      })
+
+    result =
+      case chat(user, "pool_tiebreaker",
+             system: RuleMaven.Prompts.template("pool_tiebreaker_system"),
+             max_tokens: 10,
+             model: model(:cheap),
+             operation: "pool_tiebreaker",
+             game_id: game.id,
+             user_id: user_id
+           ) do
+        {:ok, text} ->
+          text |> to_string() |> String.trim() |> String.downcase() |> String.starts_with?("yes")
+
+        {:error, _} ->
+          false
+      end
+
+    require Logger
+
+    Logger.info(
+      "pool_tiebreaker decision=#{result} candidate_id=#{row.id} candidate_question=#{inspect(candidate_question)} asker_question=#{inspect(asker_question)}"
+    )
+
+    result
   end
 
   # Builds the cache-serving result from a `{row, tier}` and records the save.
