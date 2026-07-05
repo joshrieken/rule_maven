@@ -223,6 +223,21 @@ defmodule RuleMaven.Voices do
   end
 
   @doc """
+  Directly caches a styled answer that was already produced as part of the
+  original ask (the single-call persona-direct path in `RuleMaven.LLM.ask/5`)
+  — skips the LLM restyle call entirely. Same upsert semantics as the cache
+  write inside `restyle/5`: first write for a `(question_log_id, voice)` pair
+  wins, a concurrent duplicate is a no-op.
+  """
+  def store_direct(question_log_id, voice, content) do
+    case store(question_log_id, voice, content) do
+      {:ok, _} -> :ok
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
   Returns the cached restyle if present, else generates it via the LLM, stores
   it, and returns `{:ok, content}`. "neutral" returns the canonical text as-is
   without storing. Concurrent generators race-safely upsert. `game` may be a

@@ -116,6 +116,25 @@ defmodule RuleMaven.VoicesTest do
     end
   end
 
+  describe "store_direct/3" do
+    test "caches content without calling the LLM, and Voices.get/2 returns it" do
+      g = game()
+      q = question(g)
+
+      assert :ok = Voices.store_direct(q.id, "pirate", "Arr, that be the rule.")
+      assert Voices.get(q.id, "pirate") == "Arr, that be the rule."
+    end
+
+    test "a second store_direct for the same (question, voice) is a no-op (first write wins)" do
+      g = game()
+      q = question(g)
+
+      assert :ok = Voices.store_direct(q.id, "pirate", "First.")
+      assert :ok = Voices.store_direct(q.id, "pirate", "Second.")
+      assert Voices.get(q.id, "pirate") == "First."
+    end
+  end
+
   describe "replace_generated stability" do
     test "unchanged style and label keeps the row id and any cached restyles" do
       g = game()
