@@ -1683,7 +1683,8 @@ defmodule RuleMaven.Games do
   end
 
   def grouped_questions(%Game{} = game, opts \\ []) do
-    all = recent_questions(game, 200, opts)
+    limit = Keyword.get(opts, :limit, 200)
+    all = recent_questions(game, limit, opts)
 
     # Group by exact question text (same question asked again = regen history).
     # Questions are self-contained — no followup threading.
@@ -2023,7 +2024,9 @@ defmodule RuleMaven.Games do
       from q in QuestionLog,
         where: q.game_id == ^game.id,
         order_by: [desc: q.inserted_at],
-        limit: ^limit
+        preload: [:user]
+
+    base = if limit, do: from(q in base, limit: ^limit), else: base
 
     query =
       if user_id do

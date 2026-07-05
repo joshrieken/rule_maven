@@ -238,6 +238,51 @@ defmodule RuleMaven.GamesTest do
     test "grouped_questions/1 returns empty list when no questions exist", %{game: game} do
       assert Games.grouped_questions(game) == []
     end
+
+    test "grouped_questions/2 returns every user's questions when no user_id filter is given",
+         %{game: game, user: user} do
+      other =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "test_grouped_other",
+          email: "test_grouped_other@test.com",
+          password_hash: "x"
+        })
+
+      log_question!(game.id, user.id, "Mine", "Mine answer")
+      log_question!(game.id, other.id, "Theirs", "Theirs answer")
+
+      grouped = Games.grouped_questions(game)
+      questions = Enum.map(grouped, & &1.primary.question)
+
+      assert "Mine" in questions
+      assert "Theirs" in questions
+    end
+
+    test "grouped_questions/2 preloads :user on the primary row", %{game: game, user: user} do
+      log_question!(game.id, user.id, "Who asked?", "Someone")
+
+      grouped = Games.grouped_questions(game)
+      assert hd(grouped).primary.user.id == user.id
+      assert hd(grouped).primary.user.username == user.username
+    end
+
+    test "grouped_questions/2 with limit: nil does not cap results", %{game: game, user: user} do
+      for i <- 1..250 do
+        log_question!(game.id, user.id, "Q#{i}", "A#{i}")
+      end
+
+      grouped = Games.grouped_questions(game, limit: nil)
+      assert length(grouped) == 250
+    end
+
+    test "grouped_questions/2 default limit still caps at 200", %{game: game, user: user} do
+      for i <- 1..205 do
+        log_question!(game.id, user.id, "Cap Q#{i}", "A#{i}")
+      end
+
+      grouped = Games.grouped_questions(game, user_id: user.id)
+      assert length(grouped) == 200
+    end
   end
 
   describe "community pool" do
