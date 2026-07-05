@@ -93,4 +93,41 @@ defmodule RuleMavenWeb.GameLivePersonaDirectTest do
     assert html =~ "Arr, roll three dice"
     refute_enqueued worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id}
   end
+
+  test "a fresh ask with a persona active shows the loading bar, never the typing dots", %{
+    conn: conn
+  } do
+    user = setup_user("persona_loader")
+    game = published_game_fixture(%{name: "Persona Loader Game"})
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    render_hook(view, "default_voice_restore", %{"voice" => "pirate"})
+
+    html =
+      view
+      |> form("#ask-form", question: "How many dice do I roll?")
+      |> render_submit()
+
+    assert html =~ "voice-loader"
+    refute html =~ "typing-indicator"
+  end
+
+  test "a fresh ask with neutral persona still shows the loading bar (generic phrases), not dots",
+       %{conn: conn} do
+    user = setup_user("neutral_loader")
+    game = published_game_fixture(%{name: "Neutral Loader Game"})
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    html =
+      view
+      |> form("#ask-form", question: "How many dice do I roll?")
+      |> render_submit()
+
+    assert html =~ "voice-loader"
+    refute html =~ "typing-indicator"
+  end
 end

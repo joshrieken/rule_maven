@@ -2223,31 +2223,27 @@ defmodule RuleMavenWeb.GameLive.Show do
                     </div>
                   <% end %>
                   <div>
-                    <%= if msg.role == :assistant && msg.content == "Thinking..." do %>
-                      <%= if msg[:pending] do %>
-                        <span class="typing-indicator">
-                          <span></span><span></span><span></span>
-                        </span>
-                      <% else %>
-                        <div style="font-size:0.6rem;opacity:0.5;margin-bottom:0.1rem;color:var(--text-muted)">
-                          No answer received
-                        </div>
-                      <% end %>
-                    <% else %>
-                      <% v_sel =
-                        (msg.role == :assistant && Map.get(@voice_sel, msg[:id], @default_voice)) ||
-                          "neutral" %>
-                      <% v_content =
-                        if v_sel == "neutral",
-                          do: nil,
-                          else: Map.get(@voice_cache, {msg[:id], v_sel}) %>
-                      <% v_failed = MapSet.member?(@voice_failed, {msg[:id], v_sel}) %>
-                      <%!-- Loader shows for any non-neutral voice until its restyle
-                            lands, so the plain answer never flashes first; a failed
-                            restyle falls through to the plain answer. --%>
-                      <% show_loader = v_sel != "neutral" && is_nil(v_content) && not v_failed %>
-                      <div class="answer-in">
-                        <%= if show_loader do %>
+                    <% v_sel =
+                      (msg.role == :assistant && Map.get(@voice_sel, msg[:id], @default_voice)) ||
+                        "neutral" %>
+                    <% v_content =
+                      if v_sel == "neutral" or msg.content == "Thinking...",
+                        do: nil,
+                        else: Map.get(@voice_cache, {msg[:id], v_sel}) %>
+                    <% v_failed = MapSet.member?(@voice_failed, {msg[:id], v_sel}) %>
+                    <%!-- Waiting covers two stages that both use the same loader now:
+                          (1) the answer itself hasn't landed yet ("Thinking...", still
+                          pending), or (2) the answer landed but this voice's restyle
+                          hasn't (non-neutral voice, not yet cached). Never render the
+                          plain answer or a bare typing indicator in between — a failed
+                          restyle falls through to the plain answer. --%>
+                    <% waiting? =
+                      (msg.content == "Thinking..." && msg[:pending]) ||
+                        (msg.content != "Thinking..." && v_sel != "neutral" && is_nil(v_content) &&
+                           not v_failed) %>
+                    <%= cond do %>
+                      <% waiting? -> %>
+                        <div class="answer-in">
                           <div
                             class="voice-loader"
                             id={"voice-loader-#{msg[:id]}"}
@@ -2261,10 +2257,15 @@ defmodule RuleMavenWeb.GameLive.Show do
                             </div>
                             <div class="voice-loader__bar"><div class="voice-loader__fill"></div></div>
                           </div>
-                        <% else %>
+                        </div>
+                      <% msg.role == :assistant && msg.content == "Thinking..." -> %>
+                        <div style="font-size:0.6rem;opacity:0.5;margin-bottom:0.1rem;color:var(--text-muted)">
+                          No answer received
+                        </div>
+                      <% true -> %>
+                        <div class="answer-in">
                           {render_markdown(v_content || msg.content)}
-                        <% end %>
-                      </div>
+                        </div>
                     <% end %>
                   </div>
 
