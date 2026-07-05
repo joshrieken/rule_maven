@@ -1267,6 +1267,15 @@ defmodule RuleMavenWeb.GameLive.Show do
     RuleMaven.Repo.one(from q in QuestionLog, where: q.id == ^id)
   end
 
+  defp matches_search?(_t, ""), do: true
+
+  defp matches_search?(t, query) do
+    q = String.downcase(query)
+
+    String.contains?(String.downcase(t.question), q) ||
+      (is_binary(t[:asker]) && String.contains?(String.downcase(t.asker), q))
+  end
+
   defp group_threads_by_time(threads) do
     now = DateTime.utc_now()
     today_start = %{now | hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
@@ -1900,18 +1909,20 @@ defmodule RuleMavenWeb.GameLive.Show do
           <!-- Thread list grouped by time -->
           <% community_ids = MapSet.new(@community_questions, & &1.id) %>
           <% answered =
-            Enum.reject(@threads, fn t -> t.refused || MapSet.member?(community_ids, t.id) end) %>
-          <% refused = Enum.filter(@threads, & &1.refused) %>
+            if @is_admin do
+              Enum.reject(@threads, fn t -> MapSet.member?(community_ids, t.id) end)
+            else
+              Enum.reject(@threads, fn t ->
+                t.refused || MapSet.member?(community_ids, t.id)
+              end)
+            end %>
+          <% refused = if @is_admin, do: [], else: Enum.filter(@threads, & &1.refused) %>
           <% refused_count = length(refused) %>
           <%!-- Favorites get their own section above the time groups (not just
                 floated within Today), so an old favorited question stays
                 pinned even once it's aged out of "Today". --%>
           <% {favorited_threads, unfavorited} = Enum.split_with(answered, & &1.favorited) %>
-          <% favorited_threads =
-            Enum.filter(favorited_threads, fn t ->
-              @search_query == "" ||
-                String.contains?(String.downcase(t.question), String.downcase(@search_query))
-            end) %>
+          <% favorited_threads = Enum.filter(favorited_threads, &matches_search?(&1, @search_query)) %>
           <% groups = group_threads_by_time(unfavorited) %>
           <% refused_groups = group_threads_by_time(refused) %>
 
@@ -1919,21 +1930,26 @@ defmodule RuleMavenWeb.GameLive.Show do
             <div style="padding:0.3rem 0.75rem 0.1rem;font-size:0.6rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">
               Favorites
             </div>
-            <.thread_sidebar_item :for={t <- favorited_threads} t={t} active_thread_id={@active_thread_id} />
+            <.thread_sidebar_item
+              :for={t <- favorited_threads}
+              t={t}
+              active_thread_id={@active_thread_id}
+              show_asker={@is_admin}
+            />
           <% end %>
 
           <%= for {label, key} <- [{"Today", :today}, {"Last 7 Days", :week}, {"Older", :older}] do %>
-            <% items =
-              Map.get(groups, key, [])
-              |> Enum.filter(fn t ->
-                @search_query == "" ||
-                  String.contains?(String.downcase(t.question), String.downcase(@search_query))
-              end) %>
+            <% items = Map.get(groups, key, []) |> Enum.filter(&matches_search?(&1, @search_query)) %>
             <%= if items != [] do %>
               <div style="padding:0.3rem 0.75rem 0.1rem;font-size:0.6rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">
                 {label}
               </div>
-              <.thread_sidebar_item :for={t <- items} t={t} active_thread_id={@active_thread_id} />
+              <.thread_sidebar_item
+                :for={t <- items}
+                t={t}
+                active_thread_id={@active_thread_id}
+                show_asker={@is_admin}
+              />
             <% end %>
           <% end %>
 
@@ -1978,7 +1994,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           <% end %>
 
           <%= if @search_query != "" &&
-               Enum.all?(@threads, fn t -> @search_query == "" || not String.contains?(String.downcase(t.question), String.downcase(@search_query)) end) &&
+               Enum.all?(@threads, fn t -> not matches_search?(t, @search_query) end) &&
                Enum.all?(@community_questions, fn q -> @search_query == "" || not String.contains?(String.downcase(q.question), String.downcase(@search_query)) end) do %>
             <div style="padding:0.5rem 0.75rem;color:var(--text-muted);font-size:0.72rem;font-style:italic">
               No matching questions
@@ -3103,6 +3119,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   # (Today/Last 7 Days/Older) so the two render identically.
   attr :t, :map, required: true
   attr :active_thread_id, :any, required: true
+  attr :show_asker, :boolean, default: false
 
   defp thread_sidebar_item(assigns) do
     ~H"""
@@ -3131,7 +3148,17 @@ defmodule RuleMavenWeb.GameLive.Show do
           style="color:var(--red,#e53e3e);font-size:0.55rem;flex-shrink:0"
           title="Failed"
         >⚠</span>
-        <span style="word-break:break-word;white-space:normal">{@t.question}</span>
+        <span
+          :if={@t.refused}
+          style="color:var(--text-muted);font-size:0.55rem;flex-shrink:0"
+          title="Not covered by the rules"
+        >🚫</span>
+        <span style="word-break:break-word;white-space:normal">
+          <span
+            :if={@show_asker}
+            style="color:var(--text-muted);font-weight:600;font-size:0.62rem;margin-right:0.25rem"
+          >{@t.asker}:</span>{@t.question}
+        </span>
       </div>
     </button>
     """

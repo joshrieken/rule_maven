@@ -59,4 +59,48 @@ defmodule RuleMavenWeb.GameLiveAdminAllQuestionsTest do
 
     refute html =~ "Secret other question"
   end
+
+  test "admin can search the sidebar by asker name", %{conn: conn} do
+    admin = create_user("aq_admin2", %{role: "admin"})
+    other = create_user("aq_searchable")
+    game = published_game_fixture(%{name: "Search By Asker Game"})
+
+    {:ok, _} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: other.id,
+        question: "Totally unrelated text",
+        answer: "Some answer.",
+        visibility: "private"
+      })
+
+    conn = login(conn, admin)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    html = view |> element("form[phx-change='search']") |> render_change(%{"query" => other.username})
+
+    assert html =~ "Totally unrelated text"
+  end
+
+  test "admin does not see a separate Not Covered section (refused folded into All Questions)",
+       %{conn: conn} do
+    admin = create_user("aq_admin3", %{role: "admin"})
+    game = published_game_fixture(%{name: "Refused Fold Game"})
+
+    {:ok, _} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: admin.id,
+        question: "Not in the rulebook",
+        answer: "Not covered.",
+        refused: true,
+        visibility: "private"
+      })
+
+    conn = login(conn, admin)
+    {:ok, _view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    assert html =~ "Not in the rulebook"
+    refute html =~ "Not Covered"
+  end
 end
