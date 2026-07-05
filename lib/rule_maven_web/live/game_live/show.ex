@@ -139,8 +139,8 @@ defmodule RuleMavenWeb.GameLive.Show do
       end
     end
 
-    grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-    threads = build_thread_summaries(grouped)
+    grouped = Games.grouped_questions(game, question_group_opts(socket))
+    threads = build_thread_summaries(grouped, socket.assigns.current_user.id)
 
     # ?start=1 forces the start screen (suggested questions, setup checklist) —
     # no active thread. Otherwise prefer ?t=THREAD_ID, then socket assign, then
@@ -290,7 +290,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   # Build thread summary list from grouped questions (one per root).
-  defp build_thread_summaries(grouped) do
+  defp build_thread_summaries(grouped, current_user_id) do
     recent = DateTime.utc_now() |> DateTime.add(-120, :second)
 
     grouped
@@ -307,12 +307,28 @@ defmodule RuleMavenWeb.GameLive.Show do
         pending: pending?,
         refused: g.primary.refused,
         favorited: g.primary.favorited,
-        inserted_at: g.primary.inserted_at
+        inserted_at: g.primary.inserted_at,
+        asker: asker_label(g.primary, current_user_id)
       }
     end)
     |> Enum.sort_by(fn t -> {if(t.favorited, do: 0, else: 1), t.inserted_at} end, fn
       {fa, ta}, {fb, tb} -> fa < fb || (fa == fb && DateTime.compare(ta, tb) == :gt)
     end)
+  end
+
+  defp asker_label(%{user_id: uid}, uid), do: "You"
+  defp asker_label(%{user: %RuleMaven.Users.User{username: username}}, _uid)
+       when is_binary(username),
+       do: username
+
+  defp asker_label(_question, _current_user_id), do: "Unknown"
+
+  defp question_group_opts(socket) do
+    if socket.assigns.is_admin do
+      [limit: nil]
+    else
+      [user_id: socket.assigns.current_user.id]
+    end
   end
 
   # Build flat conversation for a single thread (root + regen history).
@@ -845,8 +861,8 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
 
     # Rebuild threads and conversation from DB
-    grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
-    threads = build_thread_summaries(grouped)
+    grouped = Games.grouped_questions(game, question_group_opts(socket))
+    threads = build_thread_summaries(grouped, socket.assigns.current_user.id)
 
     deleted_was_active = socket.assigns.active_thread_id == id
     pending_count = Enum.count(threads, & &1.pending)
@@ -986,9 +1002,9 @@ defmodule RuleMavenWeb.GameLive.Show do
       end
     end
 
-    grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
+    grouped = Games.grouped_questions(game, question_group_opts(socket))
     conversation = build_conversation_for_thread(grouped, socket.assigns.active_thread_id)
-    threads = build_thread_summaries(grouped)
+    threads = build_thread_summaries(grouped, socket.assigns.current_user.id)
 
     {:noreply,
      assign(socket,
@@ -1080,9 +1096,9 @@ defmodule RuleMavenWeb.GameLive.Show do
         new_vis = if q.visibility == "community", do: "private", else: "community"
         Games.update_question_visibility(q, new_vis)
 
-        grouped = Games.grouped_questions(game, user_id: socket.assigns.current_user.id)
+        grouped = Games.grouped_questions(game, question_group_opts(socket))
         conversation = build_conversation_for_thread(grouped, socket.assigns.active_thread_id)
-        threads = build_thread_summaries(grouped)
+        threads = build_thread_summaries(grouped, socket.assigns.current_user.id)
         community = Games.community_questions(game, socket.assigns.current_user.id)
 
         {:noreply,
