@@ -1475,21 +1475,24 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   ## Style helpers -----------------------------------------------------------
 
+  # A step can read `:done` (e.g. voices — old generated defs still present)
+  # while a regenerate job is in flight for it, so `running` must win over
+  # `:done` or the chip lies about a job that's actively running.
+  defp chip_style(_state, true),
+    do: "background:color-mix(in srgb,var(--accent) 20%,var(--bg-surface));color:var(--accent)"
+
   defp chip_style(:done, _running),
     do: "background:color-mix(in srgb,var(--green) 20%,var(--bg-surface));color:var(--green)"
 
   defp chip_style(:blocked, _running),
     do: "background:var(--bg-subtle);color:var(--text-muted)"
 
-  defp chip_style(_state, true),
-    do: "background:color-mix(in srgb,var(--accent) 20%,var(--bg-surface));color:var(--accent)"
-
   defp chip_style(_state, _running),
     do: "background:var(--bg-subtle);color:var(--text-secondary)"
 
+  defp chip_label(_state, true), do: "Running…"
   defp chip_label(:done, _running), do: "Done"
   defp chip_label(:blocked, _running), do: "Blocked"
-  defp chip_label(_state, true), do: "Running…"
   defp chip_label(_state, _running), do: "Pending"
 
   defp tag_style(:required), do: "color:var(--accent)"
