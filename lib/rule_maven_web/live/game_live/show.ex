@@ -830,10 +830,11 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     case find_question_log(game, id) do
       %{user_id: author_id} = q when author_id == uid ->
-        Games.delete_question(q)
+        Games.delete_question(q, socket.assigns.current_user)
 
       q when not is_nil(q) ->
-        if RuleMaven.Users.can?(socket.assigns.current_user, :admin), do: Games.delete_question(q)
+        if RuleMaven.Users.can?(socket.assigns.current_user, :admin),
+          do: Games.delete_question(q, socket.assigns.current_user)
 
       nil ->
         :ok
@@ -1101,9 +1102,21 @@ defmodule RuleMavenWeb.GameLive.Show do
         old_q = find_question_log(game, id)
         was_pending = old_q && old_q.answer == "Thinking..."
 
-        if old_q, do: Games.delete_question(old_q)
+        # An answer that already has community votes is never solo-deleted:
+        # doing so would cascade-wipe those votes and silently swap the
+        # shared answer every other user sees, with no review. Instead, spin
+        # off a private, never-pooled copy for just this user and leave the
+        # existing (voted-on) row untouched for everyone else.
+        protect_existing? = old_q && Games.has_votes?(old_q.id)
 
-        visibility = if old_q, do: old_q.visibility, else: "private"
+        if old_q && not protect_existing?, do: Games.delete_question(old_q)
+
+        visibility =
+          cond do
+            protect_existing? -> "private"
+            old_q -> old_q.visibility
+            true -> "private"
+          end
 
         now_dt = DateTime.utc_now()
 
@@ -1139,7 +1152,8 @@ defmodule RuleMavenWeb.GameLive.Show do
               expansion_ids: expansion_ids,
               recent_context: recent,
               user_id: socket.assigns.current_user.id,
-              skip_pool: skip_pool
+              skip_pool: skip_pool,
+              never_pool: protect_existing?
             }
             |> RuleMaven.Workers.AskWorker.new()
             |> Oban.insert()

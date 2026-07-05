@@ -16,6 +16,7 @@ defmodule RuleMaven.Workers.AskWorker do
     expansion_ids = args["expansion_ids"] || []
     user_id = args["user_id"]
     skip_pool = args["skip_pool"] || false
+    never_pool = args["never_pool"] || false
     voice = args["voice"] || "neutral"
 
     recent_context =
@@ -258,9 +259,21 @@ defmodule RuleMaven.Workers.AskWorker do
 
                     unless refused? do
                       RuleMaven.Workers.TagQuestionWorker.enqueue(question_log_id, game_id)
+
                       # Fresh, citation-backed answers become cache-eligible. Pool hits
                       # are duplicates of an existing pooled row — don't re-pool them.
-                      unless pool_hit?, do: Games.mark_pooled(updated)
+                      # `never_pool` is set for a private one-off (regenerate/report
+                      # redo of an already-voted answer) that must never leak into the
+                      # shared pool. And a topic still under moderation review must not
+                      # silently re-pool via the very next ask that happens to match it
+                      # — that would undo the pull with zero review of the replacement.
+                      unless pool_hit? or never_pool do
+                        if Games.under_review?(game_id, expansion_ids, updated.question_embedding) do
+                          :ok
+                        else
+                          Games.mark_pooled(updated)
+                        end
+                      end
                     end
 
                     # Persona-direct path: the single ask call already produced the

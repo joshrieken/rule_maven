@@ -123,15 +123,11 @@ defmodule RuleMavenWeb.AdminLive.Questions do
         {:noreply, socket}
 
       q ->
-        case Games.delete_question(q) do
+        case Games.delete_question(q, socket.assigns.current_user, %{
+               game_id: q.game_id,
+               author_id: q.user_id
+             }) do
           {:ok, _} ->
-            Audit.log(socket.assigns.current_user, "question.delete",
-              target_type: "question",
-              target_id: q.id,
-              target_label: q.question,
-              metadata: %{game_id: q.game_id, author_id: q.user_id}
-            )
-
             {:noreply, reload(socket)}
 
           {:error, _} ->
