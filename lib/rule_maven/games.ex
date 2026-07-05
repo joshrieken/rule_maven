@@ -2366,6 +2366,7 @@ defmodule RuleMaven.Games do
 
   @default_pool_similarity 0.92
   @default_user_dup_similarity 0.95
+  @default_pool_tiebreaker_similarity 0.85
 
   # Cosine distance ceiling for a pool hit, derived from the configured
   # similarity floor (distance = 1 - similarity).
@@ -2388,6 +2389,22 @@ defmodule RuleMaven.Games do
 
     1.0 - sim
   end
+
+  @doc """
+  The current direct-hit pool similarity floor (admin-configurable via the
+  `pool_similarity_threshold` setting, default 0.92). Exposed publicly so
+  callers can classify a returned pool candidate's actual similarity without
+  duplicating the setting lookup.
+  """
+  def pool_similarity_floor, do: 1.0 - pool_distance_threshold()
+
+  @doc """
+  Cosine distance ceiling for the widened pool lookup that also surfaces
+  tiebreaker-eligible near-misses, down to a fixed 0.85 similarity floor.
+  Not admin-configurable — the tiebreaker LLM call is the safety net that
+  makes a lower floor safe, so there's no separate setting for it.
+  """
+  def pool_tiebreaker_distance_threshold, do: 1.0 - @default_pool_tiebreaker_similarity
 
   # Cosine distance ceiling for a same-user semantic hit. Stricter than the pool.
   defp user_dup_distance_threshold do
@@ -3029,7 +3046,11 @@ defmodule RuleMaven.Games do
     end)
   end
 
-  defp cosine_sim(a, b) do
+  @doc """
+  Cosine similarity between two embedding vectors (`Pgvector.Ecto.Vector` or
+  plain lists). Returns a float in [-1.0, 1.0]; 0.0 if either vector is zero.
+  """
+  def cosine_sim(a, b) do
     a = Pgvector.to_list(a)
     b = Pgvector.to_list(b)
     dot = Enum.zip_with(a, b, &*/2) |> Enum.sum()

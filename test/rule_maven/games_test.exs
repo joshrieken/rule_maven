@@ -5,6 +5,32 @@ defmodule RuleMaven.GamesTest do
   alias RuleMaven.Repo
   import RuleMaven.GamesFixtures
 
+  describe "pool tiebreaker accessors" do
+    test "cosine_sim/2 computes cosine similarity between two vectors" do
+      # theta = arccos(0.88) ~= 28.36 degrees; vecB = [cos(theta), sin(theta), 0, ...]
+      dim = 768
+      vec_a = [1.0 | List.duplicate(0.0, dim - 1)]
+      vec_b = [0.88, 0.474_999_890_641_401_23 | List.duplicate(0.0, dim - 2)]
+
+      sim = Games.cosine_sim(Pgvector.new(vec_a), Pgvector.new(vec_b))
+
+      assert_in_delta sim, 0.88, 0.001
+    end
+
+    test "pool_similarity_floor/0 defaults to 0.92" do
+      assert Games.pool_similarity_floor() == 0.92
+    end
+
+    test "pool_similarity_floor/0 reflects an admin override" do
+      RuleMaven.Settings.put("pool_similarity_threshold", "0.9")
+      assert Games.pool_similarity_floor() == 0.9
+    end
+
+    test "pool_tiebreaker_distance_threshold/0 corresponds to 0.85 similarity" do
+      assert_in_delta Games.pool_tiebreaker_distance_threshold(), 1.0 - 0.85, 0.0001
+    end
+  end
+
   describe "games" do
     alias RuleMaven.Games.Game
 
