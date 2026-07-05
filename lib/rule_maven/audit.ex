@@ -69,6 +69,24 @@ defmodule RuleMaven.Audit do
     |> Repo.all()
   end
 
+  @doc """
+  Prior deleted versions of a Q&A, newest first. `QuestionLog` rows carry no
+  version link to what they replaced (regenerate/report/admin-delete all hard
+  -delete the old row), so this is the only way to recover history — matched
+  by exact game + question text, the two stable things a regenerate keeps
+  unchanged. Admin-only surface.
+  """
+  def question_history(game_id, question_text) do
+    from(l in AuditLog,
+      where: l.action == "question.delete",
+      where: l.target_type == "question",
+      where: fragment("?->>'game_id' = ?", l.metadata, ^to_string(game_id)),
+      where: fragment("?->>'question' = ?", l.metadata, ^question_text),
+      order_by: [desc: l.inserted_at, desc: l.id]
+    )
+    |> Repo.all()
+  end
+
   @doc "Distinct action verbs present in the log, for filter dropdowns."
   def actions do
     Repo.all(from l in AuditLog, distinct: true, select: l.action, order_by: l.action)

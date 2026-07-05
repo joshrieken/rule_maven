@@ -1982,6 +1982,13 @@ defmodule RuleMaven.Games do
     metadata =
       Map.merge(
         %{
+          # game_id + question (untruncated, unlike target_label) let the
+          # admin-only history view (Audit.question_history/2) recover every
+          # prior version of a given Q&A even though regenerated rows share
+          # no id/foreign-key link with what they replaced.
+          game_id: q.game_id,
+          user_id: q.user_id,
+          question: q.question,
           answer: q.answer,
           pooled: q.pooled,
           needs_review: q.needs_review,
