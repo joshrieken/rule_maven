@@ -2869,6 +2869,7 @@ body:has([data-phx-main].phx-connected)::after {
 /* Voice loader — retro spinner + crawling progress bar */
 .voice-loader {
   margin: 0.15rem 0 0.35rem;
+  min-width: min(22rem, 70vw);
 }
 .voice-loader__row {
   display: flex;
