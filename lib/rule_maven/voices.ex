@@ -233,18 +233,22 @@ defmodule RuleMaven.Voices do
 
   @doc """
   Loading-screen phrases for a voice within a game's scope: the voice's own
-  phrases (global `:loading` or a generated voice's `loading_phrases`) followed
-  by the shared generic pool, de-duplicated. Never returns an empty list.
+  phrases (global `:loading` or a generated voice's `loading_phrases`) if it
+  has any, else the shared generic pool. A voice's own phrases are never
+  mixed with the generic pool — each persona's loader stays in that
+  persona's voice throughout. Never returns an empty list.
   """
   def loading_phrases(voice, game) do
     own =
       case get_def(voice, game) do
-        %{loading: l} when is_list(l) -> l
-        %{loading_phrases: l} when is_list(l) -> l
+        %{loading: l} when is_list(l) and l != [] -> l
+        %{loading_phrases: l} when is_list(l) and l != [] -> l
         _ -> []
       end
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.uniq()
 
-    (own ++ @generic_loading) |> Enum.reject(&(&1 in [nil, ""])) |> Enum.uniq()
+    if own != [], do: own, else: @generic_loading
   end
 
   @doc "Cached restyle content for one (question, voice), or nil."
