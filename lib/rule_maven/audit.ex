@@ -72,19 +72,61 @@ defmodule RuleMaven.Audit do
   @doc """
   Prior deleted versions of a Q&A, newest first. `QuestionLog` rows carry no
   version link to what they replaced (regenerate/report/admin-delete all hard
-  -delete the old row), so this is the only way to recover history — matched
-  by exact game + question text, the two stable things a regenerate keeps
-  unchanged. Admin-only surface.
+  -delete the old row), so this is the only way to recover history.
+
+  Question text is NOT stable across regenerations: a regenerate resubmits the
+  *displayed* text (`canonical_question || cleaned_question || question`), so
+  each generation's raw text can differ from the last. Instead of one exact
+  match, this chain-walks: starting from the current row's texts (`seeds` — a
+  string or list of raw/cleaned/canonical variants), it pulls in every delete
+  snapshot sharing any text with the seed set, unions that snapshot's texts
+  into the set, and repeats to a fixpoint. Admin-only surface.
   """
-  def question_history(game_id, question_text) do
-    from(l in AuditLog,
-      where: l.action == "question.delete",
-      where: l.target_type == "question",
-      where: fragment("?->>'game_id' = ?", l.metadata, ^to_string(game_id)),
-      where: fragment("?->>'question' = ?", l.metadata, ^question_text),
-      order_by: [desc: l.inserted_at, desc: l.id]
-    )
-    |> Repo.all()
+  def question_history(game_id, seeds) do
+    seeds =
+      seeds
+      |> List.wrap()
+      |> Enum.filter(&is_binary/1)
+      |> Enum.reject(&(&1 == ""))
+      |> MapSet.new()
+
+    entries =
+      from(l in AuditLog,
+        where: l.action == "question.delete",
+        where: l.target_type == "question",
+        where: fragment("?->>'game_id' = ?", l.metadata, ^to_string(game_id)),
+        order_by: [desc: l.inserted_at, desc: l.id]
+      )
+      |> Repo.all()
+
+    matched_ids = chain_walk(entries, seeds, MapSet.new())
+    Enum.filter(entries, &MapSet.member?(matched_ids, &1.id))
+  end
+
+  # Repeatedly sweep the entries, adopting any whose text variants intersect
+  # the known set, until a full pass adds nothing.
+  defp chain_walk(entries, known_texts, matched_ids) do
+    {texts, ids, grew} =
+      Enum.reduce(entries, {known_texts, matched_ids, false}, fn entry, {texts, ids, grew} ->
+        entry_texts = entry_texts(entry)
+
+        if not MapSet.member?(ids, entry.id) and
+             not MapSet.disjoint?(entry_texts, texts) do
+          {MapSet.union(texts, entry_texts), MapSet.put(ids, entry.id), true}
+        else
+          {texts, ids, grew}
+        end
+      end)
+
+    if grew, do: chain_walk(entries, texts, ids), else: ids
+  end
+
+  defp entry_texts(entry) do
+    ~w(question cleaned_question canonical_question)
+    |> Enum.map(&entry.metadata[&1])
+    |> Enum.filter(&is_binary/1)
+    |> Enum.reject(&(&1 == ""))
+    |> MapSet.new()
   end
 
   @doc "Distinct action verbs present in the log, for filter dropdowns."

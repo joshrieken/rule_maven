@@ -2040,13 +2040,18 @@ defmodule RuleMaven.Games do
     metadata =
       Map.merge(
         %{
-          # game_id + question (untruncated, unlike target_label) let the
-          # admin-only history view (Audit.question_history/2) recover every
-          # prior version of a given Q&A even though regenerated rows share
-          # no id/foreign-key link with what they replaced.
+          # game_id + all question text variants (untruncated, unlike
+          # target_label) let the admin-only history view
+          # (Audit.question_history/2) recover every prior version of a Q&A
+          # even though regenerated rows share no id/foreign-key link with
+          # what they replaced. All three texts must be snapshotted: a
+          # regenerate resubmits the *displayed* (canonical/cleaned) text as
+          # the next row's raw question, so history is chained through them.
           game_id: q.game_id,
           user_id: q.user_id,
           question: q.question,
+          cleaned_question: q.cleaned_question,
+          canonical_question: q.canonical_question,
           answer: q.answer,
           pooled: q.pooled,
           needs_review: q.needs_review,
