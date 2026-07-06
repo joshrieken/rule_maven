@@ -721,6 +721,31 @@ defmodule RuleMaven.LLMTest do
     end
   end
 
+  describe "glued interrogative repair (__unglue_interrogative__/1)" do
+    test "unglues a leading interrogative stuck to a known second word" do
+      assert LLM.__unglue_interrogative__("Whatis abc123?") == "What is abc123?"
+      assert LLM.__unglue_interrogative__("Howmany coins?") == "How many coins?"
+      assert LLM.__unglue_interrogative__("Cana token move twice?") == "Can a token move twice?"
+      assert LLM.__unglue_interrogative__("Whathappens at night?") == "What happens at night?"
+    end
+
+    test "never splits real words or valid questions" do
+      assert LLM.__unglue_interrogative__("What is the maximum hand size?") ==
+               "What is the maximum hand size?"
+
+      assert LLM.__unglue_interrogative__("Whatever happens at night?") ==
+               "Whatever happens at night?"
+
+      assert LLM.__unglue_interrogative__("Island tiles: how many?") == "Island tiles: how many?"
+      assert LLM.__unglue_interrogative__("Cannon range?") == "Cannon range?"
+      assert LLM.__unglue_interrogative__("") == ""
+    end
+
+    test "only repairs at the start of the string" do
+      assert LLM.__unglue_interrogative__("Explain Whatis") == "Explain Whatis"
+    end
+  end
+
   describe "normalize_question repeat handling" do
     alias RuleMaven.LLM.NormalizeCache
 

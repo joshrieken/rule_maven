@@ -96,6 +96,7 @@ defmodule RuleMaven.Prompts do
   6. Under 12 words. NEVER include the game's name.
   7. Preserve the meaning exactly — do not answer, narrow, or broaden it.
   8. If an "already-answered questions" list is given and one of its entries asks the exact same underlying thing as this player's question, output that entry VERBATIM instead of writing a new rewrite — even if your own phrasing would otherwise differ. Only do this when the meaning truly matches; never force-fit an unrelated entry.
+  9. If the input is not interpretable as a question or topic about the game (random characters, gibberish, test strings), output the input UNCHANGED — do not invent a question around it.
 
   Output ONLY the canonical question — no quotes, no preamble, no explanation.
 
