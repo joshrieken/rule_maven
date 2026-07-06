@@ -917,6 +917,71 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  @house_rule_verdicts ~w(matches fills_gap overrides unclear)
+
+  @doc """
+  Classifies a house rule against rules-as-written using retrieved rulebook
+  chunks. Returns {:ok, %{verdict:, raw_quote:, check_note:, citations:}}.
+  """
+  def check_house_rule(house_rule, game, _opts \\ []) do
+    chunks =
+      RuleMaven.Games.retrieve_chunks_for_games([game.id], house_rule.body, limit: 10)
+
+    context = build_context_block(chunks, game.id)
+
+    prompt =
+      RuleMaven.Prompts.render("house_rule_check", %{
+        game_name: game.name,
+        house_rule: house_rule.body,
+        rulebook: context
+      })
+
+    case chat(prompt, "house_rule_check",
+           system: RuleMaven.Prompts.template("house_rule_check_system"),
+           model: model(:cheap),
+           max_tokens: 1024,
+           operation: "house_rule_check",
+           game_id: game.id,
+           user_id: house_rule.user_id,
+           reject_truncated: true
+         ) do
+      {:ok, text} -> __parse_house_rule_check__(text)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  def __parse_house_rule_check__(text) do
+    json =
+      text
+      |> to_string()
+      |> String.replace(~r/^```(?:json)?\s*/m, "")
+      |> String.replace(~r/```\s*$/m, "")
+      |> String.trim()
+
+    case Jason.decode(json) do
+      {:ok, %{"verdict" => v} = map} ->
+        verdict = if v in @house_rule_verdicts, do: v, else: "unclear"
+
+        {:ok,
+         %{
+           verdict: verdict,
+           raw_quote: map["raw_quote"],
+           check_note: map["note"],
+           citations: normalize_hr_citations(map["citations"])
+         }}
+
+      {:ok, _} ->
+        {:error, :missing_verdict}
+
+      {:error, err} ->
+        {:error, err}
+    end
+  end
+
+  defp normalize_hr_citations(list) when is_list(list), do: Enum.filter(list, &is_map/1)
+  defp normalize_hr_citations(_), do: []
+
   @doc false
   # Test seam for the completeness check.
   def __truncated__(finish_reason, text), do: truncated?(finish_reason, text)
