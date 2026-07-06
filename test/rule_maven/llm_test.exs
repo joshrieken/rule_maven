@@ -580,17 +580,17 @@ defmodule RuleMaven.LLMTest do
       assert slugs == ["a", "b", "c"]
     end
 
-    test "caps at 10 voices, keeping the 10 lowest (best) ranks" do
+    test "caps at 12 voices, keeping the 12 lowest (best) ranks" do
       entries =
-        for i <- 1..12 do
+        for i <- 1..14 do
           ~s({"slug":"v#{i}","label":"V#{i}","emoji":"🙂","style":"x","popularity_rank":#{i}})
         end
 
       json = "[" <> Enum.join(entries, ",") <> "]"
       result = RuleMaven.LLM.__parse_voices__(json)
 
-      assert length(result) == 10
-      assert Enum.map(result, & &1.slug) == for(i <- 1..10, do: "v#{i}")
+      assert length(result) == 12
+      assert Enum.map(result, & &1.slug) == for(i <- 1..12, do: "v#{i}")
     end
   end
 

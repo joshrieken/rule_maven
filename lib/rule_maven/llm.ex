@@ -1866,9 +1866,9 @@ defmodule RuleMaven.LLM do
            system: RuleMaven.Prompts.template("generate_voices_system"),
            # Each voice now carries 20+ loading_phrases, ~10 thanks_phrases, a
            # picker description, and a popularity_rank on top of its style, so a
-           # full 10-voice set needs a lot more room. Too low and the JSON
+           # full 12-voice set needs a lot more room. Too low and the JSON
            # truncates mid-array → parse fails → no voices.
-           max_tokens: 15000
+           max_tokens: 18000
          ) do
       {:ok, text} ->
         {:ok, parse_voices(text)}
@@ -1880,7 +1880,7 @@ defmodule RuleMaven.LLM do
 
   # Decode the voices JSON array, tolerating ```fences``` and stray prose, then
   # coerce each entry to a clean voice map. Bad/incomplete entries are dropped;
-  # slugs are normalized and de-duplicated; the list is capped at 10 and sorted by popularity_rank.
+  # slugs are normalized and de-duplicated; the list is capped at 12 and sorted by popularity_rank.
   defp parse_voices(text) do
     json =
       case Regex.run(~r/\[.*\]/s, text || "") do
@@ -1895,7 +1895,7 @@ defmodule RuleMaven.LLM do
         |> Enum.reject(&is_nil/1)
         |> Enum.uniq_by(& &1.slug)
         |> Enum.sort_by(& &1.popularity_rank)
-        |> Enum.take(10)
+        |> Enum.take(12)
 
       _ ->
         []

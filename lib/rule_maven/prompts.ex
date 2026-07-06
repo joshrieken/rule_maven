@@ -509,7 +509,9 @@ defmodule RuleMaven.Prompts do
   in character — pick personas a fan of THIS game would find delightful (a
   faction, a character archetype, an in-world narrator), not generic ones.
 
-  Return between 3 and 10 voices — fewer if the theme is thin; do not pad.
+  Return between 8 and 12 voices — err on the side of MORE; a rich, varied
+  roster is better than a short one. Only go below 8 if the theme is genuinely
+  too thin to support distinct personas.
 
   Return ONLY a JSON array — no prose, no code fences — of objects with this
   exact shape:
