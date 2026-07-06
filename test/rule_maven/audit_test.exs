@@ -118,5 +118,58 @@ defmodule RuleMaven.AuditTest do
     test "returns [] when nothing matches" do
       assert Audit.question_history(1, "Nothing asked yet") == []
     end
+
+    test "follows canonical-question drift across regenerations" do
+      # Regenerate resubmits the *displayed* question (canonical || cleaned ||
+      # raw), so each generation's raw text can differ from the last. The
+      # delete snapshots must chain: v2's raw == v1's canonical, and the
+      # current row's raw == v2's canonical.
+      Audit.log(nil, "question.delete",
+        target_type: "question",
+        target_id: 1,
+        metadata: %{
+          game_id: 7,
+          question: "What all can be done to counter monster attacks?",
+          canonical_question: "What are the ways to counter a monster attack?",
+          answer: "v1"
+        }
+      )
+
+      Audit.log(nil, "question.delete",
+        target_type: "question",
+        target_id: 2,
+        metadata: %{
+          game_id: 7,
+          question: "What are the ways to counter a monster attack?",
+          canonical_question: "What can counter a monster attack?",
+          answer: "v2"
+        }
+      )
+
+      # Unrelated question in the same game — must not be pulled in.
+      Audit.log(nil, "question.delete",
+        target_type: "question",
+        target_id: 3,
+        metadata: %{game_id: 7, question: "How does setup work?", answer: "other"}
+      )
+
+      # Current (live) row's raw text is the previous generation's canonical.
+      [newest, oldest] = Audit.question_history(7, "What can counter a monster attack?")
+      assert newest.metadata["answer"] == "v2"
+      assert oldest.metadata["answer"] == "v1"
+    end
+
+    test "accepts a list of seed texts (raw + cleaned + canonical)" do
+      Audit.log(nil, "question.delete",
+        target_type: "question",
+        target_id: 1,
+        metadata: %{game_id: 8, question: "Old raw phrasing?", answer: "v1"}
+      )
+
+      assert [entry] =
+               Audit.question_history(8, ["Current raw?", "Old raw phrasing?"])
+
+      assert entry.metadata["answer"] == "v1"
+    end
   end
 end

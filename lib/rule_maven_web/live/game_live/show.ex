@@ -1194,8 +1194,11 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   # Admin-only version history: lazily fetches prior deleted versions of this
-  # Q&A (matched by game + exact question text — see Audit.question_history/2)
+  # Q&A (chained through question-text variants — see Audit.question_history/2)
   # the first time a thread's history panel is opened, then just toggles.
+  # Seeds the lookup with every text variant of the live row (raw + cleaned +
+  # canonical), not just the displayed text: regenerated rows drift phrasing,
+  # and any one of the variants may be the link back to a prior version.
   @impl true
   def handle_event("toggle_question_history", %{"id" => id_str, "question" => question}, socket) do
     {id, _} = Integer.parse(id_str)
@@ -1208,7 +1211,13 @@ defmodule RuleMavenWeb.GameLive.Show do
       else
         history =
           Map.put_new_lazy(socket.assigns.question_history, id, fn ->
-            RuleMaven.Audit.question_history(socket.assigns.game.id, question)
+            seeds =
+              case find_question_log(socket.assigns.game, id) do
+                nil -> [question]
+                ql -> [question, ql.question, ql.cleaned_question, ql.canonical_question]
+              end
+
+            RuleMaven.Audit.question_history(socket.assigns.game.id, seeds)
           end)
 
         {:noreply,
