@@ -217,7 +217,7 @@ defmodule RuleMaven.LLM do
          cleaned,
          user_id,
          voice,
-         fresh \\ false
+         fresh
        ) do
     game_ids = [game.id | expansion_ids]
     # Reuse the embedding already computed in ask/5 — no second embed call.
@@ -360,7 +360,7 @@ defmodule RuleMaven.LLM do
   # Single answer-model call, extracted so `maybe_reground/3`'s retry can
   # re-issue it with a modified system prompt without duplicating the body
   # shape.
-  defp request_answer(system_prompt, question, model_name, game_id, user_id, fresh \\ false) do
+  defp request_answer(system_prompt, question, model_name, game_id, user_id, fresh) do
     messages = [
       %{role: "system", content: system_prompt},
       %{role: "user", content: question}
