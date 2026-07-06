@@ -977,7 +977,8 @@ defmodule RuleMaven.Prompts do
       key: "generate_voices",
       group: "Persona",
       label: "Per-game personas — prompt",
-      description: "Invents 3–10 personas themed to a specific game from its rulebook, ranked by predicted popularity.",
+      description:
+        "Invents 3–10 personas themed to a specific game from its rulebook, ranked by predicted popularity.",
       vars: ~w(game_name rulebook),
       default: @generate_voices
     },

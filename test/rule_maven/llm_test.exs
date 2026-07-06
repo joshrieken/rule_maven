@@ -524,7 +524,9 @@ defmodule RuleMaven.LLMTest do
 
   describe "voice parsing includes loading_phrases" do
     test "parses loading_phrases when present" do
-      json = ~s([{"slug":"herald","label":"Herald","emoji":"🦉","style":"a courtly herald","loading_phrases":["Sounding the horn…","Unrolling the scroll…"]}])
+      json =
+        ~s([{"slug":"herald","label":"Herald","emoji":"🦉","style":"a courtly herald","loading_phrases":["Sounding the horn…","Unrolling the scroll…"]}])
+
       [v] = RuleMaven.LLM.__parse_voices__(json)
       assert v.loading_phrases == ["Sounding the horn…", "Unrolling the scroll…"]
     end
@@ -536,7 +538,9 @@ defmodule RuleMaven.LLMTest do
     end
 
     test "drops non-string and blank loading_phrases entries" do
-      json = ~s([{"slug":"h","label":"H","emoji":"🦉","style":"x","loading_phrases":["ok ", 3, "", "  ", "two"]}])
+      json =
+        ~s([{"slug":"h","label":"H","emoji":"🦉","style":"x","loading_phrases":["ok ", 3, "", "  ", "two"]}])
+
       [v] = RuleMaven.LLM.__parse_voices__(json)
       assert v.loading_phrases == ["ok", "two"]
     end
@@ -1013,8 +1017,7 @@ defmodule RuleMaven.LLMTest do
         if content =~ "Same underlying rules question?" do
           flunk("tiebreaker must not be called below the 0.85 floor")
         else
-          {:ok,
-           %{answer: "Fresh answer.", cited_passage: "p.1", followup: false, followups: []}}
+          {:ok, %{answer: "Fresh answer.", cited_passage: "p.1", followup: false, followups: []}}
         end
       end)
 
@@ -1093,7 +1096,9 @@ defmodule RuleMaven.LLMTest do
         {:ok,
          %{
            answer: "You draw three cards.",
-           citations: [%{"quote" => "Each player draws three cards.", "page" => 1, "source" => "Core"}],
+           citations: [
+             %{"quote" => "Each player draws three cards.", "page" => 1, "source" => "Core"}
+           ],
            verdict: "info"
          }}
       end)
@@ -1103,12 +1108,17 @@ defmodule RuleMaven.LLMTest do
       assert result.answer == "You draw three cards."
     end
 
-    test "a flagged-but-grounded answer survives the critic (false positive cleared)", %{game: game} do
+    test "a flagged-but-grounded answer survives the critic (false positive cleared)", %{
+      game: game
+    } do
       # Trips the heuristic on length ratio alone (answer >> quote word count,
       # no trigger keyword needed) — critic then clears it as grounded, so the
       # long-but-faithful paraphrase must survive unchanged.
       long_answer =
-        String.duplicate("Draw three cards at the start of your turn as the rulebook describes. ", 10)
+        String.duplicate(
+          "Draw three cards at the start of your turn as the rulebook describes. ",
+          10
+        )
         |> String.trim()
 
       mock_llm(fn body ->
@@ -1138,12 +1148,19 @@ defmodule RuleMaven.LLMTest do
             {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: defeating a Monster lowers Terror."}}
 
           is_list(body[:messages]) and
-              Enum.any?(body[:messages], &String.contains?(&1[:content] || "", "unsupported claim")) ->
+              Enum.any?(
+                body[:messages],
+                &String.contains?(&1[:content] || "", "unsupported claim")
+              ) ->
             {:ok,
              %{
                answer: "Terror rises when a Hero or Citizen is defeated.",
                citations: [
-                 %{"quote" => "Move the Terror Marker up one space.", "page" => 9, "source" => "Core"}
+                 %{
+                   "quote" => "Move the Terror Marker up one space.",
+                   "page" => 9,
+                   "source" => "Core"
+                 }
                ],
                verdict: "info"
              }}
@@ -1151,9 +1168,14 @@ defmodule RuleMaven.LLMTest do
           true ->
             {:ok,
              %{
-               answer: "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
+               answer:
+                 "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
                citations: [
-                 %{"quote" => "Move the Terror Marker up one space.", "page" => 9, "source" => "Core"}
+                 %{
+                   "quote" => "Move the Terror Marker up one space.",
+                   "page" => 9,
+                   "source" => "Core"
+                 }
                ],
                verdict: "info"
              }}
@@ -1174,9 +1196,14 @@ defmodule RuleMaven.LLMTest do
           true ->
             {:ok,
              %{
-               answer: "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
+               answer:
+                 "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
                citations: [
-                 %{"quote" => "Move the Terror Marker up one space.", "page" => 9, "source" => "Core"}
+                 %{
+                   "quote" => "Move the Terror Marker up one space.",
+                   "page" => 9,
+                   "source" => "Core"
+                 }
                ],
                verdict: "info"
              }}

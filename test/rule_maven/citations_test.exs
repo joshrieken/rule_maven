@@ -48,13 +48,22 @@ defmodule RuleMaven.Games.CitationsTest do
   end
 
   describe "source-scoped validation" do
-    @rulebook %{label: "Core rules", content: "[Page 5]\nThe player with the most banners wins the region."}
+    @rulebook %{
+      label: "Core rules",
+      content: "[Page 5]\nThe player with the most banners wins the region."
+    }
     @faq %{label: "Official FAQ", content: "[Page 2]\nTies award the region to no one."}
 
     test "cited page must exist in the cited source" do
       # Page 5 exists in Core rules, not in the FAQ.
       assert Citations.valid?("most banners wins the region", 5, [@rulebook, @faq], "Core rules")
-      refute Citations.valid?("most banners wins the region", 5, [@rulebook, @faq], "Official FAQ")
+
+      refute Citations.valid?(
+               "most banners wins the region",
+               5,
+               [@rulebook, @faq],
+               "Official FAQ"
+             )
     end
 
     test "unknown source label falls back to pooled validation" do
@@ -67,7 +76,10 @@ defmodule RuleMaven.Games.CitationsTest do
   end
 
   describe "canonical_source/2" do
-    @rulebook %{label: "Core rules", content: "[Page 5]\nThe player with the most banners wins the region."}
+    @rulebook %{
+      label: "Core rules",
+      content: "[Page 5]\nThe player with the most banners wins the region."
+    }
     @faq %{label: "Official FAQ", content: "[Page 2]\nTies award the region to no one."}
 
     test "mixed-case match returns the chunk's canonical label" do
@@ -104,13 +116,21 @@ defmodule RuleMaven.Games.CitationsTest do
 
     test "keeps only the grounded entries, preserving order" do
       citations = [
-        %{"quote" => "draws three cards at the start of their turn", "page" => 3, "source" => nil},
+        %{
+          "quote" => "draws three cards at the start of their turn",
+          "page" => 3,
+          "source" => nil
+        },
         %{"quote" => "the dragon devours two villages each dawn", "page" => 3, "source" => nil},
         %{"quote" => "summing all face-up tokens", "page" => 7, "source" => nil}
       ]
 
       assert Citations.valid_citations(citations, @chunks) == [
-               %{"quote" => "draws three cards at the start of their turn", "page" => 3, "source" => nil},
+               %{
+                 "quote" => "draws three cards at the start of their turn",
+                 "page" => 3,
+                 "source" => nil
+               },
                %{"quote" => "summing all face-up tokens", "page" => 7, "source" => nil}
              ]
     end
@@ -140,7 +160,10 @@ defmodule RuleMaven.Games.CitationsTest do
     end
 
     test "does not flag a trigger word that's already in the quote" do
-      quotes = ["If a Hero is defeated, move the Terror Marker up one space unless a Citizen was already lost."]
+      quotes = [
+        "If a Hero is defeated, move the Terror Marker up one space unless a Citizen was already lost."
+      ]
+
       answer = "Terror moves up one space unless a Citizen was already lost."
 
       refute Citations.suspicious?(answer, quotes)

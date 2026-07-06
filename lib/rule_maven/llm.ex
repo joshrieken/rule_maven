@@ -83,7 +83,8 @@ defmodule RuleMaven.LLM do
       user_semantic ->
         serve_from_cache(user_semantic, question_embedding, cleaned, game.id, user_id, true)
 
-      pool_hit = find_pool_hit(game, question_embedding, expansion_ids, skip_pool, match_text, user_id) ->
+      pool_hit =
+          find_pool_hit(game, question_embedding, expansion_ids, skip_pool, match_text, user_id) ->
         serve_from_cache(pool_hit, question_embedding, cleaned, game.id, user_id, false)
 
       true ->
@@ -221,7 +222,10 @@ defmodule RuleMaven.LLM do
     retrieval_opts = if question_embedding, do: [embedding: question_embedding], else: []
     chunks = RuleMaven.Games.retrieve_chunks_for_games(game_ids, question, retrieval_opts)
     context = build_context_block(chunks, game.id)
-    system_prompt = build_system_prompt(game.name, game.category, context, recent_context, voice, game)
+
+    system_prompt =
+      build_system_prompt(game.name, game.category, context, recent_context, voice, game)
+
     provider_name = provider()
     model_name = model()
 
@@ -293,7 +297,10 @@ defmodule RuleMaven.LLM do
     quotes = citation_quotes(llm_result[:citations])
 
     if RuleMaven.Games.Citations.suspicious?(llm_result[:answer], quotes) do
-      case critique_grounding(quotes, llm_result[:answer], game_id: ctx.game_id, user_id: ctx.user_id) do
+      case critique_grounding(quotes, llm_result[:answer],
+             game_id: ctx.game_id,
+             user_id: ctx.user_id
+           ) do
         {:ok, %{verdict: :hallucinated, flagged_clause: clause}} ->
           retry_ungrounded_answer(llm_result, clause, system_prompt, ctx)
 
@@ -310,7 +317,13 @@ defmodule RuleMaven.LLM do
       "\n\nIMPORTANT: a previous answer attempt included this unsupported claim — " <>
         "do not repeat it: #{inspect(flagged_clause)}. Base your answer strictly on the RULEBOOK text above."
 
-    case request_answer(system_prompt <> warning, ctx.question, ctx.model_name, ctx.game_id, ctx.user_id) do
+    case request_answer(
+           system_prompt <> warning,
+           ctx.question,
+           ctx.model_name,
+           ctx.game_id,
+           ctx.user_id
+         ) do
       {:ok, retried_result} ->
         quotes = citation_quotes(retried_result[:citations])
 
@@ -318,7 +331,10 @@ defmodule RuleMaven.LLM do
           RuleMaven.Games.Citations.suspicious?(retried_result[:answer], quotes) and
             match?(
               {:ok, %{verdict: :hallucinated}},
-              critique_grounding(quotes, retried_result[:answer], game_id: ctx.game_id, user_id: ctx.user_id)
+              critique_grounding(quotes, retried_result[:answer],
+                game_id: ctx.game_id,
+                user_id: ctx.user_id
+              )
             )
 
         if still_hallucinated? do
@@ -468,6 +484,7 @@ defmodule RuleMaven.LLM do
 
       questions ->
         bullets = Enum.map_join(questions, "\n", &"- #{&1}")
+
         "\nAlready-answered questions for this game (reuse verbatim if this question means the same thing):\n#{bullets}\n"
     end
   end
@@ -913,7 +930,8 @@ defmodule RuleMaven.LLM do
     :ok
   end
 
-  defp maybe_record_prompt_cache(actual_model, opts, %{cached: cached}) when is_integer(cached) and cached > 0 do
+  defp maybe_record_prompt_cache(actual_model, opts, %{cached: cached})
+       when is_integer(cached) and cached > 0 do
     require Logger
 
     try do
@@ -941,7 +959,9 @@ defmodule RuleMaven.LLM do
       default = model(:default)
 
       if actual_model == model(:cheap) and actual_model != default do
-        saved = RuleMaven.LLM.Pricing.cost(default, p, c) - RuleMaven.LLM.Pricing.cost(actual_model, p, c)
+        saved =
+          RuleMaven.LLM.Pricing.cost(default, p, c) -
+            RuleMaven.LLM.Pricing.cost(actual_model, p, c)
 
         RuleMaven.LLM.Savings.record("cheap_route", %{
           operation: opts[:operation] || "unknown",
@@ -1095,7 +1115,9 @@ defmodule RuleMaven.LLM do
 
   # Provider-reported cached prompt tokens, OpenAI-compatible shape OpenRouter
   # forwards. Tolerates the field being absent (other providers) → 0.
-  defp cached_tokens(%{"prompt_tokens_details" => %{"cached_tokens" => n}}) when is_integer(n), do: n
+  defp cached_tokens(%{"prompt_tokens_details" => %{"cached_tokens" => n}}) when is_integer(n),
+    do: n
+
   defp cached_tokens(%{"cached_tokens" => n}) when is_integer(n), do: n
   defp cached_tokens(_), do: 0
 

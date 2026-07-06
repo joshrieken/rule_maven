@@ -25,7 +25,9 @@ defmodule RuleMaven.LLMGroundingCriticTest do
 
   test "missing or unparsable verdict falls back to grounded (critic never blocks)" do
     assert %{verdict: :grounded, flagged_clause: nil} = LLM.parse_grounding_verdict("")
-    assert %{verdict: :grounded, flagged_clause: nil} = LLM.parse_grounding_verdict("garbage reply")
+
+    assert %{verdict: :grounded, flagged_clause: nil} =
+             LLM.parse_grounding_verdict("garbage reply")
   end
 
   test "critique_grounding returns the parsed verdict map" do
