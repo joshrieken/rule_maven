@@ -1935,6 +1935,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               t={t}
               active_thread_id={@active_thread_id}
               show_asker={@is_admin}
+              voice_pending={@voice_pending}
             />
           <% end %>
 
@@ -1949,6 +1950,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 t={t}
                 active_thread_id={@active_thread_id}
                 show_asker={@is_admin}
+                voice_pending={@voice_pending}
               />
             <% end %>
           <% end %>
@@ -3126,11 +3128,20 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> String.replace(~r/^[-*]\s+/m, "")
   end
 
+  # True if any voice restyle is in flight for this question (regardless of
+  # which persona), so the sidebar dot lights up during a persona switch too.
+  defp restyling?(nil, _id), do: false
+
+  defp restyling?(voice_pending, id) do
+    Enum.any?(voice_pending, fn {ql_id, _voice} -> ql_id == id end)
+  end
+
   # One sidebar row: shared by the Favorites section and each time group
   # (Today/Last 7 Days/Older) so the two render identically.
   attr :t, :map, required: true
   attr :active_thread_id, :any, required: true
   attr :show_asker, :boolean, default: false
+  attr :voice_pending, :any, default: nil
 
   defp thread_sidebar_item(assigns) do
     ~H"""
@@ -3150,7 +3161,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       <div style="display:flex;align-items:baseline;gap:0.2rem">
         <span :if={@t.favorited} style="color:#e05c2a;font-size:0.55rem;flex-shrink:0">♥</span>
         <span
-          :if={@t.pending}
+          :if={@t.pending || restyling?(@voice_pending, @t.id)}
           class="animate-pulse"
           style="color:var(--accent-ink,var(--accent));font-size:0.45rem;flex-shrink:0"
         >●</span>
