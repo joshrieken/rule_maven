@@ -720,6 +720,33 @@ defmodule RuleMaven.LLM do
     %{verdict: verdict, defects: defects}
   end
 
+  @grounding_verdicts [:grounded, :hallucinated]
+  def grounding_verdicts, do: @grounding_verdicts
+
+  @doc """
+  Parses a `grounding_critic` reply: a `VERDICT: grounded | hallucinated` line,
+  plus (only on hallucinated) a `FLAGGED: <clause>` line naming the unsupported
+  claim. A missing or unrecognized verdict falls back to `:grounded` — this
+  critic must never block an answer on a malformed reply.
+  """
+  def parse_grounding_verdict(text) do
+    trimmed = String.trim(text || "")
+
+    verdict =
+      case Regex.run(~r/^\s*verdict:\s*(grounded|hallucinated)\b/im, trimmed) do
+        [_, v] -> String.to_existing_atom(String.downcase(v))
+        _ -> :grounded
+      end
+
+    flagged_clause =
+      case Regex.run(~r/^\s*flagged:\s*(.+)$/im, trimmed) do
+        [_, clause] -> String.trim(clause)
+        _ -> nil
+      end
+
+    %{verdict: verdict, flagged_clause: flagged_clause}
+  end
+
   @doc """
   Sends a generic chat prompt to the LLM. Returns `{:ok, raw_text}` or `{:error, reason}`.
   Options: :max_tokens (default 2048), :system (system prompt string)
