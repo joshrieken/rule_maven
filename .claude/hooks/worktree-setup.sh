@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# CwdChanged hook: prepare a fresh worktree for development.
+# CwdChanged + SessionStart hook: prepare a fresh worktree for development.
 #
-# Fires whenever the session's cwd changes; only acts when the new cwd is a
-# worktree under .claude/worktrees that hasn't been set up yet. Native
+# Fires whenever the session's cwd changes (EnterWorktree mid-session) or a
+# session starts (covers sessions that begin inside a worktree); only acts
+# when the relevant cwd is a worktree under .claude/worktrees that hasn't
+# been set up yet. Native
 # EnterWorktree creation applies worktree.symlinkDirectories itself, but
 # manually created worktrees (git worktree add) don't get them, so this
 # script also creates any missing symlinks. Then it copies untracked env
@@ -16,7 +18,7 @@
 set -u
 
 input=$(cat)
-wt=$(printf '%s' "$input" | jq -r '.new_cwd // empty')
+wt=$(printf '%s' "$input" | jq -r '.new_cwd // .cwd // empty')
 case "$wt" in
   */.claude/worktrees/*) ;;
   *) exit 0 ;;

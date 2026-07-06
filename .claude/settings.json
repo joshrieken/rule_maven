@@ -19,7 +19,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/worktree-setup.sh",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/worktree-setup.sh\"",
+            "async": true,
+            "timeout": 600,
+            "statusMessage": "Setting up worktree (env files, deps, compile)..."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/worktree-setup.sh\"",
             "async": true,
             "timeout": 600,
             "statusMessage": "Setting up worktree (env files, deps, compile)..."
@@ -29,6 +42,7 @@
     ]
   },
   "worktree": {
+    "baseRef": "head",
     "symlinkDirectories": [
       "deps",
       "node_modules",
