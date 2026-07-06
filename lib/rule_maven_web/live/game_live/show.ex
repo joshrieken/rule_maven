@@ -2347,14 +2347,23 @@ defmodule RuleMavenWeb.GameLive.Show do
                            not v_failed) %>
                     <%= cond do %>
                       <% waiting? -> %>
+                        <% v_def = v_sel != "neutral" && Enum.find(@voices, &(&1.id == v_sel)) %>
                         <div class="answer-in">
+                          <%!-- Voice in the id so switching persona mid-wait replaces
+                                the ignored element — remounting the hook with the new
+                                persona's phrases and label. --%>
                           <div
                             class="voice-loader"
-                            id={"voice-loader-#{msg[:id]}"}
+                            id={"voice-loader-#{msg[:id]}-#{v_sel}"}
                             phx-hook="VoiceLoader"
                             phx-update="ignore"
                             data-phrases={Jason.encode!(RuleMaven.Voices.loading_phrases(v_sel, @game))}
                           >
+                            <div :if={v_def} class="voice-loader__persona">
+                              <span :if={String.starts_with?(v_sel, "g:")} aria-hidden="true" class="voice-loader__persona-star">✦</span>
+                              <span aria-hidden="true">{v_def.emoji}</span>
+                              <span>Generating {v_def.label} persona…</span>
+                            </div>
                             <div class="voice-loader__row">
                               <span class="voice-loader__spinner" aria-hidden="true"></span>
                               <span class="voice-loader__phrase">Reticulating splines…</span>

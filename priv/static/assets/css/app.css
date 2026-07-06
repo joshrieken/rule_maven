@@ -2871,6 +2871,20 @@ body:has([data-phx-main].phx-connected)::after {
   margin: 0.15rem 0 0.35rem;
   min-width: min(22rem, 70vw);
 }
+.voice-loader__persona {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.voice-loader__persona-star {
+  color: var(--accent);
+}
 .voice-loader__row {
   display: flex;
   align-items: center;
