@@ -39,6 +39,10 @@ defmodule RuleMaven.Games.QuestionLog do
     # community/report-driven flags — stale is the content-invalidation signal
     # the same-user cache tiers (find_user_duplicate/find_user_similar) check.
     field :stale, :boolean, default: false
+    # Times a pool/cache serve of this row was reported "not my question" by
+    # the asker (Games.record_pool_mismatch/1). Tuning signal for the pool
+    # matching thresholds — never shown to users, never affects serving.
+    field :mismatch_count, :integer, default: 0
     # The exact (sorted) expansion-id set the answer was computed against.
     # [] = base game only. All cache tiers match on set equality so an answer
     # never crosses expansion configurations.

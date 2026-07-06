@@ -164,7 +164,15 @@ defmodule RuleMaven.Games.Citations do
   # either it uses a consequence/causal word the quotes never state, or it's
   # much longer than the quotes could support. Cheap (no LLM call) first-pass
   # gate — a true positive here gets escalated to `LLM.critique_grounding/3`.
-  def suspicious?(answer, quotes) when is_binary(answer) do
+  def suspicious?(answer, quotes), do: suspicion(answer, quotes) != nil
+
+  @doc """
+  Like `suspicious?/2` but names WHICH heuristic fired: `:keyword`,
+  `:length_ratio`, or `nil` when the answer looks grounded. The reason is
+  logged alongside the critic verdict so the two triggers can be
+  recalibrated independently against real fire/confirm rates.
+  """
+  def suspicion(answer, quotes) when is_binary(answer) do
     quotes = quotes |> List.wrap() |> Enum.filter(&is_binary/1)
 
     answer_norm = normalize(answer)
@@ -181,10 +189,14 @@ defmodule RuleMaven.Games.Citations do
     length_ratio_hit? =
       quote_word_count > 0 and answer_word_count > quote_word_count * 2.5
 
-    keyword_hit? or length_ratio_hit?
+    cond do
+      keyword_hit? -> :keyword
+      length_ratio_hit? -> :length_ratio
+      true -> nil
+    end
   end
 
-  def suspicious?(_answer, _quotes), do: false
+  def suspicion(_answer, _quotes), do: nil
 
   # Smallest normalized word count an answer may keep after a clause strip —
   # below this the salvage would gut the answer, so the caller should refuse.

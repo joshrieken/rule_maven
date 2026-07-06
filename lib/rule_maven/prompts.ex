@@ -16,6 +16,15 @@ defmodule RuleMaven.Prompts do
   # ──────────────────────────────────────────────────────────────────────────
   # Q&A answer (system prompt). Vars: game_name, game_kind, context_block,
   # rulebook. context_block is "" when there's no recent conversation.
+  #
+  # Variable ORDER is deliberate: per-turn variables ({{voice_style}},
+  # {{context_block}}) come AFTER {{rulebook}}, so the [instructions +
+  # rulebook] prefix is byte-identical across questions on the same game
+  # (exactly identical when small_corpus_boost sends the whole corpus).
+  # Provider prompt caches (DeepSeek/OpenAI/Gemini) are prefix-based and
+  # bill cached prefix tokens at a fraction of list price — moving the
+  # volatile parts to the tail is what makes those hits possible. Keep new
+  # per-question variables at the tail too.
   # ──────────────────────────────────────────────────────────────────────────
   @answer """
   You are a rules and reference lookup tool for "{{game_name}}" (a {{game_kind}}). You answer questions using ONLY the rulebook/manual text provided below.
@@ -82,11 +91,11 @@ defmodule RuleMaven.Prompts do
     "also_asked": [string]       // if the user's message contained more than one distinct question, the exact text of the additional questions (answer only the FIRST in "answer"). Empty array otherwise.
   }
   Output valid JSON only. Do not wrap it in ``` fences.
-  {{voice_style}}
-  {{context_block}}
 
   RULEBOOK:
   {{rulebook}}
+  {{voice_style}}
+  {{context_block}}
   """
 
   # ──────────────────────────────────────────────────────────────────────────

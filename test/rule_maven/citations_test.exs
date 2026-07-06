@@ -193,4 +193,37 @@ defmodule RuleMaven.Games.CitationsTest do
       refute Citations.suspicious?(nil, ["some quote"])
     end
   end
+
+  describe "suspicion/2" do
+    test "names the keyword trigger" do
+      quotes = ["Move the Terror Marker up one space on the Terror Level Track."]
+      answer = "Defeating a Hero or Citizen raises Terror. Defeating a Monster lowers it."
+
+      assert Citations.suspicion(answer, quotes) == :keyword
+    end
+
+    test "names the length-ratio trigger" do
+      quotes = ["Draw three cards."]
+
+      answer =
+        String.duplicate("This is extra elaboration not found in the source text. ", 10)
+
+      assert Citations.suspicion(answer, quotes) == :length_ratio
+    end
+
+    test "keyword wins when both triggers fire" do
+      quotes = ["Draw three cards."]
+
+      answer =
+        "You cannot draw more. " <>
+          String.duplicate("This is extra elaboration not found in the source text. ", 10)
+
+      assert Citations.suspicion(answer, quotes) == :keyword
+    end
+
+    test "returns nil for a grounded answer" do
+      quotes = ["Each player draws three cards at the start of their turn."]
+      assert Citations.suspicion("Each player draws three cards.", quotes) == nil
+    end
+  end
 end
