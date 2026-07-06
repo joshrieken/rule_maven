@@ -13,6 +13,29 @@
           }
         ]
       }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/worktree-setup.sh",
+            "async": true,
+            "timeout": 600,
+            "statusMessage": "Setting up worktree (env files, deps, compile)..."
+          }
+        ]
+      }
+    ]
+  },
+  "worktree": {
+    "symlinkDirectories": [
+      "deps",
+      "node_modules",
+      "priv/browser",
+      "priv/docling/.venv",
+      "priv/static/rulebooks",
+      "priv/static/uploads"
     ]
   }
 }
