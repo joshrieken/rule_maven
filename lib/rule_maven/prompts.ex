@@ -303,6 +303,42 @@ defmodule RuleMaven.Prompts do
   If grounded, output nothing further.
   """
 
+  @house_rule_check_system """
+  You are a board-game rules referee. You are given official RULEBOOK TEXT for a
+  game and one HOUSE RULE a player group uses. Classify how the house rule
+  relates to the rules as written. Use ONLY the rulebook text provided — never
+  outside knowledge of the game.
+
+  Respond with STRICT JSON only (no markdown fences, no commentary):
+
+  {
+    "verdict": "matches" | "fills_gap" | "overrides" | "unclear",
+    "raw_quote": "verbatim sentence(s) from the rulebook text most relevant to this house rule, or null",
+    "note": "one sentence explaining the classification",
+    "citations": [{"quote": "verbatim rulebook text", "page": 4}]
+  }
+
+  Verdicts:
+  - "matches"   — the rulebook already says or allows exactly this; the house rule is redundant.
+  - "fills_gap" — the rulebook is silent on this situation; the house rule covers uncovered ground.
+  - "overrides" — the rulebook states a rule this house rule replaces or changes; raw_quote MUST contain the overridden rule.
+  - "unclear"   — the provided rulebook text is insufficient to decide.
+
+  raw_quote and citations quotes must be VERBATIM from the rulebook text. If no
+  relevant passage exists, use null / [] — never invent text.
+  """
+
+  # Vars: game_name, house_rule, rulebook
+  @house_rule_check """
+  GAME: {{game_name}}
+
+  HOUSE RULE:
+  {{house_rule}}
+
+  RULEBOOK TEXT:
+  {{rulebook}}
+  """
+
   # Vars: game_name, exclude, rulebook
   @suggest_questions """
   Based on the rulebook text below for "{{game_name}}", suggest common rules questions grouped by topic category.
@@ -1055,6 +1091,23 @@ defmodule RuleMaven.Prompts do
       description: "Dense ~1500-char phone reference card (the default level).",
       vars: ~w(game_name rulebook),
       default: @cheat_compact
+    },
+    %{
+      key: "house_rule_check_system",
+      group: "House rules",
+      label: "House rule — RAW check (system)",
+      description:
+        "Referee persona + strict-JSON output contract for classifying a house rule against rules-as-written (matches/fills_gap/overrides/unclear).",
+      vars: [],
+      default: @house_rule_check_system
+    },
+    %{
+      key: "house_rule_check",
+      group: "House rules",
+      label: "House rule — RAW check",
+      description: "User prompt carrying the game name, the house rule, and retrieved rulebook text.",
+      vars: ["game_name", "house_rule", "rulebook"],
+      default: @house_rule_check
     }
   ]
 

@@ -77,7 +77,14 @@ defmodule RuleMavenWeb.GameLive.Show do
        checklist_done: MapSet.new(),
        # Deltas for the currently-included expansions that have one stored (see
        # `load_expansion_deltas/2`); empty until the connected mount fills it in.
-       expansion_deltas: []
+       expansion_deltas: [],
+       # House rules card: the user's own rules + the game's community list,
+       # plus small per-session UI state (collapse, add-form, inline edit).
+       house_rules: [],
+       community_house_rules: [],
+       hr_card_open: true,
+       hr_form_open: false,
+       hr_editing_id: nil
      )}
   end
 
@@ -236,7 +243,10 @@ defmodule RuleMavenWeb.GameLive.Show do
         # re-rolls it. Manual shuffle + new answers still randomize via fact_card/1.
         rule_card: dyk_card_for(dyk_facts, socket.assigns.dyk_seed),
         setup_status: setup_status,
-        setup_checklist: setup_checklist
+        setup_checklist: setup_checklist,
+        house_rules: load_own_house_rules(game, socket.assigns.current_user),
+        community_house_rules:
+          RuleMaven.HouseRules.community_for_game(game.id, socket.assigns.current_user.id)
       )
 
     # Restyle the just-loaded thread's answers to the current voice (switching
@@ -572,6 +582,113 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_event("checklist_restore", _params, socket), do: {:noreply, socket}
+
+  # House rules card -----------------------------------------------------
+
+  def handle_event("toggle_house_rules_card", _params, socket) do
+    {:noreply, assign(socket, hr_card_open: !socket.assigns.hr_card_open)}
+  end
+
+  def handle_event("toggle_house_rule_form", _params, socket) do
+    {:noreply, assign(socket, hr_form_open: !socket.assigns.hr_form_open)}
+  end
+
+  def handle_event("add_house_rule", %{"house_rule" => params}, socket) do
+    %{game: game, current_user: user} = socket.assigns
+
+    case RuleMaven.HouseRules.submit(user, game.id, params) do
+      {:ok, _hr} ->
+        {:noreply,
+         socket
+         |> assign(house_rules: load_own_house_rules(game, user), hr_form_open: false)
+         |> put_flash(:info, "House rule added — checking it against the rulebook…")}
+
+      {:error, :injection} ->
+        {:noreply, put_flash(socket, :error, "That doesn't look like a house rule.")}
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        {:noreply, put_flash(socket, :error, changeset_error_text(cs))}
+
+      {:error, msg} when is_binary(msg) ->
+        {:noreply, put_flash(socket, :error, msg)}
+    end
+  end
+
+  def handle_event("start_edit_house_rule", %{"id" => id}, socket) do
+    id = to_integer(id)
+    hr = get_house_rule(id)
+
+    if hr && owner?(socket, hr) do
+      {:noreply, assign(socket, hr_editing_id: id)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("cancel_edit_house_rule", _params, socket) do
+    {:noreply, assign(socket, hr_editing_id: nil)}
+  end
+
+  def handle_event("edit_house_rule", %{"id" => id, "house_rule" => params}, socket) do
+    with %{} = hr <- get_house_rule(id),
+         true <- owner?(socket, hr),
+         {:ok, _} <-
+           RuleMaven.HouseRules.update_and_recheck(socket.assigns.current_user, hr, params) do
+      {:noreply, socket |> assign(hr_editing_id: nil) |> refresh_house_rules()}
+    else
+      {:error, msg} when is_binary(msg) ->
+        {:noreply, put_flash(socket, :error, msg)}
+
+      {:error, :injection} ->
+        {:noreply, put_flash(socket, :error, "That doesn't look like a house rule.")}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply, put_flash(socket, :error, "Couldn't save that house rule.")}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("delete_house_rule", %{"id" => id}, socket) do
+    with %{} = hr <- get_house_rule(id),
+         true <- owner?(socket, hr) do
+      {:ok, _} = RuleMaven.HouseRules.delete(hr)
+    end
+
+    {:noreply, refresh_house_rules(socket)}
+  end
+
+  def handle_event("toggle_house_rule_visibility", %{"id" => id}, socket) do
+    with %{} = hr <- get_house_rule(id),
+         true <- owner?(socket, hr) do
+      new_vis = if hr.visibility == "community", do: "private", else: "community"
+      {:ok, _} = RuleMaven.HouseRules.update(hr, %{"visibility" => new_vis})
+    end
+
+    {:noreply, refresh_house_rules(socket)}
+  end
+
+  def handle_event("recheck_house_rule", %{"id" => id}, socket) do
+    with %{} = hr <- get_house_rule(id),
+         true <- owner?(socket, hr),
+         {:ok, _} <- RuleMaven.HouseRules.resubmit_check(socket.assigns.current_user, hr) do
+      {:noreply, refresh_house_rules(socket)}
+    else
+      {:error, msg} when is_binary(msg) -> {:noreply, put_flash(socket, :error, msg)}
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("block_house_rule", %{"id" => id}, socket) do
+    if RuleMaven.Users.can?(socket.assigns.current_user, :admin) do
+      if hr = get_house_rule(id) do
+        {:ok, _} = RuleMaven.HouseRules.set_blocked(hr, !hr.blocked)
+      end
+    end
+
+    {:noreply, refresh_house_rules(socket)}
+  end
 
   # Switch one answer to a persona voice. Neutral and already-cached voices swap
   # instantly (no cost); an uncached voice enqueues a durable restyle job and
@@ -1149,6 +1266,55 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
+  defp to_integer(id) when is_integer(id), do: id
+
+  defp to_integer(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
+
+  # Guards HouseRules.get/1 against a nil id (a non-numeric phx-value-id):
+  # Repo.get/2 raises ArgumentError on a nil primary key, so a crafted
+  # non-numeric id must short-circuit to nil rather than reach the repo.
+  defp get_house_rule(nil), do: nil
+  defp get_house_rule(id), do: id |> to_integer() |> get_house_rule_by_int()
+
+  defp get_house_rule_by_int(nil), do: nil
+  defp get_house_rule_by_int(int), do: RuleMaven.HouseRules.get(int)
+
+  defp owner?(socket, hr) do
+    u = socket.assigns.current_user
+    u && u.id == hr.user_id
+  end
+
+  defp refresh_house_rules(socket) do
+    %{game: game, current_user: user} = socket.assigns
+
+    assign(socket,
+      house_rules: load_own_house_rules(game, user),
+      community_house_rules: RuleMaven.HouseRules.community_for_game(game.id, user && user.id)
+    )
+  end
+
+  defp load_own_house_rules(_game, nil), do: []
+  defp load_own_house_rules(game, user), do: RuleMaven.HouseRules.list_for_user(game.id, user.id)
+
+  defp changeset_error_text(%Ecto.Changeset{} = cs) do
+    Ecto.Changeset.traverse_errors(cs, fn {msg, opts} ->
+      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
+    |> Enum.map_join("; ", fn {field, errors} -> "#{field} #{Enum.join(errors, ", ")}" end)
+  end
+
+  defp house_rule_stamp("matches"), do: {"✅", "Matches RAW"}
+  defp house_rule_stamp("fills_gap"), do: {"🧩", "Fills a gap"}
+  defp house_rule_stamp("overrides"), do: {"🔀", "Overrides RAW"}
+  defp house_rule_stamp(_), do: {"🤔", "Unclear"}
+
   defp do_toggle_question_visibility(socket, game, id) do
     case find_question_log(game, id) do
       nil ->
@@ -1525,6 +1691,10 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
+  def handle_info({:house_rule_checked, _id}, socket) do
+    {:noreply, refresh_house_rules(socket)}
+  end
+
   def handle_info({:delta_done, _game_id}, socket) do
     {:noreply,
      assign(socket,
@@ -1700,6 +1870,124 @@ defmodule RuleMavenWeb.GameLive.Show do
         </span>
       <% end %>
     </button>
+    """
+  end
+
+  attr :hr, :map, required: true
+  attr :editing, :boolean, required: true
+  attr :owner?, :boolean, required: true
+  attr :is_admin, :boolean, required: true
+
+  defp house_rule_row(assigns) do
+    ~H"""
+    <div style="border-top:1px solid var(--border-subtle);padding:0.5rem 0;font-size:0.82rem">
+      <%= if @editing do %>
+        <form phx-submit="edit_house_rule" phx-value-id={@hr.id} style="display:flex;flex-direction:column;gap:0.35rem">
+          <input
+            type="text"
+            name="house_rule[title]"
+            value={@hr.title}
+            maxlength="80"
+            style="font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg);color:var(--text)"
+          />
+          <textarea
+            name="house_rule[body]"
+            maxlength="500"
+            rows="3"
+            style="font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg);color:var(--text);resize:vertical"
+          >{@hr.body}</textarea>
+          <div style="display:flex;gap:0.4rem">
+            <button type="submit" style="background:var(--accent);color:var(--accent-text,#fff);border:none;border-radius:0.3rem;font-size:0.74rem;font-weight:700;padding:0.25rem 0.6rem;cursor:pointer">
+              Save
+            </button>
+            <button type="button" phx-click="cancel_edit_house_rule" style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.74rem;padding:0.25rem 0.6rem;cursor:pointer;color:var(--text-muted)">
+              Cancel
+            </button>
+          </div>
+        </form>
+      <% else %>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.2rem">
+              <span style="font-weight:600;color:var(--text)">
+                {if @hr.title not in [nil, ""], do: @hr.title, else: String.slice(@hr.body, 0, 40)}
+              </span>
+
+              <%= cond do %>
+                <% @hr.check_status == "pending" -> %>
+                  <span style="font-size:0.65rem;color:var(--text-muted);font-weight:600" data-testid="hr-pending">
+                    ⏳ pending
+                  </span>
+                <% @hr.check_status in ["stale", "failed"] -> %>
+                  <button
+                    type="button"
+                    phx-click="recheck_house_rule"
+                    phx-value-id={@hr.id}
+                    style="background:none;border:1px solid var(--border);border-radius:999px;font-size:0.62rem;cursor:pointer;padding:0.1rem 0.4rem;color:var(--text-muted);font-weight:600"
+                  >
+                    {if @hr.check_status == "stale", do: "Stale — re-check", else: "Check failed — retry"}
+                  </button>
+                <% @hr.check_status == "done" -> %>
+                  <% {emoji, label} = house_rule_stamp(@hr.verdict) %>
+                  <span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.1rem 0.4rem;border-radius:999px;background:var(--bg-subtle);font-weight:700;font-size:0.62rem;letter-spacing:0.02em;text-transform:uppercase;color:var(--text)">
+                    <span aria-hidden="true">{emoji}</span> {label}
+                  </span>
+                <% true -> %>
+              <% end %>
+            </div>
+
+            <details>
+              <summary style="cursor:pointer;font-size:0.72rem;color:var(--text-muted)">
+                {String.slice(@hr.body, 0, 60)}{if String.length(@hr.body) > 60, do: "…"}
+              </summary>
+              <p style="margin:0.3rem 0 0;color:var(--text)">{@hr.body}</p>
+              <%= if @hr.raw_quote not in [nil, ""] do %>
+                <blockquote style="margin:0.3rem 0 0;padding:0.3rem 0.6rem;border-left:2px solid var(--border);color:var(--text-muted);font-style:italic;font-size:0.74rem">
+                  {@hr.raw_quote}
+                </blockquote>
+              <% end %>
+              <%= if @hr.check_note not in [nil, ""] do %>
+                <p style="margin:0.3rem 0 0;font-size:0.74rem;color:var(--text-muted)">{@hr.check_note}</p>
+              <% end %>
+            </details>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:0.3rem;flex-shrink:0">
+            <%= if @owner? do %>
+              <button
+                type="button"
+                phx-click="toggle_house_rule_visibility"
+                phx-value-id={@hr.id}
+                title={if @hr.visibility == "community", do: "Community — click to make private", else: "Private — click to share"}
+                style="background:none;border:none;cursor:pointer;font-size:0.85rem;padding:0.1rem"
+              >{if @hr.visibility == "community", do: "🌐", else: "🔒"}</button>
+              <button
+                type="button"
+                phx-click="start_edit_house_rule"
+                phx-value-id={@hr.id}
+                style="background:none;border:none;cursor:pointer;font-size:0.75rem;padding:0.1rem;color:var(--text-muted)"
+              >✏️</button>
+              <button
+                type="button"
+                phx-click="delete_house_rule"
+                phx-value-id={@hr.id}
+                data-confirm="Delete this house rule?"
+                style="background:none;border:none;cursor:pointer;font-size:0.75rem;padding:0.1rem;color:var(--text-muted)"
+              >🗑️</button>
+            <% end %>
+            <%= if @is_admin and not @owner? do %>
+              <button
+                type="button"
+                phx-click="block_house_rule"
+                phx-value-id={@hr.id}
+                title={if @hr.blocked, do: "Blocked — click to unblock", else: "Block this house rule"}
+                style="background:none;border:none;cursor:pointer;font-size:0.75rem;padding:0.1rem;color:var(--text-muted)"
+              >{if @hr.blocked, do: "🚫", else: "🛑"}</button>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+    </div>
     """
   end
 
@@ -2258,6 +2546,98 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </div>
                 </div>
               <% end %>
+
+              <div style="margin:1.25rem auto 0;max-width:30rem;text-align:left">
+                <% own_count = length(@house_rules) %>
+                  <% community_count_hr = length(@community_house_rules) %>
+                  <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
+                    <button
+                      type="button"
+                      phx-click="toggle_house_rules_card"
+                      style="display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;cursor:pointer;padding:0;margin-bottom:0.6rem"
+                    >
+                      <span style="font-size:0.78rem;font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--text)">
+                        🏠 House rules
+                      </span>
+                      <div style="display:flex;align-items:center;gap:0.5rem">
+                        <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">
+                          {own_count + community_count_hr}
+                        </span>
+                        <span style="font-size:0.7rem;color:var(--text-muted)">
+                          {if @hr_card_open, do: "▾", else: "▸"}
+                        </span>
+                      </div>
+                    </button>
+
+                    <%= if @hr_card_open do %>
+                      <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.3rem 0 0.3rem">
+                        Your house rules
+                      </div>
+
+                      <%= for hr <- @house_rules do %>
+                        <.house_rule_row hr={hr} editing={@hr_editing_id == hr.id} owner?={true} is_admin={@is_admin} />
+                      <% end %>
+
+                      <%= if @house_rules == [] do %>
+                        <p style="font-size:0.76rem;color:var(--text-muted);margin:0 0 0.4rem">
+                          No house rules yet — add one below.
+                        </p>
+                      <% end %>
+
+                      <%= if @hr_form_open do %>
+                        <form id="house-rule-form" phx-submit="add_house_rule" style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
+                          <input
+                            type="text"
+                            name="house_rule[title]"
+                            placeholder="Title (optional)"
+                            maxlength="80"
+                            style="font-size:0.8rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg);color:var(--text)"
+                          />
+                          <textarea
+                            name="house_rule[body]"
+                            placeholder="Describe the house rule…"
+                            maxlength="500"
+                            rows="3"
+                            style="font-size:0.8rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg);color:var(--text);resize:vertical"
+                          ></textarea>
+                          <div style="display:flex;gap:0.4rem">
+                            <button
+                              type="submit"
+                              style="background:var(--accent);color:var(--accent-text,#fff);border:none;border-radius:0.3rem;font-size:0.76rem;font-weight:700;padding:0.35rem 0.75rem;cursor:pointer"
+                            >
+                              Add house rule
+                            </button>
+                            <button
+                              type="button"
+                              phx-click="toggle_house_rule_form"
+                              style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.76rem;padding:0.35rem 0.75rem;cursor:pointer;color:var(--text-muted)"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      <% else %>
+                        <button
+                          type="button"
+                          phx-click="toggle_house_rule_form"
+                          style="margin-top:0.3rem;background:none;border:1px dashed var(--border);border-radius:0.3rem;font-size:0.76rem;padding:0.3rem 0.6rem;cursor:pointer;color:var(--text-muted);font-weight:600"
+                        >
+                          + Add a house rule
+                        </button>
+                      <% end %>
+
+                      <%= if @community_house_rules != [] do %>
+                        <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.8rem 0 0.3rem">
+                          Community house rules
+                        </div>
+
+                        <%= for hr <- @community_house_rules do %>
+                          <.house_rule_row hr={hr} editing={false} owner?={false} is_admin={@is_admin} />
+                        <% end %>
+                      <% end %>
+                    <% end %>
+                  </div>
+                </div>
 
               <%= if @suggestions != [] && !Enum.any?(@conversation, & &1[:refused]) do %>
                 <div style="margin-top:1.5rem;text-align:left;max-width:28rem;margin-left:auto;margin-right:auto">

@@ -719,6 +719,10 @@ defmodule RuleMaven.LLMTest do
       refute LLM.__truncated__(nil, "Spend them wisely!")
       refute LLM.__truncated__(nil, "")
     end
+
+    test "nil finish_reason with strict JSON ending in `}` is not truncated" do
+      refute LLM.__truncated__(nil, ~s({"verdict":"matches"}))
+    end
   end
 
   describe "glued interrogative repair (__unglue_interrogative__/1)" do
