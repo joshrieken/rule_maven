@@ -460,6 +460,7 @@ defmodule RuleMaven.LLM do
           |> String.trim()
           |> strip_wrapping_quotes()
           |> strip_game_name(game.name)
+          |> unglue_interrogative()
           |> String.trim()
 
         if accept_normalized?(cleaned, raw), do: cleaned, else: raw
@@ -507,6 +508,20 @@ defmodule RuleMaven.LLM do
       [_, inner] -> inner
       _ -> text
     end
+  end
+
+  # Cheap models occasionally emit the leading interrogative glued to the next
+  # word ("Whatis abc123?") — seen from deepseek-v4-flash on gibberish input.
+  # Deterministic repair, gated twice: the string must START with a known
+  # interrogative AND run straight into a known second word, so real words
+  # ("Whatever", "Island", "Cannon") are never split.
+  @glued_re ~r/^(What|How|Can|Does|Do|Is|Are|When|Where|Who|Why|Which|Should|Must)(?=(?:is|are|do|does|can|many|much|happens|happen|player|token|card|there|it|the|a)\b)/
+
+  @doc false
+  def __unglue_interrogative__(text), do: unglue_interrogative(text)
+
+  defp unglue_interrogative(text) do
+    String.replace(text, @glued_re, "\\1 ")
   end
 
   # Drop the game name if the model echoed it despite the instruction not to,
