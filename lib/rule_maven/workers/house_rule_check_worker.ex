@@ -48,10 +48,16 @@ defmodule RuleMaven.Workers.HouseRuleCheckWorker do
 
     case LLM.check_house_rule(hr, game) do
       {:ok, results} ->
-        {:ok, _} = HouseRules.mark_checked(hr, results)
-        broadcast(game_id, hr.id)
-        Jobs.finish_run(run, "done", "Verdict: #{results.verdict}.")
-        :ok
+        case HouseRules.mark_checked(hr, results) do
+          {:ok, _} ->
+            broadcast(game_id, hr.id)
+            Jobs.finish_run(run, "done", "Verdict: #{results.verdict}.")
+            :ok
+
+          {:error, _cs} ->
+            Jobs.finish_run(run, "failed", "Couldn't save check results.")
+            finalize_failure(hr, game_id, "Couldn't save check results.")
+        end
 
       {:error, reason} ->
         Jobs.finish_run(run, "failed", inspect(reason))

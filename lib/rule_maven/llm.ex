@@ -996,7 +996,7 @@ defmodule RuleMaven.LLM do
 
   defp incomplete_text?(text) do
     trimmed = text |> to_string() |> String.trim_trailing()
-    trimmed != "" and not Regex.match?(~r/[.!?…)\]"”'`*]$/u, trimmed)
+    trimmed != "" and not Regex.match?(~r/[.!?…)\]}"”'`*]$/u, trimmed)
   end
 
   @doc false

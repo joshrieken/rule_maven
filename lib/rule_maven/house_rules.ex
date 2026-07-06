@@ -99,27 +99,35 @@ defmodule RuleMaven.HouseRules do
 
   @doc "Edit; re-checks (and re-bills) only when the body changed."
   def update_and_recheck(user, %HouseRule{} = hr, attrs) do
-    new_body = to_string(attrs["body"] || attrs[:body] || hr.body)
+    if hr.user_id == user.id do
+      new_body = to_string(attrs["body"] || attrs[:body] || hr.body)
 
-    if new_body != hr.body do
-      with :ok <- injection_guard(new_body),
-           :ok <- Games.check_rate_limit(user),
-           {:ok, hr} <- __MODULE__.update(hr, attrs),
-           {:ok, hr} <- mark_pending(hr) do
-        enqueue_check(hr)
-        {:ok, hr}
+      if new_body != hr.body do
+        with :ok <- injection_guard(new_body),
+             :ok <- Games.check_rate_limit(user),
+             {:ok, hr} <- __MODULE__.update(hr, attrs),
+             {:ok, hr} <- mark_pending(hr) do
+          enqueue_check(hr)
+          {:ok, hr}
+        end
+      else
+        __MODULE__.update(hr, attrs)
       end
     else
-      __MODULE__.update(hr, attrs)
+      {:error, :not_owner}
     end
   end
 
   @doc "Re-check button for failed/stale rules. Counts against quota."
   def resubmit_check(user, %HouseRule{} = hr) do
-    with :ok <- Games.check_rate_limit(user),
-         {:ok, hr} <- mark_pending(hr) do
-      enqueue_check(hr)
-      {:ok, hr}
+    if hr.user_id == user.id do
+      with :ok <- Games.check_rate_limit(user),
+           {:ok, hr} <- mark_pending(hr) do
+        enqueue_check(hr)
+        {:ok, hr}
+      end
+    else
+      {:error, :not_owner}
     end
   end
 

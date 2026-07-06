@@ -137,6 +137,51 @@ defmodule RuleMaven.HouseRulesTest do
     end
   end
 
+  describe "update_and_recheck/3 ownership" do
+    test "non-owner is rejected without changing the row or enqueueing" do
+      owner = user_fixture()
+      other = user_fixture()
+      game = game_fixture()
+      {:ok, hr} = HouseRules.create(owner, game.id, %{"body" => "original body"})
+
+      assert {:error, :not_owner} =
+               HouseRules.update_and_recheck(other, hr, %{"body" => "hijacked body"})
+
+      assert HouseRules.get(hr.id).body == "original body"
+
+      refute_enqueued(
+        worker: RuleMaven.Workers.HouseRuleCheckWorker,
+        args: %{house_rule_id: hr.id, game_id: game.id}
+      )
+    end
+  end
+
+  describe "resubmit_check/2 ownership" do
+    test "non-owner is rejected without changing the row or enqueueing" do
+      owner = user_fixture()
+      other = user_fixture()
+      game = game_fixture()
+      {:ok, hr} = HouseRules.create(owner, game.id, %{"body" => "test rule"})
+
+      {:ok, hr} =
+        HouseRules.mark_checked(hr, %{
+          verdict: "matches",
+          raw_quote: nil,
+          check_note: nil,
+          citations: []
+        })
+
+      assert {:error, :not_owner} = HouseRules.resubmit_check(other, hr)
+
+      assert HouseRules.get(hr.id).check_status == "done"
+
+      refute_enqueued(
+        worker: RuleMaven.Workers.HouseRuleCheckWorker,
+        args: %{house_rule_id: hr.id, game_id: game.id}
+      )
+    end
+  end
+
   test "invalidate_pool marks house-rule checks stale" do
     user = user_fixture()
     game = game_fixture()
