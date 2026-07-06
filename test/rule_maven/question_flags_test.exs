@@ -159,4 +159,40 @@ defmodule RuleMaven.QuestionFlagsTest do
     # Second reporter: flag still records, but it's already out of the pool.
     assert {:ok, %{pulled: false}} = Games.report_answer(q.id, user_fixture("dup2"))
   end
+
+  # ── pull_for_review: admin direct moderation replaces admin reporting ──────
+
+  defp admin_fixture(name) do
+    {:ok, admin} = Users.update_user_role(user_fixture(name), "admin")
+    admin
+  end
+
+  test "admins cannot report — directed to pull_for_review instead", %{q: q} do
+    assert {:error, message} = Games.report_answer(q.id, admin_fixture("adm1"))
+    assert message =~ "Pull for review"
+    # No flag row was written and nothing was pulled.
+    assert Games.count_pending_flags() == 0
+    refute reload(q).needs_review
+  end
+
+  test "pull_for_review pulls immediately for an admin, without a flag row", %{q: q} do
+    admin = admin_fixture("adm2")
+
+    assert {:ok, %{pulled: true}} = Games.pull_for_review(q.id, admin)
+    assert reload(q).needs_review
+    assert Games.count_pending_flags() == 0
+
+    # Idempotent: already pulled reports back pulled: false, stays pulled.
+    assert {:ok, %{pulled: false}} = Games.pull_for_review(q.id, admin)
+    assert reload(q).needs_review
+  end
+
+  test "pull_for_review is denied for non-admins", %{q: q} do
+    assert {:error, "Not authorized."} = Games.pull_for_review(q.id, user_fixture("pleb"))
+    refute reload(q).needs_review
+  end
+
+  test "pull_for_review on a missing id errors cleanly" do
+    assert {:error, "Answer not found."} = Games.pull_for_review(-1, admin_fixture("adm3"))
+  end
 end
