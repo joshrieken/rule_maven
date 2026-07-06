@@ -88,9 +88,13 @@ existing savings/cost dashboard without new plumbing.
 - Suspicious, critic clears it (false positive): one cheap-model call,
   ~500 input / ~50 output tokens — effectively rounding-error cost per
   answer.
-- Suspicious, critic confirms, retry: one cheap-model call + one full
-  answer-model call (same cost as a normal answer generation) for that one
-  question.
+- Suspicious, critic confirms, retry: up to two cheap-model calls plus two
+  full answer-model calls for that one question — the initial critic call,
+  the retried answer (a second full answer-model call), and (if the retry's
+  own free heuristic also trips) a second cheap-model critic call re-checking
+  the retried answer before deciding whether to fall back to refusal. The
+  second critic call is skipped whenever the retry isn't suspicious per the
+  free heuristic.
 
 Total added spend scales with the heuristic's flag rate, which is tunable
 by adjusting the trigger-word list and the length-ratio threshold if the
