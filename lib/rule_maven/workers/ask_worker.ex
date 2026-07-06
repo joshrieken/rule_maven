@@ -304,6 +304,42 @@ defmodule RuleMaven.Workers.AskWorker do
                       end
                     end
 
+                    # Inline restyle for the voices the single-call path can't
+                    # cover: generated (g:) personas (whose LLM-derived style string
+                    # must not enter the rulebook-access ask prompt — see
+                    # LLM.voice_style_block/2) and pool hits (no fresh ask call at
+                    # all). Restyling here, before the broadcast, delivers the
+                    # persona answer in the same :ask_complete instead of the plain
+                    # answer behind a second restyle loader. Voices.restyle/5
+                    # caches the result itself; on failure the broadcast omits the
+                    # styled fields and the LiveView's existing on-demand
+                    # VoiceWorker fallback takes over unchanged.
+                    {bcast_styled_voice, bcast_styled_answer} =
+                      cond do
+                        store_direct? ->
+                          {styled_voice, styled_answer}
+
+                        voice != "neutral" and not refused? ->
+                          case RuleMaven.Voices.restyle(question_log_id, voice, answer, game,
+                                 user_id: user_id
+                               ) do
+                            {:ok, styled} ->
+                              {voice, styled}
+
+                            {:error, reason} ->
+                              require Logger
+
+                              Logger.warning(
+                                "AskWorker: inline restyle failed for question #{question_log_id} voice #{voice}: #{inspect(reason)}"
+                              )
+
+                              {nil, nil}
+                          end
+
+                        true ->
+                          {nil, nil}
+                      end
+
                     Phoenix.PubSub.broadcast(
                       RuleMaven.PubSub,
                       "game:#{game_id}",
@@ -321,12 +357,12 @@ defmodule RuleMaven.Workers.AskWorker do
                          refused: refused?,
                          verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
                          raw_response: llm_result[:raw_response],
-                         # Only ever carry a styled answer when the DB write above
-                         # actually happened (i.e. store_direct? was true) — a
-                         # refused question must not broadcast a styled answer even
-                         # if the model ignored the "don't style a refusal" framing.
-                         styled_voice: if(store_direct?, do: styled_voice, else: nil),
-                         styled_answer: if(store_direct?, do: styled_answer, else: nil)
+                         # Only ever carry a styled answer that was actually cached
+                         # above (store_direct or inline restyle) — a refused
+                         # question must not broadcast a styled answer even if the
+                         # model ignored the "don't style a refusal" framing.
+                         styled_voice: bcast_styled_voice,
+                         styled_answer: bcast_styled_answer
                        }}
                     )
 

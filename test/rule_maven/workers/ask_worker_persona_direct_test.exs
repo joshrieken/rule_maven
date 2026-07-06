@@ -99,6 +99,65 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
                     }}
   end
 
+  test "a game-generated (g:) persona is restyled inline and broadcast with the answer, no VoiceWorker job",
+       %{game: game, ql: ql} do
+    # LLM.ask deliberately never emits styled_answer for generated voices (their
+    # style string is LLM output and must not enter the rulebook-access prompt),
+    # so AskWorker must run the rulebook-free restyle itself before broadcasting
+    # — otherwise the client shows the plain answer with a second loader.
+    :ok =
+      Voices.replace_generated(game.id, [
+        %{slug: "herald", label: "Woodland Herald", emoji: "🦉", style: "a courtly woodland herald"}
+      ])
+
+    canonical = "The d20 picks the first player."
+    styled = "Hear ye! The d20 doth choose who plays first."
+
+    Application.put_env(:rule_maven, :llm_mock, fn body ->
+      restyle? =
+        Enum.any?(body.messages, fn m ->
+          String.contains?(m.content, "courtly woodland herald")
+        end)
+
+      if restyle? do
+        {:ok, %{answer: styled}}
+      else
+        {:ok,
+         %{
+           answer: canonical,
+           cited_passage: nil,
+           citations: [
+             %{"quote" => "Roll the d20 to determine the first player.", "page" => 5, "source" => "Core rules"}
+           ],
+           verdict: "info",
+           followups: [],
+           also_asked: []
+         }}
+      end
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => nil,
+               "skip_pool" => true,
+               "voice" => "g:herald"
+             })
+
+    assert Voices.get(ql.id, "g:herald") == styled
+
+    refute_enqueued worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id}
+
+    assert_receive {:ask_complete, %{styled_voice: "g:herald", styled_answer: ^styled}}
+  end
+
   test "a refused question never broadcasts a styled answer, even if the LLM produced one", %{
     game: game,
     ql: ql
