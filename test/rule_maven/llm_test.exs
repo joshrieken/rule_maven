@@ -117,6 +117,44 @@ defmodule RuleMaven.LLMTest do
 
       assert result[:styled_answer] == nil
     end
+
+    test "an info verdict strips a contradictory leading Yes/No" do
+      json =
+        ~s({"answer":"**Yes** — discarding Items or the Fighter's special action can counter an attack.","verdict":"info"})
+
+      result = LLM.decode_answer(json)
+
+      assert result[:answer] ==
+               "Discarding Items or the Fighter's special action can counter an attack."
+    end
+
+    test "an info verdict strips a leading No with plain punctuation" do
+      json = ~s({"answer":"No, only Items block hits during the Monster Phase.","verdict":"info"})
+      result = LLM.decode_answer(json)
+
+      assert result[:answer] == "Only Items block hits during the Monster Phase."
+    end
+
+    test "a legal verdict keeps its Yes lead" do
+      json = ~s({"answer":"**Yes** — heroes may move through Monsters.","verdict":"legal"})
+      result = LLM.decode_answer(json)
+
+      assert result[:answer] == "**Yes** — heroes may move through Monsters."
+    end
+
+    test "info answers that merely start with a Yes-prefixed word are untouched" do
+      json = ~s({"answer":"Yesterday's errata changed the Terror track.","verdict":"info"})
+      result = LLM.decode_answer(json)
+
+      assert result[:answer] == "Yesterday's errata changed the Terror track."
+    end
+
+    test "stripping never guts a too-short answer" do
+      json = ~s({"answer":"**Yes** — it can.","verdict":"info"})
+      result = LLM.decode_answer(json)
+
+      assert result[:answer] == "**Yes** — it can."
+    end
   end
 
   describe "system prompt" do

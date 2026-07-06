@@ -1562,14 +1562,15 @@ defmodule RuleMaven.LLM do
       {:ok, map} ->
         citations = parse_citations(map["citations"])
         first = List.first(citations) || %{}
+        verdict = coerce_verdict(map["verdict"])
 
         %{
-          answer: trimmed_string(map["answer"]),
+          answer: map["answer"] |> trimmed_string() |> strip_verdict_prefix(verdict),
           citations: citations,
           cited_passage: first["quote"],
           cited_page: first["page"],
           cited_source: first["source"],
-          verdict: coerce_verdict(map["verdict"]),
+          verdict: verdict,
           followups: string_list(map["followups"]),
           also_asked: string_list(map["also_asked"]),
           styled_answer: nilable_string(map["styled_answer"])
@@ -1589,6 +1590,26 @@ defmodule RuleMaven.LLM do
         }
     end
   end
+
+  # An "info" verdict means the question was NOT a yes/no legality question,
+  # yet the model sometimes still pattern-matches "can" in a "what can …"
+  # question and leads with "**Yes** —". A verdict-contradicting lead is
+  # noise, so drop it and recapitalize; keep the original when the remainder
+  # is too short to stand alone (the lead was doing real work there).
+  @min_stripped_answer_len 25
+
+  defp strip_verdict_prefix(answer, "info") when is_binary(answer) do
+    case Regex.run(~r/\A(?:\*\*)?(?:Yes|No)(?:\*\*)?[\s]*[—–:;,.!-]+\s*(.+)\z/su, answer) do
+      [_, rest] when byte_size(rest) >= @min_stripped_answer_len ->
+        {first, tail} = String.split_at(rest, 1)
+        String.upcase(first) <> tail
+
+      _ ->
+        answer
+    end
+  end
+
+  defp strip_verdict_prefix(answer, _verdict), do: answer
 
   # Normalizes the model's raw "citations" JSON value into a list of
   # string-keyed maps, tolerating a missing/non-list value or malformed
