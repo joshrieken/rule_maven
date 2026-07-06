@@ -789,6 +789,12 @@ defmodule RuleMaven.Prompts do
   # replay the old answer. See RuleMaven.LLM.request_answer/6.
   @regenerate_nonce "(The asker requested a fresh regeneration of this answer. Regeneration id: {{nonce}}.)"
 
+  # Appended as a system message when the model's reply decoded to a blank
+  # answer (e.g. a JSON object missing the "answer" key). Restates the schema
+  # and, by altering the messages array, forces a fresh completion past the
+  # message-keyed proxy response cache. See RuleMaven.LLM.request_answer/6.
+  @blank_answer_retry "(Your previous reply was not the required JSON object — it had no \"answer\" field. Respond again with ONLY the required JSON object, including the \"answer\" field.)"
+
   @specs [
     %{
       key: "truncation_retry",
@@ -807,6 +813,15 @@ defmodule RuleMaven.Prompts do
         "Appended as a system message on explicit regenerates; the unique id stops message-keyed response caches from replaying the prior answer.",
       vars: ~w(nonce),
       default: @regenerate_nonce
+    },
+    %{
+      key: "blank_answer_retry",
+      group: "System",
+      label: "Blank answer retry nudge",
+      description:
+        "Appended as a system message when a reply decoded to a blank answer (e.g. JSON missing the \"answer\" field), to force a fresh, schema-correct completion.",
+      vars: ~w(),
+      default: @blank_answer_retry
     },
     %{
       key: "answer",

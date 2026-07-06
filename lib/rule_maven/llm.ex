@@ -385,8 +385,40 @@ defmodule RuleMaven.LLM do
       messages: messages
     }
 
-    do_request(body, 1, operation: "ask", game_id: game_id, user_id: user_id)
+    body
+    |> do_request(1, operation: "ask", game_id: game_id, user_id: user_id)
+    |> maybe_retry_blank_answer(body, game_id, user_id)
   end
+
+  # A model occasionally returns syntactically valid JSON that is missing the
+  # "answer" key (decode_answer's schema branch then yields a blank answer),
+  # which the worker surfaces as "the AI returned an empty response". Retry
+  # ONCE, restating the schema in an appended system message — which also
+  # alters the messages array, so the proxy's message-keyed response cache
+  # can't replay the junk reply. A second blank is returned as-is.
+  defp maybe_retry_blank_answer({:ok, res} = result, body, game_id, user_id) do
+    if String.trim(to_string(res[:answer])) == "" do
+      require Logger
+
+      Logger.warning(
+        "LLM ask reply decoded to a blank answer (game_id=#{game_id}) — retrying with schema nudge"
+      )
+
+      nudge = %{role: "system", content: RuleMaven.Prompts.template("blank_answer_retry")}
+
+      body
+      |> Map.update!(:messages, &(&1 ++ [nudge]))
+      |> do_request(1, operation: "ask", game_id: game_id, user_id: user_id)
+      |> case do
+        {:ok, _retried} = retried_result -> retried_result
+        {:error, _reason} -> result
+      end
+    else
+      result
+    end
+  end
+
+  defp maybe_retry_blank_answer(result, _body, _game_id, _user_id), do: result
 
   # Escalate-only-on-suspicion grounding check. Free heuristic first
   # (`Citations.suspicious?/2`); only on a hit does this spend a cheap-model
