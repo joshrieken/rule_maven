@@ -905,7 +905,12 @@ defmodule RuleMaven.LLM do
            game_id: opts[:game_id],
            user_id: opts[:user_id]
          ) do
-      {:ok, %{answer: text} = res} ->
+      {:ok, %{answer: answer} = res} ->
+        # `decode_answer` is tuned to the ask schema: a JSON *object* without
+        # an "answer" key decodes to "". Callers expecting their own JSON
+        # object (raw: true) need the untouched model text instead.
+        text = if opts[:raw], do: res[:raw_response] || answer, else: answer
+
         if opts[:reject_truncated] && truncated?(res[:finish_reason], text) do
           {:error, :truncated}
         else
@@ -939,11 +944,15 @@ defmodule RuleMaven.LLM do
     case chat(prompt, "house_rule_check",
            system: RuleMaven.Prompts.template("house_rule_check_system"),
            model: model(:cheap),
-           max_tokens: 1024,
+           # Ceiling, not spend — the JSON verdict is small, but a reasoning
+           # model thinks first and a tight cap starves it into null content
+           # (1024 did exactly that in dev).
+           max_tokens: 4000,
            operation: "house_rule_check",
            game_id: game.id,
            user_id: house_rule.user_id,
-           reject_truncated: true
+           reject_truncated: true,
+           raw: true
          ) do
       {:ok, text} -> __parse_house_rule_check__(text)
       {:error, reason} -> {:error, reason}
