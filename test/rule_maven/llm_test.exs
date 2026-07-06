@@ -2,7 +2,7 @@ defmodule RuleMaven.LLMTest do
   use RuleMaven.DataCase
 
   alias RuleMaven.{LLM, Games, Repo}
-  alias RuleMaven.Games.QuestionLog
+  alias RuleMaven.Games.{Chunk, QuestionLog}
 
   describe "response parsing" do
     test "extracts answer and citation" do
@@ -1214,6 +1214,75 @@ defmodule RuleMaven.LLMTest do
 
       assert result.answer == "The rulebook does not cover this question."
       assert result.citations == []
+    end
+
+    test "a refusal after the retry also survives clears the stale scalar citation fields", %{
+      game: game
+    } do
+      # Regression test: retried_result's `cited_passage`/`cited_page`/`cited_source`
+      # scalar fields must be cleared alongside `citations: []` in the refusal
+      # fallback. If they're left set to the retried (still-hallucinated) answer's
+      # real, grounded quote, ask_worker.ex's legacy-wrap path (which reconstructs
+      # a synthetic citation from those scalars whenever `citations` comes back
+      # empty) re-attaches a "valid" citation to a "not covered" refusal.
+      #
+      # A real chunk is seeded here — matching the quote the mocked retry cites —
+      # so this exercises the same non-trivial retrieval path production hits,
+      # rather than the vacuous case where `source_chunks` is empty regardless
+      # of whether the bug is fixed.
+      {:ok, doc} =
+        Games.create_document(%{
+          game_id: game.id,
+          label: "Core rules",
+          kind: "rulebook",
+          full_text: "seed"
+        })
+
+      {:ok, doc} = Games.update_document(doc, %{status: "published"})
+
+      Repo.insert!(%Chunk{
+        document_id: doc.id,
+        chunk_index: 0,
+        content: "[Page 9]\nMove the Terror Marker up one space.",
+        page_number: 9,
+        embedding: Pgvector.new(List.duplicate(0.1, 768))
+      })
+
+      Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, List.duplicate(0.1, 768)} end)
+      on_exit(fn -> Application.delete_env(:rule_maven, :embed_mock) end)
+
+      mock_llm(fn body ->
+        cond do
+          body[:model] == LLM.model(:cheap) ->
+            {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: defeating a Monster lowers Terror."}}
+
+          true ->
+            {:ok,
+             %{
+               answer:
+                 "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
+               citations: [
+                 %{
+                   "quote" => "Move the Terror Marker up one space.",
+                   "page" => 9,
+                   "source" => "Core"
+                 }
+               ],
+               cited_passage: "Move the Terror Marker up one space.",
+               cited_page: 9,
+               cited_source: "Core",
+               verdict: "info"
+             }}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "What raises Terror?", [], [], skip_pool: true)
+
+      assert result.answer == "The rulebook does not cover this question."
+      assert result.citations == []
+      assert result.cited_passage == nil
+      assert result.cited_page == nil
+      assert result.cited_source == nil
     end
   end
 

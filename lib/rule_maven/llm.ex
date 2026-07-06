@@ -343,7 +343,10 @@ defmodule RuleMaven.LLM do
             verdict: "silent",
             citations: [],
             followups: [],
-            also_asked: []
+            also_asked: [],
+            cited_passage: nil,
+            cited_page: nil,
+            cited_source: nil
           })
         else
           retried_result
@@ -839,9 +842,6 @@ defmodule RuleMaven.LLM do
 
     %{verdict: verdict, defects: defects}
   end
-
-  @grounding_verdicts [:grounded, :hallucinated]
-  def grounding_verdicts, do: @grounding_verdicts
 
   @doc """
   Parses a `grounding_critic` reply: a `VERDICT: grounded | hallucinated` line,
