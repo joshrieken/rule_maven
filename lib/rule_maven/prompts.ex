@@ -295,6 +295,13 @@ defmodule RuleMaven.Prompts do
   grounded. A claim no excerpt states or implies — even if it sounds plausible
   for this kind of game — is unsupported.
 
+  Negative inferences ARE grounded: when the excerpts say something happens
+  only at a specific time, phase, or condition ("play Perk cards during any
+  Hero Phase"), the ANSWER's claim that it does NOT happen at another time
+  ("Perk cards cannot be played during the Monster Phase") is a plain logical
+  restatement, not a hallucination. Flag only claims that would change a
+  ruling and that the excerpts neither state nor imply.
+
   If no RULEBOOK EXCERPTS section is present, judge against the CITED QUOTE(S)
   alone.
 
