@@ -1716,6 +1716,23 @@ defmodule RuleMaven.Games do
     )
   end
 
+  # Billable units for rate limiting: fresh asks (questions_log rows without a
+  # pool_source_id) plus house-rule RAW checks (each one is a real LLM call,
+  # logged in llm_logs under operation "house_rule_check").
+  def recent_billable_count(user_id, since) do
+    checks =
+      Repo.aggregate(
+        from(l in RuleMaven.LLM.Log,
+          where:
+            l.user_id == ^user_id and l.operation == "house_rule_check" and
+              l.inserted_at >= ^since
+        ),
+        :count
+      )
+
+    recent_question_count(user_id, since) + checks
+  end
+
   def grouped_questions(%Game{} = game, opts \\ []) do
     limit = Keyword.get(opts, :limit, 200)
     all = recent_questions(game, limit, opts)
@@ -1939,9 +1956,9 @@ defmodule RuleMaven.Games do
     else
       now = DateTime.utc_now()
 
-      daily_count = recent_question_count(user.id, DateTime.add(now, -1, :day))
-      weekly_count = recent_question_count(user.id, DateTime.add(now, -7, :day))
-      monthly_count = recent_question_count(user.id, DateTime.add(now, -30, :day))
+      daily_count = recent_billable_count(user.id, DateTime.add(now, -1, :day))
+      weekly_count = recent_billable_count(user.id, DateTime.add(now, -7, :day))
+      monthly_count = recent_billable_count(user.id, DateTime.add(now, -30, :day))
 
       daily_limit = parse_limit(Settings.get("rate_limit_daily"), 50)
       weekly_limit = parse_limit(Settings.get("rate_limit_weekly"), 200)
