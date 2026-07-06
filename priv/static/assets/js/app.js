@@ -619,6 +619,9 @@ Hooks.VoiceLoader = {
       if (phrases.length > 1 && i === last) i = (i + 1) % phrases.length;
       last = i;
       if (phraseEl) phraseEl.textContent = phrases[i];
+      // Longer phrases linger longer so they can actually be read.
+      const delay = Math.min(700 + phrases[i].length * 30, 2600);
+      this._phraseTimer = setTimeout(pickPhrase, delay);
     };
 
     const stepBar = () => {
@@ -631,11 +634,10 @@ Hooks.VoiceLoader = {
 
     pickPhrase();
     stepBar();
-    this._phraseTimer = setInterval(pickPhrase, 700);
     this._barTimer = setInterval(stepBar, 250);
   },
   destroyed() {
-    clearInterval(this._phraseTimer);
+    clearTimeout(this._phraseTimer);
     clearInterval(this._barTimer);
   }
 };
