@@ -186,6 +186,71 @@ defmodule RuleMaven.Games.Citations do
 
   def suspicious?(_answer, _quotes), do: false
 
+  # Smallest normalized word count an answer may keep after a clause strip —
+  # below this the salvage would gut the answer, so the caller should refuse.
+  @min_salvaged_words 8
+
+  @doc """
+  Removes a critic-flagged unsupported clause from `answer`, keeping the rest.
+
+  Tries an exact substring removal first; failing that, drops each line whose
+  normalized text matches (contains or is contained by) the normalized clause,
+  so markdown decoration in the answer doesn't defeat the match. Returns
+  `{:ok, stripped}` only when the clause was actually located AND enough
+  substantive answer remains; `:error` means the caller should fall back to a
+  full refusal.
+  """
+  def strip_unsupported_clause(answer, clause) when is_binary(answer) and is_binary(clause) do
+    clause = String.trim(clause)
+
+    with false <- clause == "",
+         {:ok, stripped} <- remove_clause(answer, clause),
+         true <- substantive?(stripped) do
+      {:ok, tidy(stripped)}
+    else
+      _ -> :error
+    end
+  end
+
+  def strip_unsupported_clause(_answer, _clause), do: :error
+
+  defp remove_clause(answer, clause) do
+    if String.contains?(answer, clause) do
+      {:ok, String.replace(answer, clause, "")}
+    else
+      remove_matching_lines(answer, normalize(clause))
+    end
+  end
+
+  defp remove_matching_lines(_answer, ""), do: :error
+
+  defp remove_matching_lines(answer, clause_norm) do
+    lines = String.split(answer, "\n")
+
+    kept =
+      Enum.reject(lines, fn line ->
+        case normalize(line) do
+          "" -> false
+          norm -> String.contains?(norm, clause_norm) or String.contains?(clause_norm, norm)
+        end
+      end)
+
+    if length(kept) == length(lines), do: :error, else: {:ok, Enum.join(kept, "\n")}
+  end
+
+  defp substantive?(stripped) do
+    word_count = stripped |> normalize() |> String.split(" ", trim: true) |> length()
+    word_count >= @min_salvaged_words
+  end
+
+  defp tidy(text) do
+    text
+    # Bullet/heading stubs left when only part of a line was removed.
+    |> String.replace(~r/^\s*(?:[-*•]|\d+\.)\s*$/m, "")
+    |> String.replace(~r/\n{3,}/, "\n\n")
+    |> String.trim()
+  end
+
   defp contains_word?(text, word) do
     Regex.match?(~r/\b#{Regex.escape(word)}\b/, text)
   end

@@ -420,34 +420,55 @@ defmodule RuleMaven.LLM do
       {:ok, retried_result} ->
         quotes = citation_quotes(retried_result[:citations])
 
-        still_hallucinated? =
-          RuleMaven.Games.Citations.suspicious?(retried_result[:answer], quotes) and
-            match?(
-              {:ok, %{verdict: :hallucinated}},
-              critique_grounding(quotes, retried_result[:answer],
-                sources: chunk_texts(chunks),
-                game_id: ctx.game_id,
-                user_id: ctx.user_id
-              )
+        recheck =
+          if RuleMaven.Games.Citations.suspicious?(retried_result[:answer], quotes) do
+            critique_grounding(quotes, retried_result[:answer],
+              sources: chunk_texts(chunks),
+              game_id: ctx.game_id,
+              user_id: ctx.user_id
             )
+          else
+            {:ok, %{verdict: :grounded}}
+          end
 
-        if still_hallucinated? do
-          Map.merge(retried_result, %{
-            answer: @refusal_answer,
-            verdict: "silent",
-            citations: [],
-            followups: [],
-            also_asked: [],
-            cited_passage: nil,
-            cited_page: nil,
-            cited_source: nil
-          })
-        else
-          retried_result
+        case recheck do
+          {:ok, %{verdict: :hallucinated, flagged_clause: clause}} ->
+            salvage_or_refuse(retried_result, clause)
+
+          _ ->
+            retried_result
         end
 
       {:error, _reason} ->
         original_result
+    end
+  end
+
+  # A twice-flagged answer is usually MOSTLY grounded — the critic names one
+  # unsupported clause, and discarding the whole answer over it produced false
+  # "rules silent" refusals (e.g. a correct items/heroes answer with one shaky
+  # aside). So drop just the flagged clause when it can be located and enough
+  # substance remains; only an unlocatable clause or a gutted answer falls back
+  # to the full refusal.
+  defp salvage_or_refuse(retried_result, flagged_clause) do
+    case RuleMaven.Games.Citations.strip_unsupported_clause(
+           retried_result[:answer],
+           flagged_clause
+         ) do
+      {:ok, stripped} ->
+        Map.put(retried_result, :answer, stripped)
+
+      :error ->
+        Map.merge(retried_result, %{
+          answer: @refusal_answer,
+          verdict: "silent",
+          citations: [],
+          followups: [],
+          also_asked: [],
+          cited_passage: nil,
+          cited_page: nil,
+          cited_source: nil
+        })
     end
   end
 
