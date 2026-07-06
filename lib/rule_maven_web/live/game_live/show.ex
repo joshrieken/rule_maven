@@ -616,7 +616,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def handle_event("start_edit_house_rule", %{"id" => id}, socket) do
     id = to_integer(id)
-    hr = RuleMaven.HouseRules.get(id)
+    hr = get_house_rule(id)
 
     if hr && owner?(socket, hr) do
       {:noreply, assign(socket, hr_editing_id: id)}
@@ -630,7 +630,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_event("edit_house_rule", %{"id" => id, "house_rule" => params}, socket) do
-    with %{} = hr <- RuleMaven.HouseRules.get(to_integer(id)),
+    with %{} = hr <- get_house_rule(id),
          true <- owner?(socket, hr),
          {:ok, _} <-
            RuleMaven.HouseRules.update_and_recheck(socket.assigns.current_user, hr, params) do
@@ -651,7 +651,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_event("delete_house_rule", %{"id" => id}, socket) do
-    with %{} = hr <- RuleMaven.HouseRules.get(to_integer(id)),
+    with %{} = hr <- get_house_rule(id),
          true <- owner?(socket, hr) do
       {:ok, _} = RuleMaven.HouseRules.delete(hr)
     end
@@ -660,7 +660,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_event("toggle_house_rule_visibility", %{"id" => id}, socket) do
-    with %{} = hr <- RuleMaven.HouseRules.get(to_integer(id)),
+    with %{} = hr <- get_house_rule(id),
          true <- owner?(socket, hr) do
       new_vis = if hr.visibility == "community", do: "private", else: "community"
       {:ok, _} = RuleMaven.HouseRules.update(hr, %{"visibility" => new_vis})
@@ -670,7 +670,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_event("recheck_house_rule", %{"id" => id}, socket) do
-    with %{} = hr <- RuleMaven.HouseRules.get(to_integer(id)),
+    with %{} = hr <- get_house_rule(id),
          true <- owner?(socket, hr),
          {:ok, _} <- RuleMaven.HouseRules.resubmit_check(socket.assigns.current_user, hr) do
       {:noreply, refresh_house_rules(socket)}
@@ -682,7 +682,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def handle_event("block_house_rule", %{"id" => id}, socket) do
     if RuleMaven.Users.can?(socket.assigns.current_user, :admin) do
-      if hr = RuleMaven.HouseRules.get(to_integer(id)) do
+      if hr = get_house_rule(id) do
         {:ok, _} = RuleMaven.HouseRules.set_blocked(hr, !hr.blocked)
       end
     end
@@ -1267,7 +1267,22 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   defp to_integer(id) when is_integer(id), do: id
-  defp to_integer(id) when is_binary(id), do: String.to_integer(id)
+
+  defp to_integer(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
+
+  # Guards HouseRules.get/1 against a nil id (a non-numeric phx-value-id):
+  # Repo.get/2 raises ArgumentError on a nil primary key, so a crafted
+  # non-numeric id must short-circuit to nil rather than reach the repo.
+  defp get_house_rule(nil), do: nil
+  defp get_house_rule(id), do: id |> to_integer() |> get_house_rule_by_int()
+
+  defp get_house_rule_by_int(nil), do: nil
+  defp get_house_rule_by_int(int), do: RuleMaven.HouseRules.get(int)
 
   defp owner?(socket, hr) do
     u = socket.assigns.current_user

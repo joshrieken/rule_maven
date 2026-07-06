@@ -158,6 +158,59 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     assert render(view) =~ "Overrides RAW"
   end
 
+  test "owner edits a house rule's body via the inline form", %{conn: conn} do
+    user = create_user("hr_edit")
+    game = published_game_fixture(%{name: "Edit Game"})
+
+    {:ok, hr} =
+      HouseRules.submit(user, game.id, %{"title" => "Old title", "body" => "Original body."})
+
+    {:ok, hr} = HouseRules.mark_checked(hr, %{verdict: "matches", raw_quote: nil, check_note: nil, citations: []})
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    render_click(view, "start_edit_house_rule", %{"id" => hr.id})
+
+    html =
+      view
+      |> form("form[phx-submit='edit_house_rule']",
+        house_rule: %{title: "Old title", body: "New body text."}
+      )
+      |> render_submit()
+
+    assert html =~ "New body text."
+
+    updated = HouseRules.get(hr.id)
+    assert updated.body == "New body text."
+    assert updated.check_status == "pending"
+
+    assert_enqueued worker: RuleMaven.Workers.HouseRuleCheckWorker, args: %{"house_rule_id" => hr.id}
+  end
+
+  test "owner re-checks a stale house rule", %{conn: conn} do
+    user = create_user("hr_recheck")
+    game = published_game_fixture(%{name: "Recheck Game"})
+
+    {:ok, hr} =
+      HouseRules.submit(user, game.id, %{"title" => "Rule", "body" => "Some body."})
+
+    {:ok, hr} =
+      HouseRules.mark_checked(hr, %{verdict: "matches", raw_quote: nil, check_note: nil, citations: []})
+
+    HouseRules.mark_stale_for_game(game.id)
+    hr = HouseRules.get(hr.id)
+    assert hr.check_status == "stale"
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    render_click(view, "recheck_house_rule", %{"id" => hr.id})
+
+    assert HouseRules.get(hr.id).check_status == "pending"
+    assert_enqueued worker: RuleMaven.Workers.HouseRuleCheckWorker, args: %{"house_rule_id" => hr.id}
+  end
+
   test "admin sees block control; regular user doesn't", %{conn: conn} do
     owner = create_user("hr_block_owner")
     admin = create_user("hr_block_admin", %{role: "admin"})

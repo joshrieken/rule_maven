@@ -1729,7 +1729,7 @@ defmodule RuleMaven.Games do
         from(l in RuleMaven.LLM.Log,
           where:
             l.user_id == ^user_id and l.operation == "house_rule_check" and
-              l.inserted_at >= ^since
+              l.inserted_at >= ^since and l.success == true
         ),
         :count
       )

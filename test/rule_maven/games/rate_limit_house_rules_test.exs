@@ -77,4 +77,19 @@ defmodule RuleMaven.Games.RateLimitHouseRulesTest do
     assert {:error, msg} = Games.check_rate_limit(user)
     assert msg =~ "Monthly"
   end
+
+  test "failed house_rule_check llm_logs rows do not count against the quota" do
+    user = user_fixture()
+    {:ok, user} = Users.set_quota(user, 1)
+
+    RuleMaven.Repo.insert!(%RuleMaven.LLM.Log{
+      operation: "house_rule_check",
+      user_id: user.id,
+      model: "test",
+      provider: "test",
+      success: false
+    })
+
+    assert :ok = Games.check_rate_limit(user)
+  end
 end

@@ -29,11 +29,24 @@ defmodule RuleMaven.Workers.HouseRuleCheckWorker do
         :ok
 
       Settings.asks_disabled?() ->
-        finalize_failure(hr, game_id, "LLM calls are disabled.")
+        kill_switch_failure(hr, game_id, oban_id)
 
       true ->
         run_check(hr, game_id, oban_id, attempt >= max)
     end
+  end
+
+  defp kill_switch_failure(hr, game_id, oban_id) do
+    label =
+      case Games.get_game(game_id) do
+        %{name: name} -> "House rule check — #{name}"
+        _ -> "House rule check"
+      end
+
+    run = Jobs.start_run("house_rule_check", {"house_rule", hr.id}, label, oban_job_id: oban_id)
+    finalize_failure(hr, game_id, "LLM calls are disabled.")
+    Jobs.finish_run(run, "skipped", "LLM calls disabled.")
+    :ok
   end
 
   defp run_check(hr, game_id, oban_id, last_attempt?) do
