@@ -48,13 +48,22 @@ defmodule RuleMaven.Games.CitationsTest do
   end
 
   describe "source-scoped validation" do
-    @rulebook %{label: "Core rules", content: "[Page 5]\nThe player with the most banners wins the region."}
+    @rulebook %{
+      label: "Core rules",
+      content: "[Page 5]\nThe player with the most banners wins the region."
+    }
     @faq %{label: "Official FAQ", content: "[Page 2]\nTies award the region to no one."}
 
     test "cited page must exist in the cited source" do
       # Page 5 exists in Core rules, not in the FAQ.
       assert Citations.valid?("most banners wins the region", 5, [@rulebook, @faq], "Core rules")
-      refute Citations.valid?("most banners wins the region", 5, [@rulebook, @faq], "Official FAQ")
+
+      refute Citations.valid?(
+               "most banners wins the region",
+               5,
+               [@rulebook, @faq],
+               "Official FAQ"
+             )
     end
 
     test "unknown source label falls back to pooled validation" do
@@ -67,7 +76,10 @@ defmodule RuleMaven.Games.CitationsTest do
   end
 
   describe "canonical_source/2" do
-    @rulebook %{label: "Core rules", content: "[Page 5]\nThe player with the most banners wins the region."}
+    @rulebook %{
+      label: "Core rules",
+      content: "[Page 5]\nThe player with the most banners wins the region."
+    }
     @faq %{label: "Official FAQ", content: "[Page 2]\nTies award the region to no one."}
 
     test "mixed-case match returns the chunk's canonical label" do
@@ -104,13 +116,21 @@ defmodule RuleMaven.Games.CitationsTest do
 
     test "keeps only the grounded entries, preserving order" do
       citations = [
-        %{"quote" => "draws three cards at the start of their turn", "page" => 3, "source" => nil},
+        %{
+          "quote" => "draws three cards at the start of their turn",
+          "page" => 3,
+          "source" => nil
+        },
         %{"quote" => "the dragon devours two villages each dawn", "page" => 3, "source" => nil},
         %{"quote" => "summing all face-up tokens", "page" => 7, "source" => nil}
       ]
 
       assert Citations.valid_citations(citations, @chunks) == [
-               %{"quote" => "draws three cards at the start of their turn", "page" => 3, "source" => nil},
+               %{
+                 "quote" => "draws three cards at the start of their turn",
+                 "page" => 3,
+                 "source" => nil
+               },
                %{"quote" => "summing all face-up tokens", "page" => 7, "source" => nil}
              ]
     end
@@ -126,6 +146,51 @@ defmodule RuleMaven.Games.CitationsTest do
 
     test "non-list input yields empty output" do
       assert Citations.valid_citations(nil, @chunks) == []
+    end
+  end
+
+  describe "suspicious?/2" do
+    test "flags a trigger word not present in the cited quotes" do
+      quotes = ["Move the Terror Marker up one space on the Terror Level Track."]
+
+      answer =
+        "Defeating a Hero or Citizen raises Terror. Defeating a Monster lowers it."
+
+      assert Citations.suspicious?(answer, quotes)
+    end
+
+    test "does not flag a trigger word that's already in the quote" do
+      quotes = [
+        "If a Hero is defeated, move the Terror Marker up one space unless a Citizen was already lost."
+      ]
+
+      answer = "Terror moves up one space unless a Citizen was already lost."
+
+      refute Citations.suspicious?(answer, quotes)
+    end
+
+    test "flags an answer disproportionately longer than its citations" do
+      quotes = ["Draw three cards."]
+
+      answer =
+        String.duplicate("This is extra elaboration not found in the source text. ", 10)
+
+      assert Citations.suspicious?(answer, quotes)
+    end
+
+    test "does not flag a plain answer with no trigger words and reasonable length" do
+      quotes = ["Each player draws three cards at the start of their turn."]
+      answer = "Each player draws three cards at the start of their turn."
+
+      refute Citations.suspicious?(answer, quotes)
+    end
+
+    test "refusal text with no citations is never flagged" do
+      refute Citations.suspicious?("The rulebook does not cover this question.", [])
+    end
+
+    test "nil answer is never flagged" do
+      refute Citations.suspicious?(nil, ["some quote"])
     end
   end
 end

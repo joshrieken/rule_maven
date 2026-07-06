@@ -278,6 +278,30 @@ defmodule RuleMaven.Prompts do
   the verdict is faithful, output exactly NONE after the verdict line.
   """
 
+  @grounding_critic """
+  You are an adversarial fact-checker. You are given a RULEBOOK QUOTE that was
+  cited as support for an ANSWER a rules-assistant wrote. Assume the ANSWER
+  contains an unsupported claim until proven otherwise.
+
+  Check: does every claim in the ANSWER follow directly from the QUOTE (or a
+  plain logical restatement of it)? A claim the QUOTE does not state or imply
+  — even if it sounds plausible for this kind of game — is unsupported.
+
+  First output exactly one verdict line:
+
+  VERDICT: grounded | hallucinated
+
+  - grounded — every claim in the ANSWER is stated or directly implied by the QUOTE.
+  - hallucinated — the ANSWER states a rule, effect, or condition the QUOTE does
+    not support.
+
+  If hallucinated, output one more line:
+
+  FLAGGED: <the exact unsupported clause, quoted from the ANSWER>
+
+  If grounded, output nothing further.
+  """
+
   # Vars: game_name, exclude, rulebook
   @suggest_questions """
   Based on the rulebook text below for "{{game_name}}", suggest common rules questions grouped by topic category.
@@ -785,6 +809,15 @@ defmodule RuleMaven.Prompts do
       default: @cleanup_critic
     },
     %{
+      key: "grounding_critic",
+      group: "Q&A",
+      label: "Answer — grounding critic",
+      description:
+        "Escalated check run only when the cheap heuristic flags an answer as possibly unsupported by its own citation. Typed verdict (grounded/hallucinated) plus the flagged clause.",
+      vars: [],
+      default: @grounding_critic
+    },
+    %{
       key: "vision_transcribe",
       group: "Vision OCR",
       label: "Vision — transcribe page",
@@ -944,7 +977,8 @@ defmodule RuleMaven.Prompts do
       key: "generate_voices",
       group: "Persona",
       label: "Per-game personas — prompt",
-      description: "Invents 3–10 personas themed to a specific game from its rulebook, ranked by predicted popularity.",
+      description:
+        "Invents 3–10 personas themed to a specific game from its rulebook, ranked by predicted popularity.",
       vars: ~w(game_name rulebook),
       default: @generate_voices
     },

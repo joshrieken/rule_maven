@@ -2,7 +2,7 @@ defmodule RuleMaven.LLMTest do
   use RuleMaven.DataCase
 
   alias RuleMaven.{LLM, Games, Repo}
-  alias RuleMaven.Games.QuestionLog
+  alias RuleMaven.Games.{Chunk, QuestionLog}
 
   describe "response parsing" do
     test "extracts answer and citation" do
@@ -524,7 +524,9 @@ defmodule RuleMaven.LLMTest do
 
   describe "voice parsing includes loading_phrases" do
     test "parses loading_phrases when present" do
-      json = ~s([{"slug":"herald","label":"Herald","emoji":"🦉","style":"a courtly herald","loading_phrases":["Sounding the horn…","Unrolling the scroll…"]}])
+      json =
+        ~s([{"slug":"herald","label":"Herald","emoji":"🦉","style":"a courtly herald","loading_phrases":["Sounding the horn…","Unrolling the scroll…"]}])
+
       [v] = RuleMaven.LLM.__parse_voices__(json)
       assert v.loading_phrases == ["Sounding the horn…", "Unrolling the scroll…"]
     end
@@ -536,7 +538,9 @@ defmodule RuleMaven.LLMTest do
     end
 
     test "drops non-string and blank loading_phrases entries" do
-      json = ~s([{"slug":"h","label":"H","emoji":"🦉","style":"x","loading_phrases":["ok ", 3, "", "  ", "two"]}])
+      json =
+        ~s([{"slug":"h","label":"H","emoji":"🦉","style":"x","loading_phrases":["ok ", 3, "", "  ", "two"]}])
+
       [v] = RuleMaven.LLM.__parse_voices__(json)
       assert v.loading_phrases == ["ok", "two"]
     end
@@ -1013,8 +1017,7 @@ defmodule RuleMaven.LLMTest do
         if content =~ "Same underlying rules question?" do
           flunk("tiebreaker must not be called below the 0.85 floor")
         else
-          {:ok,
-           %{answer: "Fresh answer.", cited_passage: "p.1", followup: false, followups: []}}
+          {:ok, %{answer: "Fresh answer.", cited_passage: "p.1", followup: false, followups: []}}
         end
       end)
 
@@ -1078,6 +1081,208 @@ defmodule RuleMaven.LLMTest do
       assert result[:same_user_hit] == true
       assert result[:source_question_log_id] == own_q.id
       assert result.answer == "Own prior answer."
+    end
+  end
+
+  describe "grounding critic on fresh answers" do
+    setup do
+      RuleMaven.Settings.put("llm_cheap_model_openrouter", "google/gemini-2.0-flash")
+      {:ok, game} = Games.create_game(%{name: "GroundingGame"})
+      %{game: game}
+    end
+
+    test "a grounded answer is untouched (heuristic never trips)", %{game: game} do
+      mock_llm(fn _body ->
+        {:ok,
+         %{
+           answer: "You draw three cards.",
+           citations: [
+             %{"quote" => "Each player draws three cards.", "page" => 1, "source" => "Core"}
+           ],
+           verdict: "info"
+         }}
+      end)
+
+      {:ok, result} = LLM.ask(game, "How many cards do I draw?", [], [], skip_pool: true)
+
+      assert result.answer == "You draw three cards."
+    end
+
+    test "a flagged-but-grounded answer survives the critic (false positive cleared)", %{
+      game: game
+    } do
+      # Trips the heuristic on length ratio alone (answer >> quote word count,
+      # no trigger keyword needed) — critic then clears it as grounded, so the
+      # long-but-faithful paraphrase must survive unchanged.
+      long_answer =
+        String.duplicate(
+          "Draw three cards at the start of your turn as the rulebook describes. ",
+          10
+        )
+        |> String.trim()
+
+      mock_llm(fn body ->
+        cond do
+          body[:model] == LLM.model(:cheap) ->
+            {:ok, %{answer: "VERDICT: grounded"}}
+
+          true ->
+            {:ok,
+             %{
+               answer: long_answer,
+               citations: [%{"quote" => "Draw three cards.", "page" => 4, "source" => "Core"}],
+               verdict: "info"
+             }}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "How many cards do I draw?", [], [], skip_pool: true)
+
+      assert result.answer == long_answer
+    end
+
+    test "a confirmed hallucination triggers one re-ask that succeeds", %{game: game} do
+      mock_llm(fn body ->
+        cond do
+          body[:model] == LLM.model(:cheap) ->
+            {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: defeating a Monster lowers Terror."}}
+
+          is_list(body[:messages]) and
+              Enum.any?(
+                body[:messages],
+                &String.contains?(&1[:content] || "", "unsupported claim")
+              ) ->
+            {:ok,
+             %{
+               answer: "Terror rises when a Hero or Citizen is defeated.",
+               citations: [
+                 %{
+                   "quote" => "Move the Terror Marker up one space.",
+                   "page" => 9,
+                   "source" => "Core"
+                 }
+               ],
+               verdict: "info"
+             }}
+
+          true ->
+            {:ok,
+             %{
+               answer:
+                 "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
+               citations: [
+                 %{
+                   "quote" => "Move the Terror Marker up one space.",
+                   "page" => 9,
+                   "source" => "Core"
+                 }
+               ],
+               verdict: "info"
+             }}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "What raises Terror?", [], [], skip_pool: true)
+
+      assert result.answer == "Terror rises when a Hero or Citizen is defeated."
+    end
+
+    test "a hallucination that survives the retry falls back to refusal", %{game: game} do
+      mock_llm(fn body ->
+        cond do
+          body[:model] == LLM.model(:cheap) ->
+            {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: defeating a Monster lowers Terror."}}
+
+          true ->
+            {:ok,
+             %{
+               answer:
+                 "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
+               citations: [
+                 %{
+                   "quote" => "Move the Terror Marker up one space.",
+                   "page" => 9,
+                   "source" => "Core"
+                 }
+               ],
+               verdict: "info"
+             }}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "What raises Terror?", [], [], skip_pool: true)
+
+      assert result.answer == "The rulebook does not cover this question."
+      assert result.citations == []
+    end
+
+    test "a refusal after the retry also survives clears the stale scalar citation fields", %{
+      game: game
+    } do
+      # Regression test: retried_result's `cited_passage`/`cited_page`/`cited_source`
+      # scalar fields must be cleared alongside `citations: []` in the refusal
+      # fallback. If they're left set to the retried (still-hallucinated) answer's
+      # real, grounded quote, ask_worker.ex's legacy-wrap path (which reconstructs
+      # a synthetic citation from those scalars whenever `citations` comes back
+      # empty) re-attaches a "valid" citation to a "not covered" refusal.
+      #
+      # A real chunk is seeded here — matching the quote the mocked retry cites —
+      # so this exercises the same non-trivial retrieval path production hits,
+      # rather than the vacuous case where `source_chunks` is empty regardless
+      # of whether the bug is fixed.
+      {:ok, doc} =
+        Games.create_document(%{
+          game_id: game.id,
+          label: "Core rules",
+          kind: "rulebook",
+          full_text: "seed"
+        })
+
+      {:ok, doc} = Games.update_document(doc, %{status: "published"})
+
+      Repo.insert!(%Chunk{
+        document_id: doc.id,
+        chunk_index: 0,
+        content: "[Page 9]\nMove the Terror Marker up one space.",
+        page_number: 9,
+        embedding: Pgvector.new(List.duplicate(0.1, 768))
+      })
+
+      Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, List.duplicate(0.1, 768)} end)
+      on_exit(fn -> Application.delete_env(:rule_maven, :embed_mock) end)
+
+      mock_llm(fn body ->
+        cond do
+          body[:model] == LLM.model(:cheap) ->
+            {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: defeating a Monster lowers Terror."}}
+
+          true ->
+            {:ok,
+             %{
+               answer:
+                 "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
+               citations: [
+                 %{
+                   "quote" => "Move the Terror Marker up one space.",
+                   "page" => 9,
+                   "source" => "Core"
+                 }
+               ],
+               cited_passage: "Move the Terror Marker up one space.",
+               cited_page: 9,
+               cited_source: "Core",
+               verdict: "info"
+             }}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "What raises Terror?", [], [], skip_pool: true)
+
+      assert result.answer == "The rulebook does not cover this question."
+      assert result.citations == []
+      assert result.cited_passage == nil
+      assert result.cited_page == nil
+      assert result.cited_source == nil
     end
   end
 

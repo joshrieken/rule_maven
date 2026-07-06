@@ -83,7 +83,8 @@ defmodule RuleMaven.LLM do
       user_semantic ->
         serve_from_cache(user_semantic, question_embedding, cleaned, game.id, user_id, true)
 
-      pool_hit = find_pool_hit(game, question_embedding, expansion_ids, skip_pool, match_text, user_id) ->
+      pool_hit =
+          find_pool_hit(game, question_embedding, expansion_ids, skip_pool, match_text, user_id) ->
         serve_from_cache(pool_hit, question_embedding, cleaned, game.id, user_id, false)
 
       true ->
@@ -221,26 +222,28 @@ defmodule RuleMaven.LLM do
     retrieval_opts = if question_embedding, do: [embedding: question_embedding], else: []
     chunks = RuleMaven.Games.retrieve_chunks_for_games(game_ids, question, retrieval_opts)
     context = build_context_block(chunks, game.id)
-    system_prompt = build_system_prompt(game.name, game.category, context, recent_context, voice, game)
+
+    system_prompt =
+      build_system_prompt(game.name, game.category, context, recent_context, voice, game)
+
     provider_name = provider()
     model_name = model()
 
-    body = %{
-      model: model_name,
-      max_tokens: 2048,
-      response_format: %{type: "json_object"},
-      messages: [
-        %{role: "system", content: system_prompt},
-        %{role: "user", content: question}
-      ]
+    ctx = %{
+      question: question,
+      model_name: model_name,
+      game_id: game.id,
+      user_id: user_id
     }
 
-    case do_request(body, 1, operation: "ask", game_id: game.id, user_id: user_id) do
-      {:ok, %{answer: answer, cited_passage: passage} = llm_result} ->
+    case request_answer(system_prompt, question, model_name, game.id, user_id) do
+      {:ok, llm_result} ->
+        llm_result = maybe_reground(llm_result, system_prompt, ctx)
+
         {:ok,
          %{
-           answer: answer,
-           cited_passage: passage,
+           answer: llm_result[:answer],
+           cited_passage: llm_result[:cited_passage],
            cited_page: llm_result[:cited_page],
            cited_source: llm_result[:cited_source],
            citations: llm_result[:citations] || [],
@@ -266,6 +269,98 @@ defmodule RuleMaven.LLM do
         {:error, reason}
     end
   end
+
+  # Single answer-model call, extracted so `maybe_reground/3`'s retry can
+  # re-issue it with a modified system prompt without duplicating the body
+  # shape.
+  defp request_answer(system_prompt, question, model_name, game_id, user_id) do
+    body = %{
+      model: model_name,
+      max_tokens: 2048,
+      response_format: %{type: "json_object"},
+      messages: [
+        %{role: "system", content: system_prompt},
+        %{role: "user", content: question}
+      ]
+    }
+
+    do_request(body, 1, operation: "ask", game_id: game_id, user_id: user_id)
+  end
+
+  # Escalate-only-on-suspicion grounding check. Free heuristic first
+  # (`Citations.suspicious?/2`); only on a hit does this spend a cheap-model
+  # critic call. On a confirmed hallucination, re-runs the full answer call
+  # ONCE with a warning naming the flagged claim; a second failure discards
+  # the answer in favor of the standard "not covered" refusal so the rest of
+  # the pipeline (ask_worker.ex's `refused?/1`) needs no changes.
+  defp maybe_reground(llm_result, system_prompt, ctx) do
+    quotes = citation_quotes(llm_result[:citations])
+
+    if RuleMaven.Games.Citations.suspicious?(llm_result[:answer], quotes) do
+      case critique_grounding(quotes, llm_result[:answer],
+             game_id: ctx.game_id,
+             user_id: ctx.user_id
+           ) do
+        {:ok, %{verdict: :hallucinated, flagged_clause: clause}} ->
+          retry_ungrounded_answer(llm_result, clause, system_prompt, ctx)
+
+        _ ->
+          llm_result
+      end
+    else
+      llm_result
+    end
+  end
+
+  defp retry_ungrounded_answer(original_result, flagged_clause, system_prompt, ctx) do
+    warning =
+      "\n\nIMPORTANT: a previous answer attempt included this unsupported claim — " <>
+        "do not repeat it: #{inspect(flagged_clause)}. Base your answer strictly on the RULEBOOK text above."
+
+    case request_answer(
+           system_prompt <> warning,
+           ctx.question,
+           ctx.model_name,
+           ctx.game_id,
+           ctx.user_id
+         ) do
+      {:ok, retried_result} ->
+        quotes = citation_quotes(retried_result[:citations])
+
+        still_hallucinated? =
+          RuleMaven.Games.Citations.suspicious?(retried_result[:answer], quotes) and
+            match?(
+              {:ok, %{verdict: :hallucinated}},
+              critique_grounding(quotes, retried_result[:answer],
+                game_id: ctx.game_id,
+                user_id: ctx.user_id
+              )
+            )
+
+        if still_hallucinated? do
+          Map.merge(retried_result, %{
+            answer: "The rulebook does not cover this question.",
+            verdict: "silent",
+            citations: [],
+            followups: [],
+            also_asked: [],
+            cited_passage: nil,
+            cited_page: nil,
+            cited_source: nil
+          })
+        else
+          retried_result
+        end
+
+      {:error, _reason} ->
+        original_result
+    end
+  end
+
+  defp citation_quotes(citations) when is_list(citations),
+    do: citations |> Enum.map(& &1["quote"]) |> Enum.filter(&is_binary/1)
+
+  defp citation_quotes(_citations), do: []
 
   @doc """
   Groups retrieval chunks into per-source blocks for the answer prompt. Chunks
@@ -392,6 +487,7 @@ defmodule RuleMaven.LLM do
 
       questions ->
         bullets = Enum.map_join(questions, "\n", &"- #{&1}")
+
         "\nAlready-answered questions for this game (reuse verbatim if this question means the same thing):\n#{bullets}\n"
     end
   end
@@ -521,6 +617,33 @@ defmodule RuleMaven.LLM do
            game_id: opts[:game_id]
          ) do
       {:ok, text} -> {:ok, parse_critic_verdict(text)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Escalated check for whether `answer`'s claims are supported by its own
+  cited `quotes`. Only called when `Citations.suspicious?/2` has already
+  flagged the pair — this is the expensive (LLM) half of that two-stage
+  gate. Uses the cheap model by default (text-only, cheap), same as the
+  cleanup critic. Callers treat an error as grounded — a critic failure
+  must never block or discard an answer.
+  """
+  def critique_grounding(quotes, answer, opts \\ []) do
+    quoted_text = quotes |> List.wrap() |> Enum.filter(&is_binary/1) |> Enum.join("\n\n")
+
+    user =
+      "CITED QUOTE(S):\n\n" <> quoted_text <> "\n\n---\n\nANSWER:\n\n" <> (answer || "")
+
+    case chat(user, "grounding_critic",
+           system: RuleMaven.Prompts.template("grounding_critic"),
+           max_tokens: 300,
+           model: opts[:model] || model(:cheap),
+           operation: "grounding_critic",
+           game_id: opts[:game_id],
+           user_id: opts[:user_id]
+         ) do
+      {:ok, text} -> {:ok, parse_grounding_verdict(text)}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -721,6 +844,30 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
+  Parses a `grounding_critic` reply: a `VERDICT: grounded | hallucinated` line,
+  plus (only on hallucinated) a `FLAGGED: <clause>` line naming the unsupported
+  claim. A missing or unrecognized verdict falls back to `:grounded` — this
+  critic must never block an answer on a malformed reply.
+  """
+  def parse_grounding_verdict(text) do
+    trimmed = String.trim(text || "")
+
+    verdict =
+      case Regex.run(~r/^\s*verdict:\s*(grounded|hallucinated)\b/im, trimmed) do
+        [_, v] -> String.to_existing_atom(String.downcase(v))
+        _ -> :grounded
+      end
+
+    flagged_clause =
+      case Regex.run(~r/^\s*flagged:\s*(.+)$/im, trimmed) do
+        [_, clause] -> String.trim(clause)
+        _ -> nil
+      end
+
+    %{verdict: verdict, flagged_clause: flagged_clause}
+  end
+
+  @doc """
   Sends a generic chat prompt to the LLM. Returns `{:ok, raw_text}` or `{:error, reason}`.
   Options: :max_tokens (default 2048), :system (system prompt string)
   """
@@ -783,7 +930,8 @@ defmodule RuleMaven.LLM do
     :ok
   end
 
-  defp maybe_record_prompt_cache(actual_model, opts, %{cached: cached}) when is_integer(cached) and cached > 0 do
+  defp maybe_record_prompt_cache(actual_model, opts, %{cached: cached})
+       when is_integer(cached) and cached > 0 do
     require Logger
 
     try do
@@ -811,7 +959,9 @@ defmodule RuleMaven.LLM do
       default = model(:default)
 
       if actual_model == model(:cheap) and actual_model != default do
-        saved = RuleMaven.LLM.Pricing.cost(default, p, c) - RuleMaven.LLM.Pricing.cost(actual_model, p, c)
+        saved =
+          RuleMaven.LLM.Pricing.cost(default, p, c) -
+            RuleMaven.LLM.Pricing.cost(actual_model, p, c)
 
         RuleMaven.LLM.Savings.record("cheap_route", %{
           operation: opts[:operation] || "unknown",
@@ -965,7 +1115,9 @@ defmodule RuleMaven.LLM do
 
   # Provider-reported cached prompt tokens, OpenAI-compatible shape OpenRouter
   # forwards. Tolerates the field being absent (other providers) → 0.
-  defp cached_tokens(%{"prompt_tokens_details" => %{"cached_tokens" => n}}) when is_integer(n), do: n
+  defp cached_tokens(%{"prompt_tokens_details" => %{"cached_tokens" => n}}) when is_integer(n),
+    do: n
+
   defp cached_tokens(%{"cached_tokens" => n}) when is_integer(n), do: n
   defp cached_tokens(_), do: 0
 
