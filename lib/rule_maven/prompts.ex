@@ -522,6 +522,7 @@ defmodule RuleMaven.Prompts do
       "style": "a one-sentence description of how this persona talks, in the same form as 'a swashbuckling pirate who uses nautical slang.'",
       "description": "a short user-facing blurb (max ~12 words) saying who this persona is, e.g. 'The ship's weary quartermaster, buried in paperwork.'",
       "loading_phrases": ["Hoisting the sails…", "Counting the doubloons…", "Sighing at landlubbers…", "Polishing the anchor…"],
+      "thanks_phrases": ["Yer vote's in the ledger. Finally, some good news.", "Marked ye down for extra grog."],
       "popularity_rank": 1
     }
   ]
@@ -542,6 +543,11 @@ defmodule RuleMaven.Prompts do
     splines…"), each ending with an ellipsis. They are flavor ONLY: never a
     rule, number, or game fact. Give every one real variety (different verbs,
     objects, jokes) — do not pad with near-duplicates.
+  - "thanks_phrases" is an array of 8-10 short (≤ 10 words) in-character
+    thank-you lines this persona says when a player up-votes a helpful answer —
+    a toast congratulating/thanking the voter. Same flavor-only rule: never a
+    rule, number, or game fact. Complete sentences (no trailing ellipsis),
+    each with its own joke — vary the angle, do not pad with near-duplicates.
   - "popularity_rank" is an integer, 1 = the persona fans of THIS specific
     game would most want to use, ascending with no gaps, unique across the
     personas you return (1, 2, 3, ...). Judge this by fit and fun for fans of
