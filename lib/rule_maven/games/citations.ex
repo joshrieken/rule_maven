@@ -20,6 +20,14 @@ defmodule RuleMaven.Games.Citations do
   # Passages shorter than this (normalized) are too generic to verify reliably.
   @min_needle_len 12
 
+  # Words that describe a rule's effect/consequence. Present in the answer but
+  # absent from every cited quote is a strong signal the model added a claim
+  # the citation doesn't actually support.
+  @trigger_words ~w(
+    lowers raises increases decreases unless instead always never must cannot
+    before after only if requires prevents allows forbidden mandatory optional
+  )
+
   @doc "True if the citation is grounded in `source_chunks` (a list of strings)."
   def valid?(passage, cited_page, source_chunks) do
     valid?(passage, cited_page, source_chunks, nil)
@@ -150,5 +158,35 @@ defmodule RuleMaven.Games.Citations do
     |> String.replace(~r/[^a-z0-9 ]/, " ")
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
+  end
+
+  # An answer whose prose isn't plausibly grounded in its own cited quotes:
+  # either it uses a consequence/causal word the quotes never state, or it's
+  # much longer than the quotes could support. Cheap (no LLM call) first-pass
+  # gate — a true positive here gets escalated to `LLM.critique_grounding/3`.
+  def suspicious?(answer, quotes) when is_binary(answer) do
+    quotes = quotes |> List.wrap() |> Enum.filter(&is_binary/1)
+
+    answer_norm = normalize(answer)
+    combined_quote_norm = quotes |> Enum.join(" ") |> normalize()
+
+    keyword_hit? =
+      Enum.any?(@trigger_words, fn word ->
+        contains_word?(answer_norm, word) and not contains_word?(combined_quote_norm, word)
+      end)
+
+    quote_word_count = combined_quote_norm |> String.split(" ", trim: true) |> length()
+    answer_word_count = answer_norm |> String.split(" ", trim: true) |> length()
+
+    length_ratio_hit? =
+      quote_word_count > 0 and answer_word_count > quote_word_count * 2.5
+
+    keyword_hit? or length_ratio_hit?
+  end
+
+  def suspicious?(_answer, _quotes), do: false
+
+  defp contains_word?(text, word) do
+    Regex.match?(~r/\b#{Regex.escape(word)}\b/, text)
   end
 end

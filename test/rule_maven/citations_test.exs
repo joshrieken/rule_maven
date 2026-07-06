@@ -128,4 +128,46 @@ defmodule RuleMaven.Games.CitationsTest do
       assert Citations.valid_citations(nil, @chunks) == []
     end
   end
+
+  describe "suspicious?/2" do
+    test "flags a trigger word not present in the cited quotes" do
+      quotes = ["Move the Terror Marker up one space on the Terror Level Track."]
+
+      answer =
+        "Defeating a Hero or Citizen raises Terror. Defeating a Monster lowers it."
+
+      assert Citations.suspicious?(answer, quotes)
+    end
+
+    test "does not flag a trigger word that's already in the quote" do
+      quotes = ["If a Hero is defeated, move the Terror Marker up one space unless a Citizen was already lost."]
+      answer = "Terror moves up one space unless a Citizen was already lost."
+
+      refute Citations.suspicious?(answer, quotes)
+    end
+
+    test "flags an answer disproportionately longer than its citations" do
+      quotes = ["Draw three cards."]
+
+      answer =
+        String.duplicate("This is extra elaboration not found in the source text. ", 10)
+
+      assert Citations.suspicious?(answer, quotes)
+    end
+
+    test "does not flag a plain answer with no trigger words and reasonable length" do
+      quotes = ["Each player draws three cards at the start of their turn."]
+      answer = "Each player draws three cards at the start of their turn."
+
+      refute Citations.suspicious?(answer, quotes)
+    end
+
+    test "refusal text with no citations is never flagged" do
+      refute Citations.suspicious?("The rulebook does not cover this question.", [])
+    end
+
+    test "nil answer is never flagged" do
+      refute Citations.suspicious?(nil, ["some quote"])
+    end
+  end
 end
