@@ -129,6 +129,28 @@ defmodule RuleMavenWeb.GameLive.Faq do
     end
   end
 
+  @impl true
+  def handle_event("pull_for_review", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    user = socket.assigns.current_user
+
+    # Scope to this game so a forged id from another game can't be pulled here.
+    if Enum.any?(socket.assigns.community_questions, &(&1.id == id)) do
+      case Games.pull_for_review(id, user) do
+        {:ok, _} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Pulled from the FAQ — it's in the moderation queue.")
+           |> reload()}
+
+        {:error, message} ->
+          {:noreply, put_flash(socket, :error, message)}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
   defp report_flash(true), do: "Reported and pulled from the FAQ for review. Thanks!"
   defp report_flash(false), do: "Reported — thanks. A moderator will take a look."
 
@@ -410,23 +432,37 @@ defmodule RuleMavenWeb.GameLive.Faq do
                 class="card-menu__item"
                 title="Open this answer in the chat to generate a fresh version"
               >↻ Regenerate</.link>
-              <%= if MapSet.member?(@flagged_ids, @q.id) do %>
+              <%= if @is_admin do %>
+                <!-- Admins don't report (they ARE the moderators) — direct
+                     pull into the moderation queue instead. Softer than the
+                     ✕ reject next door: pull keeps it recoverable via review. -->
                 <button
                   type="button"
-                  disabled
-                  class="card-menu__item"
-                  style="opacity:0.6;cursor:default"
-                  title="You reported this answer"
-                >✓ Reported</button>
-              <% else %>
-                <button
-                  type="button"
-                  phx-click="report_answer"
+                  phx-click="pull_for_review"
                   phx-value-id={@q.id}
-                  data-confirm="Report this answer as wrong or unhelpful? A moderator will review it."
+                  data-confirm="Pull this answer from the FAQ for review? It stays out until re-approved."
                   class="card-menu__item"
-                  title="Report a wrong or unhelpful answer"
-                >🚩 Report</button>
+                  title="Pull into the moderation queue"
+                >⏸ Pull for review</button>
+              <% else %>
+                <%= if MapSet.member?(@flagged_ids, @q.id) do %>
+                  <button
+                    type="button"
+                    disabled
+                    class="card-menu__item"
+                    style="opacity:0.6;cursor:default"
+                    title="You reported this answer"
+                  >✓ Reported</button>
+                <% else %>
+                  <button
+                    type="button"
+                    phx-click="report_answer"
+                    phx-value-id={@q.id}
+                    data-confirm="Report this answer as wrong or unhelpful? A moderator will review it."
+                    class="card-menu__item"
+                    title="Report a wrong or unhelpful answer"
+                  >🚩 Report</button>
+                <% end %>
               <% end %>
             </div>
           </details>

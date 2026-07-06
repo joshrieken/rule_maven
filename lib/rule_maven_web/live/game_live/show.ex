@@ -674,6 +674,33 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
+  def handle_event("pull_for_review", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    user = socket.assigns.current_user
+    game = socket.assigns.game
+
+    # Like flag_question: target the *source* row behind a pool hit, scoped to
+    # this game so a forged id from another game can't be pulled here.
+    msg = Enum.find(socket.assigns.conversation, &(&1[:id] == id && &1.role == :assistant))
+    target = (msg && msg[:pool_source_id]) || id
+
+    if find_question_log(game, target) do
+      case Games.pull_for_review(target, user) do
+        {:ok, %{pulled: true}} ->
+          {:noreply,
+           put_flash(socket, :info, "Pulled from the pool — it's in the moderation queue.")}
+
+        {:ok, %{pulled: false}} ->
+          {:noreply, put_flash(socket, :info, "Already out of the pool, awaiting review.")}
+
+        {:error, message} ->
+          {:noreply, put_flash(socket, :error, message)}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
   @impl true
   def handle_event("switch_thread", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
@@ -2516,22 +2543,35 @@ defmodule RuleMavenWeb.GameLive.Show do
 
                   <!-- Refusal report: lets a player flag a wrong "not covered" so
                        an admin can review — reuses flag_question, which also
-                       fetches a fresh (skip_pool) answer for the reporter. -->
+                       fetches a fresh (skip_pool) answer for the reporter.
+                       Admins don't report (they ARE the reviewers); they get a
+                       direct regenerate instead. -->
                   <%= if msg.role == :assistant && msg[:refused] && msg.content != "Thinking..." do %>
                     <div style="margin-top:0.4rem">
-                      <%= if MapSet.member?(@flagged_ids, msg[:id]) do %>
-                        <span style="font-size:0.65rem;color:var(--text-muted)">
-                          ✓ Reported — thanks
-                        </span>
-                      <% else %>
+                      <%= if @is_admin do %>
                         <button
                           type="button"
-                          phx-click="flag_question"
+                          phx-click="regenerate_answer"
                           phx-value-id={msg.id}
-                          data-confirm="Report this as wrongly marked 'not covered'? A moderator will review it, and we'll fetch you a fresh answer."
+                          data-confirm="Regenerate a fresh answer for this wrongly refused question?"
                           style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted)"
-                          title="This should be covered by the rulebook"
-                        >🚩 Report as miscategorized</button>
+                          title="Wrongly marked 'not covered' — fetch a fresh answer"
+                        >↻ Regenerate — wrongly refused</button>
+                      <% else %>
+                        <%= if MapSet.member?(@flagged_ids, msg[:id]) do %>
+                          <span style="font-size:0.65rem;color:var(--text-muted)">
+                            ✓ Reported — thanks
+                          </span>
+                        <% else %>
+                          <button
+                            type="button"
+                            phx-click="flag_question"
+                            phx-value-id={msg.id}
+                            data-confirm="Report this as wrongly marked 'not covered'? A moderator will review it, and we'll fetch you a fresh answer."
+                            style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted)"
+                            title="This should be covered by the rulebook"
+                          >🚩 Report as miscategorized</button>
+                        <% end %>
                       <% end %>
                     </div>
                   <% end %>
@@ -2742,23 +2782,36 @@ defmodule RuleMavenWeb.GameLive.Show do
                       >↻ Regenerate</button>
                       <% flag_id = msg[:pool_source_id] || msg[:id] %>
                       <%= if flag_id && msg.content != "Thinking..." do %>
-                        <%= if MapSet.member?(@flagged_ids, flag_id) do %>
+                        <%= if @is_admin do %>
+                          <!-- Admins don't report (they ARE the moderators) —
+                               direct pull from the pool instead. -->
                           <button
                             type="button"
-                            disabled
-                            class="card-menu__item"
-                            style="opacity:0.6;cursor:default"
-                            title="You reported this answer"
-                          >✓ Reported</button>
-                        <% else %>
-                          <button
-                            type="button"
-                            phx-click="flag_question"
+                            phx-click="pull_for_review"
                             phx-value-id={msg.id}
-                            data-confirm="Report this answer as wrong or unhelpful? A moderator will review it, and we'll fetch you a fresh answer."
+                            data-confirm="Pull this answer from the shared pool for review? It stays out of the pool until re-approved."
                             class="card-menu__item"
-                            title="Report a wrong or unhelpful answer"
-                          >🚩 Report</button>
+                            title="Pull from the pool into the moderation queue"
+                          >⏸ Pull for review</button>
+                        <% else %>
+                          <%= if MapSet.member?(@flagged_ids, flag_id) do %>
+                            <button
+                              type="button"
+                              disabled
+                              class="card-menu__item"
+                              style="opacity:0.6;cursor:default"
+                              title="You reported this answer"
+                            >✓ Reported</button>
+                          <% else %>
+                            <button
+                              type="button"
+                              phx-click="flag_question"
+                              phx-value-id={msg.id}
+                              data-confirm="Report this answer as wrong or unhelpful? A moderator will review it, and we'll fetch you a fresh answer."
+                              class="card-menu__item"
+                              title="Report a wrong or unhelpful answer"
+                            >🚩 Report</button>
+                          <% end %>
                         <% end %>
                       <% end %>
                     </div>

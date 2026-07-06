@@ -1211,35 +1211,69 @@ defmodule RuleMaven.Games do
   @doc """
   Records a report on an answer and applies the trust-tiered auto-pull policy.
   Returns `{:ok, %{pulled: boolean}}` or `{:error, message}` (quota/insert).
+
+  Admins can't report: a report is a request for moderator review, and admins
+  ARE the moderators — they act directly via `pull_for_review/2` instead.
   """
   def report_answer(question_log_id, user) do
-    with :ok <- check_flag_quota(user),
+    with :ok <- reject_admin_report(user),
+         :ok <- check_flag_quota(user),
          {:ok, _flag} <- flag_question(question_log_id, user.id) do
       {:ok, %{pulled: maybe_auto_pull(question_log_id)}}
     end
   end
 
-  # Caps reports per user per rolling day so mass-flagging can't grief the queue
-  # or knock answers offline en masse. Admins are exempt.
-  defp check_flag_quota(user) do
+  defp reject_admin_report(user) do
+    if RuleMaven.Users.can?(user, :admin),
+      do: {:error, "Admins moderate directly — use \"Pull for review\" instead of reporting."},
+      else: :ok
+  end
+
+  @doc """
+  Admin-only direct moderation: pulls an answer from the shared pool by setting
+  `needs_review`, bypassing the flag/quorum machinery entirely (no flag row is
+  written, so it never inflates abuse-signal counts). The row lands in the
+  moderation queue like any auto-pulled report. Idempotent.
+  """
+  def pull_for_review(question_log_id, user) do
     if RuleMaven.Users.can?(user, :admin) do
-      :ok
+      case Repo.get(QuestionLog, question_log_id) do
+        nil ->
+          {:error, "Answer not found."}
+
+        %QuestionLog{} = q ->
+          set_needs_review(q.id)
+
+          Audit.log(user, "question.pull_for_review",
+            target_type: "question",
+            target_id: q.id,
+            target_label: q.question
+          )
+
+          {:ok, %{pulled: !q.needs_review}}
+      end
     else
-      since = DateTime.add(DateTime.utc_now(), -1, :day)
-
-      count =
-        Repo.one(
-          from f in QuestionFlag,
-            where: f.user_id == ^user.id and f.updated_at >= ^since,
-            select: count(f.id)
-        ) || 0
-
-      limit = parse_limit(RuleMaven.Settings.get("flag_limit_daily"), @flag_limit_daily_default)
-
-      if count >= limit,
-        do: {:error, "Daily report limit reached. Thanks — a moderator will review the rest."},
-        else: :ok
+      {:error, "Not authorized."}
     end
+  end
+
+  # Caps reports per user per rolling day so mass-flagging can't grief the queue
+  # or knock answers offline en masse.
+  defp check_flag_quota(user) do
+    since = DateTime.add(DateTime.utc_now(), -1, :day)
+
+    count =
+      Repo.one(
+        from f in QuestionFlag,
+          where: f.user_id == ^user.id and f.updated_at >= ^since,
+          select: count(f.id)
+      ) || 0
+
+    limit = parse_limit(RuleMaven.Settings.get("flag_limit_daily"), @flag_limit_daily_default)
+
+    if count >= limit,
+      do: {:error, "Daily report limit reached. Thanks — a moderator will review the rest."},
+      else: :ok
   end
 
   # Decides whether this flag pulls the row now. Returns true if it did.
@@ -1957,7 +1991,9 @@ defmodule RuleMaven.Games do
   def faq_questions(%Game{} = game, limit \\ 200) do
     Repo.all(
       from q in QuestionLog,
-        where: q.game_id == ^game.id and q.visibility == "community" and q.refused == false,
+        where:
+          q.game_id == ^game.id and q.visibility == "community" and q.refused == false and
+            q.needs_review == false,
         order_by: [desc: q.inserted_at],
         limit: ^limit
     )
