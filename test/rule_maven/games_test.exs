@@ -26,8 +26,8 @@ defmodule RuleMaven.GamesTest do
       assert Games.pool_similarity_floor() == 0.9
     end
 
-    test "pool_tiebreaker_distance_threshold/0 corresponds to 0.85 similarity" do
-      assert_in_delta Games.pool_tiebreaker_distance_threshold(), 1.0 - 0.85, 0.0001
+    test "pool_tiebreaker_distance_threshold/0 corresponds to 0.80 similarity" do
+      assert_in_delta Games.pool_tiebreaker_distance_threshold(), 1.0 - 0.80, 0.0001
     end
   end
 
@@ -887,6 +887,38 @@ defmodule RuleMaven.GamesTest do
 
       assert doc.status == "published"
       assert Repo.aggregate(from(c in Chunk, where: c.document_id == ^doc.id), :count) > 0
+    end
+  end
+
+  describe "record_pool_mismatch/1" do
+    alias RuleMaven.Games.QuestionLog
+
+    test "increments the pool source row when the served row is a pool-hit copy" do
+      {:ok, game} = Games.create_game(%{name: "Mismatch #{System.unique_integer([:positive])}"})
+
+      {:ok, source} = Games.log_question(%{game_id: game.id, question: "src q", answer: "a"})
+
+      {:ok, copy} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "copy q",
+          answer: "a",
+          pool_source_id: source.id
+        })
+
+      assert :ok = Games.record_pool_mismatch(copy)
+      assert :ok = Games.record_pool_mismatch(copy)
+
+      assert Repo.get!(QuestionLog, source.id).mismatch_count == 2
+      assert Repo.get!(QuestionLog, copy.id).mismatch_count == 0
+    end
+
+    test "increments the row itself when there is no pool source (same-user hit)" do
+      {:ok, game} = Games.create_game(%{name: "Mismatch #{System.unique_integer([:positive])}"})
+      {:ok, q} = Games.log_question(%{game_id: game.id, question: "own q", answer: "a"})
+
+      assert :ok = Games.record_pool_mismatch(q)
+      assert Repo.get!(QuestionLog, q.id).mismatch_count == 1
     end
   end
 end

@@ -474,24 +474,85 @@ defmodule RuleMaven.LLM do
   # answer routinely makes valid inferences from context beyond the one
   # sentence it quotes, and quote-only checking flagged correct answers as
   # hallucinated (then discarded them into false "rules silent" refusals).
+  #
+  # Cost shape: the heuristic fires on over half of asks, and sending every
+  # retrieved chunk made each critic call nearly as large as the answer call
+  # itself. So the FIRST critic pass runs on a narrowed context — only the
+  # chunks containing a cited quote plus their retrieval-order neighbors.
+  # Narrowing must never change an outcome, only its price, so a narrowed
+  # "hallucinated" verdict is CONFIRMED against the full chunk set before any
+  # retry/refusal happens (the full-context critic stays the sole authority
+  # for destructive verdicts); when no chunk matches any quote, the first
+  # pass itself falls back to the full set, exactly the old behavior.
   defp maybe_reground(llm_result, system_prompt, ctx, chunks) do
     quotes = citation_quotes(llm_result[:citations])
 
-    if RuleMaven.Games.Citations.suspicious?(llm_result[:answer], quotes) do
-      case critique_grounding(quotes, llm_result[:answer],
-             sources: chunk_texts(chunks),
-             game_id: ctx.game_id,
-             user_id: ctx.user_id
-           ) do
-        {:ok, %{verdict: :hallucinated, flagged_clause: clause}} ->
-          retry_ungrounded_answer(llm_result, clause, system_prompt, ctx, chunks)
+    case RuleMaven.Games.Citations.suspicion(llm_result[:answer], quotes) do
+      nil ->
+        llm_result
 
-        _ ->
-          llm_result
-      end
-    else
-      llm_result
+      reason ->
+        full_texts = chunk_texts(chunks)
+        narrowed = narrowed_chunk_texts(chunks, quotes)
+
+        verdict =
+          critic_verdict(quotes, llm_result[:answer], narrowed || full_texts, ctx)
+          |> confirm_against_full(narrowed, quotes, llm_result[:answer], full_texts, ctx)
+
+        log_critic(reason, narrowed != nil, verdict, ctx)
+
+        case verdict do
+          {:ok, %{verdict: :hallucinated, flagged_clause: clause}} ->
+            retry_ungrounded_answer(llm_result, clause, system_prompt, ctx, chunks)
+
+          _ ->
+            llm_result
+        end
     end
+  end
+
+  defp critic_verdict(quotes, answer, sources, ctx) do
+    critique_grounding(quotes, answer,
+      sources: sources,
+      game_id: ctx.game_id,
+      user_id: ctx.user_id
+    )
+  end
+
+  # A narrowed-context "hallucinated" is only a candidate: the flagged clause
+  # may be supported by a chunk the answer drew on without citing. Re-judge
+  # once with every retrieved chunk; only a full-context confirmation is
+  # allowed to trigger the retry/refusal path.
+  defp confirm_against_full(
+         {:ok, %{verdict: :hallucinated}},
+         narrowed,
+         quotes,
+         answer,
+         full_texts,
+         ctx
+       )
+       when is_list(narrowed) do
+    critic_verdict(quotes, answer, full_texts, ctx)
+  end
+
+  defp confirm_against_full(verdict, _narrowed, _quotes, _answer, _full_texts, _ctx),
+    do: verdict
+
+  # Structured line for recalibrating the suspicion heuristics: compare fire
+  # rate per trigger against how often the critic actually confirms.
+  defp log_critic(reason, narrowed?, verdict, ctx) do
+    verdict_tag =
+      case verdict do
+        {:ok, %{verdict: v}} -> v
+        {:error, _} -> :error
+      end
+
+    require Logger
+
+    Logger.info(
+      "grounding_critic trigger=#{reason} narrowed=#{narrowed?} verdict=#{verdict_tag} " <>
+        "game_id=#{ctx.game_id} user_id=#{ctx.user_id || "nil"}"
+    )
   end
 
   defp chunk_texts(chunks) when is_list(chunks) do
@@ -502,6 +563,54 @@ defmodule RuleMaven.LLM do
   end
 
   defp chunk_texts(_), do: []
+
+  # Chunks that contain one of the answer's verbatim citation quotes, plus
+  # each match's immediate neighbors in retrieval order (the next-most-relevant
+  # passages — cheap extra context against false "hallucinated" flags).
+  # Returns nil when no chunk matches any quote, telling the caller to use the
+  # full set: an unmatched quote usually means whitespace/paraphrase drift, and
+  # guessing a subset there could hide the passage that grounds the answer.
+  defp narrowed_chunk_texts(chunks, quotes) when is_list(chunks) do
+    quotes =
+      quotes
+      |> List.wrap()
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&squish/1)
+      |> Enum.reject(&(&1 == ""))
+
+    contents = Enum.map(chunks, &(is_map(&1) && is_binary(&1[:content]) && &1[:content]))
+
+    matched_idx =
+      for {content, idx} <- Enum.with_index(contents),
+          is_binary(content),
+          Enum.any?(quotes, &String.contains?(squish(content), &1)),
+          do: idx
+
+    case matched_idx do
+      [] ->
+        nil
+
+      idx ->
+        keep =
+          idx
+          |> Enum.flat_map(&[&1 - 1, &1, &1 + 1])
+          |> Enum.filter(&(&1 >= 0 and &1 < length(contents)))
+          |> Enum.uniq()
+          |> Enum.sort()
+
+        texts = for i <- keep, content = Enum.at(contents, i), is_binary(content), do: content
+
+        # Narrowing that keeps (nearly) everything saves nothing — skip the
+        # confirm-pass bookkeeping and just use the full set.
+        if length(texts) >= length(chunks), do: nil, else: texts
+    end
+  end
+
+  defp narrowed_chunk_texts(_, _), do: nil
+
+  # Whitespace-tolerant match: chunk text is stored with [Page N] markers and
+  # reflowed newlines, so exact substring checks fail on line wrapping alone.
+  defp squish(text), do: text |> String.replace(~r/\s+/, " ") |> String.trim()
 
   defp retry_ungrounded_answer(original_result, flagged_clause, system_prompt, ctx, chunks) do
     warning =

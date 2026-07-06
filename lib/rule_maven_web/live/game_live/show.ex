@@ -1244,19 +1244,27 @@ defmodule RuleMavenWeb.GameLive.Show do
   @impl true
   def handle_event("regenerate_answer", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
-    # Discard a provisional/cached answer and force a fresh rulebook-grounded one.
-    # Reset this answer's voice back to plain — old restyles no longer apply.
-    socket =
-      assign(socket,
-        voice_sel: Map.delete(socket.assigns.voice_sel, id),
-        voice_cache: Map.reject(socket.assigns.voice_cache, fn {{qid, _v}, _} -> qid == id end),
-        voice_pending:
-          socket.assigns.voice_pending
-          |> Enum.reject(fn {qid, _v} -> qid == id end)
-          |> MapSet.new()
-      )
+    regen_fresh(id, socket)
+  end
 
-    resubmit_question(id, socket, skip_pool: true)
+  @impl true
+  def handle_event("not_my_question", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    user = socket.assigns.current_user
+
+    # "This answered a different question": the pool matcher served a cached
+    # answer that doesn't fit what the asker meant. Bump the mismatch counter
+    # on the matched row (a threshold-tuning signal — the answer itself stays
+    # untouched for its own question), then re-ask with skip_pool: no cache
+    # tier at all, so the fresh answer can't re-match the same wrong neighbor.
+    q = find_question_log(socket.assigns.game, id)
+
+    if user && q && q.user_id == user.id && q.llm_provider == "pool" do
+      Games.record_pool_mismatch(q)
+      regen_fresh(id, socket)
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -1354,6 +1362,22 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp report_flash(false),
     do: "Reported — thanks. A moderator will take a look. Fetching you a fresh answer…"
+
+  # Discard a provisional/cached answer and force a fresh rulebook-grounded one.
+  # Reset this answer's voice back to plain — old restyles no longer apply.
+  defp regen_fresh(id, socket) do
+    socket =
+      assign(socket,
+        voice_sel: Map.delete(socket.assigns.voice_sel, id),
+        voice_cache: Map.reject(socket.assigns.voice_cache, fn {{qid, _v}, _} -> qid == id end),
+        voice_pending:
+          socket.assigns.voice_pending
+          |> Enum.reject(fn {qid, _v} -> qid == id end)
+          |> MapSet.new()
+      )
+
+    resubmit_question(id, socket, skip_pool: true)
+  end
 
   defp resubmit_question(id, socket, opts) do
     skip_pool = Keyword.get(opts, :skip_pool, false)
@@ -2971,7 +2995,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                     </div>
                   <% end %>
 
-                  <!-- Pool hit badge -->
+                  <!-- Pool hit badge. Both variants carry the mismatch escape
+                       hatch: a trusted community answer can still be the wrong
+                       MATCH for this question (distinct from being a bad
+                       answer, which is what regenerate/votes cover), so the
+                       button is not gated on can_regen. -->
                   <div
                     :if={msg[:pool_hit] && !msg[:pool_provisional]}
                     style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:var(--blue)"
@@ -2984,6 +3012,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                   >
                     🔎 Unverified answer &mdash; single source, not yet community-reviewed.
                     Vote below to help, or regenerate a fresh answer.
+                  </div>
+                  <div :if={msg[:pool_hit]} style="margin-top:0.35rem">
+                    <button
+                      type="button"
+                      phx-click="not_my_question"
+                      phx-value-id={msg.id}
+                      data-confirm="This answer matched a similar question, not yours? We'll fetch a fresh answer for exactly what you asked."
+                      style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted)"
+                      title="This matched a different question — get a fresh answer to yours"
+                    >🙋 Not my question — ask fresh</button>
                   </div>
 
                   <% is_community_msg =

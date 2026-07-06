@@ -2570,9 +2570,32 @@ defmodule RuleMaven.Games do
 
   def mark_pooled(%QuestionLog{} = q), do: q
 
+  @doc """
+  Records that a cache/pool serve of `q` was reported "not my question" by the
+  asker. The increment lands on the row the matcher actually surfaced — the
+  pool source when `q` is a pool-hit copy, else `q` itself (same-user semantic
+  hits serve the matched row directly). Pure counter bump: never unpools,
+  hides, or edits the row — a mismatch means the MATCH was wrong for this
+  asker's question, not that the answer is wrong for its own.
+  """
+  def record_pool_mismatch(%QuestionLog{} = q) do
+    target_id = q.pool_source_id || q.id
+
+    from(x in QuestionLog, where: x.id == ^target_id)
+    |> Repo.update_all(inc: [mismatch_count: 1])
+
+    :ok
+  end
+
   @default_pool_similarity 0.92
   @default_user_dup_similarity 0.95
-  @default_pool_tiebreaker_similarity 0.85
+  # 0.85 → 0.80 (2026-07): every extra tiebreaker candidate costs one ~600-token
+  # cheap equivalence check, while each confirmed hit avoids a full ~8k-token
+  # answer call — widening the band is strictly cheaper as long as the
+  # tiebreaker holds the correctness line. Mismatches now have a user-visible
+  # escape hatch ("not my question" → mismatch_count + fresh skip_pool ask), so
+  # a too-greedy band shows up in the data instead of silently mis-serving.
+  @default_pool_tiebreaker_similarity 0.80
 
   # Cosine distance ceiling for a pool hit, derived from the configured
   # similarity floor (distance = 1 - similarity).
@@ -2606,7 +2629,7 @@ defmodule RuleMaven.Games do
 
   @doc """
   Cosine distance ceiling for the widened pool lookup that also surfaces
-  tiebreaker-eligible near-misses, down to a fixed 0.85 similarity floor.
+  tiebreaker-eligible near-misses, down to a fixed 0.80 similarity floor.
   Not admin-configurable — the tiebreaker LLM call is the safety net that
   makes a lower floor safe, so there's no separate setting for it.
   """
