@@ -19,6 +19,11 @@ defmodule RuleMaven.Workers.AskWorker do
     never_pool = args["never_pool"] || false
     voice = args["voice"] || "neutral"
 
+    # Tags every llm_logs row written from this process (the whole ask
+    # pipeline runs synchronously here) with the question it served — see
+    # RuleMaven.LLM.current_question_log_id/0 and the admin LLM-trace panel.
+    Logger.metadata(question_log_id: question_log_id)
+
     recent_context =
       (args["recent_context"] || [])
       |> Enum.map(fn %{"q" => q, "a" => a} -> {q, a} end)

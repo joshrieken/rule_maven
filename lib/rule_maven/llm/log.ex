@@ -12,6 +12,9 @@ defmodule RuleMaven.LLM.Log do
     field :duration_ms, :integer
     field :success, :boolean, default: true
     field :error_message, :string
+    # Plain id, not belongs_to: audit rows must survive question deletion
+    # (regenerate/dedup delete question_logs rows).
+    field :question_log_id, :integer
     belongs_to :game, RuleMaven.Games.Game
     belongs_to :user, RuleMaven.Users.User
 
@@ -30,6 +33,7 @@ defmodule RuleMaven.LLM.Log do
       :duration_ms,
       :success,
       :error_message,
+      :question_log_id,
       :game_id,
       :user_id
     ])

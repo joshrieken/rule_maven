@@ -22,6 +22,10 @@ defmodule RuleMaven.Workers.VoiceWorker do
         id: oban_id,
         args: %{"question_log_id" => ql_id, "voice" => voice, "game_id" => game_id} = args
       }) do
+    # Tag this job's llm_logs rows with the question they serve (admin LLM
+    # trace) — see RuleMaven.LLM.current_question_log_id/0.
+    Logger.metadata(question_log_id: ql_id)
+
     ql = Games.get_question_log(ql_id)
     canonical = ql && (ql.canonical_answer || ql.answer)
     user_id = args["user_id"]
