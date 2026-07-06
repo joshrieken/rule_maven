@@ -1081,6 +1081,115 @@ defmodule RuleMaven.LLMTest do
     end
   end
 
+  describe "grounding critic on fresh answers" do
+    setup do
+      RuleMaven.Settings.put("llm_cheap_model_openrouter", "google/gemini-2.0-flash")
+      {:ok, game} = Games.create_game(%{name: "GroundingGame"})
+      %{game: game}
+    end
+
+    test "a grounded answer is untouched (heuristic never trips)", %{game: game} do
+      mock_llm(fn _body ->
+        {:ok,
+         %{
+           answer: "You draw three cards.",
+           citations: [%{"quote" => "Each player draws three cards.", "page" => 1, "source" => "Core"}],
+           verdict: "info"
+         }}
+      end)
+
+      {:ok, result} = LLM.ask(game, "How many cards do I draw?", [], [], skip_pool: true)
+
+      assert result.answer == "You draw three cards."
+    end
+
+    test "a flagged-but-grounded answer survives the critic (false positive cleared)", %{game: game} do
+      # Trips the heuristic on length ratio alone (answer >> quote word count,
+      # no trigger keyword needed) — critic then clears it as grounded, so the
+      # long-but-faithful paraphrase must survive unchanged.
+      long_answer =
+        String.duplicate("Draw three cards at the start of your turn as the rulebook describes. ", 10)
+        |> String.trim()
+
+      mock_llm(fn body ->
+        cond do
+          body[:model] == LLM.model(:cheap) ->
+            {:ok, %{answer: "VERDICT: grounded"}}
+
+          true ->
+            {:ok,
+             %{
+               answer: long_answer,
+               citations: [%{"quote" => "Draw three cards.", "page" => 4, "source" => "Core"}],
+               verdict: "info"
+             }}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "How many cards do I draw?", [], [], skip_pool: true)
+
+      assert result.answer == long_answer
+    end
+
+    test "a confirmed hallucination triggers one re-ask that succeeds", %{game: game} do
+      mock_llm(fn body ->
+        cond do
+          body[:model] == LLM.model(:cheap) ->
+            {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: defeating a Monster lowers Terror."}}
+
+          is_list(body[:messages]) and
+              Enum.any?(body[:messages], &String.contains?(&1[:content] || "", "unsupported claim")) ->
+            {:ok,
+             %{
+               answer: "Terror rises when a Hero or Citizen is defeated.",
+               citations: [
+                 %{"quote" => "Move the Terror Marker up one space.", "page" => 9, "source" => "Core"}
+               ],
+               verdict: "info"
+             }}
+
+          true ->
+            {:ok,
+             %{
+               answer: "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
+               citations: [
+                 %{"quote" => "Move the Terror Marker up one space.", "page" => 9, "source" => "Core"}
+               ],
+               verdict: "info"
+             }}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "What raises Terror?", [], [], skip_pool: true)
+
+      assert result.answer == "Terror rises when a Hero or Citizen is defeated."
+    end
+
+    test "a hallucination that survives the retry falls back to refusal", %{game: game} do
+      mock_llm(fn body ->
+        cond do
+          body[:model] == LLM.model(:cheap) ->
+            {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: defeating a Monster lowers Terror."}}
+
+          true ->
+            {:ok,
+             %{
+               answer: "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
+               citations: [
+                 %{"quote" => "Move the Terror Marker up one space.", "page" => 9, "source" => "Core"}
+               ],
+               verdict: "info"
+             }}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "What raises Terror?", [], [], skip_pool: true)
+
+      assert result.answer == "The rulebook does not cover this question."
+      assert result.citations == []
+    end
+  end
+
   defp mock_llm(fun) do
     Application.put_env(:rule_maven, :llm_mock, fun)
 

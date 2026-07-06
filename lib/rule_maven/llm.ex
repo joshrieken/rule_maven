@@ -225,22 +225,21 @@ defmodule RuleMaven.LLM do
     provider_name = provider()
     model_name = model()
 
-    body = %{
-      model: model_name,
-      max_tokens: 2048,
-      response_format: %{type: "json_object"},
-      messages: [
-        %{role: "system", content: system_prompt},
-        %{role: "user", content: question}
-      ]
+    ctx = %{
+      question: question,
+      model_name: model_name,
+      game_id: game.id,
+      user_id: user_id
     }
 
-    case do_request(body, 1, operation: "ask", game_id: game.id, user_id: user_id) do
-      {:ok, %{answer: answer, cited_passage: passage} = llm_result} ->
+    case request_answer(system_prompt, question, model_name, game.id, user_id) do
+      {:ok, llm_result} ->
+        llm_result = maybe_reground(llm_result, system_prompt, ctx)
+
         {:ok,
          %{
-           answer: answer,
-           cited_passage: passage,
+           answer: llm_result[:answer],
+           cited_passage: llm_result[:cited_passage],
            cited_page: llm_result[:cited_page],
            cited_source: llm_result[:cited_source],
            citations: llm_result[:citations] || [],
@@ -266,6 +265,83 @@ defmodule RuleMaven.LLM do
         {:error, reason}
     end
   end
+
+  # Single answer-model call, extracted so `maybe_reground/3`'s retry can
+  # re-issue it with a modified system prompt without duplicating the body
+  # shape.
+  defp request_answer(system_prompt, question, model_name, game_id, user_id) do
+    body = %{
+      model: model_name,
+      max_tokens: 2048,
+      response_format: %{type: "json_object"},
+      messages: [
+        %{role: "system", content: system_prompt},
+        %{role: "user", content: question}
+      ]
+    }
+
+    do_request(body, 1, operation: "ask", game_id: game_id, user_id: user_id)
+  end
+
+  # Escalate-only-on-suspicion grounding check. Free heuristic first
+  # (`Citations.suspicious?/2`); only on a hit does this spend a cheap-model
+  # critic call. On a confirmed hallucination, re-runs the full answer call
+  # ONCE with a warning naming the flagged claim; a second failure discards
+  # the answer in favor of the standard "not covered" refusal so the rest of
+  # the pipeline (ask_worker.ex's `refused?/1`) needs no changes.
+  defp maybe_reground(llm_result, system_prompt, ctx) do
+    quotes = citation_quotes(llm_result[:citations])
+
+    if RuleMaven.Games.Citations.suspicious?(llm_result[:answer], quotes) do
+      case critique_grounding(quotes, llm_result[:answer], game_id: ctx.game_id, user_id: ctx.user_id) do
+        {:ok, %{verdict: :hallucinated, flagged_clause: clause}} ->
+          retry_ungrounded_answer(llm_result, clause, system_prompt, ctx)
+
+        _ ->
+          llm_result
+      end
+    else
+      llm_result
+    end
+  end
+
+  defp retry_ungrounded_answer(original_result, flagged_clause, system_prompt, ctx) do
+    warning =
+      "\n\nIMPORTANT: a previous answer attempt included this unsupported claim — " <>
+        "do not repeat it: #{inspect(flagged_clause)}. Base your answer strictly on the RULEBOOK text above."
+
+    case request_answer(system_prompt <> warning, ctx.question, ctx.model_name, ctx.game_id, ctx.user_id) do
+      {:ok, retried_result} ->
+        quotes = citation_quotes(retried_result[:citations])
+
+        still_hallucinated? =
+          RuleMaven.Games.Citations.suspicious?(retried_result[:answer], quotes) and
+            match?(
+              {:ok, %{verdict: :hallucinated}},
+              critique_grounding(quotes, retried_result[:answer], game_id: ctx.game_id, user_id: ctx.user_id)
+            )
+
+        if still_hallucinated? do
+          Map.merge(retried_result, %{
+            answer: "The rulebook does not cover this question.",
+            verdict: "silent",
+            citations: [],
+            followups: [],
+            also_asked: []
+          })
+        else
+          retried_result
+        end
+
+      {:error, _reason} ->
+        original_result
+    end
+  end
+
+  defp citation_quotes(citations) when is_list(citations),
+    do: citations |> Enum.map(& &1["quote"]) |> Enum.filter(&is_binary/1)
+
+  defp citation_quotes(_citations), do: []
 
   @doc """
   Groups retrieval chunks into per-source blocks for the answer prompt. Chunks
