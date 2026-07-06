@@ -2341,6 +2341,40 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
+  Cheap literal-repeat check: does this user already have an answered question
+  in this game whose RAW text matches (case-insensitive), regardless of how it
+  later got normalized? Unlike `find_user_duplicate/5`, this needs no
+  normalization/embedding step, so it's callable synchronously before a
+  provisional row or LLM call exists — e.g. to short-circuit a "related
+  question" suggestion that duplicates an earlier literal question, without
+  ever showing a throwaway loader for it. `find_user_duplicate/5` (normalized
+  text) remains the authoritative check inside AskWorker for paraphrases.
+
+  Scoped by `expansion_ids` (default `[]`) — compared sorted ascending
+  against the row's `expansion_ids`.
+  """
+  def find_user_exact_repeat(game_id, user_id, raw_question, expansion_ids \\ [])
+  def find_user_exact_repeat(_game_id, nil, _raw_question, _expansion_ids), do: nil
+
+  def find_user_exact_repeat(game_id, user_id, raw_question, expansion_ids) do
+    raw = String.downcase(to_string(raw_question))
+    expansion_ids = Enum.sort(expansion_ids)
+
+    Repo.one(
+      from q in QuestionLog,
+        where: q.game_id == ^game_id and q.user_id == ^user_id,
+        where: q.expansion_ids == ^expansion_ids,
+        where:
+          q.refused == false and q.blocked == false and q.needs_review == false and
+            q.stale == false,
+        where: q.answer != "Thinking..." and not is_nil(q.answer),
+        where: fragment("lower(?) = ?", q.question, ^raw),
+        order_by: [desc: q.inserted_at, desc: q.id],
+        limit: 1
+    )
+  end
+
+  @doc """
   Same-user semantic fallback: the asker's own closest prior answer above a
   STRICTER similarity floor than the shared pool (`user_dup_similarity_threshold`,
   default 0.95). Stricter because same-user history has no curation/trust gate —
