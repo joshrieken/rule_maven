@@ -30,7 +30,9 @@ defmodule RuleMaven.Workers.VoiceWorkerTest do
       assert cached_count(ql.id) == 0
     end
 
-    test "skips a refused answer", %{game: game} do
+    test "skips a refused answer and broadcasts voice_failed so no client loader sticks", %{
+      game: game
+    } do
       {:ok, ql} =
         Games.log_question(%{
           game_id: game.id,
@@ -39,8 +41,17 @@ defmodule RuleMaven.Workers.VoiceWorkerTest do
           refused: true
         })
 
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")
+
       assert :ok = perform(ql, "lawyer", game)
       assert cached_count(ql.id) == 0
+
+      # Unlike the "Thinking..." skip (which is silently re-enqueued once the
+      # answer lands), a refused row will NEVER become restylable — any client
+      # that enqueued this job must be told, or its voice_pending entry (and
+      # sidebar restyling dot) sticks forever.
+      assert_receive {:voice_failed, ql_id, "lawyer"}
+      assert ql_id == ql.id
     end
 
     test "skips a deleted question id" do

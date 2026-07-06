@@ -436,9 +436,12 @@ defmodule RuleMavenWeb.GameLive.Show do
       # Only restyle FINAL answers. Restyling the in-flight "Thinking..."
       # placeholder produces a garbage stub (the model restyles the placeholder
       # text), so skip pending / non-final rows — they get restyled on
-      # :ask_complete once the real answer lands.
+      # :ask_complete once the real answer lands. Refused rows are skipped too:
+      # VoiceWorker refuses to restyle them, so enqueueing would leave
+      # voice_pending set forever (they render plain regardless).
       |> Enum.filter(
-        &(&1[:role] == :assistant && &1[:id] && !&1[:pending] && &1[:content] != "Thinking...")
+        &(&1[:role] == :assistant && &1[:id] && !&1[:pending] && !&1[:refused] &&
+            &1[:content] != "Thinking...")
       )
       |> Enum.map(& &1[:id])
       |> Enum.uniq()
@@ -2327,8 +2330,12 @@ defmodule RuleMavenWeb.GameLive.Show do
                     </div>
                   <% end %>
                   <div>
+                    <%!-- A refused answer is never restylable (VoiceWorker skips
+                          it), so force neutral — otherwise the waiting? branch
+                          below would show a loader that never resolves. --%>
                     <% v_sel =
-                      (msg.role == :assistant && Map.get(@voice_sel, msg[:id], @default_voice)) ||
+                      (msg.role == :assistant && !msg[:refused] &&
+                         Map.get(@voice_sel, msg[:id], @default_voice)) ||
                         "neutral" %>
                     <% v_content =
                       if v_sel == "neutral" or msg.content == "Thinking...",

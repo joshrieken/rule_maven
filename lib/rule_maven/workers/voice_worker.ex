@@ -31,10 +31,24 @@ defmodule RuleMaven.Workers.VoiceWorker do
         :ok
 
       # Never restyle a non-final answer: restyling the in-flight "Thinking..."
-      # placeholder (or a blank/refused row) yields a garbage stub that silently
-      # replaces the answer. The restyle is re-enqueued once the real answer
-      # lands. This is the durable guard behind the LiveView-side skip.
-      not final_answer?(canonical) or ql.refused ->
+      # placeholder (or a blank row) yields a garbage stub that silently
+      # replaces the answer. Silent skip — the restyle is re-enqueued once the
+      # real answer lands. This is the durable guard behind the LiveView-side
+      # skip.
+      not final_answer?(canonical) ->
+        :ok
+
+      # A refused row will NEVER become restylable, so unlike the skip above
+      # there is no later re-enqueue coming — tell any client that queued this
+      # job, or its voice_pending entry (loader / sidebar dot) sticks forever.
+      # The client falls back to the plain refusal text.
+      ql.refused ->
+        Phoenix.PubSub.broadcast(
+          RuleMaven.PubSub,
+          "game:#{game_id}",
+          {:voice_failed, ql_id, voice}
+        )
+
         :ok
 
       true ->

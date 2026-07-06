@@ -94,6 +94,62 @@ defmodule RuleMavenWeb.GameLivePersonaDirectTest do
     refute_enqueued worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id}
   end
 
+  test "a refused answer with a persona active renders plain — no stuck loader, no VoiceWorker job",
+       %{conn: conn} do
+    user = setup_user("persona_refused")
+    game = published_game_fixture(%{name: "Persona Refused Game"})
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: user.id,
+        question: "abc123",
+        answer: "Thinking...",
+        visibility: "private"
+      })
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    render_hook(view, "default_voice_restore", %{"voice" => "pirate"})
+
+    {:ok, ql} =
+      Games.log_question_update(ql, %{
+        answer: "The rulebook does not cover this question.",
+        refused: true,
+        verdict: "silent"
+      })
+
+    # A refused answer can never be restyled (VoiceWorker refuses it), so the
+    # LiveView must render the plain refusal immediately — showing the voice
+    # loader here would spin forever.
+    send(
+      view.pid,
+      {:ask_complete,
+       %{
+         question_log_id: ql.id,
+         faq_hit: false,
+         pool_hit: false,
+         tier: nil,
+         verified: false,
+         source_question_log_id: nil,
+         followups: [],
+         also_asked: [],
+         cited_page: nil,
+         refused: true,
+         verdict: "silent",
+         raw_response: nil,
+         styled_voice: nil,
+         styled_answer: nil
+       }}
+    )
+
+    html = render(view)
+    assert html =~ "does not cover this question"
+    refute html =~ "voice-loader-#{ql.id}"
+    refute_enqueued worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id}
+  end
+
   test "a fresh ask with a persona active shows the loading bar, never the typing dots", %{
     conn: conn
   } do
