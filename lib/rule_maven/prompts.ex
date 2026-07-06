@@ -795,6 +795,11 @@ defmodule RuleMaven.Prompts do
   # message-keyed proxy response cache. See RuleMaven.LLM.request_answer/6.
   @blank_answer_retry "(Your previous reply was not the required JSON object — it had no \"answer\" field. Respond again with ONLY the required JSON object, including the \"answer\" field.)"
 
+  # Appended as a system message when the "answer" field came back as
+  # something other than plain English prose (wrong language, encoded text).
+  # Same cache-busting effect as the other retry nudges.
+  @suspicious_answer_retry "(Your previous reply's \"answer\" field was not plain English prose. Respond again with the required JSON object, writing the \"answer\", \"followups\", and \"also_asked\" fields in plain English.)"
+
   @specs [
     %{
       key: "truncation_retry",
@@ -822,6 +827,15 @@ defmodule RuleMaven.Prompts do
         "Appended as a system message when a reply decoded to a blank answer (e.g. JSON missing the \"answer\" field), to force a fresh, schema-correct completion.",
       vars: ~w(),
       default: @blank_answer_retry
+    },
+    %{
+      key: "suspicious_answer_retry",
+      group: "System",
+      label: "Suspicious answer retry nudge",
+      description:
+        "Appended as a system message when the answer field was not plain English prose (wrong language, encoded text), to force a fresh English completion.",
+      vars: ~w(),
+      default: @suspicious_answer_retry
     },
     %{
       key: "answer",

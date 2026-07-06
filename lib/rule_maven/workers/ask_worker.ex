@@ -502,34 +502,10 @@ defmodule RuleMaven.Workers.AskWorker do
     end
   end
 
-  # Detect if LLM output looks encoded/transformed rather than plain English prose
-  defp suspicious_output?(text) do
-    trimmed = String.trim(text)
-    len = String.length(trimmed)
-
-    return_early = len < 10
-
-    if return_early do
-      false
-    else
-      # Count characters outside normal prose range (letters, digits, spaces, common punctuation)
-      prose_chars =
-        Regex.scan(~r/[a-zA-Z0-9 \t\n\r.,!?;:()\-'"\/\[\]%&*@#$€£°]/, trimmed) |> length()
-
-      non_prose_ratio = 1 - prose_chars / len
-
-      # Base64 blocks: long runs of base64 chars with no prose spaces
-      looks_base64 =
-        Regex.match?(~r/\A[A-Za-z0-9+\/=\n\r]{40,}\z/, trimmed) ||
-          Regex.match?(~r/(?:[A-Za-z0-9+\/]{40,}={0,2})/, trimmed)
-
-      # Hex dump: sequences of hex pairs
-      looks_hex = Regex.match?(~r/(?:[0-9a-fA-F]{2}\s){10,}/, trimmed)
-
-      # Very high proportion of non-prose characters
-      non_prose_ratio > 0.4 || looks_base64 || looks_hex
-    end
-  end
+  # Detect if LLM output looks encoded/transformed rather than plain English
+  # prose. The shared detector also drives LLM.request_answer's automatic
+  # retry, so an answer that trips this guard already survived one re-ask.
+  defp suspicious_output?(text), do: RuleMaven.LLM.suspicious_answer?(text)
 
   # Per-citation-entry cleanup: strips [Page N]/(Page N) markers from the
   # quote (they're only needed to recover the page below), recovers a missing

@@ -387,24 +387,32 @@ defmodule RuleMaven.LLM do
 
     body
     |> do_request(1, operation: "ask", game_id: game_id, user_id: user_id)
-    |> maybe_retry_blank_answer(body, game_id, user_id)
+    |> maybe_retry_bad_answer(body, game_id, user_id)
   end
 
-  # A model occasionally returns syntactically valid JSON that is missing the
-  # "answer" key (decode_answer's schema branch then yields a blank answer),
-  # which the worker surfaces as "the AI returned an empty response". Retry
-  # ONCE, restating the schema in an appended system message — which also
-  # alters the messages array, so the proxy's message-keyed response cache
-  # can't replay the junk reply. A second blank is returned as-is.
-  defp maybe_retry_blank_answer({:ok, res} = result, body, game_id, user_id) do
-    if String.trim(to_string(res[:answer])) == "" do
+  # A model occasionally returns a reply the worker can only surface as a
+  # "please retry" error: syntactically valid JSON missing the "answer" key
+  # (decodes to a blank answer), or an answer that isn't plain English prose
+  # (deepseek drifting into Chinese, encoded output). Retry ONCE with a nudge
+  # naming the defect in an appended system message — which also alters the
+  # messages array, so the proxy's message-keyed response cache can't replay
+  # the bad reply. A second bad reply is returned as-is.
+  defp maybe_retry_bad_answer({:ok, res} = result, body, game_id, user_id) do
+    nudge_key =
+      cond do
+        String.trim(to_string(res[:answer])) == "" -> "blank_answer_retry"
+        suspicious_answer?(res[:answer]) -> "suspicious_answer_retry"
+        true -> nil
+      end
+
+    if nudge_key do
       require Logger
 
       Logger.warning(
-        "LLM ask reply decoded to a blank answer (game_id=#{game_id}) — retrying with schema nudge"
+        "LLM ask reply was unusable (#{nudge_key}, game_id=#{game_id}) — retrying with nudge"
       )
 
-      nudge = %{role: "system", content: RuleMaven.Prompts.template("blank_answer_retry")}
+      nudge = %{role: "system", content: RuleMaven.Prompts.template(nudge_key)}
 
       body
       |> Map.update!(:messages, &(&1 ++ [nudge]))
@@ -418,7 +426,41 @@ defmodule RuleMaven.LLM do
     end
   end
 
-  defp maybe_retry_blank_answer(result, _body, _game_id, _user_id), do: result
+  defp maybe_retry_bad_answer(result, _body, _game_id, _user_id), do: result
+
+  @doc """
+  True when an answer doesn't look like plain English prose: a very high
+  proportion of characters outside the normal prose range (wrong-language
+  replies), a base64 block, or a hex dump. Shared by the ask retry above and
+  AskWorker's final output guard.
+  """
+  def suspicious_answer?(text) when is_binary(text) do
+    trimmed = String.trim(text)
+    len = String.length(trimmed)
+
+    if len < 10 do
+      false
+    else
+      # Characters outside normal prose range (letters, digits, spaces,
+      # common punctuation).
+      prose_chars =
+        Regex.scan(~r/[a-zA-Z0-9 \t\n\r.,!?;:()\-'"\/\[\]%&*@#$€£°—–]/, trimmed) |> length()
+
+      non_prose_ratio = 1 - prose_chars / len
+
+      # Base64 blocks: long runs of base64 chars with no prose spaces.
+      looks_base64 =
+        Regex.match?(~r/\A[A-Za-z0-9+\/=\n\r]{40,}\z/, trimmed) ||
+          Regex.match?(~r/(?:[A-Za-z0-9+\/]{40,}={0,2})/, trimmed)
+
+      # Hex dump: sequences of hex pairs.
+      looks_hex = Regex.match?(~r/(?:[0-9a-fA-F]{2}\s){10,}/, trimmed)
+
+      non_prose_ratio > 0.4 || looks_base64 || looks_hex
+    end
+  end
+
+  def suspicious_answer?(_text), do: false
 
   # Escalate-only-on-suspicion grounding check. Free heuristic first
   # (`Citations.suspicious?/2`); only on a hit does this spend a cheap-model
