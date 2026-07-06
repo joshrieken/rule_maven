@@ -27,4 +27,22 @@ defmodule RuleMaven.LLMGroundingCriticTest do
     assert %{verdict: :grounded, flagged_clause: nil} = LLM.parse_grounding_verdict("")
     assert %{verdict: :grounded, flagged_clause: nil} = LLM.parse_grounding_verdict("garbage reply")
   end
+
+  test "critique_grounding returns the parsed verdict map" do
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: Monster defeats lower Terror."}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    assert {:ok, %{verdict: :hallucinated, flagged_clause: "Monster defeats lower Terror."}} =
+             LLM.critique_grounding(["Move the Terror Marker up one space."], "some answer")
+  end
+
+  test "critique_grounding passes through an error" do
+    Application.put_env(:rule_maven, :llm_mock, fn _body -> {:error, "boom"} end)
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    assert {:error, "boom"} = LLM.critique_grounding(["a quote"], "an answer")
+  end
 end

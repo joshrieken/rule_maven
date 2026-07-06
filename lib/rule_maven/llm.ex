@@ -525,6 +525,33 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  @doc """
+  Escalated check for whether `answer`'s claims are supported by its own
+  cited `quotes`. Only called when `Citations.suspicious?/2` has already
+  flagged the pair — this is the expensive (LLM) half of that two-stage
+  gate. Uses the cheap model by default (text-only, cheap), same as the
+  cleanup critic. Callers treat an error as grounded — a critic failure
+  must never block or discard an answer.
+  """
+  def critique_grounding(quotes, answer, opts \\ []) do
+    quoted_text = quotes |> List.wrap() |> Enum.filter(&is_binary/1) |> Enum.join("\n\n")
+
+    user =
+      "CITED QUOTE(S):\n\n" <> quoted_text <> "\n\n---\n\nANSWER:\n\n" <> (answer || "")
+
+    case chat(user, "grounding_critic",
+           system: RuleMaven.Prompts.template("grounding_critic"),
+           max_tokens: 300,
+           model: opts[:model] || model(:cheap),
+           operation: "grounding_critic",
+           game_id: opts[:game_id],
+           user_id: opts[:user_id]
+         ) do
+      {:ok, text} -> {:ok, parse_grounding_verdict(text)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   # Smallest fraction of the input the cleaned result may shrink to before we
   # treat it as a truncation/refusal and keep the raw page. Aggressive is meant
   # to cut hard, so it tolerates a much larger drop than the verbatim levels.
