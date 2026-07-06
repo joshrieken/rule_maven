@@ -197,6 +197,82 @@ defmodule RuleMaven.GamesRetrievalTest do
     assert Enum.any?(chunks, &(&1.content =~ "hero tiles"))
   end
 
+  # Prod regression (Horrified D&D): the one chunk answering the question was a
+  # multi-topic mega-chunk whose embedding ranked 11th of 18 (outside top-10),
+  # and its vocabulary ("location") differed from the question's ("space") so
+  # the lexical rescue's overlap floor missed it too. With the corpus this
+  # small, the boost must include everything.
+  test "small_corpus_boost surfaces a chunk that top-k ranking and lexical rescue both miss" do
+    {:ok, game} = Games.create_game(%{name: "Boost #{System.unique_integer([:positive])}"})
+    doc = published_doc(game, "Rulebook", "rulebook")
+    query_vec = sparse_vec([{0, 1.0}])
+
+    for i <- 1..4 do
+      put_chunk(doc, "[Page #{i}]\nnoise filler #{i} zeppelin", sparse_vec([{0, 0.9}, {i, 0.436}]))
+    end
+
+    # Vector-distant (cosine 0 to the query) AND only 2 question words overlap
+    # ("move", "monster") — below the lexical rescue floor of 3.
+    put_chunk(
+      doc,
+      "[Page 5]\nHeroes may move into or out of a location with a monster.",
+      sparse_vec([{50, 1.0}])
+    )
+
+    question = "can I move through a space containing a monster"
+
+    without =
+      Games.retrieve_chunks_for_games([game.id], question, embedding: query_vec, limit: 3)
+
+    refute Enum.any?(without, &(&1.content =~ "location with a monster"))
+
+    with_boost =
+      Games.retrieve_chunks_for_games([game.id], question,
+        embedding: query_vec,
+        limit: 3,
+        small_corpus_boost: true
+      )
+
+    assert length(with_boost) == 5
+    assert Enum.any?(with_boost, &(&1.content =~ "location with a monster"))
+  end
+
+  test "small_corpus_boost does not expand past the chunk-count cap" do
+    {:ok, game} = Games.create_game(%{name: "BoostCap #{System.unique_integer([:positive])}"})
+    doc = published_doc(game, "Rulebook", "rulebook")
+
+    for i <- 1..26 do
+      put_chunk(doc, "[Page 1]\nchunk number #{i}", sparse_vec([{i, 1.0}]))
+    end
+
+    chunks =
+      Games.retrieve_chunks_for_games([game.id], "anything",
+        embedding: sparse_vec([{1, 1.0}]),
+        limit: 3,
+        small_corpus_boost: true
+      )
+
+    assert length(chunks) == 3
+  end
+
+  test "small_corpus_boost does not expand past the char budget" do
+    {:ok, game} = Games.create_game(%{name: "BoostChars #{System.unique_integer([:positive])}"})
+    doc = published_doc(game, "Rulebook", "rulebook")
+    big = String.duplicate("a", 35_000)
+
+    put_chunk(doc, "[Page 1]\n#{big} alpha", sparse_vec([{1, 1.0}]))
+    put_chunk(doc, "[Page 2]\n#{big} beta", sparse_vec([{2, 1.0}]))
+
+    chunks =
+      Games.retrieve_chunks_for_games([game.id], "anything",
+        embedding: sparse_vec([{1, 1.0}]),
+        limit: 1,
+        small_corpus_boost: true
+      )
+
+    assert length(chunks) == 1
+  end
+
   test "full-text fallback attributes one entry per published document, not a merged blob" do
     {:ok, game} = Games.create_game(%{name: "Fallback #{System.unique_integer([:positive])}"})
     _rulebook = published_doc(game, "Core rules", "rulebook", "RULEBOOK full text body here.")

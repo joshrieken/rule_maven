@@ -219,7 +219,13 @@ defmodule RuleMaven.LLM do
        ) do
     game_ids = [game.id | expansion_ids]
     # Reuse the embedding already computed in ask/5 — no second embed call.
-    retrieval_opts = if question_embedding, do: [embedding: question_embedding], else: []
+    # `small_corpus_boost` lets retrieval return the WHOLE corpus when it's
+    # small enough to fit the context budget, instead of gambling that top-k
+    # ranking surfaces the one chunk that answers the question.
+    retrieval_opts =
+      [small_corpus_boost: true] ++
+        if question_embedding, do: [embedding: question_embedding], else: []
+
     chunks = RuleMaven.Games.retrieve_chunks_for_games(game_ids, question, retrieval_opts)
     context = build_context_block(chunks, game.id)
 
@@ -239,6 +245,18 @@ defmodule RuleMaven.LLM do
     case request_answer(system_prompt, question, model_name, game.id, user_id) do
       {:ok, llm_result} ->
         llm_result = maybe_reground(llm_result, system_prompt, ctx)
+
+        {llm_result, chunks} =
+          maybe_escalate_refusal(
+            llm_result,
+            chunks,
+            game,
+            game_ids,
+            retrieval_opts,
+            recent_context,
+            voice,
+            ctx
+          )
 
         {:ok,
          %{
@@ -267,6 +285,65 @@ defmodule RuleMaven.LLM do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # A refusal ("rulebook does not cover this") is only trustworthy when the
+  # model actually saw every passage that could have answered — a capped
+  # retrieval may simply have ranked the relevant chunk outside the limit.
+  # So on a refusal, re-run retrieval with a wider limit and, ONLY if that
+  # actually surfaces chunks the first pass missed (set comparison — the
+  # widened pass costs a single cheap DB query, no embed call, since the
+  # question vector is reused), spend one more answer call on the richer
+  # context. A substantive second answer replaces the refusal (and its
+  # source chunks, so citations/pages resolve against what the model really
+  # saw); a second refusal — or any error — keeps the original refusal. One
+  # escalation only, and the retried answer goes through the same grounding
+  # check as a first-pass answer.
+  @refusal_answer "The rulebook does not cover this question."
+  @escalated_retrieval_limit 25
+
+  defp refused_answer?(llm_result) do
+    llm_result[:verdict] == "silent" or
+      String.trim(to_string(llm_result[:answer])) == @refusal_answer
+  end
+
+  defp maybe_escalate_refusal(
+         llm_result,
+         chunks,
+         game,
+         game_ids,
+         retrieval_opts,
+         recent_context,
+         voice,
+         ctx
+       ) do
+    with true <- refused_answer?(llm_result),
+         escalated =
+           RuleMaven.Games.retrieve_chunks_for_games(
+             game_ids,
+             ctx.question,
+             Keyword.put(retrieval_opts, :limit, @escalated_retrieval_limit)
+           ),
+         false <- MapSet.new(escalated, & &1[:id]) == MapSet.new(chunks, & &1[:id]) do
+      context = build_context_block(escalated, game.id)
+
+      system_prompt =
+        build_system_prompt(game.name, game.category, context, recent_context, voice, game)
+
+      case request_answer(system_prompt, ctx.question, ctx.model_name, ctx.game_id, ctx.user_id) do
+        {:ok, retried} ->
+          retried = maybe_reground(retried, system_prompt, ctx)
+
+          if refused_answer?(retried),
+            do: {llm_result, chunks},
+            else: {retried, escalated}
+
+        {:error, _reason} ->
+          {llm_result, chunks}
+      end
+    else
+      _ -> {llm_result, chunks}
     end
   end
 
@@ -339,7 +416,7 @@ defmodule RuleMaven.LLM do
 
         if still_hallucinated? do
           Map.merge(retried_result, %{
-            answer: "The rulebook does not cover this question.",
+            answer: @refusal_answer,
             verdict: "silent",
             citations: [],
             followups: [],

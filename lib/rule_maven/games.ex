@@ -3127,7 +3127,11 @@ defmodule RuleMaven.Games do
   reaches the LLM).
   """
   def retrieve_chunks_for_games(game_ids, question, opts \\ []) when is_list(game_ids) do
-    limit = Keyword.get(opts, :limit, 10)
+    limit =
+      opts
+      |> Keyword.get(:limit, 10)
+      |> maybe_expand_to_small_corpus(game_ids, opts)
+
     base_game_id = Keyword.get(opts, :base_game_id, List.first(game_ids))
 
     embed_result =
@@ -3185,6 +3189,42 @@ defmodule RuleMaven.Games do
       {:error, _} ->
         # Fallback to keyword overlap across all games
         keyword_retrieve_multi(game_ids, question, limit)
+    end
+  end
+
+  # Capped top-k retrieval can rank THE chunk that answers the question outside
+  # the cap when its embedding is diluted (one relevant sentence inside a
+  # multi-topic mega-chunk) or its vocabulary differs from the question's
+  # ("space" vs the rulebook's "location") — and the lexical rescue below can't
+  # save it either, because the same vocabulary gap keeps word overlap under
+  # the rescue floor. For small corpora there is no reason to gamble on
+  # ranking: when every eligible chunk fits a modest context budget, expand the
+  # limit to the corpus size so nothing can be crowded out. Opt-in
+  # (`small_corpus_boost: true`, set by the answer pipeline) so callers that
+  # exercise top-k semantics directly keep exact `limit` behavior.
+  @small_corpus_max_chunks 25
+  @small_corpus_char_budget 60_000
+
+  defp maybe_expand_to_small_corpus(limit, game_ids, opts) do
+    if Keyword.get(opts, :small_corpus_boost, false) do
+      %{count: count, chars: chars} =
+        Repo.one(
+          from c in Chunk,
+            join: d in Document,
+            on: c.document_id == d.id,
+            where:
+              d.game_id in ^game_ids and d.status == "published" and not is_nil(c.embedding),
+            select: %{
+              count: count(c.id),
+              chars: coalesce(sum(fragment("length(?)", c.content)), 0)
+            }
+        )
+
+      if count <= @small_corpus_max_chunks and chars <= @small_corpus_char_budget,
+        do: max(limit, count),
+        else: limit
+    else
+      limit
     end
   end
 
