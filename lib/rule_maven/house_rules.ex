@@ -6,6 +6,7 @@ defmodule RuleMaven.HouseRules do
   import Ecto.Query
   alias RuleMaven.Repo
   alias RuleMaven.Games.HouseRule
+  alias RuleMaven.{Games, Security, Workers}
 
   def get(id), do: Repo.get(HouseRule, id)
 
@@ -80,5 +81,55 @@ defmodule RuleMaven.HouseRules do
     hr
     |> Ecto.Changeset.change(blocked: blocked?)
     |> Repo.update()
+  end
+
+  @doc """
+  UI entry point: guard (injection, rate limit) → insert → enqueue check.
+  """
+  def submit(user, game_id, attrs) do
+    body = to_string(attrs["body"] || attrs[:body] || "")
+
+    with :ok <- injection_guard(body),
+         :ok <- Games.check_rate_limit(user),
+         {:ok, hr} <- create(user, game_id, attrs) do
+      enqueue_check(hr)
+      {:ok, hr}
+    end
+  end
+
+  @doc "Edit; re-checks (and re-bills) only when the body changed."
+  def update_and_recheck(user, %HouseRule{} = hr, attrs) do
+    new_body = to_string(attrs["body"] || attrs[:body] || hr.body)
+
+    if new_body != hr.body do
+      with :ok <- injection_guard(new_body),
+           :ok <- Games.check_rate_limit(user),
+           {:ok, hr} <- __MODULE__.update(hr, attrs),
+           {:ok, hr} <- mark_pending(hr) do
+        enqueue_check(hr)
+        {:ok, hr}
+      end
+    else
+      __MODULE__.update(hr, attrs)
+    end
+  end
+
+  @doc "Re-check button for failed/stale rules. Counts against quota."
+  def resubmit_check(user, %HouseRule{} = hr) do
+    with :ok <- Games.check_rate_limit(user),
+         {:ok, hr} <- mark_pending(hr) do
+      enqueue_check(hr)
+      {:ok, hr}
+    end
+  end
+
+  defp injection_guard(body) do
+    if Security.prompt_injection?(body), do: {:error, :injection}, else: :ok
+  end
+
+  defp enqueue_check(hr) do
+    %{"house_rule_id" => hr.id, "game_id" => hr.game_id}
+    |> Workers.HouseRuleCheckWorker.new()
+    |> Oban.insert()
   end
 end

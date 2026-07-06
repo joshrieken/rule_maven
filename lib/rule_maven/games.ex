@@ -1132,6 +1132,10 @@ defmodule RuleMaven.Games do
     # underlying answer can change.
     RuleMaven.Voices.clear_for_game(game_id)
 
+    # House-rule RAW verdicts were computed against the old text — grey them
+    # out until the owner re-checks (user-triggered, counts against quota).
+    RuleMaven.HouseRules.mark_stale_for_game(game_id)
+
     demoted + staled + flagged
   end
 
