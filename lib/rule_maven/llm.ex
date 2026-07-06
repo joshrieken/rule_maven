@@ -244,7 +244,7 @@ defmodule RuleMaven.LLM do
 
     case request_answer(system_prompt, question, model_name, game.id, user_id) do
       {:ok, llm_result} ->
-        llm_result = maybe_reground(llm_result, system_prompt, ctx)
+        llm_result = maybe_reground(llm_result, system_prompt, ctx, chunks)
 
         {llm_result, chunks} =
           maybe_escalate_refusal(
@@ -333,7 +333,7 @@ defmodule RuleMaven.LLM do
 
       case request_answer(system_prompt, ctx.question, ctx.model_name, ctx.game_id, ctx.user_id) do
         {:ok, retried} ->
-          retried = maybe_reground(retried, system_prompt, ctx)
+          retried = maybe_reground(retried, system_prompt, ctx, escalated)
 
           if refused_answer?(retried),
             do: {llm_result, chunks},
@@ -370,16 +370,23 @@ defmodule RuleMaven.LLM do
   # ONCE with a warning naming the flagged claim; a second failure discards
   # the answer in favor of the standard "not covered" refusal so the rest of
   # the pipeline (ask_worker.ex's `refused?/1`) needs no changes.
-  defp maybe_reground(llm_result, system_prompt, ctx) do
+  #
+  # The critic MUST judge against the retrieved chunks the answer model
+  # actually saw, not just the answer's own condensed citation quotes — an
+  # answer routinely makes valid inferences from context beyond the one
+  # sentence it quotes, and quote-only checking flagged correct answers as
+  # hallucinated (then discarded them into false "rules silent" refusals).
+  defp maybe_reground(llm_result, system_prompt, ctx, chunks) do
     quotes = citation_quotes(llm_result[:citations])
 
     if RuleMaven.Games.Citations.suspicious?(llm_result[:answer], quotes) do
       case critique_grounding(quotes, llm_result[:answer],
+             sources: chunk_texts(chunks),
              game_id: ctx.game_id,
              user_id: ctx.user_id
            ) do
         {:ok, %{verdict: :hallucinated, flagged_clause: clause}} ->
-          retry_ungrounded_answer(llm_result, clause, system_prompt, ctx)
+          retry_ungrounded_answer(llm_result, clause, system_prompt, ctx, chunks)
 
         _ ->
           llm_result
@@ -389,7 +396,16 @@ defmodule RuleMaven.LLM do
     end
   end
 
-  defp retry_ungrounded_answer(original_result, flagged_clause, system_prompt, ctx) do
+  defp chunk_texts(chunks) when is_list(chunks) do
+    Enum.flat_map(chunks, fn
+      %{content: content} when is_binary(content) -> [content]
+      _ -> []
+    end)
+  end
+
+  defp chunk_texts(_), do: []
+
+  defp retry_ungrounded_answer(original_result, flagged_clause, system_prompt, ctx, chunks) do
     warning =
       "\n\nIMPORTANT: a previous answer attempt included this unsupported claim — " <>
         "do not repeat it: #{inspect(flagged_clause)}. Base your answer strictly on the RULEBOOK text above."
@@ -409,6 +425,7 @@ defmodule RuleMaven.LLM do
             match?(
               {:ok, %{verdict: :hallucinated}},
               critique_grounding(quotes, retried_result[:answer],
+                sources: chunk_texts(chunks),
                 game_id: ctx.game_id,
                 user_id: ctx.user_id
               )
@@ -714,18 +731,33 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
-  Escalated check for whether `answer`'s claims are supported by its own
-  cited `quotes`. Only called when `Citations.suspicious?/2` has already
-  flagged the pair — this is the expensive (LLM) half of that two-stage
-  gate. Uses the cheap model by default (text-only, cheap), same as the
-  cleanup critic. Callers treat an error as grounded — a critic failure
-  must never block or discard an answer.
+  Escalated check for whether `answer`'s claims are supported by the rulebook
+  text. Only called when `Citations.suspicious?/2` has already flagged the
+  pair — this is the expensive (LLM) half of that two-stage gate. Uses the
+  cheap model by default (text-only, cheap), same as the cleanup critic.
+  Callers treat an error as grounded — a critic failure must never block or
+  discard an answer.
+
+  Pass `sources: [chunk_text, ...]` (the retrieved chunks the answer model
+  saw) so the critic judges claims against the full context, not just the
+  answer's own condensed citation quotes — quote-only checking flags valid
+  inferences from unquoted context as hallucinations. Without `:sources` it
+  falls back to quote-only checking.
   """
   def critique_grounding(quotes, answer, opts \\ []) do
     quoted_text = quotes |> List.wrap() |> Enum.filter(&is_binary/1) |> Enum.join("\n\n")
 
+    sources_text =
+      opts[:sources] |> List.wrap() |> Enum.filter(&is_binary/1) |> Enum.join("\n\n")
+
+    excerpts_block =
+      if sources_text == "",
+        do: "",
+        else: "RULEBOOK EXCERPTS:\n\n" <> sources_text <> "\n\n---\n\n"
+
     user =
-      "CITED QUOTE(S):\n\n" <> quoted_text <> "\n\n---\n\nANSWER:\n\n" <> (answer || "")
+      excerpts_block <>
+        "CITED QUOTE(S):\n\n" <> quoted_text <> "\n\n---\n\nANSWER:\n\n" <> (answer || "")
 
     case chat(user, "grounding_critic",
            system: RuleMaven.Prompts.template("grounding_critic"),

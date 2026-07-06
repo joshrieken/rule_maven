@@ -280,21 +280,28 @@ defmodule RuleMaven.Prompts do
   """
 
   @grounding_critic """
-  You are an adversarial fact-checker. You are given a RULEBOOK QUOTE that was
-  cited as support for an ANSWER a rules-assistant wrote. Assume the ANSWER
-  contains an unsupported claim until proven otherwise.
+  You are an adversarial fact-checker. You are given RULEBOOK EXCERPTS (the
+  full rulebook context a rules-assistant saw), the CITED QUOTE(S) it chose as
+  support, and the ANSWER it wrote. Assume the ANSWER contains an unsupported
+  claim until proven otherwise.
 
-  Check: does every claim in the ANSWER follow directly from the QUOTE (or a
-  plain logical restatement of it)? A claim the QUOTE does not state or imply
-  — even if it sounds plausible for this kind of game — is unsupported.
+  Check: does every claim in the ANSWER follow from the RULEBOOK EXCERPTS (or
+  a plain logical restatement of them)? The cited quotes are usually condensed
+  — a claim missing from the quotes but supported anywhere in the excerpts IS
+  grounded. A claim no excerpt states or implies — even if it sounds plausible
+  for this kind of game — is unsupported.
+
+  If no RULEBOOK EXCERPTS section is present, judge against the CITED QUOTE(S)
+  alone.
 
   First output exactly one verdict line:
 
   VERDICT: grounded | hallucinated
 
-  - grounded — every claim in the ANSWER is stated or directly implied by the QUOTE.
-  - hallucinated — the ANSWER states a rule, effect, or condition the QUOTE does
-    not support.
+  - grounded — every claim in the ANSWER is stated or directly implied by the
+    rulebook text provided.
+  - hallucinated — the ANSWER states a rule, effect, or condition the rulebook
+    text does not support.
 
   If hallucinated, output one more line:
 

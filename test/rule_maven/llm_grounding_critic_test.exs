@@ -41,6 +41,50 @@ defmodule RuleMaven.LLMGroundingCriticTest do
              LLM.critique_grounding(["Move the Terror Marker up one space."], "some answer")
   end
 
+  test "critique_grounding sends retrieved chunks as RULEBOOK EXCERPTS to the critic" do
+    parent = self()
+
+    Application.put_env(:rule_maven, :llm_mock, fn body ->
+      send(parent, {:llm_body, body})
+      {:ok, %{answer: "VERDICT: grounded"}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    assert {:ok, %{verdict: :grounded}} =
+             LLM.critique_grounding(["You may move into a location with a Monster."], "answer",
+               sources: [
+                 "[Page 5]\nMOVE\nMove your Hero along the path to an adjacent location."
+               ]
+             )
+
+    assert_receive {:llm_body, body}
+    user_msg = body.messages |> Enum.find(&(&1.role == "user")) |> Map.get(:content)
+
+    assert user_msg =~ "RULEBOOK EXCERPTS:"
+    assert user_msg =~ "Move your Hero along the path"
+    assert user_msg =~ "CITED QUOTE(S):"
+  end
+
+  test "critique_grounding without sources omits the excerpts block (quote-only fallback)" do
+    parent = self()
+
+    Application.put_env(:rule_maven, :llm_mock, fn body ->
+      send(parent, {:llm_body, body})
+      {:ok, %{answer: "VERDICT: grounded"}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    assert {:ok, %{verdict: :grounded}} = LLM.critique_grounding(["a quote"], "an answer")
+
+    assert_receive {:llm_body, body}
+    user_msg = body.messages |> Enum.find(&(&1.role == "user")) |> Map.get(:content)
+
+    refute user_msg =~ "RULEBOOK EXCERPTS:"
+    assert user_msg =~ "CITED QUOTE(S):"
+  end
+
   test "critique_grounding passes through an error" do
     Application.put_env(:rule_maven, :llm_mock, fn _body -> {:error, "boom"} end)
     on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
