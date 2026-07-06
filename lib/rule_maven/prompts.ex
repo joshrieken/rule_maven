@@ -776,6 +776,12 @@ defmodule RuleMaven.Prompts do
   # replaying the proxy's cached truncated one. See RuleMaven.LLM.do_request/3.
   @truncation_retry "(Your previous response was cut off by the token limit. Answer again, in full.)"
 
+  # Appended as a system message when the asker explicitly regenerates an
+  # answer. The unique nonce makes the messages array differ from the prior
+  # ask, so a response cache keyed on messages (the LLM proxy's is) can't
+  # replay the old answer. See RuleMaven.LLM.request_answer/6.
+  @regenerate_nonce "(The asker requested a fresh regeneration of this answer. Regeneration id: {{nonce}}.)"
+
   @specs [
     %{
       key: "truncation_retry",
@@ -785,6 +791,15 @@ defmodule RuleMaven.Prompts do
         "Appended as a system message when a response is truncated, to force a full re-answer.",
       vars: ~w(),
       default: @truncation_retry
+    },
+    %{
+      key: "regenerate_nonce",
+      group: "System",
+      label: "Regenerate cache-bust nonce",
+      description:
+        "Appended as a system message on explicit regenerates; the unique id stops message-keyed response caches from replaying the prior answer.",
+      vars: ~w(nonce),
+      default: @regenerate_nonce
     },
     %{
       key: "answer",

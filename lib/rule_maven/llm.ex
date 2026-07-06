@@ -96,7 +96,8 @@ defmodule RuleMaven.LLM do
           question_embedding,
           cleaned,
           user_id,
-          opts[:voice] || "neutral"
+          opts[:voice] || "neutral",
+          skip_pool
         )
     end
   end
@@ -215,7 +216,8 @@ defmodule RuleMaven.LLM do
          question_embedding,
          cleaned,
          user_id,
-         voice
+         voice,
+         fresh \\ false
        ) do
     game_ids = [game.id | expansion_ids]
     # Reuse the embedding already computed in ask/5 — no second embed call.
@@ -239,10 +241,11 @@ defmodule RuleMaven.LLM do
       question: question,
       model_name: model_name,
       game_id: game.id,
-      user_id: user_id
+      user_id: user_id,
+      fresh: fresh
     }
 
-    case request_answer(system_prompt, question, model_name, game.id, user_id) do
+    case request_answer(system_prompt, question, model_name, game.id, user_id, fresh) do
       {:ok, llm_result} ->
         llm_result = maybe_reground(llm_result, system_prompt, ctx, chunks)
 
@@ -331,7 +334,14 @@ defmodule RuleMaven.LLM do
       system_prompt =
         build_system_prompt(game.name, game.category, context, recent_context, voice, game)
 
-      case request_answer(system_prompt, ctx.question, ctx.model_name, ctx.game_id, ctx.user_id) do
+      case request_answer(
+             system_prompt,
+             ctx.question,
+             ctx.model_name,
+             ctx.game_id,
+             ctx.user_id,
+             ctx.fresh
+           ) do
         {:ok, retried} ->
           retried = maybe_reground(retried, system_prompt, ctx, escalated)
 
@@ -350,15 +360,29 @@ defmodule RuleMaven.LLM do
   # Single answer-model call, extracted so `maybe_reground/3`'s retry can
   # re-issue it with a modified system prompt without duplicating the body
   # shape.
-  defp request_answer(system_prompt, question, model_name, game_id, user_id) do
+  defp request_answer(system_prompt, question, model_name, game_id, user_id, fresh \\ false) do
+    messages = [
+      %{role: "system", content: system_prompt},
+      %{role: "user", content: question}
+    ]
+
+    # An explicit regenerate must produce a genuinely new completion, but the
+    # LLM proxy caches responses keyed by the messages array — an unchanged
+    # request replays the prior answer verbatim. A per-request nonce makes the
+    # messages unique so every cache tier is forced past.
+    messages =
+      if fresh do
+        nonce = "#{System.system_time(:millisecond)}-#{System.unique_integer([:positive])}"
+        messages ++ [%{role: "system", content: RuleMaven.Prompts.render("regenerate_nonce", %{nonce: nonce})}]
+      else
+        messages
+      end
+
     body = %{
       model: model_name,
       max_tokens: 2048,
       response_format: %{type: "json_object"},
-      messages: [
-        %{role: "system", content: system_prompt},
-        %{role: "user", content: question}
-      ]
+      messages: messages
     }
 
     do_request(body, 1, operation: "ask", game_id: game_id, user_id: user_id)
@@ -415,7 +439,8 @@ defmodule RuleMaven.LLM do
            ctx.question,
            ctx.model_name,
            ctx.game_id,
-           ctx.user_id
+           ctx.user_id,
+           Map.get(ctx, :fresh, false)
          ) do
       {:ok, retried_result} ->
         quotes = citation_quotes(retried_result[:citations])

@@ -420,6 +420,49 @@ defmodule RuleMaven.LLMTest do
       assert result.answer =~ "Fresh answer"
     end
 
+    test "skip_pool appends a unique nonce message so proxy response caches can't replay" do
+      {:ok, game} = Games.create_game(%{name: "NonceGame"})
+      test_pid = self()
+
+      mock_llm(fn body ->
+        send(test_pid, {:llm_body, body})
+        {:ok, %{answer: "Fresh answer", cited_passage: "p.1", followups: []}}
+      end)
+
+      {:ok, _} = LLM.ask(game, "How many dice?", [], [], skip_pool: true)
+      {:ok, _} = LLM.ask(game, "How many dice?", [], [], skip_pool: true)
+
+      nonce_messages =
+        collect_llm_bodies()
+        |> Enum.flat_map(fn body ->
+          Enum.filter(body.messages, fn m ->
+            m.role == "system" and m.content =~ "regeneration"
+          end)
+        end)
+
+      # One nonce message per ask (only on the answer request, not normalize),
+      # and the two asks must NOT share the same nonce text — identical text
+      # would itself be cached and replayed.
+      assert length(nonce_messages) == 2
+      assert length(Enum.uniq_by(nonce_messages, & &1.content)) == 2
+    end
+
+    test "a plain ask does not carry the regeneration nonce" do
+      {:ok, game} = Games.create_game(%{name: "NoNonceGame"})
+      test_pid = self()
+
+      mock_llm(fn body ->
+        send(test_pid, {:llm_body, body})
+        {:ok, %{answer: "Fresh answer", cited_passage: "p.1", followups: []}}
+      end)
+
+      {:ok, _} = LLM.ask(game, "How many dice?", [], [])
+
+      assert collect_llm_bodies()
+             |> Enum.flat_map(& &1.messages)
+             |> Enum.all?(fn m -> not (m.content =~ "regeneration") end)
+    end
+
     test "serves the same user's own un-pooled prior answer (exact dup)" do
       {:ok, game} = Games.create_game(%{name: "UserDupGame"})
 
@@ -1321,5 +1364,14 @@ defmodule RuleMaven.LLMTest do
     on_exit(fn ->
       Application.delete_env(:rule_maven, :llm_mock)
     end)
+  end
+
+  # Drains every {:llm_body, body} message the mock sent to the test process.
+  defp collect_llm_bodies(acc \\ []) do
+    receive do
+      {:llm_body, body} -> collect_llm_bodies([body | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 end
