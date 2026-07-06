@@ -406,6 +406,12 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> mark_pending_thinking()
   end
 
+  # In-character thank-you for the active persona voice; empty payload (client
+  # falls back to its generic pool) for neutral or a voice with no thanks lines.
+  defp vote_thanks_payload(socket) do
+    RuleMaven.Voices.vote_thanks(socket.assigns.default_voice, socket.assigns.game) || %{}
+  end
+
   defp vote_error_message(:self_vote), do: "You can't vote on your own answer."
   defp vote_error_message(:not_votable), do: "This answer isn't open for voting."
   defp vote_error_message(_), do: "Couldn't record your vote."
@@ -628,7 +634,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         socket =
           assign(socket, community_vote_counts: cv_counts, community_user_votes: cv_user)
 
-        {:noreply, if(new_upvote?, do: push_event(socket, "vote_thanks", %{}), else: socket)}
+        {:noreply, if(new_upvote?, do: push_event(socket, "vote_thanks", vote_thanks_payload(socket)), else: socket)}
     end
   end
 

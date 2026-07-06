@@ -25,7 +25,14 @@ function showToast(emoji, msg) {
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 2700);
 }
-function showVoteThanks() {
+function showVoteThanks(e) {
+  // Server sends {emoji, msg} when a persona voice has its own in-character
+  // thank-you; empty payload means use the generic pool.
+  const d = (e && e.detail) || {};
+  if (d.emoji && d.msg) {
+    showToast(d.emoji, d.msg);
+    return;
+  }
   const [emoji, msg] = VOTE_THANKS[Math.floor(Math.random() * VOTE_THANKS.length)];
   showToast(emoji, msg);
 }

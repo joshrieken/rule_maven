@@ -93,6 +93,42 @@ defmodule RuleMaven.VoicesTest do
     end
   end
 
+  describe "vote_thanks/2" do
+    test "returns the persona's emoji and one of its own thanks lines" do
+      g = game()
+      %{emoji: emoji, msg: msg} = Voices.vote_thanks("pirate", g)
+      assert emoji == Voices.get_def("pirate").emoji
+      assert msg in Voices.get_def("pirate").thanks
+    end
+
+    test "every built-in persona has a sizeable thanks set (>= 8)" do
+      for id <- ~w(lawyer pirate robot coach) do
+        own = Voices.get_def(id).thanks
+        assert length(own) >= 8, "#{id} has only #{length(own)} thanks phrases"
+        assert own == Enum.uniq(own), "#{id} has duplicate thanks phrases"
+      end
+    end
+
+    test "nil for neutral and unknown voices (client falls back to generic pool)" do
+      g = game()
+      assert Voices.vote_thanks("neutral", g) == nil
+      assert Voices.vote_thanks("does-not-exist", g) == nil
+    end
+
+    test "generated voice uses stored thanks_phrases; nil when it has none" do
+      g = game()
+
+      :ok =
+        Voices.replace_generated(g.id, [
+          %{slug: "herald", label: "H", emoji: "🦉", style: "x", thanks_phrases: ["Huzzah!"]},
+          %{slug: "mute", label: "M", emoji: "🤐", style: "y"}
+        ])
+
+      assert Voices.vote_thanks("g:herald", g) == %{emoji: "🦉", msg: "Huzzah!"}
+      assert Voices.vote_thanks("g:mute", g) == nil
+    end
+  end
+
   describe "loading_phrases/2 for generated voices" do
     test "generated voice's own stored phrases are returned exclusively, no generic mixed in" do
       g = game()

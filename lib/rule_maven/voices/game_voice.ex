@@ -20,6 +20,8 @@ defmodule RuleMaven.Voices.GameVoice do
     # Short user-facing blurb ("who is this persona?") shown in the voice menu.
     field :description, :string
     field :loading_phrases, {:array, :string}, default: []
+    # In-character upvote thank-you toasts ("vote_thanks"); generic pool when empty.
+    field :thanks_phrases, {:array, :string}, default: []
     # LLM-judged rank among this game's fans; 1 = most popular. Drives default
     # sort order in the voice picker (see Voices.game_voice_defs/1).
     field :popularity_rank, :integer
@@ -41,6 +43,7 @@ defmodule RuleMaven.Voices.GameVoice do
       :style,
       :description,
       :loading_phrases,
+      :thanks_phrases,
       :popularity_rank,
       :source,
       :position

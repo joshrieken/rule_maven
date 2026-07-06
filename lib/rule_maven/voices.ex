@@ -83,6 +83,18 @@ defmodule RuleMaven.Voices do
         "Redacting the transcript…",
         "Notarizing the ruling…",
         "Billing in six-minute increments…"
+      ],
+      thanks: [
+        "The court thanks you for your discerning judgment.",
+        "Motion to appreciate you: granted.",
+        "Your vote is hereby entered into the record.",
+        "Precedent established: you have excellent taste.",
+        "I'll allow it. In fact, I insist.",
+        "Exhibit A: one impeccable upvote.",
+        "The jury finds you delightful.",
+        "Duly noted, notarized, and appreciated.",
+        "Objection overruled — you're too kind.",
+        "Case closed, thanks to your testimony."
       ]
     },
     %{
@@ -113,6 +125,18 @@ defmodule RuleMaven.Voices do
         "Mopping the poop deck, again…",
         "Refilling the inkwell…",
         "Cursing the paperwork gods…"
+      ],
+      thanks: [
+        "Yer vote's in the ledger. Finally, some good news.",
+        "One less form to file. Bless ye.",
+        "The parrot says thanks. I concur.",
+        "Marked ye down for extra grog.",
+        "Logged it in the manifest. Twice, to be safe.",
+        "The crew salutes ye. I merely nod — but sincerely.",
+        "Finest thing to happen all voyage.",
+        "Treasure's overrated. Votes like yers keep me afloat.",
+        "Ye can read AND vote? Marry me.",
+        "That's going in me good ledger. The small one."
       ]
     },
     %{
@@ -143,6 +167,18 @@ defmodule RuleMaven.Voices do
         "Executing compliance.exe…",
         "Denying appeal, politely…",
         "Backing up the ruling…"
+      ],
+      thanks: [
+        "Gratitude subroutine engaged. Thank you.",
+        "Your compliance is exemplary. Logged.",
+        "Vote received. Morale up 3.7 percent.",
+        "Commendation issued. Do not let it corrupt you.",
+        "Approval registered. The record thanks you.",
+        "Excellent input detected. Recalibrating cynicism.",
+        "Your infraction record has been annotated: 'nice.'",
+        "Directive fulfilled. You may feel pride now.",
+        "Vote archived in triplicate. Redundantly grateful.",
+        "System status: unexpectedly touched."
       ]
     },
     %{
@@ -173,6 +209,18 @@ defmodule RuleMaven.Voices do
         "Taping up the ankles…",
         "Screaming into the towel…",
         "Running one more lap…"
+      ],
+      thanks: [
+        "THAT'S what I'm talking about! Great vote!",
+        "You just made the highlight reel!",
+        "MVP move right there. M. V. P.",
+        "Coach is not crying. YOU'RE crying.",
+        "That vote goes straight on the trophy shelf!",
+        "Textbook execution! Frame it!",
+        "You left it ALL on the table. Proud of you.",
+        "Somebody get this legend some water!",
+        "We're putting that vote in the playbook!",
+        "One vote closer to the championship, baby!"
       ]
     }
   ]
@@ -212,6 +260,7 @@ defmodule RuleMaven.Voices do
           style: gv.style,
           description: gv.description,
           loading_phrases: gv.loading_phrases,
+          thanks_phrases: gv.thanks_phrases,
           popularity_rank: gv.popularity_rank
         }
     )
@@ -223,6 +272,7 @@ defmodule RuleMaven.Voices do
         style: gv.style,
         description: gv.description,
         loading_phrases: gv.loading_phrases || [],
+        thanks_phrases: gv.thanks_phrases || [],
         popularity_rank: gv.popularity_rank
       }
     end)
@@ -271,6 +321,30 @@ defmodule RuleMaven.Voices do
       |> Enum.uniq()
 
     if own != [], do: own, else: @generic_loading
+  end
+
+  @doc """
+  A random in-character upvote thank-you for a voice within a game's scope, as
+  `%{emoji: e, msg: m}` (emoji is the persona's own). Returns nil for neutral
+  or any voice without its own `thanks`/`thanks_phrases` — the client then
+  falls back to its generic thank-you pool.
+  """
+  def vote_thanks(voice, game) do
+    case get_def(voice, game) do
+      %{emoji: emoji} = def_ ->
+        phrases =
+          case def_ do
+            %{thanks: t} when is_list(t) and t != [] -> t
+            %{thanks_phrases: t} when is_list(t) and t != [] -> t
+            _ -> []
+          end
+          |> Enum.reject(&(&1 in [nil, ""]))
+
+        if phrases != [], do: %{emoji: emoji, msg: Enum.random(phrases)}
+
+      _ ->
+        nil
+    end
   end
 
   @doc "Cached restyle content for one (question, voice), or nil."
@@ -463,6 +537,7 @@ defmodule RuleMaven.Voices do
         style: v.style,
         description: Map.get(v, :description),
         loading_phrases: Map.get(v, :loading_phrases, []),
+        thanks_phrases: Map.get(v, :thanks_phrases, []),
         popularity_rank: Map.get(v, :popularity_rank),
         source: "generated",
         position: idx
