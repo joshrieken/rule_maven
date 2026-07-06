@@ -1241,7 +1241,8 @@ defmodule RuleMaven.LLM do
     case do_request(body, 1,
            operation: opts[:operation] || "chat_#{context}",
            game_id: opts[:game_id],
-           user_id: opts[:user_id]
+           user_id: opts[:user_id],
+           question_log_id: opts[:question_log_id]
          ) do
       {:ok, %{answer: answer} = res} ->
         # `decode_answer` is tuned to the ask schema: a JSON *object* without
@@ -1562,10 +1563,67 @@ defmodule RuleMaven.LLM do
       duration_ms: duration_ms,
       success: success,
       error_message: error,
+      question_log_id: opts[:question_log_id] || current_question_log_id(),
       game_id: opts[:game_id],
       user_id: opts[:user_id]
     })
     |> Repo.insert()
+  end
+
+  @doc """
+  The question_log id the current process is working on behalf of, if any.
+
+  Workers in the ask path (AskWorker, VoiceWorker, TagQuestionWorker) set
+  `Logger.metadata(question_log_id: id)` at the top of perform/1; because the
+  whole pipeline (normalize, embed, pool tiebreaker, ask, grounding critic,
+  escalation retries, restyle) runs synchronously in that process, every
+  log_llm call — and Embed's question-path log — picks the id up here without
+  threading it through each function signature. Per-process, overwritten by
+  each job, so no leakage across Oban process reuse.
+  """
+  def current_question_log_id do
+    Logger.metadata()[:question_log_id]
+  end
+
+  @doc """
+  Chronological trace of the LLM calls recorded for one question/answer, with
+  read-time cost estimates and totals. Powers the admin "LLM trace" panel in
+  the Q&A view.
+  """
+  def calls_for_question(question_log_id) when is_integer(question_log_id) do
+    alias RuleMaven.{LLM.Pricing, Repo}
+    import Ecto.Query
+
+    calls =
+      Repo.all(
+        from l in RuleMaven.LLM.Log,
+          where: l.question_log_id == ^question_log_id,
+          order_by: [asc: l.inserted_at, asc: l.id]
+      )
+      |> Enum.map(fn l ->
+        %{
+          inserted_at: l.inserted_at,
+          operation: l.operation,
+          provider: l.provider,
+          model: l.model,
+          prompt_tokens: l.prompt_tokens,
+          completion_tokens: l.completion_tokens,
+          total_tokens: l.total_tokens,
+          cost: Pricing.cost(l.model, l.prompt_tokens, l.completion_tokens),
+          duration_ms: l.duration_ms,
+          success: l.success,
+          error_message: l.error_message
+        }
+      end)
+
+    totals = %{
+      count: length(calls),
+      cost: calls |> Enum.map(& &1.cost) |> Enum.sum(),
+      duration_ms: calls |> Enum.map(&(&1.duration_ms || 0)) |> Enum.sum(),
+      tokens: calls |> Enum.map(&(&1.total_tokens || 0)) |> Enum.sum()
+    }
+
+    %{calls: calls, totals: totals}
   end
 
   defp build_system_prompt(game_name, category, full_text, recent_context, voice, game) do
