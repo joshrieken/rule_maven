@@ -81,11 +81,21 @@ defmodule RuleMaven.ThemePalette do
     end
   end
 
+  # Contrast floors for the de-emphasized text tiers, checked against every
+  # background they can land on (--bg, --bg-surface, --bg-subtle). Calibrated
+  # to the hand-authored Midnight theme (~6.1 secondary / ~4.6 muted at worst)
+  # rather than bare WCAG minimums — 4.5:1 is also AA for the small sizes this
+  # app renders muted text at.
+  @secondary_ratio 6.0
+  @muted_ratio 4.5
+
   defp derive(accent, bg, surface, text, scheme) do
     # On dark schemes "toward background" means lighter borders / muted text;
     # the math is the same (mix text into bg) because text already contrasts bg.
     text = ensure_contrast(text, bg, 7.0)
     on_surface = ensure_contrast(text, surface, 7.0)
+    bg_subtle = mix(bg, accent, 0.08)
+    backgrounds = [bg, surface, bg_subtle]
 
     shadow =
       case scheme do
@@ -96,12 +106,13 @@ defmodule RuleMaven.ThemePalette do
     %{
       "--bg" => hex(bg),
       "--bg-surface" => hex(surface),
-      "--bg-subtle" => hex(mix(bg, accent, 0.08)),
+      "--bg-subtle" => hex(bg_subtle),
       "--bg-danger" => @semantic[scheme_key(scheme)]["--red-bg"],
       "--text" => hex(on_surface),
       "--text-heading" => hex(ensure_contrast(darken_toward_text(text, scheme), surface, 7.0)),
-      "--text-secondary" => hex(ensure_contrast(mix(text, bg, 0.40), surface, 4.5)),
-      "--text-muted" => hex(ensure_contrast(mix(text, bg, 0.58), surface, 3.0)),
+      "--text-secondary" =>
+        hex(ensure_contrast_all(mix(text, bg, 0.40), backgrounds, @secondary_ratio)),
+      "--text-muted" => hex(ensure_contrast_all(mix(text, bg, 0.58), backgrounds, @muted_ratio)),
       "--border" => hex(mix(text, bg, 0.78)),
       "--border-strong" => hex(mix(text, bg, 0.62)),
       "--border-subtle" => hex(mix(text, bg, 0.88)),
@@ -233,6 +244,14 @@ defmodule RuleMaven.ThemePalette do
     (hi + 0.05) / (lo + 0.05)
   end
 
+  # Like ensure_contrast/3 but against several backgrounds at once: push `fg`
+  # until it clears `ratio` against the worst of them. All the backgrounds a
+  # text tier can land on sit on the same side (dark theme → all dark), so one
+  # direction of travel satisfies them all.
+  defp ensure_contrast_all(fg, bgs, ratio) do
+    Enum.reduce(bgs, fg, &ensure_contrast(&2, &1, ratio))
+  end
+
   # Push `fg` toward black or white (whichever the background allows) until it
   # clears `ratio` against `bg`, or we hit the extreme. Guarantees legibility.
   defp ensure_contrast(fg, bg, ratio) do
@@ -253,6 +272,38 @@ defmodule RuleMaven.ThemePalette do
   end
 
   defp step_toward(fg, _bg, _target, _ratio, _n), do: fg
+
+  @doc """
+  Re-enforce the secondary/muted text contrast floors on an already-derived
+  variant map. Palettes persisted before the floors were raised (muted was
+  allowed down to 3:1, and only checked against `--bg-surface`) render dim,
+  barely-readable text on dark covers — this lifts those two values in place
+  from the variant's own anchors. Idempotent: freshly derived palettes pass
+  through unchanged. Applied at render time so existing rows need no backfill.
+
+  Returns the map untouched when the anchor vars are missing or unparseable.
+  """
+  def fix_text_contrast(%{"--bg" => b, "--bg-surface" => s} = vars) do
+    with {:ok, bg} <- parse(b),
+         {:ok, surface} <- parse(s),
+         {:ok, secondary} <- parse(vars["--text-secondary"] || ""),
+         {:ok, muted} <- parse(vars["--text-muted"] || "") do
+      backgrounds =
+        case parse(vars["--bg-subtle"] || "") do
+          {:ok, subtle} -> [bg, surface, subtle]
+          :error -> [bg, surface]
+        end
+
+      Map.merge(vars, %{
+        "--text-secondary" => hex(ensure_contrast_all(secondary, backgrounds, @secondary_ratio)),
+        "--text-muted" => hex(ensure_contrast_all(muted, backgrounds, @muted_ratio))
+      })
+    else
+      _ -> vars
+    end
+  end
+
+  def fix_text_contrast(vars), do: vars
 
   @doc """
   Backfill `--selection-bg` / `--selection-text` onto an already-derived
