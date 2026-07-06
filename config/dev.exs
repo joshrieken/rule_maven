@@ -51,17 +51,29 @@ config :rule_maven, RuleMavenWeb.Endpoint,
 # different ports.
 
 # Reload browser tabs when matching files change.
+#
+# The file watcher reports ABSOLUTE paths, so each pattern is unanchored on
+# the left — which also made them match the same layout inside git worktrees
+# under .claude/worktrees/<name>/, blasting reload storms at every open tab
+# whenever a worktree was created, edited, or removed. The lookahead guard
+# rejects any path inside .claude/.
+not_in_worktree = "\\A(?!.*/\\.claude/)"
+
 config :rule_maven, RuleMavenWeb.Endpoint,
   live_reload: [
     web_console_logger: true,
     patterns: [
       # Static assets, except user uploads
-      ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
+      Regex.compile!(
+        not_in_worktree <> ~S".*priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"
+      ),
       # Gettext translations
-      ~r"priv/gettext/.*\.po$"E,
+      Regex.compile!(not_in_worktree <> ~S".*priv/gettext/.*\.po$"),
       # Router, Controllers, LiveViews and LiveComponents
-      ~r"lib/rule_maven_web/router\.ex$"E,
-      ~r"lib/rule_maven_web/(controllers|live|components)/.*\.(ex|heex)$"E
+      Regex.compile!(not_in_worktree <> ~S".*lib/rule_maven_web/router\.ex$"),
+      Regex.compile!(
+        not_in_worktree <> ~S".*lib/rule_maven_web/(controllers|live|components)/.*\.(ex|heex)$"
+      )
     ]
   ]
 
