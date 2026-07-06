@@ -5,7 +5,7 @@
 /cover/
 
 # The directory Mix downloads your dependencies sources to.
-/deps/
+/deps
 
 # Where 3rd-party dependencies like ExDoc output generated docs.
 /doc/
@@ -26,10 +26,10 @@ erl_crash.dump
 boardgame-*.tar
 
 # User-uploaded files
-/priv/static/uploads/
+/priv/static/uploads
 
 # Downloaded / generated rulebook PDFs + HTML (runtime content)
-/priv/static/rulebooks/
+/priv/static/rulebooks
 
 # Browser binaries for E2E tests (Wallaby)
 /priv/browser/chrome-*
@@ -47,5 +47,8 @@ boardgame-*.tar
 
 
 # Docling sidecar virtualenv (heavy, local only)
-priv/docling/.venv/
+/priv/docling/.venv
 .superpowers/
+
+# Node deps (symlinked into worktrees)
+/node_modules

@@ -1,5 +1,24 @@
 import Config
 
+# Worktrees (.claude/worktrees/*) run tests in parallel with the main
+# checkout and each other. Give each worktree its own HTTP port and test
+# database so concurrent `mix test` runs don't collide on port 4003 or
+# share (and clobber) a single rule_maven_test database.
+worktree_name =
+  case Regex.run(~r{/\.claude/worktrees/([^/]+)}, File.cwd!()) do
+    [_, name] -> name
+    _ -> nil
+  end
+
+test_port = if worktree_name, do: 4010 + :erlang.phash2(worktree_name, 900), else: 4003
+
+db_suffix =
+  if worktree_name do
+    "_" <> (worktree_name |> String.replace(~r/[^0-9a-zA-Z_]/, "_") |> String.slice(0, 30))
+  else
+    ""
+  end
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
@@ -9,7 +28,7 @@ config :rule_maven, RuleMaven.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "rule_maven_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: "rule_maven_test#{System.get_env("MIX_TEST_PARTITION")}#{db_suffix}",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2,
   types: RuleMaven.PostgresTypes
@@ -17,13 +36,12 @@ config :rule_maven, RuleMaven.Repo,
 # Run server on dedicated port for Wallaby E2E tests.
 # Does not conflict with ConnTest (which bypasses HTTP).
 config :rule_maven, RuleMavenWeb.Endpoint,
-  http: [ip: {127, 0, 0, 1}, port: 4003],
+  http: [ip: {127, 0, 0, 1}, port: test_port],
   secret_key_base: "b7nFAn8+dA6MI2uj33v6K6k+vIyQlk7dWyh8J12BgfmiJrfGvF7OtK1rvwlGKsbr",
   server: true
 
 # Wallaby E2E tests need the server on a different port.
-# feature_case.ex starts the endpoint on this port explicitly.
-config :rule_maven, :wallaby, endpoint_port: 4003
+config :rule_maven, :wallaby, endpoint_port: test_port
 
 # Print only warnings and errors during test
 config :logger, level: :warning
@@ -45,7 +63,7 @@ config :rule_maven, Oban, testing: :manual
 # Capture sent emails in-process so tests can assert on them.
 config :rule_maven, RuleMaven.Mailer, adapter: Swoosh.Adapters.Test
 
-# Wallaby E2E tests — run on port 4003 to avoid conflict with ConnTest (port 4002)
+# Wallaby E2E tests — dedicated port (4003 in main checkout, per-worktree above)
 # Chrome/chromedriver paths set in test_helper.exs (platform-dependent)
 # Enables the Phoenix.Ecto.SQL.Sandbox plug in the endpoint (test only), so
 # Wallaby browser requests roll back their DB writes instead of committing.
@@ -55,7 +73,7 @@ config :wallaby,
   driver: Wallaby.Chrome,
   screenshot_on_failure: true,
   js_errors: true,
-  base_url: "http://localhost:4003",
+  base_url: "http://localhost:#{test_port}",
   # Wallaby.Feature reads this to find the app's ecto_repos, check them out into
   # the test's sandbox, and pass the connection metadata to the browser session.
   otp_app: :rule_maven

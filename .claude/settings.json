@@ -14,7 +14,7 @@
         ]
       }
     ],
-    "WorktreeCreate": [
+    "CwdChanged": [
       {
         "hooks": [
           {

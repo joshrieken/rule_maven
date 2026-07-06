@@ -47,6 +47,15 @@ with {ps_out, 0} <- System.cmd("ps", ["-axo", "pid=,ppid=,command="]) do
   end
 end
 
+unless File.exists?(chrome_bin) and File.exists?(driver_bin) do
+  IO.puts(
+    :stderr,
+    "wallaby disabled: Chrome for Testing not found under #{browser_dir} — " <>
+      "feature tests will fail. Run priv/browser/install.sh (or re-run the " <>
+      "worktree setup hook) to install/symlink the browser bundles."
+  )
+end
+
 if File.exists?(chrome_bin) and File.exists?(driver_bin) do
   Application.put_env(:wallaby, :chromedriver,
     headless: true,
