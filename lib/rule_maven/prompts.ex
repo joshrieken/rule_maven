@@ -406,6 +406,10 @@ defmodule RuleMaven.Prompts do
   Based on the rulebook text below for "{{game_name}}", suggest common rules questions grouped by topic category.
   {{exclude}}
 
+  Each bullet must be exactly ONE question — a single question mark, never two
+  questions joined by "and"/"or" or written back to back. Split compound
+  questions into separate bullets.
+
   Return only in this exact format — each category on its own line, then questions indented with "- ":
 
   CATEGORY: Setup

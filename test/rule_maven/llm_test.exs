@@ -989,6 +989,40 @@ defmodule RuleMaven.LLMTest do
       assert_received {:max_tokens, max_tokens}
       assert max_tokens >= 1500
     end
+
+    test "splits compound bullets into single questions" do
+      mock_llm(fn _body ->
+        {:ok,
+         %{
+           answer:
+             "CATEGORY: Setup\n- How many cards do I draw? Who goes first?\n- What is the hand limit?\nCATEGORY: Combat\n- How does attacking work? And how do I defend? See page 3.",
+           finish_reason: "stop"
+         }}
+      end)
+
+      assert {:ok, [setup, combat]} = LLM.suggest_questions("Test Game", "Some rulebook text.")
+
+      assert setup.questions == [
+               "How many cards do I draw?",
+               "Who goes first?",
+               "What is the hand limit?"
+             ]
+
+      assert combat.questions == ["How does attacking work?", "And how do I defend?"]
+    end
+
+    test "drops duplicate questions within a category" do
+      mock_llm(fn _body ->
+        {:ok,
+         %{
+           answer: "CATEGORY: Setup\n- Who goes first? Who goes first?\n- Who goes first?",
+           finish_reason: "stop"
+         }}
+      end)
+
+      assert {:ok, [%{questions: ["Who goes first?"]}]} =
+               LLM.suggest_questions("Test Game", "Some rulebook text.")
+    end
   end
 
   describe "generate_categories/3" do

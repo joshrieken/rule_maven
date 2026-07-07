@@ -2531,7 +2531,7 @@ defmodule RuleMaven.LLM do
           if blocks == [] do
             # Model ignored the CATEGORY: format — salvage the "- " questions
             # under a single generic category rather than show the preamble.
-            qs = bullet_lines(text)
+            qs = text |> bullet_lines() |> single_questions()
             if qs == [], do: [], else: [%{category: "Suggested", questions: qs}]
           else
             blocks
@@ -2539,7 +2539,7 @@ defmodule RuleMaven.LLM do
               [name | _] =
                 String.split(block, "\n") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
 
-              %{category: name, questions: bullet_lines(block)}
+              %{category: name, questions: block |> bullet_lines() |> single_questions()}
             end)
             |> Enum.reject(fn %{questions: qs} -> qs == [] end)
           end
@@ -2881,6 +2881,21 @@ defmodule RuleMaven.LLM do
 
   # Pull the "- " / "* " bullet lines out of a block as clean question strings,
   # ignoring any prose/preamble lines that aren't bullets.
+  # The model sometimes packs two questions into one bullet ("How many cards
+  # do I draw? Who goes first?") despite the prompt forbidding it. Split each
+  # bullet at question-mark boundaries so every suggestion is a single
+  # question, drop non-question trailers ("See page 3."), and dedupe.
+  defp single_questions(bullets) do
+    bullets
+    |> Enum.flat_map(fn bullet ->
+      case String.split(bullet, ~r/(?<=\?)\s+/) do
+        [single] -> [single]
+        parts -> parts |> Enum.map(&String.trim/1) |> Enum.filter(&String.contains?(&1, "?"))
+      end
+    end)
+    |> Enum.uniq()
+  end
+
   defp bullet_lines(block) do
     block
     |> String.split("\n")
