@@ -102,17 +102,17 @@ defmodule RuleMaven.Workers.AskWorker do
                voice: voice
              ) do
           {:ok, %{answer: raw_answer} = llm_result} ->
-            answer =
+            {answer, error_kind} =
               cond do
                 is_nil(raw_answer) || String.trim(raw_answer) == "" ->
-                  "⚠️ The AI returned an empty response. Please retry."
+                  {"⚠️ The AI returned an empty response. Please retry.", "empty"}
 
                 suspicious_output?(raw_answer) ->
-                  "⚠️ The AI returned an unexpected response format. Please retry."
+                  {"⚠️ The AI returned an unexpected response format. Please retry.", "format"}
 
                 true ->
                   stripped = strip_question_echo(raw_answer, question)
-                  if String.trim(stripped) == "", do: raw_answer, else: stripped
+                  {if(String.trim(stripped) == "", do: raw_answer, else: stripped), nil}
               end
 
             ql = get_question_log!(question_log_id)
@@ -249,6 +249,7 @@ defmodule RuleMaven.Workers.AskWorker do
 
                 update_attrs = %{
                   answer: answer,
+                  error_kind: error_kind,
                   # Preserve the raw question as typed; the normalized form is stored
                   # separately in cleaned_question and is what gets displayed.
                   question: question,
@@ -273,7 +274,9 @@ defmodule RuleMaven.Workers.AskWorker do
                   {:ok, updated} ->
                     pool_hit? = llm_result[:pool_hit] || false
 
-                    unless refused? do
+                    if error_kind, do: maybe_auto_flag(updated, run)
+
+                    unless refused? or error_kind do
                       RuleMaven.Workers.TagQuestionWorker.enqueue(question_log_id, game_id)
 
                       # Fresh, citation-backed answers become cache-eligible. Pool hits
@@ -307,7 +310,11 @@ defmodule RuleMaven.Workers.AskWorker do
                         not refused?
 
                     if store_direct? do
-                      case RuleMaven.Voices.store_direct(question_log_id, styled_voice, styled_answer) do
+                      case RuleMaven.Voices.store_direct(
+                             question_log_id,
+                             styled_voice,
+                             styled_answer
+                           ) do
                         :ok ->
                           :ok
 
@@ -402,24 +409,27 @@ defmodule RuleMaven.Workers.AskWorker do
             require Logger
             Logger.error("AskWorker failed for game #{game_id}: #{reason}")
 
-            friendly =
+            {friendly, error_kind} =
               cond do
                 is_binary(reason) && String.contains?(reason, "timeout") ->
-                  "⚠️ The AI took too long to respond. Please retry."
+                  {"⚠️ The AI took too long to respond. Please retry.", "timeout"}
 
                 is_binary(reason) && String.contains?(reason, "rate") ->
-                  "⚠️ Too many requests — please wait a moment and retry."
+                  {"⚠️ Too many requests — please wait a moment and retry.", "rate_limited"}
 
                 is_binary(reason) && String.contains?(reason, "context") ->
-                  "⚠️ Question too long for the AI to process. Try a shorter question."
+                  {"⚠️ Question too long for the AI to process. Try a shorter question.",
+                   "too_long"}
 
                 true ->
-                  "⚠️ Something went wrong. Please retry."
+                  {"⚠️ Something went wrong. Please retry.", "unknown"}
               end
 
             if ql = get_question_log!(question_log_id) do
-              case Games.log_question_update(ql, %{answer: friendly}) do
-                {:ok, _updated} ->
+              case Games.log_question_update(ql, %{answer: friendly, error_kind: error_kind}) do
+                {:ok, updated} ->
+                  maybe_auto_flag(updated, run)
+
                   Phoenix.PubSub.broadcast(
                     RuleMaven.PubSub,
                     "game:#{game_id}",
@@ -445,10 +455,13 @@ defmodule RuleMaven.Workers.AskWorker do
   # answer + :ask_error broadcast + finish_run), so the LiveView unblocks the
   # "Thinking..." row the same way a failed ask would.
   defp handle_disabled(run, game_id, question_log_id, question) do
-    message = RuleMaven.Settings.asks_disabled_message()
+    # ⚠️-prefix so the row picks up the standard error styling (every error
+    # check in the LiveView keys off that prefix); error_kind "paused" keeps
+    # the retry button away — retrying while the switch is on is pointless.
+    message = "⚠️ " <> RuleMaven.Settings.asks_disabled_message()
 
     if ql = get_question_log!(question_log_id) do
-      case Games.log_question_update(ql, %{answer: message}) do
+      case Games.log_question_update(ql, %{answer: message, error_kind: "paused"}) do
         {:ok, _updated} ->
           Phoenix.PubSub.broadcast(
             RuleMaven.PubSub,
@@ -467,6 +480,27 @@ defmodule RuleMaven.Workers.AskWorker do
 
     Jobs.finish_run(run, "done", "Skipped — question answering is paused.")
     :ok
+  end
+
+  # Retries exhausted and the answer still failed: file a system report into
+  # the moderation queue so an admin sees the persistent failure without the
+  # asker having to do anything. Games.auto_flag_error no-ops unless the row
+  # really is out of retries, so this is safe to call on every error persist.
+  defp maybe_auto_flag(question_log, run) do
+    case Games.auto_flag_error(question_log) do
+      {:ok, _flag} ->
+        Jobs.event(run, :warn, "Retries exhausted — auto-reported to moderation.")
+
+      :noop ->
+        :ok
+
+      {:error, reason} ->
+        require Logger
+
+        Logger.warning(
+          "AskWorker: auto-flag failed for question #{question_log.id}: #{inspect(reason)}"
+        )
+    end
   end
 
   # Short left-rail label: the question, truncated.

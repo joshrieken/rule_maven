@@ -417,6 +417,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         raw_response: g.primary.raw_response,
         followups: g.primary.followups,
         also_asked: g.primary.also_asked,
+        error_kind: g.primary.error_kind,
+        error_retries: g.primary.error_retries,
         timestamp: g.primary.inserted_at
       }
 
@@ -1338,11 +1340,24 @@ defmodule RuleMavenWeb.GameLive.Show do
     {id, _} = Integer.parse(id_str)
     cooldowns = socket.assigns.retry_cooldowns
     now = System.system_time(:second)
+    q = find_question_log(socket.assigns.game, id)
 
-    if Map.get(cooldowns, id, 0) + 10 <= now do
-      resubmit_question(id, socket, skip_pool: false)
-    else
-      {:noreply, put_flash(socket, :error, "Please wait a moment before retrying.")}
+    # Rate-limit failures get a longer button cooldown — hammering retry right
+    # after a provider 429 only extends the limit.
+    cooldown = if q && q.error_kind == "rate_limited", do: 30, else: 10
+
+    cond do
+      Map.get(cooldowns, id, 0) + cooldown > now ->
+        {:noreply, put_flash(socket, :error, "Please wait a moment before retrying.")}
+
+      # Players may retry a failed answer (bounded kinds/count) or a stuck
+      # "Thinking..." row; admins keep the unrestricted re-ask.
+      socket.assigns.is_admin || is_nil(q) || q.answer == "Thinking..." ||
+          Games.error_retryable?(q) ->
+        resubmit_question(id, socket, skip_pool: false)
+
+      true ->
+        {:noreply, socket}
     end
   end
 
@@ -1577,6 +1592,15 @@ defmodule RuleMavenWeb.GameLive.Show do
         old_q = find_question_log(game, id)
         was_pending = old_q && old_q.answer == "Thinking..."
 
+        # Resubmitting a failed (or stuck-"Thinking...") answer consumes one of
+        # the question's bounded error retries; the count rides along to the
+        # replacement row since the old one is deleted below. A resubmit of a
+        # healthy answer (regenerate, report-redo) starts fresh at 0.
+        carried_retries =
+          if old_q && (old_q.error_kind || old_q.answer == "Thinking..."),
+            do: old_q.error_retries + 1,
+            else: 0
+
         # An answer that already has community votes is never solo-deleted:
         # doing so would cascade-wipe those votes and silently swap the
         # shared answer every other user sees, with no review. Instead, spin
@@ -1617,7 +1641,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                answer: "Thinking...",
                user_id: socket.assigns.current_user.id,
                visibility: visibility,
-               expansion_ids: Enum.sort(expansion_ids)
+               expansion_ids: Enum.sort(expansion_ids),
+               error_retries: carried_retries
              }) do
           {:ok, question_log} ->
             %{
@@ -1812,6 +1837,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                 |> Map.put(:pool_provisional, ql.llm_model == "cached-unverified")
                 |> Map.put(:pool_source_id, ql.pool_source_id)
                 |> Map.put(:visibility, ql.visibility)
+                |> Map.put(:error_kind, ql.error_kind)
+                |> Map.put(:error_retries, ql.error_retries)
               end
 
             msg ->
@@ -2012,11 +2039,18 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       conversation =
         if question_log_id && socket.assigns.active_thread_id == question_log_id do
+          # Pull the persisted failure classification so the error bubble can
+          # offer the right affordance (retry / cooldown / shorten hint)
+          # without a page reload.
+          err_q = get_question_log_by_id(question_log_id)
+
           Enum.map(socket.assigns.conversation, fn
             %{id: ^question_log_id, role: :assistant} = msg ->
               msg
               |> Map.delete(:pending)
               |> Map.put(:content, "⚠️ #{data.error}")
+              |> Map.put(:error_kind, err_q && err_q.error_kind)
+              |> Map.put(:error_retries, (err_q && err_q.error_retries) || 0)
 
             msg ->
               msg
@@ -3418,6 +3452,52 @@ defmodule RuleMavenWeb.GameLive.Show do
                       style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted)"
                       title="This matched a different question — get a fresh answer to yours"
                     >🙋 Not my question — ask fresh</button>
+                  </div>
+
+                  <%!-- Player-facing affordance for failed ("⚠️ ...") answers.
+                        Admins get their own re-ask row below; refused/blocked
+                        rows and the kill-switch "paused" notice stay dead-ended
+                        on purpose. Kind decides the affordance: bounded retry,
+                        cooldown note for rate limits, shorten-hint for
+                        too-long, auto-report notice once retries run out. --%>
+                  <% err_kind = msg[:error_kind] %>
+                  <% err_retries = msg[:error_retries] || 0 %>
+                  <% retryable_kind? = is_nil(err_kind) || err_kind not in ["paused", "too_long"] %>
+                  <div
+                    :if={
+                      !@is_admin && msg.role == :assistant && !msg[:pending] && !msg[:history] &&
+                        !msg[:refused] && is_binary(msg.content) &&
+                        String.starts_with?(msg.content, "⚠️") && err_kind != "paused"
+                    }
+                    style="margin-top:0.5rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap"
+                  >
+                    <%= cond do %>
+                      <% err_kind == "too_long" -> %>
+                        <span style="font-size:0.72rem;color:var(--text-muted)">
+                          Try asking a shorter question.
+                        </span>
+                      <% retryable_kind? && err_retries < Games.error_retry_limit() -> %>
+                        <button
+                          type="button"
+                          phx-click="retry_question"
+                          phx-value-id={msg.id}
+                          disabled={@pending_count >= @max_concurrent}
+                          style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.7rem;cursor:pointer;padding:0.15rem 0.55rem;color:var(--text)"
+                          title="Try this question again"
+                        >↻ Retry</button>
+                        <span
+                          :if={err_kind == "rate_limited"}
+                          style="font-size:0.7rem;color:var(--text-muted)"
+                        >Give it ~30 seconds first.</span>
+                      <% err_kind && err_retries >= Games.error_retry_limit() -> %>
+                        <span style="font-size:0.72rem;color:var(--text-muted)">
+                          🚩 Still failing after retries — this has been reported to the admins.
+                        </span>
+                      <% true -> %>
+                        <span style="font-size:0.72rem;color:var(--text-muted)">
+                          This keeps failing. Please try again later.
+                        </span>
+                    <% end %>
                   </div>
 
                   <% is_community_msg =
