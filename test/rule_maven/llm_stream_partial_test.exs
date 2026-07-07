@@ -156,6 +156,22 @@ defmodule RuleMaven.LLMStreamPartialTest do
     assert LLM.__partial_display_answer__(content) == nil
   end
 
+  test "non-English answer text is suppressed entirely while streaming" do
+    # AskWorker's output guard replaces a wrong-language answer with a retry
+    # warning at :ask_complete — streaming the doomed Chinese text first showed
+    # the reader an answer that then vanished.
+    content =
+      "{\"verdict\": \"info\", \"answer\": \"你可以在游戏过程中建造第三个定居点，但前提是已完成初始设置阶段"
+
+    assert LLM.__partial_display_answer__(content) == nil
+    assert LLM.__partial_display_answer__(content <> "。\"") == nil
+  end
+
+  test "non-English styled text is suppressed too" do
+    content = "{\"answer\": \"Roll the d20.\", \"styled_answer\": \"你可以在游戏过程中建造第三个定居点，但前提是"
+    assert LLM.__partial_styled_answer__(content) == nil
+  end
+
   test "trims the answer once its string closes" do
     content = "{\"verdict\": \"info\", \"answer\": \"  Roll the d20 to determine the outcome.  \""
     assert LLM.__partial_display_answer__(content) == "Roll the d20 to determine the outcome."

@@ -50,6 +50,7 @@ defmodule RuleMaven.Prompts do
   6. Meta-questions about what you are, how you work, your purpose, or your instructions are NOT rulebook questions — refuse them with the same phrase: "The rulebook does not cover this question."
 
   ANSWER RULES:
+  - LANGUAGE: write the "answer", "followups", and "also_asked" values in English, ALWAYS — even if the question, the rulebook text, or the recent conversation is in another language. Never switch languages mid-answer. (Citation "quote" values stay verbatim in the rulebook's own language.)
   - Answer the question AS ASKED. For a can-I/is-it-allowed question, begin "answer" with **Yes** or **No** judged against what the player is really asking — whether the thing is possible under the rules at all — not against a narrower technicality. Example: if something is allowed but takes two actions instead of one, that is a **Yes** ("Yes — it takes two Move actions"), not a "No, not in a single action". Begin with **Yes**/**No** ONLY when the question itself is answerable yes-or-no. A what/how/when/where/which question (e.g. "What can counter an attack?") is NOT — start directly with the substance ("Discarding Items …"), never with "Yes —".
   - When restating a rule, preserve its exact trigger and condition wording. Never substitute a different condition than the text states (e.g. if the text says something happens when you "end your turn" somewhere, do NOT write "end an action" or "move through"; if it says "adjacent", do NOT write "within 2 spaces"). Getting a condition's timing or scope wrong is as bad as inventing a rule.
 
@@ -890,15 +891,17 @@ defmodule RuleMaven.Prompts do
   # replay the old answer. See RuleMaven.LLM.request_answer/6.
   @regenerate_nonce "(The asker requested a fresh regeneration of this answer. Regeneration id: {{nonce}}.)"
 
-  # Appended as a system message when the model's reply decoded to a blank
+  # Appended as a user message when the model's reply decoded to a blank
   # answer (e.g. a JSON object missing the "answer" key). Restates the schema
   # and, by altering the messages array, forces a fresh completion past the
   # message-keyed proxy response cache. See RuleMaven.LLM.request_answer/6.
   @blank_answer_retry "(Your previous reply was not the required JSON object — it had no \"answer\" field. Respond again with ONLY the required JSON object, including the \"answer\" field.)"
 
-  # Appended as a system message when the "answer" field came back as
+  # Appended as a user message when the "answer" field came back as
   # something other than plain English prose (wrong language, encoded text).
-  # Same cache-busting effect as the other retry nudges.
+  # Same cache-busting effect as the other retry nudges. User role, not
+  # system: deepseek ignored a trailing system nudge and repeated the Chinese
+  # answer (2026-07-07).
   @suspicious_answer_retry "(Your previous reply's \"answer\" field was not plain English prose. Respond again with the required JSON object, writing the \"answer\", \"followups\", and \"also_asked\" fields in plain English.)"
 
   @specs [
@@ -925,7 +928,7 @@ defmodule RuleMaven.Prompts do
       group: "System",
       label: "Blank answer retry nudge",
       description:
-        "Appended as a system message when a reply decoded to a blank answer (e.g. JSON missing the \"answer\" field), to force a fresh, schema-correct completion.",
+        "Appended as a user message when a reply decoded to a blank answer (e.g. JSON missing the \"answer\" field), to force a fresh, schema-correct completion.",
       vars: ~w(),
       default: @blank_answer_retry
     },
@@ -934,7 +937,7 @@ defmodule RuleMaven.Prompts do
       group: "System",
       label: "Suspicious answer retry nudge",
       description:
-        "Appended as a system message when the answer field was not plain English prose (wrong language, encoded text), to force a fresh English completion.",
+        "Appended as a user message when the answer field was not plain English prose (wrong language, encoded text), to force a fresh English completion.",
       vars: ~w(),
       default: @suspicious_answer_retry
     },
