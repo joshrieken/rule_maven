@@ -41,7 +41,9 @@ defmodule RuleMavenWeb.GameLive.Index do
         bgg_pulling: MapSet.new(),
         category_filter: nil,
         # First-ever visit → the Tour hook auto-starts the games tour.
-        tour_autostart: RuleMavenWeb.Tours.autostart?(socket, "games")
+        tour_autostart: RuleMavenWeb.Tours.autostart?(socket, "games"),
+        # Date-seeded, so the static and connected mounts render the same card.
+        rule_of_day: RuleMaven.RuleOfTheDay.pick()
       )
       |> assign_games(games)
       |> resume_exp_syncs()
@@ -681,6 +683,21 @@ defmodule RuleMavenWeb.GameLive.Index do
         <p style="font-size:0.75rem;color:var(--text-muted);margin:0.25rem 0 0">
           🤖 AI-powered with strict guardrails: every answer is grounded in the actual rulebook text and cites its sources. AI can still be wrong — double-check anything important.
         </p>
+        <%!-- Rule of the day: one obscure generated fact, rotating with the
+              UTC date. Links to the game it came from. --%>
+        <.link
+          :if={@rule_of_day}
+          navigate={~p"/games/#{@rule_of_day.game}"}
+          style="display:block;margin-top:0.75rem;padding:0.6rem 0.75rem;border:1px solid var(--border);border-radius:0.5rem;background:var(--bg-subtle);text-decoration:none;color:var(--text)"
+          title={"Open #{@rule_of_day.game.name}"}
+        >
+          <span style="font-size:0.62rem;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--accent)">
+            📅 Rule of the day · {@rule_of_day.game.name}
+          </span>
+          <span style="display:block;font-size:0.78rem;line-height:1.5;margin-top:0.2rem">
+            {@rule_of_day.fact}
+          </span>
+        </.link>
       </div>
       <div class="list-controls">
         <form phx-change="search" phx-submit="search" class="mb-4">
