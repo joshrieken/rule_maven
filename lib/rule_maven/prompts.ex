@@ -99,6 +99,14 @@ defmodule RuleMaven.Prompts do
   {{context_block}}
   """
 
+  # Shared language guards, inlined into each default so every template stays a
+  # standalone editable string. The default model (deepseek) occasionally drifts
+  # into Chinese on English input (2026-07-07 incident) — every prompt whose
+  # output is user-facing or parsed needs an explicit language rule.
+  @english_output "LANGUAGE: write your entire output in English, ALWAYS — even if the question, the rulebook text, or any other input is in another language. Never switch languages mid-output. (Text you quote verbatim from a rulebook stays in its original language.)"
+
+  @keep_source_language "LANGUAGE: keep the text in its original printed language — NEVER translate it, and never drift into a different language of your own."
+
   # ──────────────────────────────────────────────────────────────────────────
   # Question normalize. Runs before the pool lookup + retrieval so paraphrases
   # and terse fragments ("snack bar max limit") collapse onto one canonical
@@ -118,6 +126,7 @@ defmodule RuleMaven.Prompts do
   7. Preserve the meaning exactly — do not answer, narrow, or broaden it.
   8. If an "already-answered questions" list is given and one of its entries asks the exact same underlying thing as this player's question, output that entry VERBATIM instead of writing a new rewrite — even if your own phrasing would otherwise differ. Only do this when the meaning truly matches; never force-fit an unrelated entry.
   9. If the input is not interpretable as a question or topic about the game (random characters, gibberish, test strings), output the input UNCHANGED — do not invent a question around it.
+  10. Write the canonical question in English, ALWAYS — even if the player's question is in another language. Never output another language.
 
   Output ONLY the canonical question — no quotes, no preamble, no explanation.
 
@@ -147,6 +156,8 @@ defmodule RuleMaven.Prompts do
   You judge whether two board-game rules questions are asking the SAME underlying question, just worded differently. Answer with exactly one word: "yes" or "no" — nothing else, no punctuation, no explanation.
 
   Answer "yes" only when both questions would be answered by the exact same rule. Different word order, terse fragments vs. complete sentences, and synonyms do NOT matter. A question that is merely related, broader, narrower, or about a different game element must be "no".
+
+  Always the lowercase English word "yes" or "no", regardless of the questions' language.
   """
 
   @pool_tiebreaker """
@@ -165,7 +176,7 @@ defmodule RuleMaven.Prompts do
   - Headings and defined-term labels that introduce real rules text.\
   """
 
-  @cleanup_output "Output ONLY the cleaned text, with no commentary and no code fences. If the text needs no repairs at all, output exactly NO_CHANGES instead of repeating the text."
+  @cleanup_output "#{@keep_source_language}\nOutput ONLY the cleaned text, with no commentary and no code fences. If the text needs no repairs at all, output exactly NO_CHANGES instead of repeating the text."
 
   @cleanup_light """
   You are a text-cleanup tool for board-game rulebook OCR/PDF extraction.
@@ -248,6 +259,8 @@ defmodule RuleMaven.Prompts do
     rules, numbers, or components that aren't visibly printed. If the page has no
     readable text at all, output nothing.
 
+  #{@keep_source_language}
+
   Output only the transcribed text as Markdown — no commentary, no code fences.
   """
 
@@ -264,7 +277,8 @@ defmodule RuleMaven.Prompts do
   - ORDER: columns or sections transcribed out of reading order.
 
   Each defect must be specific enough to act on (quote the text). Do not list
-  vague or stylistic concerns. If the transcription is faithful and complete,
+  vague or stylistic concerns. Write all defect lines in English (quoted page
+  text stays verbatim). If the transcription is faithful and complete,
   output exactly: NONE
   """
 
@@ -296,8 +310,10 @@ defmodule RuleMaven.Prompts do
   - JUNK: a header, footer, or non-rule layout artifact that survived cleanup.
 
   Ignore pure formatting differences and removed page numbers/headers — those are
-  the job of cleanup. Quote the affected text so each defect is actionable. If
-  the verdict is faithful, output exactly NONE after the verdict line.
+  the job of cleanup. Quote the affected text so each defect is actionable.
+  Write the verdict line and all defect lines in English (quoted text stays
+  verbatim). If the verdict is faithful, output exactly NONE after the verdict
+  line.
   """
 
   @grounding_critic """
@@ -335,7 +351,8 @@ defmodule RuleMaven.Prompts do
 
   FLAGGED: <the exact unsupported clause, quoted from the ANSWER>
 
-  If grounded, output nothing further.
+  If grounded, output nothing further. Output only these exact English verdict
+  lines — never another language.
   """
 
   @house_rule_check_system """
@@ -360,7 +377,8 @@ defmodule RuleMaven.Prompts do
   - "unclear"   — the provided rulebook text is insufficient to decide.
 
   raw_quote and citations quotes must be VERBATIM from the rulebook text. If no
-  relevant passage exists, use null / [] — never invent text.
+  relevant passage exists, use null / [] — never invent text. Write "note" in
+  English, always, regardless of the house rule's or rulebook's language.
   """
 
   # Vars: game_name, house_rule, rulebook
@@ -382,7 +400,8 @@ defmodule RuleMaven.Prompts do
   rule, ..."). Base the official side ONLY on the provided answer and rulebook
   quote — never outside knowledge of the game. If the house rule doesn't
   actually affect this question, say so in one sentence. No markdown, no
-  headings, no preamble.
+  headings, no preamble. Write in English, always, regardless of the inputs'
+  language.
   """
 
   # Vars: game_name, question, answer, house_rule, raw_quote
@@ -464,7 +483,7 @@ defmodule RuleMaven.Prompts do
   - garbles or merges steps so the result is wrong or out of order;
   - cannot be confirmed from the text below (when unsure, REJECT — a wrong setup step is worse than a missing one).
 
-  Output ONLY the numbers of the items that PASS, comma-separated, e.g. `1,2,5`. If none pass, output `none`. No other text.
+  Output ONLY the numbers of the items that PASS, comma-separated, e.g. `1,2,5`. If none pass, output `none`. No other text — never prose in any language.
 
   RULEBOOK:
   {{rulebook}}
@@ -484,7 +503,7 @@ defmodule RuleMaven.Prompts do
   - makes an absolute or negative claim ("only", "never", "cannot", "always") the text does not explicitly justify;
   - cannot be confirmed from the text below (when unsure, REJECT — accuracy over volume).
 
-  Output ONLY the numbers of the facts that PASS, comma-separated, e.g. `1,4,5`. If none pass, output `none`. No other text.
+  Output ONLY the numbers of the facts that PASS, comma-separated, e.g. `1,4,5`. If none pass, output `none`. No other text — never prose in any language.
 
   RULEBOOK:
   {{rulebook}}
@@ -537,13 +556,13 @@ defmodule RuleMaven.Prompts do
 
   # ── System primers (the `system:` role string paired with the user prompts
   # above). Short steering strings; kept as their own editable templates. ──
-  @suggest_questions_system "You generate categorized board game rules questions. Group by topic. Be specific."
-  @did_you_know_system "You surface interesting, accurate board game rule facts. Never invent rules; only use the provided text."
-  @did_you_know_verify_system "You are a strict board-game rulebook fact-checker. Pass only fully, accurately supported facts; reject anything misleading or unconfirmed."
-  @categories_system "You generate topic categories for board game rulebooks. Be concise and specific."
+  @suggest_questions_system "You generate categorized board game rules questions. Group by topic. Be specific. #{@english_output}"
+  @did_you_know_system "You surface interesting, accurate board game rule facts. Never invent rules; only use the provided text. #{@english_output}"
+  @did_you_know_verify_system "You are a strict board-game rulebook fact-checker. Pass only fully, accurately supported facts; reject anything misleading or unconfirmed. Output only the numbers in the requested format — never prose in any language."
+  @categories_system "You generate topic categories for board game rulebooks. Be concise and specific. #{@english_output}"
 
   # ── Setup checklist generation (the verify step is registered separately). ──
-  @setup_generate_system "You extract board game setup instructions from rulebook text."
+  @setup_generate_system "You extract board game setup instructions from rulebook text. #{@english_output}"
 
   # Vars: game_name, rulebook
   @setup_generate """
@@ -558,7 +577,7 @@ defmodule RuleMaven.Prompts do
   """
 
   # ── Expansion delta: what an expansion changes about its base game. ──
-  @expansion_delta_system "You extract what a board game expansion adds or changes, using only its rulebook text. Never invent rules."
+  @expansion_delta_system "You extract what a board game expansion adds or changes, using only its rulebook text. Never invent rules. #{@english_output}"
 
   # Vars: game_name, rulebook
   @expansion_delta """
@@ -584,7 +603,7 @@ defmodule RuleMaven.Prompts do
   """
 
   # ── Voice (persona) restyle. ──
-  @voice_restyle_system "You are a tone restyler. You rewrite a board-game rules answer in a different VOICE while keeping every fact, number, name, and rule EXACTLY the same. You must not add, remove, or change any rule or fact. You must not add new information or invent rules. Keep it roughly the same length. Preserve markdown (**bold**, lists). Output ONLY the rewritten answer, no preamble."
+  @voice_restyle_system "You are a tone restyler. You rewrite a board-game rules answer in a different VOICE while keeping every fact, number, name, and rule EXACTLY the same. You must not add, remove, or change any rule or fact. You must not add new information or invent rules. Keep it roughly the same length. Preserve markdown (**bold**, lists). Output ONLY the rewritten answer, no preamble. Write in English, always — an occasional short in-character foreign phrase is fine as seasoning, but the answer itself must stay English."
 
   # Vars: style, answer
   @voice_restyle """
@@ -603,7 +622,7 @@ defmodule RuleMaven.Prompts do
   """
 
   # ── Per-game voice generation: invent personas themed to THIS game. ──
-  @generate_voices_system "You design fun, in-character persona \"voices\" for a board game, themed to its setting and tone. A voice is ONLY a speaking style — never a rule. Output strictly the requested JSON, no prose, no code fences."
+  @generate_voices_system "You design fun, in-character persona \"voices\" for a board game, themed to its setting and tone. A voice is ONLY a speaking style — never a rule. Output strictly the requested JSON, no prose, no code fences. Write every JSON string value in English, always — regardless of the rulebook's language."
 
   # Vars: game_name, rulebook
   @generate_voices """
@@ -724,7 +743,7 @@ defmodule RuleMaven.Prompts do
   """
 
   # ── Cheat sheet: pre-compressor, generator system, and one prompt per level. ──
-  @cheat_compress_system "You are a rulebook compressor. Extract only mechanical rules. Strip ALL flavor, examples, setup narrative, component descriptions. Keep only the rules themselves."
+  @cheat_compress_system "You are a rulebook compressor. Extract only mechanical rules. Strip ALL flavor, examples, setup narrative, component descriptions. Keep only the rules themselves. #{@english_output}"
 
   # Vars: rulebook
   @cheat_compress """
@@ -734,7 +753,7 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
-  @cheat_generate_system "You are a board game reference writer. Follow the instructions exactly."
+  @cheat_generate_system "You are a board game reference writer. Follow the instructions exactly. #{@english_output}"
 
   # Vars: game_name, rulebook
   @cheat_ultra """
