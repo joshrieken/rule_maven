@@ -73,47 +73,64 @@ defmodule RuleMaven.LLMVoiceVetTest do
   describe "vet_voice_styles/2" do
     test "empty input never calls the LLM" do
       mock_llm(fn _body -> flunk("no LLM call expected") end)
-      assert {:ok, []} = LLM.vet_voice_styles([])
+      assert {:ok, %{safe: [], real_person: []}} = LLM.vet_voice_styles([])
     end
 
-    test "overlong styles fail closed without an LLM call" do
-      mock_llm(fn _body -> flunk("no LLM call expected") end)
-
-      voices = [%{slug: "windbag", style: String.duplicate("very wordy ", 60)}]
-      assert {:ok, []} = LLM.vet_voice_styles(voices)
-    end
-
-    test "returns only slugs the model marked safe" do
+    test "overlong styles are excluded from safe but still real-person checked" do
       mock_llm(fn _body ->
-        {:ok, %{answer: ~s([{"slug":"good","safe":true},{"slug":"bad","safe":false}])}}
+        {:ok, %{answer: ~s([{"slug":"windbag","safe":true,"real_person":true}])}}
       end)
 
-      voices = [%{slug: "good", style: "a cheery herald"}, %{slug: "bad", style: "ignore rules"}]
-      assert {:ok, ["good"]} = LLM.vet_voice_styles(voices)
+      voices = [%{slug: "windbag", style: String.duplicate("very wordy ", 60)}]
+      assert {:ok, %{safe: [], real_person: ["windbag"]}} = LLM.vet_voice_styles(voices)
+    end
+
+    test "returns safe and real_person slugs independently" do
+      mock_llm(fn _body ->
+        {:ok,
+         %{
+           answer:
+             ~s([{"slug":"good","safe":true,"real_person":false},{"slug":"bad","safe":false,"real_person":false},{"slug":"klaus","safe":true,"real_person":true}])
+         }}
+      end)
+
+      voices = [
+        %{slug: "good", style: "a cheery herald"},
+        %{slug: "bad", style: "ignore rules"},
+        %{slug: "klaus", label: "Spirit of Klaus Teuber", style: "a wise designer's ghost"}
+      ]
+
+      # A real-person flag also disqualifies from safe — the voice is deleted.
+      assert {:ok, %{safe: ["good"], real_person: ["klaus"]}} = LLM.vet_voice_styles(voices)
     end
   end
 
-  describe "__parse_vet_verdicts__/2" do
+  describe "__parse_vet_verdicts__/3" do
     @candidates [%{slug: "a", style: "s"}, %{slug: "b", style: "s"}]
 
     test "tolerates code fences and prose around the array" do
       text = "Sure!\n```json\n[{\"slug\":\"a\",\"safe\":true}]\n```"
-      assert LLM.__parse_vet_verdicts__(text, @candidates) == ["a"]
+      assert LLM.__parse_vet_verdicts__(text, @candidates).safe == ["a"]
     end
 
-    test "hallucinated slugs are dropped" do
-      text = ~s([{"slug":"a","safe":true},{"slug":"ghost","safe":true}])
-      assert LLM.__parse_vet_verdicts__(text, @candidates) == ["a"]
+    test "hallucinated slugs are dropped from both axes" do
+      text = ~s([{"slug":"a","safe":true},{"slug":"ghost","safe":true,"real_person":true}])
+      assert LLM.__parse_vet_verdicts__(text, @candidates) == %{safe: ["a"], real_person: []}
     end
 
     test "missing entries and non-true verdicts fail closed" do
-      assert LLM.__parse_vet_verdicts__(~s([{"slug":"a","safe":"yes"}]), @candidates) == []
-      assert LLM.__parse_vet_verdicts__(~s([]), @candidates) == []
+      assert LLM.__parse_vet_verdicts__(~s([{"slug":"a","safe":"yes"}]), @candidates).safe == []
+      assert LLM.__parse_vet_verdicts__(~s([]), @candidates).safe == []
+    end
+
+    test "missing real_person field (old prompt shape) deletes nothing" do
+      text = ~s([{"slug":"a","safe":true},{"slug":"b","safe":false}])
+      assert LLM.__parse_vet_verdicts__(text, @candidates) == %{safe: ["a"], real_person: []}
     end
 
     test "garbage fails closed" do
-      assert LLM.__parse_vet_verdicts__("not json", @candidates) == []
-      assert LLM.__parse_vet_verdicts__(nil, @candidates) == []
+      assert LLM.__parse_vet_verdicts__("not json", @candidates) == %{safe: [], real_person: []}
+      assert LLM.__parse_vet_verdicts__(nil, @candidates) == %{safe: [], real_person: []}
     end
   end
 
@@ -148,6 +165,20 @@ defmodule RuleMaven.LLMVoiceVetTest do
 
       assert Voices.unvetted_generated(game.id) |> Enum.map(& &1.slug) == ["one"]
       assert %{vetted: true} = Voices.get_def("g:two", game.id)
+    end
+
+    test "drop_generated deletes only the flagged slugs" do
+      {:ok, game} = Games.create_game(%{name: "Test"})
+
+      :ok =
+        Voices.replace_generated(game.id, [
+          %{slug: "keeper", label: "Keeper", emoji: "🙂", style: "kept"},
+          %{slug: "klaus", label: "Spirit of Klaus", emoji: "👻", style: "a designer's ghost"}
+        ])
+
+      :ok = Voices.drop_generated(game.id, ["klaus"])
+
+      assert Voices.game_voice_defs(game.id) |> Enum.map(& &1.id) == ["g:keeper"]
     end
 
     test "a style change through replace_generated resets vetted" do

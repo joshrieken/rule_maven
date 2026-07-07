@@ -578,8 +578,34 @@ defmodule RuleMaven.Voices do
     Repo.all(
       from gv in GameVoice,
         where: gv.game_id == ^game_id and gv.vetted == false,
-        select: %{slug: gv.slug, style: gv.style}
+        select: %{slug: gv.slug, label: gv.label, description: gv.description, style: gv.style}
     )
+  end
+
+  @doc "ALL of a game's generated voices (vetted or not), in vet-input shape."
+  def all_generated(game_id) do
+    Repo.all(
+      from gv in GameVoice,
+        where: gv.game_id == ^game_id,
+        select: %{slug: gv.slug, label: gv.label, description: gv.description, style: gv.style}
+    )
+  end
+
+  @doc """
+  Deletes the given slugs from a game's generated voices (e.g. real-person
+  personas flagged by the vet), clearing their cached restyles. Globals are
+  untouched — this only ever removes `game_voices` rows.
+  """
+  def drop_generated(_game_id, []), do: :ok
+
+  def drop_generated(game_id, slugs) do
+    Enum.each(slugs, &clear_for_voice(game_id, @game_prefix <> &1))
+
+    Repo.delete_all(
+      from gv in GameVoice, where: gv.game_id == ^game_id and gv.slug in ^slugs
+    )
+
+    :ok
   end
 
   @doc """

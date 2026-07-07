@@ -57,14 +57,27 @@ defmodule RuleMaven.Workers.VoiceSuggestionsWorker do
 
     case RuleMaven.LLM.generate_voices(game.name, text) do
       {:ok, voices} when voices != [] ->
-        # Style vet gates the single-call persona path (style inlined into the
-        # ask prompt). A vet failure isn't fatal — voices land unvetted and
-        # keep the restyle path; VoiceVetWorker retries the vet lazily on the
-        # next ask that uses one of them.
+        # The vet gates the single-call persona path (style inlined into the
+        # ask prompt) AND flags real-person personas, which are dropped before
+        # they're ever stored. A vet failure isn't fatal — voices land
+        # unvetted and keep the restyle path; VoiceVetWorker retries the vet
+        # lazily (including the real-person purge) on the next ask that uses
+        # one of them.
         voices =
           case RuleMaven.LLM.vet_voice_styles(voices, game_id: game_id) do
-            {:ok, safe_slugs} ->
+            {:ok, %{safe: safe_slugs, real_person: real_person_slugs}} ->
+              flagged = MapSet.new(real_person_slugs)
+
+              if MapSet.size(flagged) > 0 do
+                Jobs.event(
+                  run,
+                  :warn,
+                  "Dropped #{MapSet.size(flagged)} real-person persona(s): #{Enum.join(real_person_slugs, ", ")}."
+                )
+              end
+
               safe = MapSet.new(safe_slugs)
+              voices = Enum.reject(voices, &MapSet.member?(flagged, &1.slug))
 
               Jobs.event(
                 run,
