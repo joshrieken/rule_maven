@@ -1,14 +1,18 @@
 defmodule RuleMavenWeb.GameLiveStreamingTest do
   @moduledoc """
   Ask-latency UX: (1) `{:ask_partial, …}` broadcasts render the streamed
-  answer text in place of the loader while the ask is still pending; (2) a
-  persona answer whose restyle is deferred (no styled fields on
-  `:ask_complete`) renders the PLAIN answer immediately with a slim
-  "voicing" badge — instead of holding the answer behind the full loader —
-  and swaps the persona text in on `{:voice_ready, …}`.
+  answer text in place of the loader while the ask is still pending — a
+  persona viewer streams `styled_text` and never sees the plain answer; (2)
+  a persona answer whose restyle is deferred (no styled fields on
+  `:ask_complete`) keeps the voice loader up until `{:voice_ready, …}`
+  swaps the persona text in.
+
+  async: false is deliberate: the setup starts a globally named Oban, the
+  persona-direct LiveView file does the same, and two async files colliding
+  on that name was a recurring suite flake.
   """
 
-  use RuleMavenWeb.ConnCase, async: true
+  use RuleMavenWeb.ConnCase, async: false
   use Oban.Testing, repo: RuleMaven.Repo
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
@@ -97,7 +101,52 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
     refute html =~ "stream-cursor"
   end
 
-  test "deferred persona restyle shows the plain answer with a voicing badge, then swaps", %{
+  test "persona viewer streams styled_answer partials and never sees the plain text", %{
+    conn: conn
+  } do
+    user = setup_user("stream_styled")
+    game = published_game_fixture(%{name: "Stream Styled Game"})
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    render_hook(view, "default_voice_restore", %{"voice" => "pirate"})
+
+    view
+    |> form("#ask-form", question: "How is the first player picked?")
+    |> render_submit()
+
+    ql =
+      RuleMaven.Repo.one!(
+        from(q in Games.QuestionLog,
+          where: q.game_id == ^game.id,
+          order_by: [desc: q.id],
+          limit: 1
+        )
+      )
+
+    # Plain text streaming but no styled text yet: keep the loader, hide the plain.
+    send(view.pid, {:ask_partial, %{question_log_id: ql.id, text: "Roll the d20", styled_text: nil}})
+
+    html = render(view)
+    refute html =~ "Roll the d20"
+    assert html =~ "voice-loader-#{ql.id}-pirate"
+
+    # Styled text arriving streams in its place.
+    send(
+      view.pid,
+      {:ask_partial,
+       %{question_log_id: ql.id, text: "Roll the d20", styled_text: "Arr, roll ye d20"}}
+    )
+
+    html = render(view)
+    assert html =~ "Arr, roll ye d20"
+    assert html =~ "stream-cursor"
+    refute html =~ "Roll the d20,"
+    refute html =~ "voice-loader-#{ql.id}"
+  end
+
+  test "deferred persona restyle keeps the voice loader up (no plain flash), then swaps", %{
     conn: conn
   } do
     user = setup_user("stream_voice")
@@ -120,19 +169,23 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
     {:ok, ql} = Games.log_question_update(ql, %{answer: "You roll 3 dice."})
 
     # AskWorker no longer restyles inline — the broadcast carries no styled
-    # fields and the LiveView enqueues the on-demand VoiceWorker itself.
+    # fields and the LiveView enqueues the on-demand VoiceWorker itself. The
+    # plain answer stays hidden behind the voice loader until the persona
+    # text is ready — a persona viewer never sees the plain text flash.
     send(view.pid, {:ask_complete, ask_complete_payload(ql)})
 
     html = render(view)
-    assert html =~ "You roll 3 dice."
-    assert html =~ "voice-badge"
-    refute html =~ "voice-loader-#{ql.id}"
+    # The copy button's data-clipboard-text still carries the canonical text
+    # (invisible); the rendered answer body must not.
+    refute html =~ "<p>You roll 3 dice."
+    refute html =~ "voice-badge"
+    assert html =~ "voice-loader-#{ql.id}-pirate"
     assert_enqueued worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id}
 
     send(view.pid, {:voice_ready, ql.id, "pirate", "Arr, three dice, matey."})
 
     html = render(view)
     assert html =~ "Arr, three dice, matey."
-    refute html =~ "voice-badge"
+    refute html =~ "voice-loader-#{ql.id}"
   end
 end

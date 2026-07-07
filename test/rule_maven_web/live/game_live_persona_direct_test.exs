@@ -6,7 +6,7 @@ defmodule RuleMavenWeb.GameLivePersonaDirectTest do
   enqueues a redundant VoiceWorker restyle job for it.
   """
 
-  use RuleMavenWeb.ConnCase, async: true
+  use RuleMavenWeb.ConnCase, async: false
   use Oban.Testing, repo: RuleMaven.Repo
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
