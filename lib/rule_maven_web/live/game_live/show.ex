@@ -2323,7 +2323,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       <!-- Header -->
       <div
         class="chat-header"
-        style="flex-shrink:0;padding:0.35rem 0.75rem;border-bottom:1px solid var(--border);background:var(--bg-surface);position:relative;z-index:20"
+        style="flex-shrink:0;padding:0.25rem 0.75rem;border-bottom:1px solid var(--border);background:var(--bg-surface);position:relative;z-index:20"
       >
         <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:0.35rem">
           <div class="flex items-center gap-1" style="min-width:0;flex-wrap:wrap">
@@ -3911,13 +3911,13 @@ defmodule RuleMavenWeb.GameLive.Show do
       <!-- Input -->
       <div
         class="chat-input"
-        style="flex-shrink:0;padding:0.5rem 1rem 0.75rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface);position:relative;z-index:1"
+        style="flex-shrink:0;padding:0.35rem 1rem 0.5rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface);position:relative;z-index:1"
       >
         <div style="max-width:48rem;margin:0 auto;width:100%">
           <%= if length(@expansions) > 0 do %>
             <div
               data-tour="expansions"
-              style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.5rem"
+              style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.35rem"
             >
               <span style="font-size:0.65rem;color:var(--text-muted);font-weight:600;align-self:center">Include:</span>
               <%= for exp <- @expansions do %>
@@ -3953,7 +3953,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 and pick the default answer voice (right). The voice applies to
                 every answer and persists in localStorage via VoiceDefault. --%>
           <% cur_default = Enum.find(@voices, &(&1.id == @default_voice)) || hd(@voices) %>
-          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem">
             <button
               :if={@suggestions != []}
               type="button"
@@ -4028,7 +4028,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           <% end %>
           <%!-- Always-visible AI disclaimer: answers come from an LLM and can be
                 wrong, so keep the caveat in sight on every ask. --%>
-          <div style="text-align:center;font-size:0.7rem;color:var(--text-muted);margin-top:0.4rem">
+          <div style="text-align:center;font-size:0.68rem;line-height:1.3;color:var(--text-muted);margin-top:0.3rem">
             🤖 AI with strict guardrails — answers are grounded in the rulebook and cite their sources. AI can still be wrong: double-check important rulings.
           </div>
         </div>
