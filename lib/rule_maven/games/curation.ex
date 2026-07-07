@@ -66,8 +66,12 @@ defmodule RuleMaven.Games.Curation do
 
   def bonus_cap do
     case RuleMaven.Settings.get("curator_bonus_cap") do
-      nil -> @default_bonus_cap
-      "" -> @default_bonus_cap
+      nil ->
+        @default_bonus_cap
+
+      "" ->
+        @default_bonus_cap
+
       v ->
         case Integer.parse(to_string(v)) do
           {n, _} -> n

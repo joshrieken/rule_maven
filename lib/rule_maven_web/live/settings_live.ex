@@ -543,15 +543,18 @@ defmodule RuleMavenWeb.SettingsLive do
             <div style="display:flex;gap:1.5rem;flex-wrap:wrap;font-size:0.85rem">
               <div><strong>{@curator_stats.points}</strong> curator points</div>
               <div>
-                <strong>{@curator_stats.correct}</strong> correct /
-                <strong>{@curator_stats.incorrect}</strong> incorrect settled votes
+                <strong>{@curator_stats.correct}</strong>
+                correct / <strong>{@curator_stats.incorrect}</strong>
+                incorrect settled votes
               </div>
               <div>
-                <strong>{@curator_stats.bonus_this_month}</strong>/{@curator_bonus_cap}
-                bonus questions this month
+                <strong>{@curator_stats.bonus_this_month}</strong>/{@curator_bonus_cap} bonus questions this month
               </div>
             </div>
-            <div :if={@curator_stats.badges != []} style="margin-top:0.6rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+            <div
+              :if={@curator_stats.badges != []}
+              style="margin-top:0.6rem;display:flex;gap:0.5rem;flex-wrap:wrap"
+            >
               <span
                 :for={badge <- @curator_stats.badges}
                 style="font-size:0.75rem;font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.6rem;background:var(--bg-subtle)"

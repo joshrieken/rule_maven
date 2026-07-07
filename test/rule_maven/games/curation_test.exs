@@ -153,7 +153,10 @@ defmodule RuleMaven.Games.CurationTest do
       # Give the voter a base quota of 0 so any allowance comes from the bonus.
       Repo.update_all(
         from(u in RuleMaven.Users.User, where: u.id == ^ctx.up_voter.id),
-        set: [monthly_quota: 0, email_confirmed_at: DateTime.utc_now() |> DateTime.truncate(:second)]
+        set: [
+          monthly_quota: 0,
+          email_confirmed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        ]
       )
 
       voter = Repo.reload!(ctx.up_voter)
