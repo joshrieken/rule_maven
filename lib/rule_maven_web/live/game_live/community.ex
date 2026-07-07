@@ -45,8 +45,7 @@ defmodule RuleMavenWeb.GameLive.Community do
         # nil until handle_params: defaults to the first non-empty tab unless
         # the URL names one (explicit switches patch ?tab= so they stick).
         tab: nil,
-        # Unverified cards expand their answer inline (they have no thread the
-        # viewer can open until an upvote adds them to their list).
+        # Question ids whose full answer is expanded inline on the card.
         expanded: MapSet.new(),
         page_title: "Community Q&A — #{game.name}"
       )
@@ -736,18 +735,33 @@ defmodule RuleMavenWeb.GameLive.Community do
               {QuestionLog.display_question(@q)}
             </.link>
           <% end %>
-          <%= if @status == "unverified" && MapSet.member?(@expanded, @q.id) do %>
+          <%= if MapSet.member?(@expanded, @q.id) do %>
             <div style="font-size:0.75rem;color:var(--text);word-break:break-word">
               {render_markdown(@q.canonical_answer || @q.answer || "")}
             </div>
+            <button
+              type="button"
+              phx-click="toggle_expand"
+              phx-value-id={@q.id}
+              title="Collapse the answer"
+              style="font-size:0.68rem;color:var(--text-muted);background:none;border:none;padding:0;margin-top:0.25rem;cursor:pointer"
+            >
+              Show less ▴
+            </button>
           <% else %>
             <% preview = strip_markdown(@q.canonical_answer || @q.answer || "") %>
-            <div style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;word-break:break-word">
+            <button
+              type="button"
+              phx-click="toggle_expand"
+              phx-value-id={@q.id}
+              title="Show the full answer"
+              style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;word-break:break-word;background:none;border:none;padding:0;cursor:pointer;text-align:left;display:block;width:100%"
+            >
               {String.slice(preview, 0, 220)}
               <%= if String.length(preview) > 220 do %>
                 <span style="color:var(--text-muted)">…</span>
               <% end %>
-            </div>
+            </button>
           <% end %>
           <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.4rem;align-items:center">
             <span

@@ -206,6 +206,21 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       assert html =~ "Reported"
     end
 
+    test "clicking a verified card's preview expands the full answer and collapses again",
+         %{conn: conn, game: game, viewer: viewer, verified: verified} do
+      conn = login(conn, viewer)
+      {:ok, view, html} = live(conn, ~p"/games/#{game}/community")
+
+      refute html =~ "Show less"
+
+      html = render_click(view, "toggle_expand", %{"id" => to_string(verified.id)})
+      assert html =~ "md-answer"
+      assert html =~ "Show less"
+
+      html = render_click(view, "toggle_expand", %{"id" => to_string(verified.id)})
+      refute html =~ "Show less"
+    end
+
     test "forged ids from other games can't be voted or reported here",
          %{conn: conn, game: game, viewer: viewer} do
       other_game = published_game_fixture(%{name: "Other Game", bgg_id: 43})
