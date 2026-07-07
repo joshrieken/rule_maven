@@ -1,84 +1,92 @@
-<div style="max-width:32rem;margin:2rem auto;text-align:center">
-  <div style="font-size:3rem;margin-bottom:0.5rem">◆</div>
-  <h1 style="font-size:1.75rem;font-weight:700;margin-bottom:0.5rem">Rule Maven</h1>
-  <p style="font-size:1.05rem;font-weight:600;margin-bottom:0.4rem">
-    Settle rules arguments in seconds — not after ten minutes of rulebook flipping.
-  </p>
-  <p style="color:var(--text-secondary);margin-bottom:1.25rem">
-    Ask in plain English, get a straight answer with the exact rulebook passages it came from.
-    Keep the game moving.
-  </p>
-
-  <%!-- Selling points for logged-out visitors: this page is the app's front
-        door, so pitch the concrete features here. --%>
-  <div
-    class="text-left"
-    style="max-width:24rem;margin:0 auto 1.5rem;display:flex;flex-direction:column;gap:0.45rem;font-size:0.85rem;color:var(--text-secondary)"
-  >
-    <div>⚡ <strong>Instant rulings</strong> — one place to ask, instead of hunting through three sections of the rulebook mid-game.</div>
-    <div>✅ <strong>Clear verdicts</strong> — every answer gets a stamp: legal move, not allowed, or rules silent.</div>
-    <div>📖 <strong>Sourced, not vibes</strong> — answers cite the actual rulebook passages, so you can check them yourself.</div>
-    <div>🧩 <strong>Expansion-aware</strong> — pick which expansions you're playing with and answers adjust.</div>
+<div style="max-width:60rem;margin:1.25rem auto;padding:0 1rem">
+  <%!-- Compact header: logo mark inline with the title so the whole page fits
+        a laptop viewport without scrolling. --%>
+  <div style="text-align:center;margin-bottom:1.25rem">
+    <h1 style="font-size:1.6rem;font-weight:700;margin:0 0 0.35rem;display:flex;align-items:center;justify-content:center;gap:0.5rem">
+      <span aria-hidden="true">◆</span> Rule Maven
+    </h1>
+    <p style="font-size:1.05rem;font-weight:600;margin:0">
+      Settle rules arguments in seconds — not after ten minutes of rulebook flipping. 🎲
+    </p>
   </div>
 
-  <div class="card text-left" style="max-width:24rem;margin:0 auto">
-    <h2 style="font-size:1.1rem;font-weight:600;margin-bottom:1rem">Log In</h2>
-
-    <.form for={%{}} action={~p"/login"} as={:session} class="space-y-4">
-      <div>
-        <label for="session_username" class="block text-sm font-medium mb-1">Username</label>
-        <input
-          type="text"
-          id="session_username"
-          name="session[username]"
-          value={@username}
-          class="w-full border rounded px-3 py-2"
-          autofocus
-          required
-        />
+  <%!-- Two columns on wide screens (pitch left, login right), stacking to one
+        column on narrow ones. flex-wrap + a ~19rem basis does the responsive
+        switch without a media query, which inline styles can't express. --%>
+  <div style="display:flex;flex-wrap:wrap;gap:2rem;justify-content:center;align-items:flex-start">
+    <%!-- Selling points for logged-out visitors: this page is the app's front
+          door, so pitch the concrete features here. --%>
+    <div class="text-left" style="flex:1 1 19rem;max-width:26rem">
+      <p style="color:var(--text-secondary);margin:0 0 1rem">
+        Ask in plain English, get a straight answer with the exact rulebook passages it came from.
+        Keep the game moving.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:0.45rem;font-size:0.85rem;color:var(--text-secondary)">
+        <div>⚡ <strong>Instant rulings</strong> — one place to ask, instead of hunting through three sections of the rulebook mid-game.</div>
+        <div>✅ <strong>Clear verdicts</strong> — every answer gets a stamp: legal move, not allowed, or rules silent.</div>
+        <div>📖 <strong>Sourced, not vibes</strong> — answers cite the actual rulebook passages, so you can check them yourself.</div>
+        <div>🧩 <strong>Expansion-aware</strong> — pick which expansions you're playing with and answers adjust.</div>
       </div>
-
-      <div>
-        <label for="session_password" class="block text-sm font-medium mb-1">Password</label>
-        <input
-          type="password"
-          id="session_password"
-          name="session[password]"
-          class="w-full border rounded px-3 py-2"
-          required
-        />
-      </div>
-
-      <div :if={@error} class="alert alert-error">{@error}</div>
-
-      <button
-        type="submit"
-        class="w-full"
-        style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
-      >
-        Log In
-      </button>
-    </.form>
-
-    <div style="margin-top:1rem;text-align:center">
-      <a
-        href="/reset-password"
-        style="color:var(--text-muted);font-size:0.78rem;text-decoration:none"
-      >
-        Forgot your password?
-      </a>
     </div>
-    <div style="margin-top:0.5rem;text-align:center">
-      <a href="/register" style="color:var(--text-muted);font-size:0.78rem;text-decoration:none">
-        Don't have an account? Register with an invite code
-      </a>
+
+    <div class="card text-left" style="flex:1 1 19rem;max-width:24rem">
+      <h2 style="font-size:1.1rem;font-weight:600;margin-bottom:1rem">Log In</h2>
+
+      <.form for={%{}} action={~p"/login"} as={:session} class="space-y-4">
+        <div>
+          <label for="session_username" class="block text-sm font-medium mb-1">Username</label>
+          <input
+            type="text"
+            id="session_username"
+            name="session[username]"
+            value={@username}
+            class="w-full border rounded px-3 py-2"
+            autofocus
+            required
+          />
+        </div>
+
+        <div>
+          <label for="session_password" class="block text-sm font-medium mb-1">Password</label>
+          <input
+            type="password"
+            id="session_password"
+            name="session[password]"
+            class="w-full border rounded px-3 py-2"
+            required
+          />
+        </div>
+
+        <div :if={@error} class="alert alert-error">{@error}</div>
+
+        <button
+          type="submit"
+          class="w-full"
+          style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
+        >
+          Log In
+        </button>
+      </.form>
+
+      <div style="margin-top:1rem;text-align:center">
+        <a
+          href="/reset-password"
+          style="color:var(--text-muted);font-size:0.78rem;text-decoration:none"
+        >
+          Forgot your password?
+        </a>
+      </div>
+      <div style="margin-top:0.5rem;text-align:center">
+        <a href="/register" style="color:var(--text-muted);font-size:0.78rem;text-decoration:none">
+          Don't have an account? Register with an invite code
+        </a>
+      </div>
     </div>
   </div>
 
-  <p style="color:var(--text-muted);font-size:0.8rem;margin-top:1.5rem">
-    Pick a game, ask a question, get an answer — right at the table.
-  </p>
-  <p style="color:var(--text-muted);font-size:0.72rem;margin-top:0.5rem">
-    🤖 Answers are AI-generated and can be wrong — double-check anything important.
-  </p>
+  <div style="text-align:center">
+    <p style="color:var(--text-muted);font-size:0.72rem;margin-top:1rem">
+      🤖 Answers are AI-generated and can be wrong — double-check anything important.
+    </p>
+  </div>
 </div>
