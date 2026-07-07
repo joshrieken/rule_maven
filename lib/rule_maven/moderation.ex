@@ -107,8 +107,13 @@ defmodule RuleMaven.Moderation do
   end
 
   defp votes_cast_by_user do
+    # Self-votes are weight-0 "asker confirmed" markers, not community signal —
+    # counting them here would flag every active asker as a heavy voter.
     Repo.all(
       from v in QuestionVote,
+        join: q in QuestionLog,
+        on: q.id == v.question_log_id,
+        where: is_nil(q.user_id) or v.user_id != q.user_id,
         group_by: v.user_id,
         select: {
           v.user_id,

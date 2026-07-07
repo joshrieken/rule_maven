@@ -70,6 +70,18 @@ defmodule RuleMaven.ModerationTest do
       assert sig.votes_up == 1
       assert sig.votes_down == 0
     end
+
+    test "self-votes (asker confirmations) don't count as votes cast" do
+      game = game_fixture()
+      author = user_fixture("selfvoter")
+      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+
+      assert "up" = Games.set_community_vote(q.id, author.id, "up")
+
+      sig = Enum.find(Moderation.user_signals(), &(&1.username == "selfvoter"))
+      assert sig.votes_up == 0
+      assert sig.votes_down == 0
+    end
   end
 
   describe "collusion_pairs/0" do
