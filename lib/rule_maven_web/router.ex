@@ -107,7 +107,7 @@ defmodule RuleMavenWeb.Router do
       live "/games/:id/faq", GameLive.Faq, :index
       live "/settings", SettingsLive, :index
       live "/settings/usage", SettingsLive, :usage
-      live "/curator", CuratorLive, :index
+      live "/standing", StandingLive, :index
     end
   end
 

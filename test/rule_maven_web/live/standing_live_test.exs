@@ -1,7 +1,8 @@
-defmodule RuleMavenWeb.CuratorLiveTest do
+defmodule RuleMavenWeb.StandingLiveTest do
   @moduledoc """
-  /curator page: stats, next-badge progress, settled-vote history, and the
-  visit consuming pending settlement notices (curator_seen_at advances).
+  /standing page: curator stats, next-badge progress, settled-vote history,
+  contributor reputation, and the visit consuming pending settlement notices
+  (curator_seen_at advances).
   """
 
   use RuleMavenWeb.ConnCase, async: false
@@ -13,6 +14,16 @@ defmodule RuleMavenWeb.CuratorLiveTest do
   alias RuleMaven.Games.Curation
   alias RuleMaven.Repo
   alias RuleMaven.Users
+
+  # set_question_visibility enqueues SettleVotesWorker, so Oban must be
+  # supervised here (same pattern as moderation_test.exs).
+  setup do
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
+    :ok
+  end
 
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
 
@@ -42,16 +53,16 @@ defmodule RuleMavenWeb.CuratorLiveTest do
     q
   end
 
-  test "renders stats, next badge, and settled history", %{conn: conn} do
+  test "renders curator stats, next badge, and settled history", %{conn: conn} do
     game = game_fixture()
     author = create_user("author")
     voter = create_user("voter")
 
     settled_upvote(game, author, voter, "How does scoring work?")
 
-    {:ok, _view, html} = conn |> login(voter) |> live(~p"/curator")
+    {:ok, _view, html} = conn |> login(voter) |> live(~p"/standing")
 
-    assert html =~ "Curator"
+    assert html =~ "Community standing"
     assert html =~ "curator points"
     # 1 correct settle → next badge is Curator at 1/10.
     assert html =~ "Next:"
@@ -59,6 +70,32 @@ defmodule RuleMavenWeb.CuratorLiveTest do
     # History shows the settled question and its game.
     assert html =~ "How does scoring work?"
     assert html =~ game.name
+  end
+
+  test "renders contributor reputation and promoted count", %{conn: conn} do
+    game = game_fixture()
+    asker = create_user("asker")
+
+    {:ok, q} =
+      Games.log_question(%{
+        game_id: game.id,
+        question: "Promoted Q?",
+        answer: "A.",
+        user_id: asker.id,
+        pooled: true
+      })
+
+    Games.set_question_visibility(q.id, "community")
+
+    {:ok, _view, html} = conn |> login(asker) |> live(~p"/standing")
+
+    assert html =~ "Contributor"
+    assert html =~ "reputation"
+    assert html =~ "answers promoted to community"
+    # Promotion grants the reputation bonus (5) and counts one promoted row.
+    stats = Curation.contributor_stats(asker.id)
+    assert stats.promoted == 1
+    assert stats.reputation >= 5
   end
 
   test "visiting consumes pending settlement notices", %{conn: conn} do
@@ -69,7 +106,7 @@ defmodule RuleMavenWeb.CuratorLiveTest do
     settled_upvote(game, author, voter, "Does this settle?")
     assert Curation.unseen_correct_count(Repo.reload!(voter)) == 1
 
-    {:ok, _view, _html} = conn |> login(voter) |> live(~p"/curator")
+    {:ok, _view, _html} = conn |> login(voter) |> live(~p"/standing")
 
     assert Curation.unseen_correct_count(Repo.reload!(voter)) == 0
   end
@@ -77,7 +114,7 @@ defmodule RuleMavenWeb.CuratorLiveTest do
   test "empty state renders for a user with no settled votes", %{conn: conn} do
     user = create_user("fresh")
 
-    {:ok, _view, html} = conn |> login(user) |> live(~p"/curator")
+    {:ok, _view, html} = conn |> login(user) |> live(~p"/standing")
 
     assert html =~ "Nothing settled yet"
     assert html =~ "No badges yet"
