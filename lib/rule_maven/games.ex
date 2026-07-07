@@ -3782,11 +3782,13 @@ defmodule RuleMaven.Games do
       # so an out-of-range value (e.g. a forged event) would raise mid-write.
       value not in ["up", "down"] -> {:error, :invalid_value}
       is_nil(q) -> {:error, :not_found}
-      # Admins may vote (and unvote) their own rows — useful for seeding/curation.
-      # Everyone else is blocked from self-voting.
-      q.user_id == user_id and not admin? -> {:error, :self_vote}
+      # Askers may confirm their own answer ("up", stored at weight 0 so it
+      # never moves trust/reputation/quorum — see do_set_community_vote), but
+      # may not self-downvote: regen and "not my question" already cover the
+      # negative case. Admins may cast either for seeding/curation.
+      q.user_id == user_id and value == "down" and not admin? -> {:error, :self_vote}
       not votable?(q) -> {:error, :not_votable}
-      true -> do_set_community_vote(q, user_id, value)
+      true -> do_set_community_vote(q, user_id, value, admin?)
     end
   end
 
@@ -3797,9 +3799,18 @@ defmodule RuleMaven.Games do
     q.visibility == "community" or q.pooled
   end
 
-  defp do_set_community_vote(%QuestionLog{id: question_log_id}, user_id, value) do
+  defp do_set_community_vote(%QuestionLog{id: question_log_id} = q, user_id, value, admin?) do
     existing = get_user_community_vote(question_log_id, user_id)
-    weight = RuleMaven.Games.Trust.vote_weight(Repo.get(RuleMaven.Users.User, user_id))
+
+    # A non-admin asker's vote on their own row is pure display metadata
+    # ("asker confirmed") — weight 0 keeps it out of trust_score. Reputation
+    # and promotion quorum already exclude self-votes independently.
+    weight =
+      if q.user_id == user_id and not admin? do
+        0.0
+      else
+        RuleMaven.Games.Trust.vote_weight(Repo.get(RuleMaven.Users.User, user_id))
+      end
 
     result =
       cond do
@@ -3843,28 +3854,39 @@ defmodule RuleMaven.Games do
   end
 
   def community_vote_maps(question_log_ids, user_id) do
+    # Tag each vote with whether its caster authored the row: the asker's own
+    # "up" renders as a distinct "asker confirmed" badge, not an anonymous +1,
+    # so counts exclude author votes and asker_confirmed carries them instead.
     all_votes =
       Repo.all(
         from v in QuestionVote,
-          where: v.question_log_id in ^question_log_ids
+          join: q in QuestionLog,
+          on: q.id == v.question_log_id,
+          where: v.question_log_id in ^question_log_ids,
+          select: {v.question_log_id, v.user_id, v.value, q.user_id}
       )
-
-    user_votes_rows =
-      Repo.all(
-        from v in QuestionVote,
-          where: v.question_log_id in ^question_log_ids and v.user_id == ^user_id
-      )
-
-    counts =
-      Enum.reduce(all_votes, %{}, fn v, acc ->
-        acc
-        |> Map.update(v.question_log_id, %{up: 0, down: 0}, & &1)
-        |> update_in([v.question_log_id, String.to_atom(v.value)], &(&1 + 1))
+      |> Enum.map(fn {id, uid, value, author_id} ->
+        {id, uid, value, not is_nil(author_id) and uid == author_id}
       end)
 
-    user_votes = Map.new(user_votes_rows, &{&1.question_log_id, &1.value})
+    counts =
+      Enum.reduce(all_votes, %{}, fn
+        {_id, _uid, _value, true}, acc ->
+          acc
 
-    {counts, user_votes}
+        {id, _uid, value, false}, acc ->
+          acc
+          |> Map.update(id, %{up: 0, down: 0}, & &1)
+          |> update_in([id, String.to_atom(value)], &(&1 + 1))
+      end)
+
+    user_votes =
+      for {id, uid, value, _author?} <- all_votes, uid == user_id, into: %{}, do: {id, value}
+
+    asker_confirmed =
+      for {id, _uid, "up", true} <- all_votes, into: MapSet.new(), do: id
+
+    {counts, user_votes, asker_confirmed}
   end
 
   # ── Per-user answer favorites ──

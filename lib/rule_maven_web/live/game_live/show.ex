@@ -34,6 +34,7 @@ defmodule RuleMavenWeb.GameLive.Show do
        show_refused: false,
        community_vote_counts: %{},
        community_user_votes: %{},
+       asker_confirmed_ids: MapSet.new(),
        flagged_ids: MapSet.new(),
        # Admin-only "version history" panel: which threads have it expanded,
        # and the lazily-fetched audit entries per thread id.
@@ -207,7 +208,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     vote_ids =
       cq_ids ++ conversation_source_ids(conversation) ++ conversation_answer_ids(conversation)
 
-    {cv_counts, cv_user} =
+    {cv_counts, cv_user, cv_asker} =
       Games.community_vote_maps(vote_ids, socket.assigns.current_user.id)
 
     favorited_answer_ids =
@@ -240,6 +241,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         community_count: community_count,
         community_vote_counts: cv_counts,
         community_user_votes: cv_user,
+        asker_confirmed_ids: cv_asker,
         favorited_answer_ids: favorited_answer_ids,
         flagged_ids: Games.user_flagged_ids(socket.assigns.current_user.id),
         asks_disabled: RuleMaven.Settings.asks_disabled?(),
@@ -429,7 +431,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     RuleMaven.Voices.vote_thanks(socket.assigns.default_voice, socket.assigns.game) || %{}
   end
 
-  defp vote_error_message(:self_vote), do: "You can't vote on your own answer."
+  defp vote_error_message(:self_vote), do: "You can't downvote your own answer."
   defp vote_error_message(:not_votable), do: "This answer isn't open for voting."
   defp vote_error_message(_), do: "Couldn't record your vote."
 
@@ -753,10 +755,14 @@ defmodule RuleMavenWeb.GameLive.Show do
             conversation_source_ids(socket.assigns.conversation) ++
             conversation_answer_ids(socket.assigns.conversation)
 
-        {cv_counts, cv_user} = Games.community_vote_maps(vote_ids, uid)
+        {cv_counts, cv_user, cv_asker} = Games.community_vote_maps(vote_ids, uid)
 
         socket =
-          assign(socket, community_vote_counts: cv_counts, community_user_votes: cv_user)
+          assign(socket,
+            community_vote_counts: cv_counts,
+            community_user_votes: cv_user,
+            asker_confirmed_ids: cv_asker
+          )
 
         {:noreply, if(new_upvote?, do: push_event(socket, "vote_thanks", vote_thanks_payload(socket)), else: socket)}
     end
@@ -3178,6 +3184,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                         style="font-size:0.65rem;color:var(--text-muted)"
                         title="Total helpful votes"
                       >{Map.get(counts, :up, 0)}</span>
+                      <span
+                        :if={MapSet.member?(@asker_confirmed_ids, msg[:id])}
+                        style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
+                        title="The asker confirmed this answered their question"
+                      >✓ asker</span>
                     </span>
                   <% else %>
                     <%= if msg[:pool_hit] && msg[:pool_source_id] do %>
@@ -3199,6 +3210,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                           style="font-size:0.65rem;color:var(--text-muted)"
                           title="Total helpful votes"
                         >{Map.get(counts, :up, 0)}</span>
+                        <span
+                          :if={MapSet.member?(@asker_confirmed_ids, sid)}
+                          style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
+                          title="The asker confirmed this answered their question"
+                        >✓ asker</span>
                       </span>
                     <% else %>
                       <!-- Own (non-pool) answer: votes go to the same QuestionVote
@@ -3212,27 +3228,25 @@ defmodule RuleMavenWeb.GameLive.Show do
                         :if={!msg[:pool_hit]}
                         style="display:inline-flex;align-items:center;gap:0.15rem"
                       >
-                        <%!-- This branch is always the asker's own question, so the
-                              thumb would be a self-vote: only admins may cast it
-                              (seeding/curation). Everyone else sees a read-only
-                              tally with a static, non-clickable thumb. --%>
+                        <%!-- This branch is always the asker's own question: the
+                              thumb is a self-confirmation, stored at weight 0 and
+                              shown to other users as an "asker confirmed" badge
+                              rather than counting in the tally. --%>
                         <button
-                          :if={@is_admin}
                           type="button"
                           phx-click="community_vote"
                           phx-value-id={msg[:id]}
                           phx-value-vote="up"
                           style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
-                          title={if cv == "up", do: "Remove vote", else: "Helpful"}
+                          title={
+                            if cv == "up",
+                              do: "Remove confirmation",
+                              else: "Confirm this answered your question"
+                          }
                         >👍</button>
                         <span
-                          :if={!@is_admin}
-                          style="line-height:1;font-size:1rem;opacity:0.3;cursor:default"
-                          title="You can't vote on your own question"
-                        >👍</span>
-                        <span
                           style="font-size:0.65rem;color:var(--text-muted)"
-                          title="Total helpful votes"
+                          title="Helpful votes from other players"
                         >{Map.get(counts, :up, 0)}</span>
                       </span>
                     <% end %>

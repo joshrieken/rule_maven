@@ -243,9 +243,25 @@ defmodule RuleMaven.TrustTest do
       %{game: game, author: user_fixture("author"), voter: user_fixture("voter")}
     end
 
-    test "rejects self-votes", %{game: game, author: author} do
+    test "self-upvote is allowed but carries zero weight", %{game: game, author: author} do
       q = log(game, author, %{cited_passage: "p.1", pooled: true})
-      assert {:error, :self_vote} = Games.set_community_vote(q.id, author.id, "up")
+      assert "up" = Games.set_community_vote(q.id, author.id, "up")
+
+      # Stored as a real vote row (asker confirmation) at weight 0…
+      assert %{value: "up", weight: +0.0} = Games.get_user_community_vote(q.id, author.id)
+      # …so trust_score, reputation, and quorum are all unaffected.
+      assert Repo.reload!(q).trust_score == 0.0
+      assert Repo.reload!(author).reputation == 0
+      assert Trust.eligible_voter_count(Repo.reload!(q)) == 0
+
+      # Toggles off like any other vote.
+      assert is_nil(Games.set_community_vote(q.id, author.id, "up"))
+      assert is_nil(Games.get_user_community_vote(q.id, author.id))
+    end
+
+    test "rejects self-downvotes", %{game: game, author: author} do
+      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+      assert {:error, :self_vote} = Games.set_community_vote(q.id, author.id, "down")
       # Rejected before any recompute, so the stored score is untouched.
       assert Repo.reload!(q).trust_score == 0.0
       assert is_nil(Games.get_user_community_vote(q.id, author.id))
@@ -255,9 +271,11 @@ defmodule RuleMaven.TrustTest do
       {:ok, admin} = Users.update_user_role(author, "admin")
       q = log(game, admin, %{cited_passage: "p.1", pooled: true})
 
-      # admin? = true bypasses the self-vote guard.
+      # admin? = true bypasses the self-vote guard and keeps real weight
+      # (seeding/curation), unlike a regular asker's weight-0 confirmation.
       assert "up" = Games.set_community_vote(q.id, admin.id, "up", true)
-      assert %{value: "up"} = Games.get_user_community_vote(q.id, admin.id)
+      assert %{value: "up", weight: w} = Games.get_user_community_vote(q.id, admin.id)
+      assert w >= 1.0
 
       # Re-casting the same vote toggles it off (unvote).
       assert is_nil(Games.set_community_vote(q.id, admin.id, "up", true))
@@ -295,6 +313,42 @@ defmodule RuleMaven.TrustTest do
       # A forged vote value must not reach the insert!/update! and crash.
       assert {:error, :invalid_value} = Games.set_community_vote(q.id, voter.id, "sideways")
       assert is_nil(Games.get_user_community_vote(q.id, voter.id))
+    end
+  end
+
+  describe "community_vote_maps/2" do
+    test "splits the asker's confirmation out of the public tally" do
+      game = game_fixture()
+      author = user_fixture("maps_author")
+      voter = user_fixture("maps_voter")
+      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+
+      Games.set_community_vote(q.id, author.id, "up")
+      Games.set_community_vote(q.id, voter.id, "up")
+
+      {counts, user_votes, asker_confirmed} = Games.community_vote_maps([q.id], voter.id)
+
+      # Tally counts only the non-author vote; the asker's vote surfaces as a badge.
+      assert counts[q.id] == %{up: 1, down: 0}
+      assert user_votes[q.id] == "up"
+      assert MapSet.member?(asker_confirmed, q.id)
+
+      # The author viewing their own row still sees their vote state (filled thumb).
+      {_counts, author_votes, _} = Games.community_vote_maps([q.id], author.id)
+      assert author_votes[q.id] == "up"
+    end
+
+    test "rows without an author vote are not asker-confirmed" do
+      game = game_fixture()
+      author = user_fixture("maps_author2")
+      voter = user_fixture("maps_voter2")
+      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+
+      Games.set_community_vote(q.id, voter.id, "up")
+
+      {counts, _user_votes, asker_confirmed} = Games.community_vote_maps([q.id], voter.id)
+      assert counts[q.id] == %{up: 1, down: 0}
+      refute MapSet.member?(asker_confirmed, q.id)
     end
   end
 
