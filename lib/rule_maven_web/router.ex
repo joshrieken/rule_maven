@@ -105,7 +105,9 @@ defmodule RuleMavenWeb.Router do
       live "/", GameLive.Index, :index
       live "/games/import", GameLive.Import, :index
       live "/games/:id", GameLive.Show, :show
-      live "/games/:id/faq", GameLive.Faq, :index
+      live "/games/:id/community", GameLive.Community, :index
+      # Legacy URL for old bookmarks/links — same page.
+      live "/games/:id/faq", GameLive.Community, :index
       live "/settings", SettingsLive, :index
       live "/settings/usage", SettingsLive, :usage
       live "/standing", StandingLive, :index

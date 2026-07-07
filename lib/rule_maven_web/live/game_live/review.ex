@@ -14,7 +14,7 @@ defmodule RuleMavenWeb.GameLive.Review do
         {:ok, socket |> put_flash(:error, "That game doesn’t exist.") |> push_navigate(to: ~p"/")}
 
       !is_admin ->
-        {:ok, push_navigate(socket, to: ~p"/games/#{id}/faq")}
+        {:ok, push_navigate(socket, to: ~p"/games/#{id}/community")}
 
       true ->
       {:ok,
