@@ -1185,6 +1185,21 @@ a:not([class]):hover {
   color: transparent;
 }
 
+/* Section headings inside the login-page pitch column. Uppercase micro-labels
+   so the groups scan as categories without competing with the bullets. */
+.login-pitch-heading {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
+.login-pitch-heading:first-child {
+  margin-top: 0;
+}
+
 .header-tagline {
   font-family: var(--font-body);
   font-size: 0.75rem;
