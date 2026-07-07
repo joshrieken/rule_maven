@@ -31,6 +31,24 @@ defmodule RuleMavenWeb.GameLiveDifficultyBadgeTest do
     {:ok, _view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
 
     assert html =~ "Medium"
+    assert html =~ "3.2"
+    assert html =~ "difficulty-badge"
+  end
+
+  test "renders difficulty badge on the games list", %{conn: conn} do
+    user = setup_user("badge_index")
+    _game = published_game_fixture(%{name: "Indexed Weighted Game", weight: 3.2})
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    # The list stays hidden until the search hook restores its saved value on
+    # connect; fire it manually the way the JS hook would.
+    html = render_hook(view, "restore_search", %{"value" => ""})
+
+    assert html =~ "difficulty-badge"
+    assert html =~ "3.2"
+    assert html =~ "Medium"
   end
 
   test "renders Medium-Heavy at the 4.2 boundary (not Heavy)", %{conn: conn} do

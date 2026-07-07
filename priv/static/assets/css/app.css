@@ -1382,6 +1382,30 @@ button.motion-toggle:hover {
   background: var(--accent);
 }
 
+/* Difficulty badge: BGG complexity number + bucket label. Color comes from
+   --difficulty-color set inline per bucket; the fill is a translucent tint of
+   the same color so it reads as a badge in both light and dark themes. */
+.difficulty-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.2;
+  vertical-align: middle;
+  color: var(--difficulty-color);
+  border: 1px solid color-mix(in srgb, var(--difficulty-color) 55%, transparent);
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  background: color-mix(in srgb, var(--difficulty-color) 12%, transparent);
+  white-space: nowrap;
+}
+.difficulty-badge strong {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ===== Flash Messages ===== */
 .flash-group {
   max-width: 56rem;

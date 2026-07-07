@@ -2152,14 +2152,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               &larr;
             </.link>
             <h1 class="text-sm font-bold truncate" style="max-width:300px">{@game.name}</h1>
-            <% difficulty = difficulty_bucket(difficulty_weight(@game, {@expansions, @included_expansions})) %>
-            <%= if difficulty do %>
-              <% {label, color} = difficulty %>
-              <span
-                class="pill-link"
-                style={"color:#{color};border-color:#{color}"}
-              >{label}</span>
-            <% end %>
+            <.difficulty_badge weight={difficulty_weight(@game, {@expansions, @included_expansions})} />
             <.link patch={~p"/games/#{@game}?start=1"} class="pill-link pill-link-accent">
               Overview
             </.link>
@@ -4053,21 +4046,6 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> case do
       [] -> nil
       weights -> Enum.max(weights)
-    end
-  end
-
-  # Pure bucketing of BGG's community averageweight (1.0-5.0 scale) into a
-  # label. nil weight (unrated / not yet backfilled) means no badge — no
-  # fallback text, matching the "Did you know?" card's precedent.
-  defp difficulty_bucket(nil), do: nil
-
-  defp difficulty_bucket(weight) do
-    cond do
-      weight < 1.5 -> {"Light", "var(--green)"}
-      weight < 2.5 -> {"Medium-Light", "var(--blue)"}
-      weight < 3.5 -> {"Medium", "var(--yellow)"}
-      weight < 4.5 -> {"Medium-Heavy", "var(--orange, var(--yellow))"}
-      true -> {"Heavy", "var(--red)"}
     end
   end
 
