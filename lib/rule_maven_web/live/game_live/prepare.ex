@@ -101,7 +101,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
         {:ok,
          socket
-         |> assign(game: game, page_title: "Prepare — #{game.name}")
+         |> assign(game: game, page_title: "Prepare — #{game.name}", renaming_doc_id: nil)
          |> load()}
     end
   end
@@ -420,6 +420,51 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       {:noreply, put_flash(socket, :info, "Re-tagging #{count} question(s) in the background.")}
     else
       {:noreply, socket}
+    end
+  end
+
+  # Inline rulebook rename in the Source step preview: click the pencil to swap
+  # the name for a small form, submit to save. Only the label changes, so
+  # update_document won't re-chunk or invalidate anything.
+  def handle_event("start_rename", %{"id" => id}, socket) do
+    with true <- Users.can?(socket.assigns.current_user, :admin),
+         {doc_id, ""} <- Integer.parse(to_string(id)) do
+      {:noreply, assign(socket, renaming_doc_id: doc_id)}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("cancel_rename", _params, socket) do
+    {:noreply, assign(socket, renaming_doc_id: nil)}
+  end
+
+  def handle_event("rename_document", %{"doc_id" => id, "label" => label}, socket) do
+    doc = Games.get_document(id)
+    label = String.trim(label)
+
+    cond do
+      not Users.can?(socket.assigns.current_user, :admin) ->
+        {:noreply, socket}
+
+      is_nil(doc) or doc.game_id != socket.assigns.game.id ->
+        {:noreply, assign(socket, renaming_doc_id: nil)}
+
+      label == "" ->
+        {:noreply, put_flash(socket, :error, "The name can't be blank.")}
+
+      true ->
+        case Games.update_document(doc, %{label: label}) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> assign(renaming_doc_id: nil)
+             |> reload()
+             |> put_flash(:info, "Rulebook renamed.")}
+
+          {:error, _changeset} ->
+            {:noreply, put_flash(socket, :error, "Couldn't rename the rulebook.")}
+        end
     end
   end
 
@@ -762,6 +807,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               action={step_action(step, @game)}
               log={Map.get(@step_logs, step.id)}
               next?={step.id == @next_step_id}
+              renaming_doc_id={@renaming_doc_id}
             />
           <% end %>
         </div>
@@ -779,6 +825,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   attr :action, :any, default: nil
   attr :log, :any, default: nil
   attr :next?, :boolean, default: false
+  attr :renaming_doc_id, :any, default: nil
 
   defp step_row(assigns) do
     # A row is collapsible when it has a result to preview *or* an action to
@@ -839,7 +886,12 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         <% end %>
       </div>
       <div :if={@has_body} data-prepare-body style="padding:0 0.9rem 0.8rem 2.45rem">
-        <.preview_body :if={present_preview?(@preview)} id={@step.id} preview={@preview} />
+        <.preview_body
+          :if={present_preview?(@preview)}
+          id={@step.id}
+          preview={@preview}
+          renaming_doc_id={@renaming_doc_id}
+        />
         <.step_actions step={@step} game={@game} running={@running} />
         <.step_log log={@log} />
       </div>
@@ -953,6 +1005,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   attr :id, :atom, required: true
   attr :preview, :any, required: true
+  attr :renaming_doc_id, :any, default: nil
 
   defp preview_body(assigns) do
     ~H"""
@@ -960,8 +1013,49 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       <%= case @id do %>
         <% :source -> %>
           <ul style="margin:0;padding-left:1.1rem">
-            <li :for={d <- @preview}>
-              {d.label || "Untitled"}
+            <li :for={d <- @preview} style="margin-bottom:0.15rem">
+              <%= if @renaming_doc_id == d.id do %>
+                <form
+                  phx-submit="rename_document"
+                  style="display:inline-flex;align-items:center;gap:0.35rem"
+                >
+                  <input type="hidden" name="doc_id" value={d.id} />
+                  <input
+                    type="text"
+                    name="label"
+                    value={d.label}
+                    required
+                    autofocus
+                    phx-keydown="cancel_rename"
+                    phx-key="Escape"
+                    style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.4rem;font-size:0.78rem;width:16rem"
+                  />
+                  <button
+                    type="submit"
+                    style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.2rem 0.55rem;border-radius:0.3rem;font-size:0.72rem;font-weight:600;cursor:pointer"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="cancel_rename"
+                    style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.2rem 0.55rem;border-radius:0.3rem;font-size:0.72rem;font-weight:600;cursor:pointer"
+                  >
+                    Cancel
+                  </button>
+                </form>
+              <% else %>
+                {d.label || "Untitled"}
+                <button
+                  type="button"
+                  phx-click="start_rename"
+                  phx-value-id={d.id}
+                  title="Rename rulebook"
+                  style="background:none;border:none;color:var(--text-muted);font-size:0.75rem;cursor:pointer;padding:0 0.1rem"
+                >
+                  ✎
+                </button>
+              <% end %>
               <span style="color:var(--text-muted)">· {d.page_count || length(d.pages)} pages</span>
               <.link
                 :if={is_binary(d.pdf_path)}
