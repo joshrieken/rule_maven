@@ -784,7 +784,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         [data-prepare-step][data-open] [data-prepare-caret]{transform:rotate(90deg)}
       </style>
 
-      <div id="pipeline" phx-hook="PrepareCollapse" data-game={@game.id}>
+      <div id="pipeline" phx-hook="PrepareCollapse" data-game={@game.id} data-all-done={@all_done?}>
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;margin:0 0 0.5rem">
           <h2 style="font-size:1rem;font-weight:700">Pipeline</h2>
           <button
