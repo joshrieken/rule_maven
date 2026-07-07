@@ -170,4 +170,37 @@ defmodule RuleMaven.Games.CurationTest do
       assert :ok = Games.check_rate_limit(Repo.reload!(voter))
     end
   end
+
+  describe "settled_history/2 and next_badge/1" do
+    test "history returns newest-first entries with question and game", ctx do
+      q1 = log(ctx.game, ctx.author, %{question: "First?"})
+      q2 = log(ctx.game, ctx.author, %{question: "Second?"})
+      Games.set_community_vote(q1.id, ctx.up_voter.id, "up")
+      Games.set_community_vote(q2.id, ctx.up_voter.id, "up")
+
+      {:ok, _} = Curation.settle_votes(q1, :confirmed)
+      # Same-second settles fall back to the vote-id tiebreak (desc), so q2's
+      # later vote still sorts first.
+      {:ok, _} = Curation.settle_votes(q2, :rejected)
+
+      assert [newer, older] = Curation.settled_history(ctx.up_voter.id)
+      assert newer.question.id == q2.id
+      assert newer.outcome == "incorrect"
+      assert older.question.id == q1.id
+      assert older.outcome == "correct"
+      assert newer.game.id == ctx.game.id
+    end
+
+    test "next_badge tracks progress toward Curator first", ctx do
+      assert %{label: "Curator", have: 0, need: 10} =
+               Curation.next_badge(ctx.up_voter.id)
+
+      q = log(ctx.game, ctx.author)
+      Games.set_community_vote(q.id, ctx.up_voter.id, "up")
+      {:ok, _} = Curation.settle_votes(q, :confirmed)
+
+      assert %{label: "Curator", have: 1, need: 10} =
+               Curation.next_badge(ctx.up_voter.id)
+    end
+  end
 end

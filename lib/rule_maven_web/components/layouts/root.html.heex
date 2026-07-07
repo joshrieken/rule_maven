@@ -92,6 +92,7 @@
                   <.link href={~p"/admin/security"} class="user-dropdown-link">Security</.link>
                   <.link href={~p"/admin/db"} class="user-dropdown-link">DB Admin</.link>
                   <.link href={~p"/admin/themes"} class="user-dropdown-link">Themes</.link>
+                  <.link href={~p"/curator"} class="user-dropdown-link">Curator</.link>
                   <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>
                   <.link href={~p"/oban"} class="user-dropdown-link" target="_blank">Oban ↗</.link>
                 </div>
@@ -144,6 +145,7 @@
                     </span>
                   </summary>
                   <div class="user-dropdown-menu">
+                    <.link href={~p"/curator"} class="user-dropdown-link">Curator</.link>
                     <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>
                     <.link href={~p"/logout"} class="user-dropdown-link">Log out</.link>
                   </div>
@@ -189,6 +191,7 @@
           <% end %>
           <div class="drawer-section"></div>
           <%= if me do %>
+            <.link href={~p"/curator"} class="drawer-link">Curator</.link>
             <.link href={~p"/logout"} class="drawer-link">Log out</.link>
           <% else %>
             <.link href={~p"/login"} class="drawer-link">Log in</.link>
