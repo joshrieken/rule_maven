@@ -471,6 +471,30 @@ defmodule RuleMaven.GamesTest do
     q
   end
 
+  describe "list_games_needing_bgg/2" do
+    test "search filters in the query, not just within the first page" do
+      game_fixture(%{name: "Alpha", bgg_id: 1})
+      game_fixture(%{name: "Catan", bgg_id: 2})
+
+      # limit 1 would page in only "Alpha" (name order); the search term must
+      # still find "Catan" because it filters DB-side.
+      assert [%{name: "Catan"}] = Games.list_games_needing_bgg("catan", limit: 1)
+    end
+
+    test "excludes games that already have bgg_data" do
+      game_fixture(%{name: "Catan", bgg_id: 2, bgg_data: "<item/>"})
+
+      assert Games.list_games_needing_bgg("catan") == []
+    end
+
+    test "category option narrows results" do
+      game_fixture(%{name: "Catan", bgg_id: 2, category: "board_game"})
+
+      assert [_] = Games.list_games_needing_bgg("catan", category: "board_game")
+      assert Games.list_games_needing_bgg("catan", category: "video_game") == []
+    end
+  end
+
   describe "update_canonical/3 (curated FAQ text)" do
     setup do
       game = game_fixture()

@@ -106,17 +106,23 @@ defmodule RuleMaven.Games do
   @doc """
   Base games still missing their full BGG data (admin "Needs Pull" view): a
   `bgg_id` present but no cached `bgg_data` yet. DB-paged via `limit` because the
-  rank dump can leave a very large number of un-enriched catalog rows. Ordered by
-  BGG rank (ranked games first) then name.
+  rank dump can leave a very large number of un-enriched catalog rows, so search
+  and category must filter in the query (not client-side over one page). Ordered
+  by BGG rank (ranked games first) then name.
   """
-  def list_games_needing_bgg(limit \\ 20) do
+  def list_games_needing_bgg(search \\ "", opts \\ []) do
+    limit = Keyword.get(opts, :limit, 20)
+    term = "%#{String.trim(search || "")}%"
+
     (from g in Game,
        where: not is_nil(g.bgg_id),
        where: is_nil(g.bgg_data),
+       where: ilike(g.name, ^term),
        order_by: [asc_nulls_last: g.bgg_rank, asc: g.name],
        limit: ^limit
     )
     |> not_expansion()
+    |> maybe_category(Keyword.get(opts, :category))
     |> Repo.all()
   end
 

@@ -200,9 +200,9 @@ defmodule RuleMavenWeb.GameLive.Index do
     # (the infinite-scroll sentinel shows while display_games < loaded games).
     do: Games.search_catalog(search || "", category: category, limit: limit + 1)
 
-  defp load_view_games("needs_bgg", _user_id, _search, _category, limit),
+  defp load_view_games("needs_bgg", _user_id, search, category, limit),
     # Fetch one extra row so the render path knows there's another page.
-    do: Games.list_games_needing_bgg(limit + 1)
+    do: Games.list_games_needing_bgg(search || "", category: category, limit: limit + 1)
 
   defp load_view_games("requested", _user_id, _search, _category, _limit),
     do: Games.list_requested_games()
