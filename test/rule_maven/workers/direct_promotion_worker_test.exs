@@ -10,6 +10,20 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
   alias RuleMaven.Users.User
   alias RuleMaven.Workers.DirectPromotionWorker
 
+  # Oban isn't supervised in test (config :rule_maven, Oban, testing: :manual),
+  # but promote/1 now enqueues a SettleVotesWorker job via Oban.insert/1,
+  # which needs a named, configured instance to insert against. Start a
+  # queueless/pluginless one under the default name so the plain (unnamed)
+  # insert call resolves for real. (Same pattern as
+  # test/rule_maven/house_rules_test.exs.)
+  setup do
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
+    :ok
+  end
+
   defp user_fixture(name) do
     {:ok, u} =
       Users.create_user(%{username: name, email: "#{name}@test.com", password: "testpass1234"})

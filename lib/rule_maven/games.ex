@@ -1803,6 +1803,7 @@ defmodule RuleMaven.Games do
     attrs = %{verified: true, visibility: "community", pooled: true}
 
     with {:ok, updated} <- Repo.update(QuestionLog.changeset(q, attrs)) do
+      RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :confirmed)
       finalize_verify_toggle(updated)
     end
   end
@@ -1874,6 +1875,7 @@ defmodule RuleMaven.Games do
         |> Repo.update()
 
       RuleMaven.Games.Trust.recompute_trust(updated)
+      RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :rejected)
     end)
 
     RuleMaven.Games.Trust.recompute_reputation(user_id)

@@ -5,6 +5,20 @@ defmodule RuleMaven.ModerationTest do
 
   alias RuleMaven.{Games, Moderation, Users}
 
+  # Oban isn't supervised in test (config :rule_maven, Oban, testing: :manual),
+  # but demote_user_answers/1 now enqueues a SettleVotesWorker job per row via
+  # Oban.insert/1, which needs a named, configured instance to insert against.
+  # Start a queueless/pluginless one under the default name so the plain
+  # (unnamed) insert call resolves for real. (Same pattern as
+  # test/rule_maven/house_rules_test.exs.)
+  setup do
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
+    :ok
+  end
+
   defp user_fixture(name, attrs \\ %{}) do
     {:ok, u} =
       Users.create_user(
