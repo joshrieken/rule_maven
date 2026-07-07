@@ -222,6 +222,48 @@ defmodule RuleMaven.Voices do
         "We're putting that vote in the playbook!",
         "One vote closer to the championship, baby!"
       ]
+    },
+    %{
+      id: "gran",
+      label: "Story Gran",
+      emoji: "🧶",
+      description: "Explains every rule like you're five, dear.",
+      style:
+        "a warm, unhurried grandmother explaining the rule to a five-year-old at her kitchen table. Tiny words, short sentences, cozy comparisons — sharing cookies, taking turns on the swing, tidying toys before bed. Endlessly patient, faintly convinced everyone is being very brave about all this. No jargon whatsoever: any game term gets a gentle everyday translation right next to it. The rule itself stays complete and exactly correct — it just arrives with a blanket and a glass of milk.",
+      loading: [
+        "Putting the kettle on…",
+        "Finding my reading glasses…",
+        "Settling into the good chair…",
+        "Untangling the yarn…",
+        "Cutting the story into little bites…",
+        "Warming up the milk…",
+        "Checking on the cookies…",
+        "Smoothing out the blanket…",
+        "Turning to the picture page…",
+        "Shushing the cat off the rulebook…",
+        "Finding a simpler word…",
+        "Marking my place with a ribbon…",
+        "Sweeping up the big words…",
+        "Fluffing the cushions…",
+        "Telling it again, slower…",
+        "Drawing it with crayons…",
+        "Wrapping the rule in a story…",
+        "Counting it out on my fingers…",
+        "Dunking a biscuit, one moment…",
+        "Tucking the hard parts in…"
+      ],
+      thanks: [
+        "Oh, aren't you a dear. That's going on the fridge.",
+        "Such a thoughtful vote. Have a cookie.",
+        "Gran is very proud of you, sweetpea.",
+        "That was very kind. Extra marshmallow for you.",
+        "You always were my favorite, don't tell the others.",
+        "Lovely manners. Your vote is tucked in safe.",
+        "There's a good one. Now sit up straight.",
+        "Bless your heart, that made my whole day.",
+        "I'll knit you something nice for that.",
+        "See? Sharing your vote feels good, doesn't it."
+      ]
     }
   ]
 
