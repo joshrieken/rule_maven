@@ -3,6 +3,7 @@ defmodule RuleMavenWeb.GameLive.Faq do
 
   alias RuleMaven.Games
   alias RuleMaven.Games.QuestionLog
+  alias RuleMavenWeb.ReportModal
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -37,6 +38,8 @@ defmodule RuleMavenWeb.GameLive.Faq do
        favorited_ids: favorited_ids,
        category_map: category_map,
        flagged_ids: flagged_ids,
+       # Report-reason modal: nil, or the question id being reported.
+       report_target: nil,
        filter_category: nil,
        page_title: "FAQ — #{game.name}"
      )}
@@ -94,27 +97,48 @@ defmodule RuleMavenWeb.GameLive.Faq do
     end
   end
 
+  # Opens the report-reason modal; the flag is written on "submit_report".
   @impl true
   def handle_event("report_answer", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
-    user = socket.assigns.current_user
 
     # Scope to this game so a forged id from another game can't be flagged here.
     if Enum.any?(socket.assigns.community_questions, &(&1.id == id)) do
-      case Games.report_answer(id, user) do
-        {:ok, %{pulled: pulled}} ->
-          socket =
-            socket
-            |> assign(flagged_ids: MapSet.put(socket.assigns.flagged_ids, id))
-            |> put_flash(:info, report_flash(pulled))
-
-          {:noreply, reload(socket)}
-
-        {:error, message} ->
-          {:noreply, put_flash(socket, :error, message)}
-      end
+      {:noreply, assign(socket, report_target: id)}
     else
       {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("cancel_report", _params, socket),
+    do: {:noreply, assign(socket, report_target: nil)}
+
+  @impl true
+  def handle_event("submit_report", params, socket) do
+    case socket.assigns.report_target do
+      nil ->
+        {:noreply, socket}
+
+      id ->
+        socket = assign(socket, report_target: nil)
+
+        case Games.report_answer(
+               id,
+               socket.assigns.current_user,
+               ReportModal.compose_reason(params)
+             ) do
+          {:ok, %{pulled: pulled}} ->
+            socket =
+              socket
+              |> assign(flagged_ids: MapSet.put(socket.assigns.flagged_ids, id))
+              |> put_flash(:info, report_flash(pulled))
+
+            {:noreply, reload(socket)}
+
+          {:error, message} ->
+            {:noreply, put_flash(socket, :error, message)}
+        end
     end
   end
 
@@ -185,6 +209,8 @@ defmodule RuleMavenWeb.GameLive.Faq do
     ~H"""
     {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
     <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
+    <%!-- Report-reason modal: pick why the answer is being reported. --%>
+    <ReportModal.report_modal :if={@report_target} />
     <div style="max-width:52rem;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index:1">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
         <.link navigate={~p"/games/#{@game}"} class="back-link" style="margin-bottom:0">
@@ -451,7 +477,6 @@ defmodule RuleMavenWeb.GameLive.Faq do
                     type="button"
                     phx-click="report_answer"
                     phx-value-id={@q.id}
-                    data-confirm="Report this answer as wrong or unhelpful? A moderator will review it."
                     class="card-menu__item"
                     title="Report a wrong or unhelpful answer"
                   >🚩 Report</button>

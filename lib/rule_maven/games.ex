@@ -1227,17 +1227,34 @@ defmodule RuleMaven.Games do
   @flag_quorum_default 3
   @flag_limit_daily_default 20
 
+  # Canonical reason choices offered when reporting an answer. "Other" is
+  # appended in the UI with a free-text field; whatever the user picks/types
+  # is stored verbatim on the flag for moderators.
+  @report_reasons [
+    "Answer is incorrect",
+    "Answer is outdated",
+    "Missing important details",
+    "Confusing or hard to follow",
+    "Doesn't answer the question"
+  ]
+
+  @doc "Canonical reason choices for the report-answer picker."
+  def report_reasons, do: @report_reasons
+
   @doc """
   Records a report on an answer and applies the trust-tiered auto-pull policy.
   Returns `{:ok, %{pulled: boolean}}` or `{:error, message}` (quota/insert).
 
+  `reason` is an optional short explanation from the reporter, surfaced to
+  moderators alongside the flag.
+
   Admins can't report: a report is a request for moderator review, and admins
   ARE the moderators — they act directly via `pull_for_review/2` instead.
   """
-  def report_answer(question_log_id, user) do
+  def report_answer(question_log_id, user, reason \\ nil) do
     with :ok <- reject_admin_report(user),
          :ok <- check_flag_quota(user),
-         {:ok, _flag} <- flag_question(question_log_id, user.id) do
+         {:ok, _flag} <- flag_question(question_log_id, user.id, reason) do
       {:ok, %{pulled: maybe_auto_pull(question_log_id)}}
     end
   end

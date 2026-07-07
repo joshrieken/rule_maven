@@ -44,6 +44,41 @@ defmodule RuleMaven.QuestionFlagsTest do
     assert Games.count_pending_flags() == 1
   end
 
+  test "report_answer stores the reporter's reason on the flag", %{q: q} do
+    assert {:ok, _} = Games.report_answer(q.id, user_fixture("rr1"), "Answer is outdated")
+
+    entry = Enum.find(Games.list_flagged_questions(), &(&1.question_log_id == q.id))
+    assert entry.reasons == ["Answer is outdated"]
+  end
+
+  test "compose_reason builds the stored reason from modal params" do
+    alias RuleMavenWeb.ReportModal
+
+    assert ReportModal.compose_reason(%{"reason" => "Answer is incorrect"}) ==
+             "Answer is incorrect"
+
+    assert ReportModal.compose_reason(%{"reason" => "Answer is incorrect", "detail" => " "}) ==
+             "Answer is incorrect"
+
+    assert ReportModal.compose_reason(%{
+             "reason" => "Answer is incorrect",
+             "detail" => "cites 2nd ed"
+           }) ==
+             "Answer is incorrect — cites 2nd ed"
+
+    assert ReportModal.compose_reason(%{"reason" => "Other", "detail" => "duplicate question"}) ==
+             "duplicate question"
+
+    # A bare "Other" with no note still stores something meaningful.
+    assert ReportModal.compose_reason(%{"reason" => "Other", "detail" => ""}) == "Other"
+
+    # Composed reason never blows the flag's 280-char limit.
+    long = String.duplicate("x", 300)
+
+    assert String.length(ReportModal.compose_reason(%{"reason" => "Other", "detail" => long})) ==
+             280
+  end
+
   test "re-flagging is idempotent per user and updates the reason", %{q: q} do
     u = user_fixture("reporter2")
     {:ok, _} = Games.flag_question(q.id, u.id, "first")
