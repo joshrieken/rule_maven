@@ -128,7 +128,7 @@ defmodule RuleMavenWeb.AdminLive.Catalog do
           <button
             type="submit"
             disabled={@importing}
-            style={"background:var(--accent);color:#fff;border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;font-size:0.85rem;cursor:#{if @importing, do: "default", else: "pointer"};opacity:#{if @importing, do: "0.6", else: "1"}"}
+            style={"background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;font-size:0.85rem;cursor:#{if @importing, do: "default", else: "pointer"};opacity:#{if @importing, do: "0.6", else: "1"}"}
           >
             {if @importing, do: "Importing… (this can take a minute)", else: "Import Full Catalog"}
           </button>

@@ -518,7 +518,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                     <div style="display:flex;gap:0.4rem">
                       <button
                         type="submit"
-                        style="background:var(--accent);color:#fff;border:none;padding:0.3rem 0.9rem;border-radius:0.3rem;font-size:0.72rem;font-weight:600;cursor:pointer"
+                        style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.9rem;border-radius:0.3rem;font-size:0.72rem;font-weight:600;cursor:pointer"
                       >Save</button>
                       <button
                         type="button"

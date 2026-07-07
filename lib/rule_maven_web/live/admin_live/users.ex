@@ -169,7 +169,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
           <button
             type="button"
             phx-click="dismiss_temp_password"
-            style="background:var(--accent);color:#fff;border:none;padding:0.3rem 1.5rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
+            style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 1.5rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
           >Done</button>
         </div>
       <% end %>
@@ -219,7 +219,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
               phx-value-email={@new_email}
               phx-value-role={@new_role}
               disabled={@new_username == "" || @new_email == ""}
-              style="background:var(--accent);color:#fff;border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer;align-self:end"
+              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer;align-self:end"
             >Create &amp; Generate Password</button>
           </div>
         </div>

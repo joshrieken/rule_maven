@@ -207,7 +207,7 @@ defmodule RuleMavenWeb.GameLive.Import do
             type="submit"
             class="btn btn-primary"
             disabled={@loading}
-            style="background:var(--accent);color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;cursor:pointer"
+            style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;cursor:pointer"
           >
             {if @loading, do: "Fetching...", else: "Fetch Collection"}
           </button>
@@ -237,7 +237,7 @@ defmodule RuleMavenWeb.GameLive.Import do
             phx-click="import"
             disabled={@importing}
             class="btn"
-            style="background:var(--accent);color:white;border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;cursor:pointer"
+            style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;cursor:pointer"
           >
             Import All New
           </button>

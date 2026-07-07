@@ -97,7 +97,7 @@ defmodule RuleMavenWeb.GameLive.Review do
                     :if={doc.status != "published"}
                     phx-click="approve_doc"
                     phx-value-id={doc.id}
-                    style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.25rem;font-size:0.8rem;cursor:pointer"
+                    style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.25rem 0.75rem;border-radius:0.25rem;font-size:0.8rem;cursor:pointer"
                   >Approve</button>
                   <button
                     :if={doc.status != "rejected"}

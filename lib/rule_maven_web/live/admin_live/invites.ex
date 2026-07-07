@@ -82,7 +82,7 @@ defmodule RuleMavenWeb.AdminLive.Invites do
         <button
           type="submit"
           form="invite-form"
-          style="background:var(--accent);color:#fff;border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
+          style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
         >Generate</button>
         <form id="invite-form" phx-submit="create_invite" style="display:none"></form>
       </div>

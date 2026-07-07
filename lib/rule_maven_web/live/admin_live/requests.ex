@@ -35,7 +35,7 @@ defmodule RuleMavenWeb.AdminLive.Requests do
         <div class="space-y-2">
           <%= for r <- @requests do %>
             <div style="display:flex;align-items:center;gap:0.75rem;border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem 1rem;background:var(--bg-surface)">
-              <span style="background:var(--accent);color:#fff;font-size:0.8rem;font-weight:700;min-width:2rem;text-align:center;padding:0.15rem 0.4rem;border-radius:0.35rem">
+              <span style="background:var(--accent);color:var(--accent-text,#fff);font-size:0.8rem;font-weight:700;min-width:2rem;text-align:center;padding:0.15rem 0.4rem;border-radius:0.35rem">
                 {r.count}
               </span>
               <div class="flex-1 min-w-0">
@@ -53,7 +53,7 @@ defmodule RuleMavenWeb.AdminLive.Requests do
               >BGG</.link>
               <.link
                 navigate={~p"/games/#{r.game}/edit"}
-                style="background:var(--accent);color:#fff;text-decoration:none;font-size:0.72rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem"
+                style="background:var(--accent);color:var(--accent-text,#fff);text-decoration:none;font-size:0.72rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem"
               >Add support</.link>
             </div>
           <% end %>

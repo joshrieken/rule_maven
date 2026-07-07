@@ -324,7 +324,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
           <div style="display:flex;align-items:center;gap:0.75rem">
             <button
               type="submit"
-              style="background:var(--accent);color:#fff;border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.8rem;font-weight:600;cursor:pointer"
+              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.8rem;font-weight:600;cursor:pointer"
             >+ Add pattern</button>
             <%= if @add_error do %>
               <span style="font-size:0.75rem;color:var(--red)">{@add_error}</span>

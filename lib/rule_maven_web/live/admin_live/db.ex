@@ -385,7 +385,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
             href={"/admin/db?table=#{t}"}
             style={"padding:0.25rem 0.5rem;border-radius:0.3rem;font-size:0.7rem;font-weight:600;text-decoration:none;#{
               if @table_name == t,
-                do: "background:var(--accent);color:#fff",
+                do: "background:var(--accent);color:var(--accent-text,#fff)",
                 else: "background:var(--bg-subtle);color:var(--text);border:1px solid var(--border)"
             }"}
           >
@@ -419,7 +419,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
               :if={writable?(@table_name)}
               type="button"
               phx-click="new_row"
-              style="background:var(--accent);color:#fff;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
+              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
             >
               + New
             </button>
@@ -476,7 +476,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
               <button
                 type="button"
                 phx-click="save"
-                style="background:var(--accent);color:#fff;border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
+                style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
               >Save</button>
               <button
                 type="button"

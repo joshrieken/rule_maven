@@ -185,7 +185,7 @@ defmodule RuleMavenWeb.AdminLive.Health do
           </div>
           <button
             type="submit"
-            style="background:var(--accent);color:#fff;border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.78rem;font-weight:600;cursor:pointer"
+            style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.78rem;font-weight:600;cursor:pointer"
           >Save</button>
           <span style="font-size:0.72rem;color:var(--text-muted)">
             Shows a banner here once today's total estimated spend crosses this. Per-user caps live on Usage &amp; Cost.

@@ -2524,7 +2524,7 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     base <>
       if tab == current,
-        do: "background:var(--accent);color:white",
+        do: "background:var(--accent);color:var(--accent-text,#fff)",
         else: "background:var(--bg-subtle);color:var(--text-secondary)"
   end
 
@@ -2560,7 +2560,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             <button
               type="button"
               phx-click="pull_expansions"
-              style="background:var(--accent);color:#fff;border:none;padding:0.4rem 0.9rem;border-radius:0.375rem;font-size:0.8rem;font-weight:600;cursor:pointer"
+              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.4rem 0.9rem;border-radius:0.375rem;font-size:0.8rem;font-weight:600;cursor:pointer"
             >
               Pull expansions now
             </button>
@@ -2599,7 +2599,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             type="button"
             phx-click="refresh_bgg"
             disabled={@generating}
-            style={"background:var(--accent);color:#fff;border:none;font-size:0.75rem;font-weight:600;margin-left:0.5rem;padding:0.35rem 0.85rem;border-radius:0.375rem;vertical-align:middle;cursor:#{if @generating, do: "default", else: "pointer"};opacity:#{if @generating, do: "0.6", else: "1"}"}
+            style={"background:var(--accent);color:var(--accent-text,#fff);border:none;font-size:0.75rem;font-weight:600;margin-left:0.5rem;padding:0.35rem 0.85rem;border-radius:0.375rem;vertical-align:middle;cursor:#{if @generating, do: "default", else: "pointer"};opacity:#{if @generating, do: "0.6", else: "1"}"}
           >
             {if @generating, do: "⟳ Pulling…", else: "Pull from BGG"}
           </button>
@@ -2639,7 +2639,7 @@ defmodule RuleMavenWeb.GameLive.Form do
               <button
                 type="submit"
                 disabled={@bgg_searching}
-                style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer;white-space:nowrap"
+                style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer;white-space:nowrap"
               >Search</button>
             </form>
             <%= if @bgg_searching do %>
@@ -2736,7 +2736,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             type="button"
             phx-click="refresh_bgg"
             disabled={@generating}
-            style={"background:var(--accent);color:#fff;border:none;padding:0.6rem 1.5rem;border-radius:0.5rem;font-weight:700;font-size:0.9rem;cursor:#{if @generating, do: "default", else: "pointer"};opacity:#{if @generating, do: "0.6", else: "1"}"}
+            style={"background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.6rem 1.5rem;border-radius:0.5rem;font-weight:700;font-size:0.9rem;cursor:#{if @generating, do: "default", else: "pointer"};opacity:#{if @generating, do: "0.6", else: "1"}"}
           >
             {if @generating, do: "⟳ Pulling from BGG…", else: "Pull from BGG"}
           </button>
@@ -2855,14 +2855,14 @@ defmodule RuleMavenWeb.GameLive.Form do
               type="button"
               phx-click="find_download"
               disabled={@downloading}
-              style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
             >Find &amp; Download</button>
             <%= if @game.bgg_id do %>
               <button
                 type="button"
                 phx-click="search_bgg"
                 disabled={@searching}
-                style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
               >{if @searching, do: "Searching BGG...", else: "Find on BGG"}</button>
             <% end %>
           </div>
@@ -2914,7 +2914,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             <button
               type="submit"
               disabled={@downloading}
-              style="background:var(--accent);color:white;border:none;padding:0.4rem 0.875rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
+              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.4rem 0.875rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
             >{if @downloading, do: "Downloading...", else: "Download"}</button>
           </form>
           <%= if @downloading do %>
@@ -3051,7 +3051,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                   type="button"
                   phx-click="pull_expansions"
                   disabled={@exp_syncing}
-                  style={"background:var(--accent);color:#fff;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-size:0.72rem;font-weight:600;white-space:nowrap;cursor:#{if @exp_syncing, do: "default", else: "pointer"};opacity:#{if @exp_syncing, do: "0.6", else: "1"}"}
+                  style={"background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-size:0.72rem;font-weight:600;white-space:nowrap;cursor:#{if @exp_syncing, do: "default", else: "pointer"};opacity:#{if @exp_syncing, do: "0.6", else: "1"}"}
                 >
                   {if @exp_syncing, do: "⟳ Pulling…", else: "Pull expansions from BGG"}
                 </button>
@@ -3125,7 +3125,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                 type="button"
                 phx-click="process_uploads"
                 disabled={pdf_btn_disabled}
-                style={"margin-top:0.5rem;background:var(--accent);color:white;border:none;padding:0.4rem 0.875rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer;opacity:#{if pdf_btn_disabled, do: 0.5, else: 1}"}
+                style={"margin-top:0.5rem;background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.4rem 0.875rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer;opacity:#{if pdf_btn_disabled, do: 0.5, else: 1}"}
               >{if @uploading_pdfs, do: "Processing…", else: "Upload"}</button>
             </div>
           </div>
@@ -3619,7 +3619,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                 <div class="flex gap-2 mb-3">
                   <button
                     type="submit"
-                    style="background:var(--accent);color:white;border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                    style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
                   >
                     Save Cheat Sheet
                   </button>
@@ -3645,7 +3645,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                         <label
                           phx-click="toggle_cheat_expansion"
                           phx-value-id={exp.id}
-                          style={"cursor:pointer;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:0.3rem;#{if Map.get(@included_expansions, exp.id), do: "background:var(--accent);color:#fff", else: "background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border)"}"}
+                          style={"cursor:pointer;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:0.3rem;#{if Map.get(@included_expansions, exp.id), do: "background:var(--accent);color:var(--accent-text,#fff)", else: "background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border)"}"}
                         >
                           <input
                             type="checkbox"
@@ -3680,7 +3680,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                     <button
                       type="submit"
                       disabled={@cheat_status != nil}
-                      style="background:var(--accent);color:white;border:none;padding:0.4rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                      style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.4rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
                     >
                       Generate
                     </button>

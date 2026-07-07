@@ -108,7 +108,7 @@ defmodule RuleMavenWeb.AdminLive.Usage do
           </div>
           <button
             type="submit"
-            style="background:var(--accent);color:#fff;border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.78rem;font-weight:600;cursor:pointer"
+            style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.78rem;font-weight:600;cursor:pointer"
           >Save</button>
           <span style="font-size:0.72rem;color:var(--text-muted)">
             Blocks a user's new asks once their estimated spend today hits the cap. Admins exempt.

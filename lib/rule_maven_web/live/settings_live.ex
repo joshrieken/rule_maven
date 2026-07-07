@@ -481,7 +481,7 @@ defmodule RuleMavenWeb.SettingsLive do
                 phx-click="update_profile"
                 phx-value-username={@profile_username}
                 phx-value-email={@profile_email}
-                style="background:var(--accent);color:#fff;border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.78rem;font-weight:600;cursor:pointer"
+                style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.78rem;font-weight:600;cursor:pointer"
               >Save Profile</button>
               <%= if @profile_msg do %>
                 <span style="font-size:0.75rem;color:var(--green)">{@profile_msg}</span>
@@ -1169,7 +1169,7 @@ defmodule RuleMavenWeb.SettingsLive do
 
             <button
               type="submit"
-              style="background:var(--accent);color:white;border:none;padding:0.65rem 2rem;border-radius:0.5rem;font-weight:600;font-size:0.9rem;cursor:pointer;align-self:flex-start"
+              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.65rem 2rem;border-radius:0.5rem;font-weight:600;font-size:0.9rem;cursor:pointer;align-self:flex-start"
             >
               Save Settings
             </button>

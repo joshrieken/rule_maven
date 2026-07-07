@@ -825,7 +825,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                   phx-click="pull_bgg"
                   phx-value-id={game.id}
                   disabled={MapSet.member?(@bgg_pulling, game.id)}
-                  style={"background:var(--accent);color:#fff;border:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2;cursor:#{if MapSet.member?(@bgg_pulling, game.id), do: "default", else: "pointer"};opacity:#{if MapSet.member?(@bgg_pulling, game.id), do: "0.6", else: "1"}"}
+                  style={"background:var(--accent);color:var(--accent-text,#fff);border:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2;cursor:#{if MapSet.member?(@bgg_pulling, game.id), do: "default", else: "pointer"};opacity:#{if MapSet.member?(@bgg_pulling, game.id), do: "0.6", else: "1"}"}
                 >{if MapSet.member?(@bgg_pulling, game.id), do: "⟳ Pulling…", else: "⬇ Pull BGG"}</button>
                 <%= if unsupported do %>
                   <% requested = MapSet.member?(@requested_ids, game.id) %>
@@ -846,7 +846,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                     phx-click="pull_bgg"
                     phx-value-id={game.id}
                     disabled={MapSet.member?(@bgg_pulling, game.id)}
-                    style={"background:var(--accent);color:#fff;border:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2;cursor:#{if MapSet.member?(@bgg_pulling, game.id), do: "default", else: "pointer"};opacity:#{if MapSet.member?(@bgg_pulling, game.id), do: "0.6", else: "1"}"}
+                    style={"background:var(--accent);color:var(--accent-text,#fff);border:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2;cursor:#{if MapSet.member?(@bgg_pulling, game.id), do: "default", else: "pointer"};opacity:#{if MapSet.member?(@bgg_pulling, game.id), do: "0.6", else: "1"}"}
                   >{if MapSet.member?(@bgg_pulling, game.id), do: "⟳ Pulling…", else: "⬇ Pull BGG"}</button>
                   <a
                     :if={game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(game.category)}
@@ -863,7 +863,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                   <.link
                     :if={askable}
                     navigate={~p"/games/#{game}"}
-                    style="background:var(--accent);color:#fff;text-decoration:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2"
+                    style="background:var(--accent);color:var(--accent-text,#fff);text-decoration:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2"
                   >Ask</.link>
                   <span
                     :if={not askable}
@@ -984,7 +984,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                     <.link
                       :if={Map.get(@source_counts, exp.id, 0) > 0}
                       navigate={~p"/games/#{exp}"}
-                      style="background:var(--accent);color:#fff;text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.45rem;border-radius:0.3rem;line-height:1.2"
+                      style="background:var(--accent);color:var(--accent-text,#fff);text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.45rem;border-radius:0.3rem;line-height:1.2"
                     >Ask</.link>
                     <span
                       :if={Map.get(@source_counts, exp.id, 0) == 0}
@@ -1056,7 +1056,7 @@ defmodule RuleMavenWeb.GameLive.Index do
             <.link
               :if={@view in ~w(mine playable all)}
               navigate={~p"/games/import"}
-              style="background:var(--accent);color:#fff;text-decoration:none;font-size:0.8rem;font-weight:600;padding:0.4rem 1rem;border-radius:0.4rem"
+              style="background:var(--accent);color:var(--accent-text,#fff);text-decoration:none;font-size:0.8rem;font-weight:600;padding:0.4rem 1rem;border-radius:0.4rem"
             >🔍 Sync Your BGG Collection</.link>
           </div>
         <% end %>
