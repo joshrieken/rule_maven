@@ -3187,7 +3187,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <span
                         :if={MapSet.member?(@asker_confirmed_ids, msg[:id])}
                         style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
-                        title="The asker confirmed this answered their question"
+                        title="Count includes the asker, who confirmed this answered their question"
                       >✓ asker</span>
                     </span>
                   <% else %>
@@ -3213,7 +3213,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         <span
                           :if={MapSet.member?(@asker_confirmed_ids, sid)}
                           style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
-                          title="The asker confirmed this answered their question"
+                          title="Count includes the asker, who confirmed this answered their question"
                         >✓ asker</span>
                       </span>
                     <% else %>
@@ -3229,9 +3229,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                         style="display:inline-flex;align-items:center;gap:0.15rem"
                       >
                         <%!-- This branch is always the asker's own question: the
-                              thumb is a self-confirmation, stored at weight 0 and
-                              shown to other users as an "asker confirmed" badge
-                              rather than counting in the tally. --%>
+                              thumb is a self-confirmation, stored at weight 0. It
+                              counts in the visible tally (a click must increment
+                              the number) and shows other users an "asker
+                              confirmed" badge. --%>
                         <button
                           type="button"
                           phx-click="community_vote"
@@ -3246,7 +3247,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         >👍</button>
                         <span
                           style="font-size:0.65rem;color:var(--text-muted)"
-                          title="Helpful votes from other players"
+                          title="Total helpful votes"
                         >{Map.get(counts, :up, 0)}</span>
                       </span>
                     <% end %>
