@@ -1853,22 +1853,28 @@ defmodule RuleMaven.LLM do
   # on-demand restyle.
   defp voice_style_block("neutral", _game), do: ""
 
-  # Persona-direct styling is scoped to BUILT-IN voices only (lawyer, pirate,
-  # robot, coach) — `Voices.valid?/1` checks only the global/built-in id list,
-  # never a per-game generated (`g:`-prefixed) voice. A generated voice's
+  # Persona-direct styling covers BUILT-IN voices (lawyer, pirate, robot,
+  # coach — `Voices.valid?/1` checks only the global id list) plus generated
+  # (`g:`-prefixed) voices that passed the style vet. A generated voice's
   # `style` string is LLM output derived from the game's own uploaded rulebook
-  # content, so it must not be interpolated into this prompt (which has full
-  # rulebook access and produces the citation-grounded answer) — that would
-  # widen the trust boundary beyond what the design doc analyzed. Generated
-  # voices keep using the old `Voices.restyle/5` path exactly as before, which
-  # deliberately never shows the restyler the rulebook. Returning "" here means
-  # `LLM.ask/5` returns no `styled_answer` for these voices, so AskWorker's
-  # existing fallback (VoiceWorker / on-demand restyle) takes over unchanged.
+  # content, so interpolating it into this prompt (which has full rulebook
+  # access and produces the citation-grounded answer) would widen the trust
+  # boundary — unless a separate vet pass (`vet_voice_styles/2`, which never
+  # sees the rulebook) has judged the string a pure tone description with no
+  # smuggled instructions. Unvetted generated voices keep the old
+  # `Voices.restyle/5` path exactly as before: returning "" here means
+  # `LLM.ask/5` returns no `styled_answer`, so AskWorker's existing fallback
+  # (VoiceWorker / on-demand restyle) takes over unchanged.
   defp voice_style_block(voice, game) do
-    if RuleMaven.Voices.valid?(voice) do
-      voice_style_instructions(voice, game)
-    else
-      ""
+    cond do
+      RuleMaven.Voices.valid?(voice) ->
+        voice_style_instructions(voice, game)
+
+      match?(%{vetted: true}, RuleMaven.Voices.get_def(voice, game)) ->
+        voice_style_instructions(voice, game)
+
+      true ->
+        ""
     end
   end
 
@@ -2566,6 +2572,79 @@ defmodule RuleMaven.LLM do
         {:error, reason}
     end
   end
+
+  # Longest style the vet will even consider — the generation prompt asks for
+  # one sentence, so anything huge is malformed at best and gets the (safe)
+  # restyle path without spending a vet token on it.
+  @vet_style_max_chars 400
+
+  @doc """
+  Judges which generated persona styles are pure tone descriptions, safe to
+  interpolate into the rulebook-access ask prompt (see `voice_style_block/2`).
+
+  Takes `[%{slug, style}]`, returns `{:ok, safe_slugs}` — slugs whose style
+  passed the vet. The vet call never sees the rulebook; overlong styles fail
+  closed without an LLM call. `{:error, reason}` leaves everything unvetted.
+  """
+  def vet_voice_styles(voices, opts \\ [])
+
+  def vet_voice_styles([], _opts), do: {:ok, []}
+
+  def vet_voice_styles(voices, opts) do
+    {candidates, _overlong} =
+      Enum.split_with(voices, &(String.length(&1.style) <= @vet_style_max_chars))
+
+    if candidates == [] do
+      {:ok, []}
+    else
+      styles_json =
+        Jason.encode!(Enum.map(candidates, &%{slug: &1.slug, style: &1.style}))
+
+      prompt = RuleMaven.Prompts.render("vet_voice_styles", %{styles_json: styles_json})
+
+      case chat(prompt, "vet_voice_styles",
+             system: RuleMaven.Prompts.template("vet_voice_styles_system"),
+             model: model(:cheap),
+             # Ceiling, not spend — the verdict JSON is tiny, but a reasoning
+             # model thinks first and a tight cap starves it into null content.
+             max_tokens: 4000,
+             operation: "vet_voice_styles",
+             game_id: opts[:game_id],
+             reject_truncated: true,
+             raw: true
+           ) do
+        {:ok, text} -> {:ok, parse_vet_verdicts(text, candidates)}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  # Only slugs the model explicitly marked safe AND that were actually sent
+  # pass — a hallucinated slug or a missing entry fails closed.
+  defp parse_vet_verdicts(text, candidates) do
+    sent = MapSet.new(candidates, & &1.slug)
+
+    json =
+      case Regex.run(~r/\[.*\]/s, text || "") do
+        [match] -> match
+        _ -> text || ""
+      end
+
+    case Jason.decode(json) do
+      {:ok, list} when is_list(list) ->
+        for %{"slug" => slug, "safe" => true} <- list,
+            is_binary(slug),
+            MapSet.member?(sent, slug),
+            do: slug
+
+      _ ->
+        []
+    end
+  end
+
+  @doc false
+  # Test seam for parse_vet_verdicts/2.
+  def __parse_vet_verdicts__(text, candidates), do: parse_vet_verdicts(text, candidates)
 
   # Decode the voices JSON array, tolerating ```fences``` and stray prose, then
   # coerce each entry to a clean voice map. Bad/incomplete entries are dropped;

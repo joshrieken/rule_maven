@@ -57,6 +57,28 @@ defmodule RuleMaven.Workers.VoiceSuggestionsWorker do
 
     case RuleMaven.LLM.generate_voices(game.name, text) do
       {:ok, voices} when voices != [] ->
+        # Style vet gates the single-call persona path (style inlined into the
+        # ask prompt). A vet failure isn't fatal — voices land unvetted and
+        # keep the restyle path; VoiceVetWorker retries the vet lazily on the
+        # next ask that uses one of them.
+        voices =
+          case RuleMaven.LLM.vet_voice_styles(voices, game_id: game_id) do
+            {:ok, safe_slugs} ->
+              safe = MapSet.new(safe_slugs)
+
+              Jobs.event(
+                run,
+                :info,
+                "Style vet: #{MapSet.size(safe)}/#{length(voices)} safe for the single-call ask path."
+              )
+
+              Enum.map(voices, &Map.put(&1, :vetted, MapSet.member?(safe, &1.slug)))
+
+            {:error, reason} ->
+              Jobs.event(run, :warn, "Style vet failed (#{inspect(reason)}) — all voices take the restyle path for now.")
+              voices
+          end
+
         Voices.replace_generated(game_id, voices)
         defs = Voices.for_game(game_id)
 

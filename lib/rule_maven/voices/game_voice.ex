@@ -28,6 +28,10 @@ defmodule RuleMaven.Voices.GameVoice do
     # "generated" (rulebook-derived) — leaves room for hand-authored later.
     field :source, :string, default: "generated"
     field :position, :integer, default: 0
+    # True once the vet pass judged `style` a pure tone description (no
+    # smuggled instructions) — gates the single-call persona path where the
+    # style is interpolated into the rulebook-access ask prompt.
+    field :vetted, :boolean, default: false
     belongs_to :game, RuleMaven.Games.Game
 
     timestamps(type: :utc_datetime)
@@ -46,7 +50,8 @@ defmodule RuleMaven.Voices.GameVoice do
       :thanks_phrases,
       :popularity_rank,
       :source,
-      :position
+      :position,
+      :vetted
     ])
     |> validate_required([:game_id, :slug, :label, :emoji, :style])
     |> unique_constraint([:game_id, :slug])
