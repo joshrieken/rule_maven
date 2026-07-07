@@ -1509,13 +1509,15 @@ defmodule RuleMaven.LLM do
   defp do_request_mock(body, opts, mock) do
     model_name = body[:model] || model()
 
+    detail = build_call_detail(body, nil, nil, opts)
+
     case mock.(body) do
       {:ok, _} = ok ->
-        log_llm(provider(), model_name, opts, nil, 0, true, nil)
+        log_llm(provider(), model_name, opts, nil, 0, true, nil, detail)
         ok
 
       {:error, reason} = err ->
-        log_llm(provider(), model_name, opts, nil, 0, false, to_string(reason))
+        log_llm(provider(), model_name, opts, nil, 0, false, to_string(reason), detail)
         err
     end
   end
@@ -1565,7 +1567,17 @@ defmodule RuleMaven.LLM do
           duration = System.monotonic_time(:millisecond) - start
           usage = extract_usage(response_body)
           actual_model = body[:model] || model_name
-          log_llm(provider_name, actual_model, opts, usage, duration, true, nil)
+
+          log_llm(
+            provider_name,
+            actual_model,
+            opts,
+            usage,
+            duration,
+            true,
+            nil,
+            build_call_detail(body, response_body, usage, opts)
+          )
           record_call_savings(actual_model, opts, usage)
           parse_response(response_body)
 
@@ -1578,13 +1590,33 @@ defmodule RuleMaven.LLM do
         {:ok, %{status: status, body: resp_body}} ->
           duration = System.monotonic_time(:millisecond) - start
           error = "API returned status #{status}: #{inspect(resp_body)}"
-          log_llm(provider_name, model_name, opts, nil, duration, false, error)
+
+          log_llm(
+            provider_name,
+            model_name,
+            opts,
+            nil,
+            duration,
+            false,
+            error,
+            build_call_detail(body, nil, nil, opts)
+          )
           {:error, error}
 
         {:error, %{reason: reason}} ->
           duration = System.monotonic_time(:millisecond) - start
           error = "HTTP error: #{inspect(reason)}"
-          log_llm(provider_name, model_name, opts, nil, duration, false, error)
+
+          log_llm(
+            provider_name,
+            model_name,
+            opts,
+            nil,
+            duration,
+            false,
+            error,
+            build_call_detail(body, nil, nil, opts)
+          )
           {:error, error}
 
         # Catch-all for any other Req error shape (exception structs without a
@@ -1593,7 +1625,17 @@ defmodule RuleMaven.LLM do
         {:error, other} ->
           duration = System.monotonic_time(:millisecond) - start
           error = "HTTP error: #{inspect(other)}"
-          log_llm(provider_name, model_name, opts, nil, duration, false, error)
+
+          log_llm(
+            provider_name,
+            model_name,
+            opts,
+            nil,
+            duration,
+            false,
+            error,
+            build_call_detail(body, nil, nil, opts)
+          )
           {:error, error}
       end
 
@@ -1918,7 +1960,7 @@ defmodule RuleMaven.LLM do
   defp cached_tokens(%{"cached_tokens" => n}) when is_integer(n), do: n
   defp cached_tokens(_), do: 0
 
-  defp log_llm(provider, model, opts, usage, duration_ms, success, error) do
+  defp log_llm(provider, model, opts, usage, duration_ms, success, error, detail) do
     alias RuleMaven.Repo
 
     %RuleMaven.LLM.Log{}
@@ -1933,11 +1975,81 @@ defmodule RuleMaven.LLM do
       success: success,
       error_message: error,
       question_log_id: opts[:question_log_id] || current_question_log_id(),
+      detail: detail,
       game_id: opts[:game_id],
       user_id: opts[:user_id]
     })
     |> Repo.insert()
   end
+
+  # Compact per-call context stored alongside the log row for the admin
+  # LLM-trace panel. Input is the last user message (system prompts carry
+  # whole rulebooks — too big and copyright-sensitive to store); output is the
+  # model's raw content. Both truncated hard. Also keeps the signals an admin
+  # acts on when reviewing an answer: finish_reason (spot truncation), cached
+  # prompt tokens (prefix caching working?), the token cap, reasoning effort,
+  # and whether this call was the doubled-cap truncation retry.
+  @detail_input_limit 1500
+  @detail_output_limit 3000
+
+  defp build_call_detail(body, response_body, usage, opts) do
+    input =
+      body[:messages]
+      |> List.wrap()
+      |> Enum.reverse()
+      |> Enum.find_value(fn
+        %{role: "user", content: content} -> content
+        _ -> nil
+      end)
+
+    {output, finish_reason} =
+      case response_body do
+        %{"choices" => [%{"message" => %{"content" => content}} = choice | _]} ->
+          {content, choice["finish_reason"] || response_body["stop_reason"]}
+
+        _ ->
+          {nil, nil}
+      end
+
+    %{
+      "input" => detail_preview(input, @detail_input_limit),
+      "output" => detail_preview(output, @detail_output_limit),
+      "finish_reason" => finish_reason,
+      "cached_tokens" => usage && usage[:cached],
+      "max_tokens" => body[:max_tokens],
+      "reasoning_effort" => get_in(body, [:reasoning, :effort]),
+      "truncation_retry" => Keyword.get(opts, :truncation_retried, false)
+    }
+    |> Enum.reject(fn {_k, v} -> v in [nil, "", 0, false] end)
+    |> Map.new()
+  end
+
+  defp detail_preview(nil, _limit), do: nil
+
+  defp detail_preview(text, limit) when is_binary(text) do
+    if String.length(text) > limit do
+      String.slice(text, 0, limit) <> " …[truncated]"
+    else
+      text
+    end
+  end
+
+  # Multimodal user content (vision calls) is a list of parts — keep only the
+  # text parts, note the rest.
+  defp detail_preview(parts, limit) when is_list(parts) do
+    parts
+    |> Enum.map(fn
+      %{type: "text", text: text} -> text
+      %{"type" => "text", "text" => text} -> text
+      %{type: "image_url"} -> "[image]"
+      %{"type" => "image_url"} -> "[image]"
+      other -> inspect(other) |> String.slice(0, 80)
+    end)
+    |> Enum.join("\n")
+    |> detail_preview(limit)
+  end
+
+  defp detail_preview(other, limit), do: other |> inspect() |> detail_preview(limit)
 
   @doc """
   The question_log id the current process is working on behalf of, if any.
@@ -1981,7 +2093,8 @@ defmodule RuleMaven.LLM do
           cost: Pricing.cost(l.model, l.prompt_tokens, l.completion_tokens),
           duration_ms: l.duration_ms,
           success: l.success,
-          error_message: l.error_message
+          error_message: l.error_message,
+          detail: l.detail || %{}
         }
       end)
 

@@ -3870,6 +3870,26 @@ defmodule RuleMavenWeb.GameLive.Show do
                           <span style={"color:#{if call.success, do: "var(--success, #16a34a)", else: "var(--danger, #dc2626)"}"}>
                             {if call.success, do: "✓", else: "✗"}
                           </span>
+                          <span :if={call.detail["cached_tokens"]} title="provider-cached prompt tokens">
+                            ⚡{call.detail["cached_tokens"]} cached
+                          </span>
+                          <span :if={call.detail["reasoning_effort"]}>
+                            🧠 {call.detail["reasoning_effort"]}
+                          </span>
+                          <span
+                            :if={call.detail["finish_reason"] not in [nil, "stop", "end_turn"]}
+                            style="color:var(--warning, #d97706)"
+                            title="model stopped before a natural end"
+                          >
+                            ⚠ {call.detail["finish_reason"]}
+                          </span>
+                          <span
+                            :if={call.detail["truncation_retry"]}
+                            style="color:var(--warning, #d97706)"
+                            title="retry of a truncated call with a doubled token cap"
+                          >
+                            ↻ retry
+                          </span>
                           <span
                             :if={!call.success && call.error_message}
                             title={call.error_message}
@@ -3877,6 +3897,20 @@ defmodule RuleMavenWeb.GameLive.Show do
                           >
                             {String.slice(call.error_message, 0, 200)}
                           </span>
+                          <details
+                            :if={call.detail["input"] || call.detail["output"]}
+                            style="flex-basis:100%;margin:0"
+                          >
+                            <summary style="cursor:pointer;opacity:0.8;font-size:0.62rem">in/out</summary>
+                            <div :if={call.detail["input"]} style="margin-top:0.25rem">
+                              <div style="font-weight:600;color:var(--text-secondary)">→ in</div>
+                              <pre style="margin:0.1rem 0 0;padding:0.3rem 0.45rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.3rem;white-space:pre-wrap;word-break:break-word;font-size:0.62rem;max-height:12rem;overflow-y:auto">{call.detail["input"]}</pre>
+                            </div>
+                            <div :if={call.detail["output"]} style="margin-top:0.25rem">
+                              <div style="font-weight:600;color:var(--text-secondary)">← out</div>
+                              <pre style="margin:0.1rem 0 0;padding:0.3rem 0.45rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.3rem;white-space:pre-wrap;word-break:break-word;font-size:0.62rem;max-height:12rem;overflow-y:auto">{call.detail["output"]}</pre>
+                            </div>
+                          </details>
                         </div>
                       <% end %>
                     <% end %>

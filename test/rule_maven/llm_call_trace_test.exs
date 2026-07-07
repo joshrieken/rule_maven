@@ -60,6 +60,53 @@ defmodule RuleMaven.LLMCallTraceTest do
     end
   end
 
+  describe "call detail capture" do
+    test "mock path records the user-message input preview" do
+      mock_llm(fn _body -> {:ok, %{answer: "yes"}} end)
+
+      {:ok, _} =
+        LLM.chat("Can I move diagonally?", "trace_detail_test", operation: "trace_detail_test")
+
+      detail = last_log("trace_detail_test").detail
+      assert detail["input"] == "Can I move diagonally?"
+    end
+
+    test "long inputs are truncated" do
+      mock_llm(fn _body -> {:ok, %{answer: "yes"}} end)
+      long = String.duplicate("a", 5_000)
+
+      {:ok, _} = LLM.chat(long, "trace_trunc_test", operation: "trace_trunc_test")
+
+      detail = last_log("trace_trunc_test").detail
+      assert String.ends_with?(detail["input"], "…[truncated]")
+      assert String.length(detail["input"]) < 2_000
+    end
+
+    test "calls_for_question returns detail, defaulting to empty map for old rows" do
+      Repo.insert!(%Log{
+        provider: "openrouter",
+        model: "google/gemini-2.5-flash",
+        operation: "normalize",
+        question_log_id: 4711,
+        success: true,
+        detail: %{"input" => "raw q", "output" => "clean q", "finish_reason" => "stop"}
+      })
+
+      Repo.insert!(%Log{
+        provider: "openrouter",
+        model: "google/gemini-2.5-flash",
+        operation: "ask",
+        question_log_id: 4711,
+        success: true
+      })
+
+      %{calls: [normalize, ask]} = LLM.calls_for_question(4711)
+      assert normalize.detail["input"] == "raw q"
+      assert normalize.detail["output"] == "clean q"
+      assert ask.detail == %{}
+    end
+  end
+
   describe "calls_for_question/1" do
     test "returns chronological calls with costs and totals" do
       base = %{

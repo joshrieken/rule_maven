@@ -15,6 +15,9 @@ defmodule RuleMaven.LLM.Log do
     # Plain id, not belongs_to: audit rows must survive question deletion
     # (regenerate/dedup delete question_logs rows).
     field :question_log_id, :integer
+    # Per-call context for the admin trace panel: input/output previews,
+    # finish_reason, cached prompt tokens, token cap, retry flags.
+    field :detail, :map
     belongs_to :game, RuleMaven.Games.Game
     belongs_to :user, RuleMaven.Users.User
 
@@ -34,6 +37,7 @@ defmodule RuleMaven.LLM.Log do
       :success,
       :error_message,
       :question_log_id,
+      :detail,
       :game_id,
       :user_id
     ])
