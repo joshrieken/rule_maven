@@ -708,33 +708,26 @@ defmodule RuleMavenWeb.GameLive.Community do
     <div style="padding:0.75rem;border:1px solid var(--border);border-radius:0.45rem;background:var(--bg-surface)">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem">
         <div style="flex:1;min-width:0">
-          <%= if @status == "unverified" do %>
-            <%!-- Unverified rows aren't in the viewer's thread list (until they
-                upvote), so there's no chat thread to open — expand inline. --%>
-            <button
-              type="button"
-              phx-click="toggle_expand"
-              phx-value-id={@q.id}
-              style="font-size:0.82rem;font-weight:600;color:var(--text);background:none;border:none;padding:0;cursor:pointer;text-align:left;word-break:break-word;white-space:normal;line-height:1.4;display:block;margin-bottom:0.35rem"
-              title={
-                if MapSet.member?(@expanded, @q.id),
-                  do: "Collapse the answer",
-                  else: "Show the full answer and rulebook citations"
-              }
-            >
-              {QuestionLog.display_question(@q)}
-              <span style="color:var(--text-muted);font-weight:400">
-                {if MapSet.member?(@expanded, @q.id), do: "▴", else: "▾"}
-              </span>
-            </button>
-          <% else %>
-            <.link
-              navigate={~p"/games/#{@game}?t=#{RuleMaven.Hashid.encode(@q.id)}"}
-              style="font-size:0.82rem;font-weight:600;color:var(--text);text-decoration:none;word-break:break-word;display:block;margin-bottom:0.35rem"
-            >
-              {QuestionLog.display_question(@q)}
-            </.link>
-          <% end %>
+          <%!-- The whole question row (full card width) toggles the inline
+              expansion; opening the chat thread for promoted rows lives in
+              the ⋯ menu instead. --%>
+          <div
+            role="button"
+            tabindex="0"
+            phx-click="toggle_expand"
+            phx-value-id={@q.id}
+            style="font-size:0.82rem;font-weight:600;color:var(--text);cursor:pointer;word-break:break-word;line-height:1.4;margin-bottom:0.35rem"
+            title={
+              if MapSet.member?(@expanded, @q.id),
+                do: "Collapse the answer",
+                else: "Show the full answer and rulebook citations"
+            }
+          >
+            {QuestionLog.display_question(@q)}
+            <span style="color:var(--text-muted);font-weight:400">
+              {if MapSet.member?(@expanded, @q.id), do: "▴", else: "▾"}
+            </span>
+          </div>
           <%= if MapSet.member?(@expanded, @q.id) do %>
             <div style="font-size:0.75rem;color:var(--text);word-break:break-word">
               {render_markdown(@q.canonical_answer || @q.answer || "")}
@@ -770,6 +763,32 @@ defmodule RuleMavenWeb.GameLive.Community do
             </div>
           <% end %>
           <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.4rem;align-items:center">
+            <%!-- Vote controls: same store and semantics as the Q&A interface.
+                For another player's unverified answer, an upvote also adds the
+                question to the voter's own list. --%>
+            <% cv = Map.get(@user_votes, @q.id) %>
+            <% counts = Map.get(@vote_counts, @q.id, %{up: 0, down: 0}) %>
+            <span style="display:inline-flex;align-items:center;gap:0.15rem;margin-right:0.2rem">
+              <.vote_thumb
+                event="vote"
+                id={@q.id}
+                voted={cv == "up"}
+                count={Map.get(counts, :up, 0)}
+                title={
+                  cond do
+                    cv == "up" -> "Remove vote"
+                    @q.user_id == @current_user_id -> "Confirm this answered your question"
+                    @status == "unverified" -> "Helpful — also adds it to your questions list"
+                    true -> "Helpful"
+                  end
+                }
+              />
+              <span
+                :if={MapSet.member?(@asker_confirmed, @q.id)}
+                style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
+                title="Count includes the asker, who confirmed this answered their question"
+              >✓ asker</span>
+            </span>
             <span
               :if={@show_status_badge && @status == "unverified"}
               style="font-size:0.6rem;font-weight:600;color:var(--orange,orange);background:color-mix(in srgb, orange 14%, var(--bg-surface));padding:0.1rem 0.4rem;border-radius:1rem"
@@ -809,34 +828,7 @@ defmodule RuleMavenWeb.GameLive.Community do
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:0.35rem;flex-shrink:0">
-          <%!-- Vote controls: same store and semantics as the Q&A interface.
-              For another player's unverified answer, an upvote also adds the
-              question to the voter's own list. --%>
-          <% cv = Map.get(@user_votes, @q.id) %>
-          <% counts = Map.get(@vote_counts, @q.id, %{up: 0, down: 0}) %>
-          <span style="display:inline-flex;align-items:center;gap:0.15rem">
-            <.vote_thumb
-              event="vote"
-              id={@q.id}
-              voted={cv == "up"}
-              count={Map.get(counts, :up, 0)}
-              title={
-                cond do
-                  cv == "up" -> "Remove vote"
-                  @q.user_id == @current_user_id -> "Confirm this answered your question"
-                  @status == "unverified" -> "Helpful — also adds it to your questions list"
-                  true -> "Helpful"
-                end
-              }
-            />
-            <span
-              :if={MapSet.member?(@asker_confirmed, @q.id)}
-              style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
-              title="Count includes the asker, who confirmed this answered their question"
-            >✓ asker</span>
-          </span>
-
-          <!-- Overflow: secondary actions (favorite, copy, regenerate, report) -->
+          <!-- Overflow: secondary actions (favorite, copy, open, regenerate, report) -->
           <details class="card-menu">
             <summary class="card-menu__trigger" title="More actions">⋯</summary>
             <div class="card-menu__pop card-menu__pop--right">
@@ -861,6 +853,12 @@ defmodule RuleMavenWeb.GameLive.Community do
                 class="card-menu__item"
                 title="Copy question and answer"
               >📋 Copy Q&amp;A</button>
+              <.link
+                :if={@status != "unverified"}
+                navigate={~p"/games/#{@game}?t=#{RuleMaven.Hashid.encode(@q.id)}"}
+                class="card-menu__item"
+                title="Open this answer as a chat thread"
+              >💬 Open in chat</.link>
               <.link
                 :if={@status != "unverified"}
                 navigate={~p"/games/#{@game}?t=#{RuleMaven.Hashid.encode(@q.id)}"}
