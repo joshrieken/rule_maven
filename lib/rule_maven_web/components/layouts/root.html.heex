@@ -35,18 +35,31 @@
         }
       })();
     </script>
-    <script defer phx-track-static type="text/javascript" src={~p"/assets/js/phoenix.js"}>
-    </script>
-    <script defer phx-track-static type="text/javascript" src={~p"/assets/js/phoenix_html.js"}>
+    <%!-- ?v= mtime busters: same reason as app.css above — un-digested
+          assets + heuristic HTTP caching replay stale JS on plain refresh
+          (hooks silently missing after a deploy). --%>
+    <script
+      defer
+      phx-track-static
+      type="text/javascript"
+      src={~p"/assets/js/phoenix.js?v=#{asset_version("assets/js/phoenix.js")}"}
+    >
     </script>
     <script
       defer
       phx-track-static
       type="text/javascript"
-      src={~p"/assets/js/phoenix_live_view.js"}
+      src={~p"/assets/js/phoenix_html.js?v=#{asset_version("assets/js/phoenix_html.js")}"}
     >
     </script>
-    <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
+    <script
+      defer
+      phx-track-static
+      type="text/javascript"
+      src={~p"/assets/js/phoenix_live_view.js?v=#{asset_version("assets/js/phoenix_live_view.js")}"}
+    >
+    </script>
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js?v=#{js_version()}"}>
     </script>
   </head>
   <body>

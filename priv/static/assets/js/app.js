@@ -846,6 +846,11 @@ Hooks.Tour = {
       this.pushEvent("tour_replay", {id: pending});
     } else if (pending === "game" && this.el.dataset.tourPage === "games") {
       showToast("👇", "Open a game to start the tour");
+    } else if (this.el.dataset.tourAutostart) {
+      // First visit: the server rendered data-tour-autostart. Fetch the tour
+      // over a normal event round-trip — a server push_event at mount time
+      // can be lost when the client retries the join, so we pull instead.
+      this.pushEvent("tour_replay", {id: this.el.dataset.tourAutostart});
     }
   },
   destroyed() {

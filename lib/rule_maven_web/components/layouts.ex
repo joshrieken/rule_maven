@@ -62,21 +62,26 @@ defmodule RuleMavenWeb.Layouts do
   end
 
   @doc """
-  Cache-busting version for app.css, derived from the file's mtime. Static
-  assets are served un-digested, and service workers key their cache by full
-  URL — a stale worker (or Safari's HTTP cache, which a hard refresh doesn't
-  bypass when a worker controls the page) can replay an old stylesheet
-  forever. Changing the query string on every CSS edit sidesteps every cache
-  layer. One File.stat per dead render is negligible.
+  Cache-busting version for a static asset, derived from the file's mtime.
+  Static assets are served un-digested with `cache-control: public` (no
+  max-age), so browsers heuristic-cache them and a normal refresh replays a
+  stale copy — and service workers key their cache by full URL (Safari's hard
+  refresh doesn't bypass a controlling worker's HTTP cache either). Changing
+  the query string on every edit sidesteps every cache layer. One File.stat
+  per dead render is negligible.
   """
-  def css_version do
-    path = Path.join(:code.priv_dir(:rule_maven), "static/assets/css/app.css")
+  def asset_version(rel_path) do
+    path = Path.join(:code.priv_dir(:rule_maven), "static/#{rel_path}")
 
     case File.stat(path, time: :posix) do
       {:ok, %{mtime: mtime}} -> Integer.to_string(mtime, 36)
       _ -> "0"
     end
   end
+
+  def css_version, do: asset_version("assets/css/app.css")
+
+  def js_version, do: asset_version("assets/js/app.js")
 
   def current_user(conn_or_assigns) do
     case conn_or_assigns do
