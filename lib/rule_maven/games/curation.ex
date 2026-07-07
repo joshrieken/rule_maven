@@ -31,12 +31,21 @@ defmodule RuleMaven.Games.Curation do
     author_id = q.user_id || -1
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
+    # Admin votes never settle: admins trigger the terminal events themselves
+    # (verify/promote/demote), so settling their own votes would make curator
+    # points/bonus/badges self-awarded. Their seeding votes stay display+trust
+    # signals only.
+    admin_roles = User.roles_with_capability(:admin)
+
     base =
       from v in QuestionVote,
         where:
           v.question_log_id == ^q.id and is_nil(v.settled_at) and
             v.user_id != ^author_id and v.weight > 0.0 and
-            v.inserted_at <= ^event_at
+            v.inserted_at <= ^event_at and
+            v.user_id not in subquery(
+              from u in User, where: u.role in ^admin_roles, select: u.id
+            )
 
     Repo.transaction(fn ->
       {_, correct_ids} =

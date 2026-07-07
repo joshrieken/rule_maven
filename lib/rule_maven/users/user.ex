@@ -44,6 +44,11 @@ defmodule RuleMaven.Users.User do
 
   def can?(_, _), do: false
 
+  @doc "Role strings whose capability list includes `capability` — for SQL-side filtering."
+  def roles_with_capability(capability) do
+    for {role, caps} <- @role_capabilities, capability in caps, do: role
+  end
+
   def changeset(user, attrs) do
     user
     |> cast(attrs, [:username, :email, :role, :password_hash])

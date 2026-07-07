@@ -4,7 +4,7 @@ defmodule RuleMaven.Games.CurationTest do
   import RuleMaven.GamesFixtures
 
   alias RuleMaven.Games
-  alias RuleMaven.Games.{Curation, QuestionVote}
+  alias RuleMaven.Games.Curation
   alias RuleMaven.Repo
   alias RuleMaven.Users
 
@@ -101,6 +101,21 @@ defmodule RuleMaven.Games.CurationTest do
 
       assert {:ok, {0, 0}} = Curation.settle_votes(q, :confirmed)
       assert Repo.reload!(ctx.author).curator_points == 0
+    end
+
+    test "admin votes never settle or earn points", ctx do
+      admin = user_fixture("adminvoter")
+      {:ok, admin} = Users.update_user_role(admin, "admin")
+      q = log(ctx.game, ctx.author)
+      Games.set_community_vote(q.id, admin.id, "up", true)
+      Games.set_community_vote(q.id, ctx.up_voter.id, "up")
+
+      assert {:ok, {1, 0}} = Curation.settle_votes(q, :confirmed)
+
+      assert Repo.reload!(admin).curator_points == 0
+      admin_vote = Games.get_user_community_vote(q.id, admin.id)
+      assert is_nil(admin_vote.settled_at)
+      assert is_nil(admin_vote.settled_outcome)
     end
   end
 
