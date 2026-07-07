@@ -2156,6 +2156,28 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
+  Answered-but-unvetted questions for the Community Q&A "Unverified" tab:
+  pooled rows (already shareable via the answer cache) that haven't been
+  promoted to community. Excludes anything a browser shouldn't see — refused,
+  under review, blocked, stale, failed answers, pool-hit duplicates (only the
+  source row surfaces) — and anything voted significantly down. Questions are
+  shown without the asker's identity; only pooled rows qualify, so the asker
+  has already consented to answer sharing via the pool.
+  """
+  def unverified_pool_questions(%Game{} = game, limit \\ 200) do
+    Repo.all(
+      from q in QuestionLog,
+        where:
+          q.game_id == ^game.id and q.pooled == true and q.visibility != "community" and
+            q.refused == false and q.needs_review == false and q.blocked == false and
+            q.stale == false and is_nil(q.error_kind) and is_nil(q.pool_source_id) and
+            q.trust_score > -1.0,
+        order_by: [desc: q.trust_score, desc: q.inserted_at],
+        limit: ^limit
+    )
+  end
+
+  @doc """
   Deletes a question row. Always snapshots the full content (question, answer,
   votes, pool/trust state) to the audit log first, since the delete is
   permanent and no version history exists otherwise — `actor` is nil for
@@ -2227,8 +2249,19 @@ defmodule RuleMaven.Games do
 
     query =
       if user_id do
+        # Own questions, community questions, plus other users' pooled answers
+        # this user upvoted from the Community Q&A browse page — an upvote is
+        # the explicit "add this to my list" gesture (viewing alone never adds).
+        upvoted =
+          from v in QuestionVote,
+            where: v.user_id == ^user_id and v.value == "up",
+            select: v.question_log_id
+
         from q in base,
-          where: q.user_id == ^user_id or q.visibility == "community"
+          where:
+            q.user_id == ^user_id or q.visibility == "community" or
+              (q.pooled == true and q.refused == false and q.blocked == false and
+                 q.id in subquery(upvoted))
       else
         base
       end

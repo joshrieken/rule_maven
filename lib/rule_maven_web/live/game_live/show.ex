@@ -1546,7 +1546,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   defp report_flash(true),
-    do: "Reported and pulled from the FAQ for review. Fetching you a fresh answer…"
+    do: "Reported and pulled from the Community Q&A for review. Fetching you a fresh answer…"
 
   defp report_flash(false),
     do: "Reported — thanks. A moderator will take a look. Fetching you a fresh answer…"
@@ -2525,10 +2525,10 @@ defmodule RuleMavenWeb.GameLive.Show do
             <%!-- Community --%>
             <%= if @community_count > 0 do %>
               <.link
-                navigate={~p"/games/#{@game}/faq"}
+                navigate={~p"/games/#{@game}/community"}
                 style="display:inline-flex;align-items:center;gap:0.25rem;background:var(--accent);color:var(--accent-text,#fff);border:1px solid var(--accent);text-decoration:none;font-size:0.72rem;font-weight:700;padding:0.25rem 0.6rem;border-radius:0.35rem;flex-shrink:0;box-shadow:0 1px 4px color-mix(in srgb,var(--accent) 40%,transparent)"
               >
-                <span aria-hidden="true">💬</span> FAQ ({@community_count})
+                <span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})
               </.link>
             <% end %>
             <%!-- Cheat Sheet --%>
@@ -2850,7 +2850,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 Ask any rules question in plain English — answers cite the exact rulebook passage.
                 <%= if @community_count > 0 do %>
                   <.link
-                    navigate={~p"/games/#{@game}/faq"}
+                    navigate={~p"/games/#{@game}/community"}
                     style="color:var(--accent-ink,var(--accent));font-weight:600;white-space:nowrap"
                   >Or browse {@community_count} community answers →</.link>
                 <% end %>
@@ -3709,7 +3709,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         <.link
                           :for={cat <- msg_cats}
                           navigate={
-                            ~p"/games/#{@game}/faq?category=#{RuleMaven.Hashid.encode(cat.id)}"
+                            ~p"/games/#{@game}/community?category=#{RuleMaven.Hashid.encode(cat.id)}"
                           }
                           style="font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:1rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);text-decoration:none"
                         >
@@ -4292,7 +4292,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           <%!-- Always-visible AI disclaimer: answers come from an LLM and can be
                 wrong, so keep the caveat in sight on every ask. --%>
           <div style="text-align:center;font-size:0.68rem;line-height:1.3;color:var(--text-muted);margin-top:0.3rem">
-            🤖 AI with strict guardrails — answers are grounded in the rulebook and cite their sources. AI can still be wrong: double-check important rulings.
+            🤖 AI with strict guardrails — answers are grounded in the rulebook and cite their sources. AI can still be wrong: double-check important rulings. Answered questions may be shared anonymously in the Community Q&A.
           </div>
         </div>
       </div>
