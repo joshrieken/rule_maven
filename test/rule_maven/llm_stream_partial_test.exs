@@ -87,4 +87,77 @@ defmodule RuleMaven.LLMStreamPartialTest do
     refute LLM.__answer_closed__(content)
     assert LLM.__styled_answer_closed__(content)
   end
+
+  # __partial_verdict__/1 — the schema now puts "verdict" first so the
+  # streaming path knows it before any answer text arrives.
+
+  test "verdict is nil until its string closes" do
+    assert LLM.__partial_verdict__("") == nil
+    assert LLM.__partial_verdict__("{\"verdict\": \"in") == nil
+    assert LLM.__partial_verdict__("{\"verdict\": \"info\"") == "info"
+    assert LLM.__partial_verdict__("{\"verdict\": \"legal\", \"answer\": \"Ro") == "legal"
+  end
+
+  # __partial_display_answer__/1 — what the LiveView shows while streaming.
+  # Must always match what decode_answer/1 produces for the same content, so
+  # the text never visibly changes when :ask_complete swaps the final in.
+
+  test "plain text passes through unchanged" do
+    content = "{\"verdict\": \"info\", \"answer\": \"Roll the d20 to det"
+    assert LLM.__partial_display_answer__(content) == "Roll the d20 to det"
+  end
+
+  test "info verdict strips a Yes/No lead once the tail can stand alone" do
+    content =
+      "{\"verdict\": \"info\", \"answer\": \"Yes. During the set-up phase, each player builds 1 road"
+
+    assert LLM.__partial_display_answer__(content) ==
+             "During the set-up phase, each player builds 1 road"
+  end
+
+  test "info verdict recapitalizes after stripping the lead" do
+    content =
+      "{\"verdict\": \"info\", \"answer\": \"**Yes** — the robber moves to the chosen hex and stays"
+
+    assert LLM.__partial_display_answer__(content) ==
+             "The robber moves to the chosen hex and stays"
+  end
+
+  test "info verdict holds (nil) while the tail is still too short to strip" do
+    content = "{\"verdict\": \"info\", \"answer\": \"Yes. During the set"
+    assert LLM.__partial_display_answer__(content) == nil
+  end
+
+  test "info verdict keeps the lead when the answer closes with a short tail" do
+    content = "{\"verdict\": \"info\", \"answer\": \"Yes. Roll the d20.\""
+    assert LLM.__partial_display_answer__(content) == "Yes. Roll the d20."
+  end
+
+  test "legal/illegal verdicts keep the Yes/No lead" do
+    content = "{\"verdict\": \"legal\", \"answer\": \"**Yes** — a settlement can be upgraded to a city"
+
+    assert LLM.__partial_display_answer__(content) ==
+             "**Yes** — a settlement can be upgraded to a city"
+  end
+
+  test "missing verdict holds a Yes/No lead until the answer closes" do
+    open = "{\"answer\": \"Yes. During the set-up phase, each player builds 1 road"
+    assert LLM.__partial_display_answer__(open) == nil
+
+    # Closed with no verdict: decode_answer would keep the lead → so do we.
+    closed = open <> "\""
+    assert LLM.__partial_display_answer__(closed) == "Yes. During the set-up phase, each player builds 1 road"
+  end
+
+  test "silent verdict suppresses the doomed answer text entirely" do
+    content =
+      "{\"verdict\": \"silent\", \"answer\": \"No, a monster cannot be defeated in one attack"
+
+    assert LLM.__partial_display_answer__(content) == nil
+  end
+
+  test "trims the answer once its string closes" do
+    content = "{\"verdict\": \"info\", \"answer\": \"  Roll the d20 to determine the outcome.  \""
+    assert LLM.__partial_display_answer__(content) == "Roll the d20 to determine the outcome."
+  end
 end

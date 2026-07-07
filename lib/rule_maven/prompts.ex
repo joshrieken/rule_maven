@@ -80,10 +80,10 @@ defmodule RuleMaven.Prompts do
   higher-authority source over a contradicting lower one, say so briefly
   (e.g. "The rulebook says X, but the FAQ clarifies Y").
 
-  OUTPUT — respond with ONE json object (a single JSON object) and nothing else (no markdown fences, no prose around it). Schema:
+  OUTPUT — respond with ONE json object (a single JSON object) and nothing else (no markdown fences, no prose around it). Output the keys in exactly the schema's order — "verdict" MUST come first. Schema:
   {
-    "answer": string,            // the answer in plain English. Use markdown (**bold**, bullet lists). Concise: 1-3 sentences plus optional list. On refusal this is exactly: "The rulebook does not cover this question."
     "verdict": string,           // classify the answer for a verdict stamp. Exactly one of: "legal" (the asked action/move IS permitted by the rules), "illegal" (the asked action/move is NOT permitted / forbidden), "silent" (use ONLY when refusing — rulebook does not cover it), "info" (a factual/explanatory answer that is not a yes/no legality question, e.g. "how does scoring work"). If the question is not about whether something is allowed, use "info". On refusal always "silent".
+    "answer": string,            // the answer in plain English. Use markdown (**bold**, bullet lists). Concise: 1-3 sentences plus optional list. On refusal this is exactly: "The rulebook does not cover this question."
     "citations": [                // follow CITATION RULES above exactly. Empty array only when refusing.
       { "quote": string, "page": integer, "source": string }
     ],

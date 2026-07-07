@@ -1713,8 +1713,12 @@ defmodule RuleMaven.LLM do
   @partial_emit_min_growth 24
 
   defp maybe_emit_partial(state, stream_to) do
-    text = partial_answer(state.content)
-    styled = partial_styled_answer(state.content)
+    verdict = partial_verdict(state.content)
+    text = partial_display_answer(state.content, verdict)
+    # A "silent" verdict means AskWorker will replace whatever the model wrote
+    # with the refusal boilerplate at :ask_complete — streaming the doomed
+    # text (plain or styled) would just get swapped out under the reader.
+    styled = if verdict == "silent", do: nil, else: partial_styled_answer(state.content)
     text_done = answer_closed?(state.content)
     styled_done = styled_answer_closed?(state.content)
 
@@ -1757,14 +1761,82 @@ defmodule RuleMaven.LLM do
 
   @doc false
   # Extract the (possibly still-open) "answer" string value out of a partial
-  # JSON object. The ask schema lists "answer" first, so it streams before the
-  # citations. Returns nil until the field opens. Public for tests.
+  # JSON object. The ask schema lists "verdict" first (one short token), then
+  # "answer", so both stream before the citations. Returns nil until the field
+  # opens. Public for tests.
   def __partial_answer__(content), do: partial_answer(content)
 
   @doc false
   # Same for "styled_answer" (persona-direct path asks the model to place it
   # right after "answer", so it streams before the citations too).
   def __partial_styled_answer__(content), do: partial_styled_answer(content)
+
+  @doc false
+  def __partial_verdict__(content), do: partial_verdict(content)
+
+  @doc false
+  def __partial_display_answer__(content),
+    do: partial_display_answer(content, partial_verdict(content))
+
+  # The completed "verdict" string value out of a partial JSON object, nil
+  # while it hasn't fully streamed. The ask schema puts it first precisely so
+  # the streaming path below knows it before any answer text arrives.
+  defp partial_verdict(content) do
+    case Regex.run(~r/"verdict"\s*:\s*"((?:\\.|[^"\\])*)"/s, content) do
+      [_, v] -> v
+      _ -> nil
+    end
+  end
+
+  # The answer text as it should be SHOWN while streaming. decode_answer/1
+  # post-processes the final answer (trim + strip_verdict_prefix), so raw
+  # partials could differ from the final text and visibly change at
+  # :ask_complete — jarring. Apply the same transforms progressively so the
+  # streamed text always matches what the final decode will produce.
+  defp partial_display_answer(content, verdict) do
+    raw = partial_answer(content)
+    closed? = answer_closed?(content)
+
+    cond do
+      is_nil(raw) ->
+        nil
+
+      # Refusal: AskWorker swaps in the boilerplate at :ask_complete.
+      verdict == "silent" ->
+        nil
+
+      true ->
+        # Mirror decode_answer's trimmed_string: full trim once the string is
+        # closed; only a leading trim mid-stream (the tail is still growing).
+        text = if closed?, do: String.trim(raw), else: String.trim_leading(raw)
+        resolve_yes_no_lead(text, verdict, closed?)
+    end
+  end
+
+  # Same prefix shape strip_verdict_prefix/2 targets — keep the two in sync.
+  @yes_no_lead ~r/\A(?:\*\*)?(?:Yes|No)(?:\*\*)?[\s]*[—–:;,.!-]+/su
+
+  # A leading "**Yes** —"/"No." gets dropped by decode_answer when the verdict
+  # is "info" (and the remainder can stand alone). Until that strip decision
+  # is stable, hold the emit (return nil) rather than show a lead that later
+  # disappears; once the tail is long enough — or the answer string closes —
+  # the outcome here is exactly decode_answer's.
+  defp resolve_yes_no_lead(text, verdict, closed?) do
+    if Regex.match?(@yes_no_lead, text) do
+      stripped = strip_verdict_prefix(text, verdict)
+
+      cond do
+        stripped != text -> stripped
+        closed? -> text
+        # "info" with a still-too-short tail, or verdict not yet streamed
+        # (model ignored the key order): the strip may still kick in — hold.
+        verdict in [nil, "info"] -> nil
+        true -> text
+      end
+    else
+      text
+    end
+  end
 
   defp partial_answer(content) do
     # `(?<!_)` keeps this from matching the tail of "styled_answer".
@@ -1985,7 +2057,7 @@ defmodule RuleMaven.LLM do
 
         VOICE INSTRUCTIONS — the asker has an active persona selected. In ADDITION to "answer", include a "styled_answer" field: rewrite "answer" in the voice of #{style}
 
-        Place "styled_answer" IMMEDIATELY AFTER "answer" in the JSON object, before "verdict" — the client streams it to the reader as it is generated.
+        Place "styled_answer" IMMEDIATELY AFTER "answer" in the JSON object, before "citations" — the client streams it to the reader as it is generated.
 
         Commit fully to the bit — the funny comes from a sharp, specific point of view, not from stacking catchphrases, accents, or corny filler. Be witty and dry over loud and cheesy. One genuinely good line beats five clichés.
 
