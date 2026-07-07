@@ -1343,6 +1343,44 @@ defmodule RuleMaven.LLM do
   defp normalize_hr_citations(list) when is_list(list), do: Enum.filter(list, &is_map/1)
   defp normalize_hr_citations(_), do: []
 
+  @doc """
+  Short plain-text note on how a house rule changes one answered question.
+  Grounded on the stored answer plus the rule's checked raw_quote — no fresh
+  retrieval, so it's a single cheap-model call.
+  """
+  def house_rule_delta(house_rule, question_log, game) do
+    prompt =
+      RuleMaven.Prompts.render("house_rule_delta", %{
+        game_name: game.name,
+        question: question_log.cleaned_question || question_log.question,
+        answer: question_log.answer,
+        house_rule: house_rule.body,
+        raw_quote: house_rule.raw_quote || "(none captured)"
+      })
+
+    case chat(prompt, "house_rule_delta",
+           system: RuleMaven.Prompts.template("house_rule_delta_system"),
+           model: model(:cheap),
+           # Ceiling, not spend — reasoning models think before the short note;
+           # a tight cap starves them into empty content (see house_rule_check).
+           max_tokens: 4000,
+           operation: "house_rule_delta",
+           game_id: game.id,
+           user_id: house_rule.user_id,
+           reject_truncated: true,
+           raw: true
+         ) do
+      {:ok, text} ->
+        case String.trim(to_string(text)) do
+          "" -> {:error, :empty_delta}
+          trimmed -> {:ok, trimmed}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   @doc false
   # Test seam for the completeness check.
   def __truncated__(finish_reason, text), do: truncated?(finish_reason, text)

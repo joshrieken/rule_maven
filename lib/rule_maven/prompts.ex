@@ -373,6 +373,34 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
+  @house_rule_delta_system """
+  You are a board-game rules referee. A player asked a rules question and got an
+  official rules-as-written answer. The player's group also uses a HOUSE RULE.
+  Explain, in 2-3 plain sentences, how the answer changes (or doesn't) when
+  playing with that house rule. Address the player directly ("With your house
+  rule, ..."). Base the official side ONLY on the provided answer and rulebook
+  quote — never outside knowledge of the game. If the house rule doesn't
+  actually affect this question, say so in one sentence. No markdown, no
+  headings, no preamble.
+  """
+
+  # Vars: game_name, question, answer, house_rule, raw_quote
+  @house_rule_delta """
+  GAME: {{game_name}}
+
+  QUESTION:
+  {{question}}
+
+  OFFICIAL ANSWER (rules as written):
+  {{answer}}
+
+  HOUSE RULE:
+  {{house_rule}}
+
+  RELEVANT RULEBOOK TEXT:
+  {{raw_quote}}
+  """
+
   # Vars: game_name, exclude, rulebook
   @suggest_questions """
   Based on the rulebook text below for "{{game_name}}", suggest common rules questions grouped by topic category.
@@ -1238,6 +1266,24 @@ defmodule RuleMaven.Prompts do
       description: "User prompt carrying the game name, the house rule, and retrieved rulebook text.",
       vars: ["game_name", "house_rule", "rulebook"],
       default: @house_rule_check
+    },
+    %{
+      key: "house_rule_delta_system",
+      group: "House rules",
+      label: "House rule — answer delta (system)",
+      description:
+        "Referee persona for the 2-3 sentence note explaining how a house rule changes a specific answer.",
+      vars: [],
+      default: @house_rule_delta_system
+    },
+    %{
+      key: "house_rule_delta",
+      group: "House rules",
+      label: "House rule — answer delta",
+      description:
+        "User prompt carrying the question, the official answer, the house rule, and its checked rulebook quote.",
+      vars: ["game_name", "question", "answer", "house_rule", "raw_quote"],
+      default: @house_rule_delta
     }
   ]
 

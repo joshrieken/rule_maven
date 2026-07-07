@@ -92,7 +92,14 @@ defmodule RuleMavenWeb.GameLive.Show do
        community_house_rules: [],
        hr_card_open: true,
        hr_form_open: false,
-       hr_editing_id: nil
+       hr_editing_id: nil,
+       # Answer overlay (Tier 0/1): the user's own checked rules that embed
+       # near the active thread's question, cached delta notes per rule, and
+       # in-flight/failed delta requests. All keyed for the active thread only.
+       hr_overlay: [],
+       hr_overlay_deltas: %{},
+       hr_delta_pending: MapSet.new(),
+       hr_delta_failed: MapSet.new()
      )}
   end
 
@@ -261,7 +268,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     # Restyle the just-loaded thread's answers to the current voice (switching
     # threads, ?t navigation, reload). No-op on first mount where the default is
     # still neutral — the VoiceDefault hook then fires default_voice_restore.
-    socket = apply_default_voice(socket, socket.assigns.default_voice)
+    socket = socket |> apply_default_voice(socket.assigns.default_voice) |> load_hr_overlay()
 
     suggestions =
       case RuleMaven.Settings.get("suggestions_#{game.id}") do
@@ -697,6 +704,38 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
 
     {:noreply, refresh_house_rules(socket)}
+  end
+
+  # "How does my rule change this answer?" — cache hit renders instantly and
+  # free; a miss checks quota and enqueues the durable delta worker, showing a
+  # spinner until {:house_rule_delta, ...} arrives over PubSub.
+  def handle_event("house_rule_delta", %{"id" => id}, socket) do
+    with %{} = hr <- get_house_rule(id),
+         tid when not is_nil(tid) <- socket.assigns.active_thread_id,
+         %{} = ql <- get_question_log_by_id(tid) do
+      case RuleMaven.HouseRules.request_delta(socket.assigns.current_user, hr, ql) do
+        {:ok, delta} ->
+          {:noreply,
+           assign(socket,
+             hr_overlay_deltas: Map.put(socket.assigns.hr_overlay_deltas, hr.id, delta.delta)
+           )}
+
+        :pending ->
+          {:noreply,
+           assign(socket,
+             hr_delta_pending: MapSet.put(socket.assigns.hr_delta_pending, hr.id),
+             hr_delta_failed: MapSet.delete(socket.assigns.hr_delta_failed, hr.id)
+           )}
+
+        {:error, msg} when is_binary(msg) ->
+          {:noreply, put_flash(socket, :error, msg)}
+
+        {:error, _} ->
+          {:noreply, socket}
+      end
+    else
+      _ -> {:noreply, socket}
+    end
   end
 
   # Switch one answer to a persona voice. Neutral and already-cached voices swap
@@ -1348,10 +1387,41 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp refresh_house_rules(socket) do
     %{game: game, current_user: user} = socket.assigns
 
-    assign(socket,
+    socket
+    |> assign(
       house_rules: load_own_house_rules(game, user),
       community_house_rules: RuleMaven.HouseRules.community_for_game(game.id, user && user.id)
     )
+    |> load_hr_overlay()
+  end
+
+  # Recompute the house-rule overlay for the active thread: pgvector match of
+  # the user's checked rules against the question embedding (no LLM), plus any
+  # already-cached delta notes. Runs on thread switch, answer completion, and
+  # house-rule changes; each run resolves in-flight delta spinners that landed.
+  defp load_hr_overlay(socket) do
+    %{game: game, current_user: user, active_thread_id: tid} = socket.assigns
+
+    with true <- user != nil,
+         tid when not is_nil(tid) <- tid,
+         %{} = ql <- get_question_log_by_id(tid),
+         false <- ql.refused do
+      rules = RuleMaven.HouseRules.overlay_rules(user.id, game.id, ql.question_embedding)
+
+      deltas =
+        for hr <- rules,
+            d = RuleMaven.HouseRules.get_delta(hr, ql),
+            into: %{},
+            do: {hr.id, d.delta}
+
+      assign(socket,
+        hr_overlay: rules,
+        hr_overlay_deltas: deltas,
+        hr_delta_pending: MapSet.reject(socket.assigns.hr_delta_pending, &(&1 in Map.keys(deltas)))
+      )
+    else
+      _ -> assign(socket, hr_overlay: [], hr_overlay_deltas: %{}, hr_delta_pending: MapSet.new())
+    end
   end
 
   defp load_own_house_rules(_game, nil), do: []
@@ -1739,6 +1809,10 @@ defmodule RuleMavenWeb.GameLive.Show do
           do: apply_default_voice(socket, socket.assigns.default_voice),
           else: socket
 
+      # The answered question now has an embedding — surface any of the user's
+      # house rules that sit near it.
+      socket = if answer_ready?, do: load_hr_overlay(socket), else: socket
+
       {:noreply,
        if(answer_ready?,
          do: push_event(socket, "scroll_answer_top", %{}),
@@ -1769,6 +1843,23 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def handle_info({:house_rule_checked, _id}, socket) do
     {:noreply, refresh_house_rules(socket)}
+  end
+
+  def handle_info({:house_rule_delta, hr_id, ql_id, status}, socket) do
+    cond do
+      socket.assigns.active_thread_id != ql_id ->
+        {:noreply, socket}
+
+      status == :done ->
+        {:noreply, load_hr_overlay(socket)}
+
+      true ->
+        {:noreply,
+         assign(socket,
+           hr_delta_pending: MapSet.delete(socket.assigns.hr_delta_pending, hr_id),
+           hr_delta_failed: MapSet.put(socket.assigns.hr_delta_failed, hr_id)
+         )}
+    end
   end
 
   def handle_info({:delta_done, _game_id}, socket) do
@@ -1981,6 +2072,61 @@ defmodule RuleMavenWeb.GameLive.Show do
         </span>
       <% end %>
     </button>
+    """
+  end
+
+  attr :rules, :list, required: true
+  attr :deltas, :map, required: true
+  attr :pending, :any, required: true
+  attr :failed, :any, required: true
+
+  # Callout under an answer: each of the user's checked rules that embeds near
+  # the question, with its verdict stamp and an on-demand cached delta note.
+  defp house_rule_overlay(assigns) do
+    ~H"""
+    <div style="margin-top:0.75rem;padding:0.6rem 0.75rem;background:var(--bg-subtle);border:1px dashed var(--border);border-radius:0.5rem">
+      <div style="display:flex;align-items:center;gap:0.35rem;color:var(--text-muted);font-weight:700;font-size:0.68rem;letter-spacing:0.03em;text-transform:uppercase;margin-bottom:0.4rem">
+        <span aria-hidden="true">🏠</span> Your house rule may change this
+      </div>
+
+      <div :for={hr <- @rules} style="padding:0.35rem 0;border-top:1px solid var(--border-subtle);font-size:0.8rem">
+        <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.2rem">
+          <span style="font-weight:600;color:var(--text)">
+            {if hr.title not in [nil, ""], do: hr.title, else: String.slice(hr.body, 0, 40)}
+          </span>
+          <% {emoji, label} = house_rule_stamp(hr.verdict) %>
+          <span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.1rem 0.4rem;border-radius:999px;background:var(--bg-surface);font-weight:700;font-size:0.6rem;letter-spacing:0.02em;text-transform:uppercase;color:var(--text)">
+            <span aria-hidden="true">{emoji}</span> {label}
+          </span>
+        </div>
+
+        <p style="margin:0 0 0.3rem;color:var(--text-secondary);font-size:0.76rem;line-height:1.45">
+          {hr.body}
+        </p>
+
+        <%= cond do %>
+          <% delta = @deltas[hr.id] -> %>
+            <p style="margin:0;padding:0.4rem 0.6rem;background:var(--bg-surface);border-left:3px solid var(--accent);border-radius:0.3rem;font-size:0.78rem;line-height:1.5;color:var(--text)">
+              {delta}
+            </p>
+          <% hr.id in @pending -> %>
+            <span style="font-size:0.72rem;color:var(--text-muted);font-weight:600" data-testid="hr-delta-pending">
+              ⏳ Working out how this changes the answer…
+            </span>
+          <% true -> %>
+            <button
+              type="button"
+              phx-click="house_rule_delta"
+              phx-value-id={hr.id}
+              style="background:none;border:1px solid var(--border);border-radius:999px;font-size:0.68rem;cursor:pointer;padding:0.15rem 0.55rem;color:var(--text-muted);font-weight:600"
+            >
+              {if hr.id in @failed,
+                do: "Couldn't explain — retry",
+                else: "How does this change the answer?"}
+            </button>
+        <% end %>
+      </div>
+    </div>
     """
   end
 
@@ -2995,6 +3141,20 @@ defmodule RuleMavenWeb.GameLive.Show do
                         </span>
                       </span>
                     </div>
+                  <% end %>
+
+                  <!-- House-rule overlay: the user's own checked rules that embed near
+                       this question. The RAW answer above stays canonical (and cache-
+                       shared); house-rule flavor renders per-user underneath. -->
+                  <%= if msg.role == :assistant && msg.id == @active_thread_id &&
+                         @hr_overlay != [] && !msg[:refused] && !msg[:pending] &&
+                         msg.content != "Thinking..." do %>
+                    <.house_rule_overlay
+                      rules={@hr_overlay}
+                      deltas={@hr_overlay_deltas}
+                      pending={@hr_delta_pending}
+                      failed={@hr_delta_failed}
+                    />
                   <% end %>
 
                   <!-- Related questions: followups (refine) + also-asked (separate) merged -->

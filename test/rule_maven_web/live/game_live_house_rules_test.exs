@@ -83,6 +83,125 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     assert HouseRules.get(hr.id) == nil
   end
 
+  # 768-dim unit basis vector — cosine similarity 1.0 with itself, so the rule
+  # lands cleanly inside the overlay threshold against the question embedding.
+  defp basis_vec, do: for(i <- 0..767, do: if(i == 0, do: 1.0, else: 0.0))
+
+  defp overlay_setup(user, game) do
+    {:ok, hr} = HouseRules.create(user, game.id, %{"title" => "Six cards", "body" => "We deal 6 cards."})
+
+    {:ok, hr} =
+      HouseRules.mark_checked(hr, %{
+        verdict: "overrides",
+        raw_quote: "Deal 5 cards to each player.",
+        check_note: "Changes hand size.",
+        citations: [],
+        body_embedding: basis_vec()
+      })
+
+    {:ok, ql} =
+      RuleMaven.Games.log_question(%{
+        game_id: game.id,
+        user_id: user.id,
+        question: "How many cards do I draw?",
+        answer: "You draw 5 cards."
+      })
+
+    import Ecto.Query
+
+    RuleMaven.Repo.update_all(
+      from(q in RuleMaven.Games.QuestionLog, where: q.id == ^ql.id),
+      set: [question_embedding: Pgvector.new(basis_vec())]
+    )
+
+    {hr, ql}
+  end
+
+  test "answer shows the house-rule overlay; delta button caches and renders the note", %{
+    conn: conn
+  } do
+    user = create_user("hr_overlay")
+    game = published_game_fixture(%{name: "Overlay Game"})
+    {hr, ql} = overlay_setup(user, game)
+
+    conn = login(conn, user)
+
+    {:ok, view, html} =
+      live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}")
+
+    assert html =~ "Your house rule may change this"
+    assert html =~ "Six cards"
+    assert html =~ "How does this change the answer?"
+
+    # Miss: enqueues the durable worker and shows the spinner.
+    html = render_click(view, "house_rule_delta", %{"id" => hr.id})
+    assert html =~ "hr-delta-pending"
+
+    assert_enqueued(
+      worker: RuleMaven.Workers.HouseRuleDeltaWorker,
+      args: %{"house_rule_id" => hr.id, "question_log_id" => ql.id}
+    )
+
+    # Worker finishes: note cached, broadcast lands, spinner replaced by note.
+    {:ok, _} = HouseRules.save_delta(hr, ql, "With your house rule, you draw 6 cards.")
+
+    Phoenix.PubSub.broadcast(
+      RuleMaven.PubSub,
+      "game:#{game.id}",
+      {:house_rule_delta, hr.id, ql.id, :done}
+    )
+
+    html = render(view)
+    assert html =~ "With your house rule, you draw 6 cards."
+    refute html =~ "hr-delta-pending"
+
+    # Cached note now renders instantly on a fresh load — no button, no worker.
+    {:ok, _view, html2} =
+      live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}")
+
+    assert html2 =~ "With your house rule, you draw 6 cards."
+  end
+
+  test "no overlay when the near rule belongs to someone else", %{conn: conn} do
+    user = create_user("hr_no_overlay")
+    other = create_user("hr_no_overlay_other")
+    game = published_game_fixture(%{name: "No Overlay Game"})
+
+    # Rule belongs to `other`; the answered thread belongs to `user`.
+    {:ok, hr} = HouseRules.create(other, game.id, %{"body" => "We deal 6 cards."})
+
+    {:ok, _hr} =
+      HouseRules.mark_checked(hr, %{
+        verdict: "overrides",
+        raw_quote: "Deal 5 cards.",
+        check_note: "Changes hand size.",
+        citations: [],
+        body_embedding: basis_vec()
+      })
+
+    {:ok, ql} =
+      RuleMaven.Games.log_question(%{
+        game_id: game.id,
+        user_id: user.id,
+        question: "How many cards do I draw?",
+        answer: "You draw 5 cards."
+      })
+
+    import Ecto.Query
+
+    RuleMaven.Repo.update_all(
+      from(q in RuleMaven.Games.QuestionLog, where: q.id == ^ql.id),
+      set: [question_embedding: Pgvector.new(basis_vec())]
+    )
+
+    conn = login(conn, user)
+
+    {:ok, _view, html} =
+      live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}")
+
+    refute html =~ "Your house rule may change this"
+  end
+
   test "community rules visible to other users, blocked ones hidden", %{conn: conn} do
     owner = create_user("hr_comm_owner")
     viewer = create_user("hr_comm_viewer")

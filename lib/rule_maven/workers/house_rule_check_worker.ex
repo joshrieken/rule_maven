@@ -61,7 +61,7 @@ defmodule RuleMaven.Workers.HouseRuleCheckWorker do
 
     case LLM.check_house_rule(hr, game) do
       {:ok, results} ->
-        case HouseRules.mark_checked(hr, results) do
+        case HouseRules.mark_checked(hr, put_body_embedding(results, hr, run)) do
           {:ok, _} ->
             broadcast(game_id, hr.id)
             Jobs.finish_run(run, "done", "Verdict: #{results.verdict}.")
@@ -80,6 +80,20 @@ defmodule RuleMaven.Workers.HouseRuleCheckWorker do
         else
           {:error, reason}
         end
+    end
+  end
+
+  # Body embedding powers the answer-overlay match (HouseRules.overlay_rules).
+  # Computed alongside every check so it always reflects the checked body; an
+  # embed failure degrades to "no overlay for this rule", never fails the check.
+  defp put_body_embedding(results, hr, run) do
+    case RuleMaven.Embed.embed(hr.body) do
+      {:ok, vec} ->
+        Map.put(results, :body_embedding, vec)
+
+      {:error, reason} ->
+        Jobs.event(run, :warn, "Body embedding failed: #{inspect(reason)}")
+        results
     end
   end
 

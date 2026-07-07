@@ -21,6 +21,7 @@ defmodule RuleMaven.Games.HouseRule do
     field :citations, {:array, :map}
     field :checked_at, :utc_datetime
     field :blocked, :boolean, default: false
+    field :body_embedding, Pgvector.Ecto.Vector
 
     belongs_to :user, RuleMaven.Users.User
     belongs_to :game, RuleMaven.Games.Game
@@ -41,7 +42,15 @@ defmodule RuleMaven.Games.HouseRule do
 
   def check_changeset(hr, attrs) do
     hr
-    |> cast(attrs, [:check_status, :verdict, :raw_quote, :check_note, :citations, :checked_at])
+    |> cast(attrs, [
+      :check_status,
+      :verdict,
+      :raw_quote,
+      :check_note,
+      :citations,
+      :checked_at,
+      :body_embedding
+    ])
     |> validate_inclusion(:check_status, @statuses)
     |> validate_inclusion(:verdict, @verdicts)
   end

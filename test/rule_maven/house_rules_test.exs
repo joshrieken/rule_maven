@@ -182,6 +182,166 @@ defmodule RuleMaven.HouseRulesTest do
     end
   end
 
+  # 768-dim unit basis vector: cosine similarity 1.0 with itself, 0.0 with a
+  # different axis — puts rules cleanly inside/outside the overlay threshold.
+  defp basis_vec(axis) do
+    for i <- 0..767, do: if(i == axis, do: 1.0, else: 0.0)
+  end
+
+  defp checked_rule(user, game, body, verdict, axis) do
+    {:ok, hr} = HouseRules.create(user, game.id, %{"body" => body})
+
+    {:ok, hr} =
+      HouseRules.mark_checked(hr, %{
+        verdict: verdict,
+        raw_quote: "quote",
+        check_note: "note",
+        citations: [],
+        body_embedding: basis_vec(axis)
+      })
+
+    hr
+  end
+
+  defp question_log(game, question) do
+    {:ok, ql} =
+      RuleMaven.Games.log_question(%{game_id: game.id, question: question, answer: "the answer"})
+
+    ql
+  end
+
+  describe "overlay_rules/3" do
+    test "returns only the user's near, checked overrides/fills_gap rules" do
+      user = user_fixture()
+      other = user_fixture()
+      game = game_fixture()
+
+      near_override = checked_rule(user, game, "6 cards", "overrides", 0)
+      near_gap = checked_rule(user, game, "ties reroll", "fills_gap", 0)
+      _near_matches = checked_rule(user, game, "redundant", "matches", 0)
+      _far_override = checked_rule(user, game, "unrelated", "overrides", 1)
+      _other_users = checked_rule(other, game, "not mine", "overrides", 0)
+
+      # Checked but pending re-check (stale) rules don't overlay.
+      stale = checked_rule(user, game, "stale rule", "overrides", 0)
+      {:ok, _} = HouseRules.mark_pending(stale)
+
+      # No embedding (embed failed during check) → can't match.
+      {:ok, no_vec} = HouseRules.create(user, game.id, %{"body" => "no vec"})
+
+      {:ok, _} =
+        HouseRules.mark_checked(no_vec, %{
+          verdict: "overrides",
+          raw_quote: nil,
+          check_note: nil,
+          citations: []
+        })
+
+      ids =
+        HouseRules.overlay_rules(user.id, game.id, basis_vec(0))
+        |> Enum.map(& &1.id)
+        |> Enum.sort()
+
+      assert ids == Enum.sort([near_override.id, near_gap.id])
+    end
+
+    test "nil question embedding returns []" do
+      user = user_fixture()
+      game = game_fixture()
+      assert HouseRules.overlay_rules(user.id, game.id, nil) == []
+    end
+  end
+
+  describe "delta cache" do
+    test "save/get roundtrip; rule body edit invalidates naturally" do
+      user = user_fixture()
+      game = game_fixture()
+      hr = checked_rule(user, game, "6 cards", "overrides", 0)
+      ql = question_log(game, "How many cards?")
+
+      assert HouseRules.get_delta(hr, ql) == nil
+
+      {:ok, _} = HouseRules.save_delta(hr, ql, "With your house rule, deal 6.")
+      assert HouseRules.get_delta(hr, ql).delta == "With your house rule, deal 6."
+
+      # Upsert replaces, no duplicate-key crash under worker retries.
+      {:ok, _} = HouseRules.save_delta(hr, ql, "Updated note.")
+      assert HouseRules.get_delta(hr, ql).delta == "Updated note."
+
+      # Editing the body shifts the hash → cache miss, old row orphaned.
+      {:ok, edited} = HouseRules.update(hr, %{"body" => "7 cards actually"})
+      assert HouseRules.get_delta(edited, ql) == nil
+    end
+
+    test "question hash keys on canonical wording, so re-asks share the delta" do
+      user = user_fixture()
+      game = game_fixture()
+      hr = checked_rule(user, game, "6 cards", "overrides", 0)
+
+      {:ok, ql1} =
+        RuleMaven.Games.log_question(%{
+          game_id: game.id,
+          question: "how many cards do i draw??",
+          cleaned_question: "How many cards do I draw?",
+          answer: "5"
+        })
+
+      {:ok, ql2} =
+        RuleMaven.Games.log_question(%{
+          game_id: game.id,
+          question: "HOW MANY CARDS DO I DRAW",
+          cleaned_question: "How many cards do I draw?",
+          answer: "5"
+        })
+
+      {:ok, _} = HouseRules.save_delta(hr, ql1, "shared note")
+      assert HouseRules.get_delta(hr, ql2).delta == "shared note"
+    end
+  end
+
+  describe "request_delta/3" do
+    test "cache hit returns instantly without enqueueing or quota" do
+      user = user_fixture()
+      {:ok, user} = Users.set_quota(user, 0)
+      game = game_fixture()
+      hr = checked_rule(user, game, "6 cards", "overrides", 0)
+      ql = question_log(game, "How many cards?")
+      {:ok, _} = HouseRules.save_delta(hr, ql, "cached note")
+
+      assert {:ok, %{delta: "cached note"}} = HouseRules.request_delta(user, hr, ql)
+      refute_enqueued(worker: RuleMaven.Workers.HouseRuleDeltaWorker)
+    end
+
+    test "cache miss enqueues the worker and returns :pending" do
+      user = user_fixture()
+      game = game_fixture()
+      hr = checked_rule(user, game, "6 cards", "overrides", 0)
+      ql = question_log(game, "How many cards?")
+
+      assert :pending = HouseRules.request_delta(user, hr, ql)
+
+      assert_enqueued(
+        worker: RuleMaven.Workers.HouseRuleDeltaWorker,
+        args: %{house_rule_id: hr.id, question_log_id: ql.id}
+      )
+    end
+
+    test "non-owner rejected; over-quota miss rejected" do
+      owner = user_fixture()
+      other = user_fixture()
+      game = game_fixture()
+      hr = checked_rule(owner, game, "6 cards", "overrides", 0)
+      ql = question_log(game, "How many cards?")
+
+      assert {:error, :not_owner} = HouseRules.request_delta(other, hr, ql)
+
+      {:ok, owner} = Users.set_quota(owner, 0)
+      assert {:error, msg} = HouseRules.request_delta(owner, hr, ql)
+      assert is_binary(msg)
+      refute_enqueued(worker: RuleMaven.Workers.HouseRuleDeltaWorker)
+    end
+  end
+
   test "invalidate_pool marks house-rule checks stale" do
     user = user_fixture()
     game = game_fixture()

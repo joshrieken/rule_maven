@@ -5,8 +5,14 @@ defmodule RuleMaven.HouseRules do
   """
   import Ecto.Query
   alias RuleMaven.Repo
-  alias RuleMaven.Games.HouseRule
+  alias RuleMaven.Games.{HouseRule, HouseRuleDelta, QuestionLog}
   alias RuleMaven.{Games, Security, Workers}
+
+  # Rules whose body embeds within this cosine similarity of a question's
+  # embedding are surfaced as an overlay under that answer. Rule↔question
+  # relatedness sits far below the near-duplicate band the answer pool uses
+  # (0.92), so this floor is deliberately loose and admin-tunable.
+  @default_overlay_similarity 0.60
 
   def get(id), do: Repo.get(HouseRule, id)
 
@@ -48,7 +54,7 @@ defmodule RuleMaven.HouseRules do
   def mark_checked(%HouseRule{} = hr, %{verdict: _} = results) do
     attrs =
       results
-      |> Map.take([:verdict, :raw_quote, :check_note, :citations])
+      |> Map.take([:verdict, :raw_quote, :check_note, :citations, :body_embedding])
       |> Map.merge(%{
         check_status: "done",
         checked_at: DateTime.utc_now() |> DateTime.truncate(:second)
@@ -128,6 +134,114 @@ defmodule RuleMaven.HouseRules do
       end
     else
       {:error, :not_owner}
+    end
+  end
+
+  # Overlay matching (Tier 0) --------------------------------------------
+  #
+  # Answers stay canonical RAW; a user's own checked rules that embed near the
+  # question surface as a callout under the answer. Pure pgvector math — no
+  # LLM cost per ask. Only `overrides`/`fills_gap` verdicts qualify: `matches`
+  # rules can't change an answer and `unclear` ones have nothing reliable to say.
+
+  @doc """
+  The user's checked house rules relevant to a question embedding, nearest
+  first. Returns [] for nil embeddings (question not embedded yet).
+  """
+  def overlay_rules(_user_id, _game_id, nil), do: []
+
+  def overlay_rules(user_id, game_id, question_embedding) do
+    distance = 1.0 - overlay_similarity()
+    vec = Pgvector.new(question_embedding)
+
+    Repo.all(
+      from h in HouseRule,
+        where: h.user_id == ^user_id and h.game_id == ^game_id,
+        where: h.check_status == "done" and h.verdict in ["overrides", "fills_gap"],
+        where: not is_nil(h.body_embedding),
+        where: fragment("cosine_distance(?, ?::vector)", h.body_embedding, ^vec) <= ^distance,
+        order_by: fragment("cosine_distance(?, ?::vector)", h.body_embedding, ^vec)
+    )
+  end
+
+  defp overlay_similarity do
+    case RuleMaven.Settings.get("house_rule_overlay_similarity") do
+      nil ->
+        @default_overlay_similarity
+
+      "" ->
+        @default_overlay_similarity
+
+      val ->
+        case Float.parse(val) do
+          {f, _} -> f
+          :error -> @default_overlay_similarity
+        end
+    end
+  end
+
+  # Delta notes (Tier 1) --------------------------------------------------
+
+  @doc """
+  Cache key hashes. The question side hashes the canonical wording so re-asks
+  of the same normalized question share one delta; the rule side hashes the
+  body so edits invalidate naturally.
+  """
+  def question_hash(%QuestionLog{} = ql) do
+    sha256(ql.cleaned_question || ql.question || "")
+  end
+
+  def body_hash(%HouseRule{} = hr), do: sha256(hr.body || "")
+
+  defp sha256(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
+
+  @doc "Cached delta note for (rule, question), or nil."
+  def get_delta(%HouseRule{} = hr, %QuestionLog{} = ql) do
+    Repo.one(
+      from d in HouseRuleDelta,
+        where:
+          d.house_rule_id == ^hr.id and
+            d.question_hash == ^question_hash(ql) and
+            d.rule_body_hash == ^body_hash(hr)
+    )
+  end
+
+  @doc "Upsert a delta note (idempotent under worker retries)."
+  def save_delta(%HouseRule{} = hr, %QuestionLog{} = ql, text) do
+    %HouseRuleDelta{}
+    |> HouseRuleDelta.changeset(%{
+      house_rule_id: hr.id,
+      question_hash: question_hash(ql),
+      rule_body_hash: body_hash(hr),
+      delta: text
+    })
+    |> Repo.insert(
+      on_conflict: {:replace, [:delta, :updated_at]},
+      conflict_target: [:house_rule_id, :question_hash, :rule_body_hash]
+    )
+  end
+
+  @doc """
+  User asks "how does my rule change this answer?". Cache hit is free and
+  instant; a miss checks quota and enqueues the durable delta worker.
+  Returns {:ok, delta} | :pending | {:error, reason}.
+  """
+  def request_delta(user, %HouseRule{} = hr, %QuestionLog{} = ql) do
+    cond do
+      hr.user_id != user.id ->
+        {:error, :not_owner}
+
+      delta = get_delta(hr, ql) ->
+        {:ok, delta}
+
+      true ->
+        with :ok <- Games.check_rate_limit(user) do
+          %{"house_rule_id" => hr.id, "question_log_id" => ql.id}
+          |> Workers.HouseRuleDeltaWorker.new()
+          |> Oban.insert()
+
+          :pending
+        end
     end
   end
 
