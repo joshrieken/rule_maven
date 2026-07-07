@@ -828,14 +828,15 @@ body {
   }
 }
 
-/* Manual ambient-animation off switch (data-motion="off" on <html>). Same set
-   as reduced-motion, but user-controlled from the header toggle. */
+/* Manual ambient-animation off switch (data-motion="off" on <html>). Strictly
+   ambient decoration only — the continuous, infinite loops. One-shot entrance
+   and feedback animations (page rise, chat messages, verdict stamps, sidebar
+   cascade) stay on; only OS prefers-reduced-motion disables those. */
 [data-motion="off"] .header::after,
 [data-motion="off"] .header-icon,
 [data-motion="off"] .login-brand-icon,
 [data-motion="off"] .header-title-accent,
-[data-motion="off"] .app-shell::before,
-[data-motion="off"] .main-content {
+[data-motion="off"] .app-shell::before {
   animation: none !important;
 }
 
@@ -1633,16 +1634,6 @@ h1 span.subtitle {
 @keyframes sidebar-item-in {
   from { opacity: 0; transform: translate3d(-8px, 0, 0); }
   to   { opacity: 1; transform: translate3d(0, 0, 0); }
-}
-
-/* Honor the ambient-motion off switch. The sidebar-item cascade is functional
-   feedback (it shows the list arriving), not ambient decoration, so it is
-   deliberately NOT in this list — only OS prefers-reduced-motion disables it. */
-[data-motion="off"] .chat-msg,
-[data-motion="off"] .chat-msg-user,
-[data-motion="off"] .answer-in,
-[data-motion="off"] .verdict-stamp {
-  animation: none !important;
 }
 
 /* ===== Spacing ===== */
