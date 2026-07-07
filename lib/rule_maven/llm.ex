@@ -2752,50 +2752,72 @@ defmodule RuleMaven.LLM do
   @vet_style_max_chars 400
 
   @doc """
-  Judges which generated persona styles are pure tone descriptions, safe to
-  interpolate into the rulebook-access ask prompt (see `voice_style_block/2`).
+  Judges each generated persona voice on two independent axes:
 
-  Takes `[%{slug, style}]`, returns `{:ok, safe_slugs}` — slugs whose style
-  passed the vet. The vet call never sees the rulebook; overlong styles fail
-  closed without an LLM call. `{:error, reason}` leaves everything unvetted.
+    * `safe` — the style string is a pure tone description, safe to
+      interpolate into the rulebook-access ask prompt (see
+      `voice_style_block/2`). Fails closed: a missing/garbled verdict, a
+      hallucinated slug, or an overlong style all land unvetted.
+    * `real_person` — the persona (label, description, or style) depicts a
+      real person, living or dead, and must be deleted. Fails open: deletion
+      is destructive, so only an explicit `true` verdict flags a voice.
+
+  Takes `[%{slug, style}]` maps (optional `:label`/`:description` are passed
+  to the judge — real-person personas usually announce themselves there),
+  returns `{:ok, %{safe: slugs, real_person: slugs}}`. The vet call never sees
+  the rulebook. `{:error, reason}` leaves everything unvetted and deletes
+  nothing.
   """
   def vet_voice_styles(voices, opts \\ [])
 
-  def vet_voice_styles([], _opts), do: {:ok, []}
+  def vet_voice_styles([], _opts), do: {:ok, %{safe: [], real_person: []}}
 
   def vet_voice_styles(voices, opts) do
-    {candidates, _overlong} =
-      Enum.split_with(voices, &(String.length(&1.style) <= @vet_style_max_chars))
+    # Overlong styles are malformed at best: excluded from the `safe` axis
+    # (fail closed) but still sent — truncated — so the real-person judgment
+    # covers every voice.
+    vettable =
+      for v <- voices, String.length(v.style) <= @vet_style_max_chars, into: MapSet.new(),
+          do: v.slug
 
-    if candidates == [] do
-      {:ok, []}
-    else
-      styles_json =
-        Jason.encode!(Enum.map(candidates, &%{slug: &1.slug, style: &1.style}))
+    styles_json =
+      Jason.encode!(
+        Enum.map(voices, fn v ->
+          %{
+            slug: v.slug,
+            label: Map.get(v, :label),
+            description: Map.get(v, :description),
+            style: String.slice(v.style, 0, @vet_style_max_chars)
+          }
+        end)
+      )
 
-      prompt = RuleMaven.Prompts.render("vet_voice_styles", %{styles_json: styles_json})
+    prompt = RuleMaven.Prompts.render("vet_voice_styles", %{styles_json: styles_json})
 
-      case chat(prompt, "vet_voice_styles",
-             system: RuleMaven.Prompts.template("vet_voice_styles_system"),
-             model: model(:cheap),
-             # Ceiling, not spend — the verdict JSON is tiny, but a reasoning
-             # model thinks first and a tight cap starves it into null content.
-             max_tokens: 4000,
-             operation: "vet_voice_styles",
-             game_id: opts[:game_id],
-             reject_truncated: true,
-             raw: true
-           ) do
-        {:ok, text} -> {:ok, parse_vet_verdicts(text, candidates)}
-        {:error, reason} -> {:error, reason}
-      end
+    case chat(prompt, "vet_voice_styles",
+           system: RuleMaven.Prompts.template("vet_voice_styles_system"),
+           model: model(:cheap),
+           # Ceiling, not spend — the verdict JSON is tiny, but a reasoning
+           # model thinks first and a tight cap starves it into null content.
+           max_tokens: 4000,
+           operation: "vet_voice_styles",
+           game_id: opts[:game_id],
+           reject_truncated: true,
+           raw: true
+         ) do
+      {:ok, text} -> {:ok, parse_vet_verdicts(text, voices, vettable)}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  # Only slugs the model explicitly marked safe AND that were actually sent
-  # pass — a hallucinated slug or a missing entry fails closed.
-  defp parse_vet_verdicts(text, candidates) do
-    sent = MapSet.new(candidates, & &1.slug)
+  # `safe` admits only slugs the model explicitly marked safe, that were
+  # actually sent, and whose style wasn't overlong — anything else fails
+  # closed. A real-person flag also disqualifies from `safe` (the voice is
+  # about to be deleted). `real_person` requires an explicit `true` — a
+  # missing field (e.g. a prod prompt override still on the old shape) deletes
+  # nothing.
+  defp parse_vet_verdicts(text, voices, vettable) do
+    sent = MapSet.new(voices, & &1.slug)
 
     json =
       case Regex.run(~r/\[.*\]/s, text || "") do
@@ -2803,21 +2825,32 @@ defmodule RuleMaven.LLM do
         _ -> text || ""
       end
 
-    case Jason.decode(json) do
-      {:ok, list} when is_list(list) ->
-        for %{"slug" => slug, "safe" => true} <- list,
-            is_binary(slug),
-            MapSet.member?(sent, slug),
-            do: slug
+    verdicts =
+      case Jason.decode(json) do
+        {:ok, list} when is_list(list) ->
+          for %{"slug" => slug} = v <- list, is_binary(slug), MapSet.member?(sent, slug), do: v
 
-      _ ->
-        []
-    end
+        _ ->
+          []
+      end
+
+    real_person = for %{"slug" => slug, "real_person" => true} <- verdicts, do: slug
+    flagged = MapSet.new(real_person)
+
+    safe =
+      for %{"slug" => slug, "safe" => true} <- verdicts,
+          MapSet.member?(vettable, slug),
+          not MapSet.member?(flagged, slug),
+          do: slug
+
+    %{safe: safe, real_person: real_person}
   end
 
   @doc false
-  # Test seam for parse_vet_verdicts/2.
-  def __parse_vet_verdicts__(text, candidates), do: parse_vet_verdicts(text, candidates)
+  # Test seam for parse_vet_verdicts/3.
+  def __parse_vet_verdicts__(text, voices, vettable \\ nil) do
+    parse_vet_verdicts(text, voices, vettable || MapSet.new(voices, & &1.slug))
+  end
 
   # Decode the voices JSON array, tolerating ```fences``` and stray prose, then
   # coerce each entry to a clean voice map. Bad/incomplete entries are dropped;

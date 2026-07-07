@@ -43,8 +43,26 @@ defmodule RuleMaven.Workers.VoiceVetWorker do
           )
 
         case RuleMaven.LLM.vet_voice_styles(unvetted, game_id: game_id) do
-          {:ok, safe_slugs} ->
+          {:ok, %{safe: safe_slugs, real_person: real_person_slugs}} ->
             Voices.mark_vetted(game_id, safe_slugs)
+
+            # Real-person personas flagged on backfill are deleted outright,
+            # and the show page's voice picker is refreshed live.
+            if real_person_slugs != [] do
+              Voices.drop_generated(game_id, real_person_slugs)
+
+              Phoenix.PubSub.broadcast(
+                RuleMaven.PubSub,
+                RuleMaven.Workers.VoiceSuggestionsWorker.topic(game_id),
+                {:voices_ready, Voices.for_game(game_id)}
+              )
+
+              Jobs.event(
+                run,
+                :warn,
+                "Deleted #{length(real_person_slugs)} real-person persona(s): #{Enum.join(real_person_slugs, ", ")}."
+              )
+            end
 
             Jobs.finish_run(
               run,
