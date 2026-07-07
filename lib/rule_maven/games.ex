@@ -1215,6 +1215,43 @@ defmodule RuleMaven.Games do
     )
   end
 
+  # ── Failed-answer retries ─────────────────────────────────────────────────
+
+  @error_retry_limit 2
+
+  @doc "Player-visible retries allowed per failed question."
+  def error_retry_limit, do: @error_retry_limit
+
+  @doc """
+  Whether this failed answer can still be retried by its asker. Only genuinely
+  retryable failure kinds count — "too_long" needs a shorter question,
+  "paused" needs the kill switch lifted, and rate limits are handled with a
+  cooldown on the button instead.
+  """
+  def error_retryable?(%QuestionLog{error_kind: kind, error_retries: retries}) do
+    kind in ["empty", "format", "timeout", "unknown", "rate_limited"] and
+      retries < @error_retry_limit
+  end
+
+  def error_retryable?(_), do: false
+
+  @doc """
+  System-generated flag for a question whose retries are exhausted and still
+  failing: files it into the moderation queue on the asker's behalf so an
+  admin sees the persistent failure without the user having to do anything.
+  Bypasses the per-user report quota (it's rate-bound by the retry limit) and
+  the admin-reporter guard (there is no reporter). No-ops unless the row is a
+  failed answer that has used up its retries.
+  """
+  def auto_flag_error(%QuestionLog{} = q) do
+    if q.error_kind && q.error_kind not in ["paused"] && q.user_id &&
+         q.error_retries >= @error_retry_limit do
+      flag_question(q.id, q.user_id, "auto: answer failed repeatedly (#{q.error_kind})")
+    else
+      :noop
+    end
+  end
+
   # ── Report = flag + trust-tiered auto-pull ───────────────────────────────
   # A user "Report" both records a flag (for moderator review) and, depending on
   # how trusted the answer is, may pull it from the pool immediately. The pull
@@ -1742,11 +1779,15 @@ defmodule RuleMaven.Games do
 
   # Counts a user's *billable* asks since `since` — fresh LLM generations only.
   # Cache/pool hits (rows carrying a `pool_source_id`) are cheap and explicitly
-  # don't count against rate limits or quotas.
+  # don't count against rate limits or quotas. Failed answers (`error_kind`
+  # set) don't count either: the user shouldn't pay quota for our errors, and
+  # their retries are bounded by `error_retry_limit/0` so this can't be farmed.
   def recent_question_count(user_id, since) do
     Repo.aggregate(
       from(q in QuestionLog,
-        where: q.user_id == ^user_id and q.inserted_at >= ^since and is_nil(q.pool_source_id)
+        where:
+          q.user_id == ^user_id and q.inserted_at >= ^since and is_nil(q.pool_source_id) and
+            is_nil(q.error_kind)
       ),
       :count
     )

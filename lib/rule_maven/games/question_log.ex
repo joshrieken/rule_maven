@@ -43,6 +43,15 @@ defmodule RuleMaven.Games.QuestionLog do
     # the asker (Games.record_pool_mismatch/1). Tuning signal for the pool
     # matching thresholds — never shown to users, never affects serving.
     field :mismatch_count, :integer, default: 0
+    # Machine-readable failure classification for "⚠️ ..." error answers:
+    # "empty" | "format" | "timeout" | "rate_limited" | "too_long" |
+    # "unknown" | "paused". nil for normal answers. Drives the player-facing
+    # retry affordance; rows with a kind set are excluded from the billable
+    # quota count (the user shouldn't pay for our failures).
+    field :error_kind, :string
+    # Player-visible retries already consumed by this question. A retry
+    # deletes + recreates the row, so resubmit carries the count forward.
+    field :error_retries, :integer, default: 0
     # The exact (sorted) expansion-id set the answer was computed against.
     # [] = base game only. All cache tiers match on set equality so an answer
     # never crosses expansion configurations.
@@ -100,7 +109,9 @@ defmodule RuleMaven.Games.QuestionLog do
       :needs_review,
       :stale,
       :favorited,
-      :expansion_ids
+      :expansion_ids,
+      :error_kind,
+      :error_retries
     ])
     |> validate_required([:question, :answer, :game_id])
   end
