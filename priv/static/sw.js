@@ -1,4 +1,4 @@
-const CACHE = "rules-buddy-v3"
+const CACHE = "rules-buddy-v4"
 
 self.addEventListener("install", (event) => {
   self.skipWaiting()
@@ -25,8 +25,12 @@ self.addEventListener("fetch", (event) => {
 
   // Network-first for assets: always prefer fresh from the server when online
   // (so CSS/JS edits show up immediately), fall back to cache only when offline.
+  // cache: "no-cache" forces an etag revalidation instead of trusting the HTTP
+  // cache — without it, fetch() inside a service worker happily replays a stale
+  // heuristically-cached CSS/JS response (Safari's hard refresh doesn't bypass
+  // a controlling worker, so edits never showed up).
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: "no-cache" })
       .then((response) => {
         if (response && response.status === 200) {
           let clone = response.clone()
