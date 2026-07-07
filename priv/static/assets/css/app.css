@@ -1710,9 +1710,17 @@ button:disabled, .btn:disabled, [type="button"]:disabled, [type="submit"]:disabl
   transition: left 0.5s ease;
 }
 
+/* Re-assert the accent fill: the generic button:hover/:active rules above
+   outrank .btn-primary alone and would swap it to the plain page background,
+   leaving accent-text-on-page-bg (invisible on light accents like Catan's). */
 .btn-primary:hover {
+  background: linear-gradient(135deg, var(--accent-light) 0%, var(--accent) 55%, var(--accent-dark) 100%);
   border-color: var(--accent-ink, var(--accent));
   box-shadow: 0 4px 14px var(--shadow-hover);
+}
+
+.btn-primary:active {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
 }
 
 .btn-primary:hover::after {
@@ -1740,6 +1748,10 @@ button:disabled, .btn:disabled, [type="button"]:disabled, [type="submit"]:disabl
   background: #50D070;
 }
 
+.btn-green:active {
+  background: var(--green);
+}
+
 .btn-danger {
   background: var(--red);
   color: #FFFFFF;
@@ -1748,6 +1760,10 @@ button:disabled, .btn:disabled, [type="button"]:disabled, [type="submit"]:disabl
 
 .btn-danger:hover {
   background: #E86060;
+}
+
+.btn-danger:active {
+  background: var(--red);
 }
 
 .btn-sm {
