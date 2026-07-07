@@ -9,6 +9,8 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   @impl true
   def mount(_params, session, socket) do
+    socket = maybe_curator_notice(socket)
+
     {:ok,
      assign(socket,
        is_admin: RuleMaven.Users.can?(socket.assigns.current_user, :admin),
@@ -4189,6 +4191,28 @@ defmodule RuleMavenWeb.GameLive.Show do
         text
         |> Phoenix.HTML.html_escape()
         |> Phoenix.HTML.raw()
+    end
+  end
+
+  # One aggregate toast per batch of newly settled correct votes. Only on the
+  # connected mount so it fires once, not on the dead render too.
+  defp maybe_curator_notice(socket) do
+    user = socket.assigns.current_user
+
+    with true <- connected?(socket),
+         n when n > 0 <- RuleMaven.Games.Curation.unseen_correct_count(user) do
+      RuleMaven.Games.Curation.mark_notices_seen(user)
+
+      msg =
+        if n == 1 do
+          "1 of your votes was confirmed — +1 curator point, +1 bonus question this month."
+        else
+          "#{n} of your votes were confirmed — +#{n} curator points, +#{n} bonus questions this month."
+        end
+
+      Phoenix.LiveView.put_flash(socket, :info, msg)
+    else
+      _ -> socket
     end
   end
 end
