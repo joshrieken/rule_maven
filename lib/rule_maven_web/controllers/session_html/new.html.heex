@@ -2,11 +2,14 @@
   <%!-- Compact header: logo mark inline with the title so the whole page fits
         a laptop viewport without scrolling. --%>
   <div style="text-align:center;margin-bottom:1.25rem">
-    <h1 style="font-size:1.6rem;font-weight:700;margin:0 0 0.35rem;display:flex;align-items:center;justify-content:center;gap:0.5rem">
-      <span aria-hidden="true">◆</span> Rule Maven
+    <%!-- Hero-sized version of the header brand (🎲 + gradient "Maven"), so
+          the login page and the app share one identity. --%>
+    <h1 class="login-brand">
+      <span class="login-brand-icon" aria-hidden="true">🎲</span>
+      <span class="login-brand-title">Rule <span class="login-brand-accent">Maven</span></span>
     </h1>
     <p style="font-size:1.05rem;font-weight:600;margin:0">
-      Settle rules arguments in seconds — not after ten minutes of rulebook flipping. 🎲
+      Settle rules arguments in seconds — not after ten minutes of rulebook flipping.
     </p>
   </div>
 
@@ -23,7 +26,7 @@
       </p>
       <div style="display:flex;flex-direction:column;gap:0.45rem;font-size:0.85rem;color:var(--text-secondary)">
         <div>⚡ <strong>Instant rulings</strong> — one place to ask, instead of hunting through three sections of the rulebook mid-game.</div>
-        <div>✅ <strong>Clear verdicts</strong> — every answer gets a stamp: legal move, not allowed, or rules silent.</div>
+        <div>✅ <strong>Clear verdicts</strong> — every answer gets a stamp: legal move, not allowed, in the rules, or rules silent.</div>
         <div>📖 <strong>Sourced, not vibes</strong> — answers cite the actual rulebook passages, so you can check them yourself.</div>
         <div>🧩 <strong>Expansion-aware</strong> — pick which expansions you're playing with and answers adjust.</div>
       </div>
