@@ -3506,32 +3506,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% end %>
                   <% end %>
 
-                  <%= if is_community_msg do %>
-                    <%!-- Browsed community answer: favorite marks it for the
-                          Community sidebar list, unrelated to thread order. --%>
-                    <% fav? = MapSet.member?(@favorited_answer_ids, msg[:id]) %>
-                    <button
-                      type="button"
-                      phx-click="favorite_community_answer"
-                      phx-value-id={msg[:id]}
-                      style={"background:none;border:none;padding:0;margin-left:0.4rem;line-height:1;font-size:0.85rem;cursor:pointer;#{if fav?, do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
-                      title={if fav?, do: "Remove from your favorites", else: "Add to your favorites"}
-                    >{if fav?, do: "♥", else: "♡"}</button>
-                  <% else %>
-                    <%!-- Your own asked question (private or pool-served): pins
-                          it to the top of the sidebar's thread list. --%>
-                    <button
-                      type="button"
-                      phx-click="favorite_question"
-                      phx-value-id={msg.id}
-                      style={"background:none;border:none;padding:0;margin-left:0.4rem;line-height:1;font-size:0.85rem;cursor:pointer;#{if msg[:favorited], do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
-                      title={
-                        if msg[:favorited],
-                          do: "Unfavorite",
-                          else: "Favorite — moves to top of your list"
-                      }
-                    >{if msg[:favorited], do: "♥", else: "♡"}</button>
-                  <% end %>
                   <%!-- Everything else right-aligns in one group: category pills,
                         then the overflow menu. --%>
                   <span style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-left:auto">
@@ -3559,12 +3533,42 @@ defmodule RuleMavenWeb.GameLive.Show do
                     </.link>
                   </span>
 
-                  <!-- Overflow: secondary actions (copy, regenerate) -->
+                  <!-- Overflow: secondary actions (favorite, copy, regenerate) -->
                   <details class="card-menu">
                     <summary class="card-menu__trigger" title="More actions">
                       ⋯
                     </summary>
                     <div class="card-menu__pop card-menu__pop--right card-menu__pop--up">
+                      <%= if is_community_msg do %>
+                        <%!-- Browsed community answer: favorite marks it for the
+                              Community sidebar list, unrelated to thread order. --%>
+                        <% fav? = MapSet.member?(@favorited_answer_ids, msg[:id]) %>
+                        <button
+                          type="button"
+                          phx-click="favorite_community_answer"
+                          phx-value-id={msg[:id]}
+                          class="card-menu__item"
+                          title={
+                            if fav?,
+                              do: "Remove from your favorites",
+                              else: "Add to your favorites"
+                          }
+                        >{if fav?, do: "♥ Unfavorite", else: "♡ Favorite"}</button>
+                      <% else %>
+                        <%!-- Your own asked question (private or pool-served): pins
+                              it to the top of the sidebar's thread list. --%>
+                        <button
+                          type="button"
+                          phx-click="favorite_question"
+                          phx-value-id={msg.id}
+                          class="card-menu__item"
+                          title={
+                            if msg[:favorited],
+                              do: "Unfavorite",
+                              else: "Favorite — moves to top of your list"
+                          }
+                        >{if msg[:favorited], do: "♥ Unfavorite", else: "♡ Favorite"}</button>
+                      <% end %>
                       <button
                         type="button"
                         id={"copy-btn-#{idx}"}

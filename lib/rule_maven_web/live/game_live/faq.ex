@@ -396,18 +396,22 @@ defmodule RuleMavenWeb.GameLive.Faq do
         </div>
         <div style="display:flex;align-items:center;gap:0.3rem;flex-shrink:0">
           <% fav? = MapSet.member?(@favorited_ids, @q.id) %>
-          <button
-            type="button"
-            phx-click="favorite_community_answer"
-            phx-value-id={@q.id}
-            style={"background:none;border:none;padding:0;line-height:1;font-size:0.95rem;cursor:pointer;#{if fav?, do: "color:#e05c2a", else: "color:var(--text-muted)"}"}
-            title={if fav?, do: "Remove from your favorites", else: "Favorite — moves to top of this list"}
-          >{if fav?, do: "♥", else: "♡"}</button>
 
-          <!-- Overflow: secondary actions (copy, regenerate, report) -->
+          <!-- Overflow: secondary actions (favorite, copy, regenerate, report) -->
           <details class="card-menu">
             <summary class="card-menu__trigger" title="More actions">⋯</summary>
             <div class="card-menu__pop card-menu__pop--right">
+              <button
+                type="button"
+                phx-click="favorite_community_answer"
+                phx-value-id={@q.id}
+                class="card-menu__item"
+                title={
+                  if fav?,
+                    do: "Remove from your favorites",
+                    else: "Favorite — moves to top of this list"
+                }
+              >{if fav?, do: "♥ Unfavorite", else: "♡ Favorite"}</button>
               <button
                 type="button"
                 id={"faq-copy-#{@q.id}"}
