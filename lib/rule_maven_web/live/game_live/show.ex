@@ -3,6 +3,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   alias RuleMaven.{Games, CheatSheet}
   alias RuleMaven.Games.QuestionLog
+  alias RuleMavenWeb.ReportModal
   alias Oban
 
   @max_concurrent 5
@@ -38,6 +39,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        community_user_votes: %{},
        asker_confirmed_ids: MapSet.new(),
        flagged_ids: MapSet.new(),
+       # Report-reason modal: nil, or %{id: local_answer_id, flag_target: source_id}
+       report_target: nil,
        # Admin-only "version history" panel: which threads have it expanded,
        # and the lazily-fetched audit entries per thread id.
        history_open: MapSet.new(),
@@ -824,10 +827,10 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
-  def handle_event("flag_question", %{"id" => id_str}, socket) do
+  # Opens the report-reason modal for an answer. The actual flag is written on
+  # "submit_report" once the user has picked a reason.
+  def handle_event("open_report", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
-    user = socket.assigns.current_user
-    game = socket.assigns.game
 
     # `id` is the locally-visible answer. The flag (and any auto-pull) targets
     # the *source* row behind a pool hit so reports concentrate on the real
@@ -836,31 +839,38 @@ defmodule RuleMavenWeb.GameLive.Show do
     flag_target = (msg && msg[:pool_source_id]) || id
 
     # Scope to this game so a forged id from another game can't be flagged here.
-    if find_question_log(game, flag_target) do
-      case Games.report_answer(flag_target, user) do
-        {:ok, %{pulled: pulled}} ->
-          socket =
-            socket
-            |> assign(flagged_ids: MapSet.put(socket.assigns.flagged_ids, flag_target))
-            |> put_flash(:info, report_flash(pulled))
+    if find_question_log(socket.assigns.game, flag_target) do
+      {:noreply, assign(socket, report_target: %{id: id, flag_target: flag_target})}
+    else
+      {:noreply, socket}
+    end
+  end
 
-          # Give the reporter a fresh, rulebook-grounded answer right away instead
-          # of leaving them on the answer they just flagged. Gated: resubmit_question
-          # runs check_rate_limit (quota + daily $ cap) and counts as one of their
-          # asks, and a short cooldown blocks report→regen hammering — so this can't
-          # be turned into free/unlimited generations.
-          cooldowns = socket.assigns.retry_cooldowns
-          now = System.system_time(:second)
+  def handle_event("cancel_report", _params, socket),
+    do: {:noreply, assign(socket, report_target: nil)}
 
-          if Map.get(cooldowns, id, 0) + 10 <= now do
-            resubmit_question(id, socket, skip_pool: true)
-          else
-            {:noreply, socket}
-          end
+  def handle_event("submit_report", params, socket) do
+    case socket.assigns.report_target do
+      nil ->
+        {:noreply, socket}
 
-        {:error, message} ->
-          {:noreply, put_flash(socket, :error, message)}
-      end
+      %{id: id, flag_target: flag_target} ->
+        socket
+        |> assign(report_target: nil)
+        |> do_report(id, flag_target, ReportModal.compose_reason(params))
+    end
+  end
+
+  # Refusal "Report as miscategorized" keeps its one-click confirm — the reason
+  # is implied by the button — and records a fixed reason for moderators.
+  def handle_event("flag_question", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+
+    msg = Enum.find(socket.assigns.conversation, &(&1[:id] == id && &1.role == :assistant))
+    flag_target = (msg && msg[:pool_source_id]) || id
+
+    if find_question_log(socket.assigns.game, flag_target) do
+      do_report(socket, id, flag_target, "Wrongly marked as 'not covered'")
     else
       {:noreply, socket}
     end
@@ -1485,6 +1495,33 @@ defmodule RuleMavenWeb.GameLive.Show do
            pending_count: Enum.count(threads, & &1.pending),
            refresh: socket.assigns.refresh + 1
          )}
+    end
+  end
+
+  defp do_report(socket, id, flag_target, reason) do
+    case Games.report_answer(flag_target, socket.assigns.current_user, reason) do
+      {:ok, %{pulled: pulled}} ->
+        socket =
+          socket
+          |> assign(flagged_ids: MapSet.put(socket.assigns.flagged_ids, flag_target))
+          |> put_flash(:info, report_flash(pulled))
+
+        # Give the reporter a fresh, rulebook-grounded answer right away instead
+        # of leaving them on the answer they just flagged. Gated: resubmit_question
+        # runs check_rate_limit (quota + daily $ cap) and counts as one of their
+        # asks, and a short cooldown blocks report→regen hammering — so this can't
+        # be turned into free/unlimited generations.
+        cooldowns = socket.assigns.retry_cooldowns
+        now = System.system_time(:second)
+
+        if Map.get(cooldowns, id, 0) + 10 <= now do
+          resubmit_question(id, socket, skip_pool: true)
+        else
+          {:noreply, socket}
+        end
+
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
     end
   end
 
@@ -3611,9 +3648,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                           <% else %>
                             <button
                               type="button"
-                              phx-click="flag_question"
+                              phx-click="open_report"
                               phx-value-id={msg.id}
-                              data-confirm="Report this answer as wrong or unhelpful? A moderator will review it, and we'll fetch you a fresh answer."
                               class="card-menu__item"
                               title="Report a wrong or unhelpful answer"
                             >🚩 Report</button>
@@ -3923,6 +3959,9 @@ defmodule RuleMavenWeb.GameLive.Show do
           <% end %>
         </div>
       </div>
+
+      <%!-- Report-reason modal: pick why the answer is being reported. --%>
+      <ReportModal.report_modal :if={@report_target} />
 
       <%!-- Suggested-questions modal. Backdrop closes via phx-click-away on the
             panel; picking a question asks it and closes (ask_suggestion). --%>
