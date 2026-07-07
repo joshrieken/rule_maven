@@ -543,6 +543,10 @@ Hooks.PrepareCollapse = {
     this.expanded.forEach((id) => {
       if (!live.has(id)) this.expanded.delete(id);
     });
+    // Fully-prepared game (server flags it): nothing left to act on, so land
+    // collapsed instead of restoring whatever was open last visit. In-memory
+    // only — expanding (which saves) works normally from here.
+    if ("allDone" in this.el.dataset) this.expanded = new Set();
     // Auto-expand the next actionable step (server flags it). In-memory only —
     // not saved — so the user's stored preferences stay theirs; collapsing it
     // works normally, and the next visit expands whatever is next by then.
