@@ -2971,9 +2971,13 @@ defmodule RuleMavenWeb.GameLive.Show do
                     msg.role == :assistant && !msg[:refused] &&
                       msg.content != "Thinking..." && !msg[:pending] &&
                       not String.starts_with?(to_string(msg.content), "⚠️") %>
+                  <%!-- While the answer is still pending, reserve the top row with a
+                        skeleton stamp and a disabled persona selector so the real
+                        ones don't pop in later and push the answer down. --%>
+                  <% row_placeholder? = msg.role == :assistant && msg[:pending] %>
                   <%!-- Top row: verdict stamp + voice switcher (which persona is
                         speaking) + default-voice star, visible before reading. --%>
-                  <%= if stamp || show_voice do %>
+                  <%= if stamp || show_voice || row_placeholder? do %>
                     <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;margin-bottom:0.5rem">
                       <%= if stamp do %>
                         <% {emoji, label, color, bg} = stamp %>
@@ -2984,11 +2988,23 @@ defmodule RuleMavenWeb.GameLive.Show do
                           <span aria-hidden="true">{emoji}</span> {label}
                         </div>
                       <% end %>
-                      <%= if show_voice do %>
+                      <%= if !stamp && row_placeholder? do %>
+                        <div
+                          class="verdict-stamp verdict-stamp--pending"
+                          style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.55rem;border-radius:999px;background:var(--bg-subtle);color:var(--text-muted);font-weight:800;font-size:0.7rem;letter-spacing:0.04em;text-transform:uppercase;animation:pulse 1.6s ease-in-out infinite"
+                        >
+                          <span aria-hidden="true">⏳</span> Checking rules
+                        </div>
+                      <% end %>
+                      <%= if show_voice || row_placeholder? do %>
                         <% cur_voice = Map.get(@voice_sel, msg[:id], @default_voice) %>
                         <% cur = Enum.find(@voices, &(&1.id == cur_voice)) || hd(@voices) %>
                         <% speaking = cur_voice != "neutral" %>
-                        <details class="card-menu">
+                        <details
+                          class="card-menu"
+                          style={if !show_voice, do: "opacity:0.55;pointer-events:none", else: nil}
+                          aria-disabled={!show_voice}
+                        >
                           <summary
                             style={"font-size:0.65rem;font-weight:600;border-radius:999px;padding:0.12rem 0.5rem;#{if speaking, do: "border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--text)", else: "border:1px solid var(--border);background:var(--bg-surface);color:var(--text-muted)"}"}
                             title="Answer persona — your pick applies to every answer and is remembered"
@@ -3004,6 +3020,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                             <span style="opacity:0.6">▾</span>
                           </summary>
                           <.voice_menu
+                            :if={show_voice}
                             voices={@voices}
                             game_name={@game.name}
                             current={cur_voice}
