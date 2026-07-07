@@ -289,11 +289,13 @@
           }).catch(function() {});
         }
 
-        // Static theme picker: sets the fallback theme only. Deliberately does
-        // NOT clear the game-match preference — that's the game control's job,
-        // so game pages return to the chosen game variant on the next sync.
+        // Static theme picker: picking a theme also switches the game control
+        // to Off — the chosen theme takes effect immediately instead of being
+        // silently overridden by an active game variant.
         select.addEventListener('change', function() {
           localStorage.setItem('theme', this.value);
+          localStorage.setItem('themeGameMatch', '0');
+          if (gameThemeAvailable()) gameSelect.value = '0';
           html.setAttribute('data-theme', this.value);
           track(this.value);
         });
