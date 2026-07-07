@@ -43,7 +43,9 @@ defmodule RuleMavenWeb.GameLive.Community do
         report_target: nil,
         filter_category: nil,
         search_query: "",
-        tab: "community",
+        # nil until handle_params: defaults to the first non-empty tab unless
+        # the URL names one (explicit switches patch ?tab= so they stick).
+        tab: nil,
         # Unverified cards expand their answer inline (they have no thread the
         # viewer can open until an upvote adds them to their list).
         expanded: MapSet.new(),
@@ -110,6 +112,17 @@ defmodule RuleMavenWeb.GameLive.Community do
     )
   end
 
+  # First non-empty tab, left to right (matching the button order);
+  # "community" when everything is empty.
+  defp default_tab(socket) do
+    [
+      {"verified", socket.assigns.verified_questions},
+      {"community", socket.assigns.community_questions},
+      {"unverified", socket.assigns.unverified_questions}
+    ]
+    |> Enum.find_value("community", fn {tab, qs} -> qs != [] && tab end)
+  end
+
   defp all_questions(socket) do
     socket.assigns.verified_questions ++
       socket.assigns.community_questions ++ socket.assigns.unverified_questions
@@ -120,7 +133,7 @@ defmodule RuleMavenWeb.GameLive.Community do
     tab =
       case params["tab"] do
         t when t in ["verified", "community", "unverified"] -> t
-        _ -> socket.assigns.tab
+        _ -> socket.assigns.tab || default_tab(socket)
       end
 
     filter_category =
@@ -137,7 +150,9 @@ defmodule RuleMavenWeb.GameLive.Community do
   @impl true
   def handle_event("switch_tab", %{"tab" => tab}, socket)
       when tab in ["verified", "community", "unverified"] do
-    {:noreply, assign(socket, tab: tab, filter_category: nil)}
+    # Patch ?tab= so the explicit choice survives refresh/back; also drops any
+    # ?category= param (handle_params resets filter_category).
+    {:noreply, push_patch(socket, to: ~p"/games/#{socket.assigns.game}/community?tab=#{tab}")}
   end
 
   @impl true
@@ -383,7 +398,7 @@ defmodule RuleMavenWeb.GameLive.Community do
       </p>
 
       <%!-- Search across all tabs at once --%>
-      <form phx-change="search" phx-submit="search" style="margin-bottom:0.9rem">
+      <form id="community-search" phx-change="search" phx-submit="search" style="margin-bottom:0.9rem">
         <div style="display:flex;align-items:center;gap:0.4rem">
           <input
             type="text"

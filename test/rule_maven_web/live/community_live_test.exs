@@ -85,23 +85,57 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       assert html =~ "Community Q&amp;A"
     end
 
-    test "tabs are disjoint: community default, verified and unverified behind their tabs",
+    test "tabs are disjoint: verified default (first non-empty), others behind their tabs",
          %{conn: conn, game: game, viewer: viewer} do
       conn = login(conn, viewer)
       {:ok, view, html} = live(conn, ~p"/games/#{game}/community")
 
-      # Default tab: community (non-verified) questions only.
-      assert html =~ "Community question about setup?"
-      refute html =~ "Verified question about scoring?"
-      refute html =~ "Unverified question about movement?"
-
-      html = render_click(view, "switch_tab", %{"tab" => "verified"})
+      # Default tab: first non-empty left to right — verified here.
       assert html =~ "Verified question about scoring?"
       refute html =~ "Community question about setup?"
+      refute html =~ "Unverified question about movement?"
+
+      html = render_click(view, "switch_tab", %{"tab" => "community"})
+      assert html =~ "Community question about setup?"
+      refute html =~ "Verified question about scoring?"
 
       html = render_click(view, "switch_tab", %{"tab" => "unverified"})
       assert html =~ "Unverified question about movement?"
       assert html =~ "not yet reviewed"
+      refute html =~ "Verified question about scoring?"
+    end
+
+    test "default tab skips empty tabs left to right",
+         %{conn: conn, viewer: viewer, asker: asker} do
+      # Game with only an unverified pooled question — opens on that tab.
+      game = published_game_fixture(%{name: "Pool Only Game", bgg_id: 4242})
+
+      log(game, %{
+        user_id: asker.id,
+        pooled: true,
+        visibility: "private",
+        question: "Only pooled question here?",
+        answer: "Pooled answer."
+      })
+
+      conn = login(conn, viewer)
+      {:ok, _view, html} = live(conn, ~p"/games/#{game}/community")
+
+      assert html =~ "Only pooled question here?"
+      assert html =~ "not yet reviewed"
+    end
+
+    test "explicit tab choice patches the URL and survives refresh",
+         %{conn: conn, game: game, viewer: viewer} do
+      conn = login(conn, viewer)
+      {:ok, view, _html} = live(conn, ~p"/games/#{game}/community")
+
+      render_click(view, "switch_tab", %{"tab" => "unverified"})
+      assert_patch(view, ~p"/games/#{game}/community?tab=unverified")
+
+      # Reopening the patched URL lands on the chosen tab, not the default.
+      {:ok, _view, html} = live(conn, ~p"/games/#{game}/community?tab=unverified")
+      assert html =~ "Unverified question about movement?"
       refute html =~ "Verified question about scoring?"
     end
 
