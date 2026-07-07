@@ -2303,8 +2303,14 @@ defmodule RuleMavenWeb.GameLive.Show do
             <.link navigate={~p"/"} class="action-link" style="flex-shrink:0">
               &larr;
             </.link>
-            <h1 class="text-sm font-bold truncate" style="max-width:300px">{@game.name}</h1>
-            <.difficulty_badge weight={difficulty_weight(@game, {@expansions, @included_expansions})} />
+            <.link
+              patch={~p"/games/#{@game}?start=1"}
+              title="Game overview"
+              style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;text-decoration:none;color:inherit"
+            >
+              <h1 class="text-sm font-bold truncate" style="max-width:300px">{@game.name}</h1>
+              <.difficulty_badge weight={difficulty_weight(@game, {@expansions, @included_expansions})} />
+            </.link>
             <.link patch={~p"/games/#{@game}?start=1"} class="pill-link pill-link-accent">
               Overview
             </.link>
@@ -2668,6 +2674,27 @@ defmodule RuleMavenWeb.GameLive.Show do
               <p style="font-size:1.15rem;font-weight:700;color:var(--text);margin-bottom:0.4rem">
                 {@game.name} Rules
               </p>
+              <% stats = bgg_stats(@game) %>
+              <%= if stats != [] || @game.weight do %>
+                <div style="display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:0.4rem;margin:0 auto 0.75rem;max-width:30rem">
+                  <.difficulty_badge weight={difficulty_weight(@game, {@expansions, @included_expansions})} />
+                  <span
+                    :for={{icon, label} <- stats}
+                    style="display:inline-flex;align-items:center;gap:0.25rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;font-size:0.7rem;font-weight:600;color:var(--text-secondary)"
+                  >
+                    <span aria-hidden="true">{icon}</span> {label}
+                  </span>
+                  <.link
+                    :if={@game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category)}
+                    href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
+                    target="_blank"
+                    rel="noopener"
+                    style="display:inline-flex;align-items:center;gap:0.25rem;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;font-size:0.7rem;font-weight:600;color:var(--blue);text-decoration:none"
+                  >
+                    View on BGG ↗
+                  </.link>
+                </div>
+              <% end %>
               <p style="max-width:30rem;margin:0 auto">
                 Ask any rules question in plain English — answers cite the exact rulebook passage.
                 <%= if @community_count > 0 do %>
@@ -4225,6 +4252,23 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   defp present?(s), do: is_binary(s) and String.trim(s) != ""
+
+  # ── BGG stat pills (overview / start screen) ──
+  defp bgg_stats(game) do
+    [
+      player_stat(game),
+      game.playing_time && {"⏱️", "#{game.playing_time} min"},
+      game.year_published && {"📅", "#{game.year_published}"},
+      game.bgg_rank && {"🏆", "BGG ##{game.bgg_rank}"}
+    ]
+    |> Enum.filter(& &1)
+  end
+
+  defp player_stat(%{min_players: nil, max_players: nil}), do: nil
+  defp player_stat(%{min_players: n, max_players: n}), do: {"👥", "#{n} players"}
+  defp player_stat(%{min_players: nil, max_players: n}), do: {"👥", "#{n} players"}
+  defp player_stat(%{min_players: n, max_players: nil}), do: {"👥", "#{n}+ players"}
+  defp player_stat(%{min_players: min, max_players: max}), do: {"👥", "#{min}–#{max} players"}
 
   # ── Random rule card ──
   # Load cached LLM facts. Generation is not automatic — it runs when an admin
