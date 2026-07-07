@@ -105,7 +105,7 @@
                 class="theme-select"
                 id="game-theme-select"
                 aria-label="Game theme"
-                title="Match this game's colors on its Q&A and FAQ pages"
+                title="Match this game's colors"
                 hidden
               >
                 <option value="0">🖌️ Off</option>
@@ -113,7 +113,12 @@
                   🖌️ {label}
                 </option>
               </select>
-              <select class="theme-select" id="theme-select" aria-label="Theme">
+              <select
+                class="theme-select"
+                id="theme-select"
+                aria-label="Theme"
+                title="Change the site's color theme"
+              >
                 <option :for={{slug, label} <- RuleMaven.Metrics.themes()} value={slug}>
                   🎨 {label}
                 </option>
