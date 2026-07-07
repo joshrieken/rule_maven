@@ -4082,7 +4082,8 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   # The voice picker popup, shared by the answer byline and the composer's
-  # default-voice control: game-specific section first, then the built-ins.
+  # default-voice control: Plain first, then the game-specific section, then
+  # the remaining built-ins under "Alternatives".
   attr :voices, :list, required: true
   attr :game_name, :string, required: true
   attr :current, :string, required: true
@@ -4094,15 +4095,29 @@ defmodule RuleMavenWeb.GameLive.Show do
     {game_voices, builtin_voices} =
       Enum.split_with(assigns.voices, &String.starts_with?(&1.id, "g:"))
 
-    assigns = assign(assigns, game_voices: game_voices, builtin_voices: builtin_voices)
+    {plain_voices, alt_voices} = Enum.split_with(builtin_voices, &(&1.id == "neutral"))
+
+    assigns =
+      assign(assigns,
+        plain_voices: plain_voices,
+        game_voices: game_voices,
+        alt_voices: alt_voices
+      )
 
     ~H"""
     <div
       class={["card-menu__pop", @up && "card-menu__pop--up"]}
       style="min-width:230px;max-width:280px;max-height:min(45vh,320px);overflow-y:auto"
     >
+      <.voice_menu_item
+        :for={v <- @plain_voices}
+        voice={v}
+        event={@event}
+        msg_id={@msg_id}
+        selected={@current == v.id}
+      />
       <%= if @game_voices != [] do %>
-        <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);padding:0.2rem 0.4rem 0.05rem">
+        <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);padding:0.2rem 0.4rem 0.05rem;border-top:1px solid var(--border);margin-top:0.15rem;padding-top:0.35rem">
           ✦ {@game_name}
         </div>
         <.voice_menu_item
@@ -4113,11 +4128,11 @@ defmodule RuleMavenWeb.GameLive.Show do
           selected={@current == v.id}
         />
       <% end %>
-      <div style={"font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);padding:0.2rem 0.4rem 0.05rem#{if @game_voices != [], do: ";border-top:1px solid var(--border);margin-top:0.15rem;padding-top:0.35rem"}"}>
-        Built-in
+      <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);padding:0.2rem 0.4rem 0.05rem;border-top:1px solid var(--border);margin-top:0.15rem;padding-top:0.35rem">
+        Alternatives
       </div>
       <.voice_menu_item
-        :for={v <- @builtin_voices}
+        :for={v <- @alt_voices}
         voice={v}
         event={@event}
         msg_id={@msg_id}
