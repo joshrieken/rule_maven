@@ -455,6 +455,36 @@ defmodule RuleMavenWeb.CoreComponents do
   end
 
   @doc """
+  Thumbs-up vote button: icon and tally share one hit target. Padding plus a
+  matching negative margin enlarge the clickable area without shifting the
+  surrounding layout.
+  """
+  attr :event, :string, required: true
+  attr :id, :any, required: true
+  attr :voted, :boolean, required: true
+  attr :count, :integer, required: true
+  attr :title, :string, required: true
+
+  def vote_thumb(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-click={@event}
+      phx-value-id={@id}
+      phx-value-vote="up"
+      style={"background:none;border:none;padding:0.4rem;margin:-0.4rem;line-height:1;cursor:pointer;display:inline-flex;align-items:center;gap:0.15rem;color:#{if @voted, do: "var(--accent)", else: "var(--text-muted)"}"}
+      title={@title}
+    >
+      <.icon
+        name={if @voted, do: "hero-hand-thumb-up-solid", else: "hero-hand-thumb-up"}
+        class="size-4"
+      />
+      <span style="font-size:0.65rem;color:var(--text-muted)" title="Total helpful votes">{@count}</span>
+    </button>
+    """
+  end
+
+  @doc """
   Difficulty badge: BGG community complexity ("weight", 1.0-5.0) shown as a
   number plus bucket label, e.g. "2.3 · Medium-Light". Renders nothing when
   weight is nil (unrated / not yet backfilled) — no fallback text.
