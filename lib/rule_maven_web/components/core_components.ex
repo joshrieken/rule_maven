@@ -549,4 +549,62 @@ defmodule RuleMavenWeb.CoreComponents do
   def translate_errors(errors, field) when is_list(errors) do
     for {^field, {msg, opts}} <- errors, do: translate_error({msg, opts})
   end
+
+  @doc """
+  Rulebook citation cards for an answered question: a source · page header over
+  the quoted passage. Prefers the multi-citation `citations` field, falling back
+  to the legacy scalar `cited_*` fields for rows saved before that column
+  existed. Quotes sharing a {page, source} merge into one card (joined with an
+  ellipsis) and cards sort by page ascending, pageless last — mirroring the
+  chat view's citation grouping.
+  """
+  attr :q, :map, required: true, doc: "question-log row (or map) with citation fields"
+
+  def citation_cards(assigns) do
+    assigns = assign(assigns, :citations, grouped_citations(assigns.q))
+
+    ~H"""
+    <figure
+      :for={c <- @citations}
+      style="margin:0.6rem 0 0;border-radius:0.5rem;overflow:hidden;border:1px solid var(--border);background:var(--bg-subtle)"
+    >
+      <figcaption
+        :if={c["page"]}
+        style="display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.6rem;font-size:0.66rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;border-bottom:1px solid var(--border-subtle);color:var(--text-muted)"
+      >
+        <span aria-hidden="true">&#128206;</span>
+        {c["source"] || "Rulebook"} &middot; p.{c["page"]}
+      </figcaption>
+      <blockquote style="margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid var(--accent);font-style:italic;font-size:0.78rem;line-height:1.5;word-break:break-word;color:var(--text)">
+        {String.trim(c["quote"] || "")}
+      </blockquote>
+    </figure>
+    """
+  end
+
+  defp grouped_citations(q) do
+    case Map.get(q, :citations) do
+      list when is_list(list) and list != [] ->
+        list
+
+      _ ->
+        if Map.get(q, :cited_passage) do
+          [
+            %{
+              "quote" => Map.get(q, :cited_passage),
+              "page" => Map.get(q, :cited_page),
+              "source" => Map.get(q, :cited_source)
+            }
+          ]
+        else
+          []
+        end
+    end
+    |> Enum.group_by(&{&1["page"], &1["source"]})
+    |> Enum.map(fn {{page, source}, group} ->
+      joined = group |> Enum.map(& &1["quote"]) |> Enum.join(" … ")
+      %{"page" => page, "source" => source, "quote" => joined}
+    end)
+    |> Enum.sort_by(fn %{"page" => page} -> {page == nil, page} end)
+  end
 end

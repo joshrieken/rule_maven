@@ -206,19 +206,38 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       assert html =~ "Reported"
     end
 
-    test "clicking a verified card's preview expands the full answer and collapses again",
-         %{conn: conn, game: game, viewer: viewer, verified: verified} do
+    test "clicking a card's preview expands the full answer with rulebook citations",
+         %{conn: conn, game: game, viewer: viewer} do
+      cited =
+        log(game, %{
+          visibility: "community",
+          verified: true,
+          question: "Cited question about placement?",
+          answer: "In reverse order.",
+          citations: [
+            %{
+              "quote" => "Settlements are placed in reverse order.",
+              "page" => 12,
+              "source" => "Rulebook"
+            }
+          ]
+        })
+
       conn = login(conn, viewer)
       {:ok, view, html} = live(conn, ~p"/games/#{game}/community")
 
       refute html =~ "Show less"
+      refute html =~ "Settlements are placed in reverse order."
 
-      html = render_click(view, "toggle_expand", %{"id" => to_string(verified.id)})
+      html = render_click(view, "toggle_expand", %{"id" => to_string(cited.id)})
       assert html =~ "md-answer"
+      assert html =~ "Settlements are placed in reverse order."
+      assert html =~ "p.12"
       assert html =~ "Show less"
 
-      html = render_click(view, "toggle_expand", %{"id" => to_string(verified.id)})
+      html = render_click(view, "toggle_expand", %{"id" => to_string(cited.id)})
       refute html =~ "Show less"
+      refute html =~ "Settlements are placed in reverse order."
     end
 
     test "forged ids from other games can't be voted or reported here",

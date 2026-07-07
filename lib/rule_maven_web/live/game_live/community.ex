@@ -715,11 +715,11 @@ defmodule RuleMavenWeb.GameLive.Community do
               type="button"
               phx-click="toggle_expand"
               phx-value-id={@q.id}
-              style="font-size:0.82rem;font-weight:600;color:var(--text);background:none;border:none;padding:0;cursor:pointer;text-align:left;word-break:break-word;display:block;margin-bottom:0.35rem"
+              style="font-size:0.82rem;font-weight:600;color:var(--text);background:none;border:none;padding:0;cursor:pointer;text-align:left;word-break:break-word;white-space:normal;line-height:1.4;display:block;margin-bottom:0.35rem"
               title={
                 if MapSet.member?(@expanded, @q.id),
                   do: "Collapse the answer",
-                  else: "Show the full answer"
+                  else: "Show the full answer and rulebook citations"
               }
             >
               {QuestionLog.display_question(@q)}
@@ -739,29 +739,35 @@ defmodule RuleMavenWeb.GameLive.Community do
             <div style="font-size:0.75rem;color:var(--text);word-break:break-word">
               {render_markdown(@q.canonical_answer || @q.answer || "")}
             </div>
-            <button
-              type="button"
+            <.citation_cards q={@q} />
+            <%!-- Plain-styled toggle: the generic `button` reset (nowrap,
+                inline-flex, hover lift) fights text-like buttons, so use a
+                clickable span with a button role instead. --%>
+            <span
+              role="button"
+              tabindex="0"
               phx-click="toggle_expand"
               phx-value-id={@q.id}
               title="Collapse the answer"
-              style="font-size:0.68rem;color:var(--text-muted);background:none;border:none;padding:0;margin-top:0.25rem;cursor:pointer"
+              style="display:inline-block;font-size:0.68rem;color:var(--text-muted);margin-top:0.3rem;cursor:pointer"
             >
               Show less ▴
-            </button>
+            </span>
           <% else %>
             <% preview = strip_markdown(@q.canonical_answer || @q.answer || "") %>
-            <button
-              type="button"
+            <div
+              role="button"
+              tabindex="0"
               phx-click="toggle_expand"
               phx-value-id={@q.id}
-              title="Show the full answer"
-              style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;word-break:break-word;background:none;border:none;padding:0;cursor:pointer;text-align:left;display:block;width:100%"
+              title="Show the full answer and rulebook citations"
+              style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;word-break:break-word;cursor:pointer"
             >
               {String.slice(preview, 0, 220)}
               <%= if String.length(preview) > 220 do %>
                 <span style="color:var(--text-muted)">…</span>
               <% end %>
-            </button>
+            </div>
           <% end %>
           <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.4rem;align-items:center">
             <span
