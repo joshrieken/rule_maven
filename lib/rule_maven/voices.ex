@@ -446,7 +446,12 @@ defmodule RuleMaven.Voices do
         user_id: user_id,
         system: system,
         max_tokens: cap,
-        reject_truncated: true
+        reject_truncated: true,
+        # Restyling is a tone transform, not reasoning — a thinking-by-default
+        # model burning a reasoning pass here only adds latency (and bills the
+        # thinking tokens at output rate). Keep the cap generous regardless:
+        # "low" still thinks a little.
+        reasoning_effort: "low"
       )
 
     retry? = cap < @restyle_max_tokens_retry

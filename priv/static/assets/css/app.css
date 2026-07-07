@@ -2928,3 +2928,32 @@ body:has([data-phx-main].phx-connected)::after {
   background: var(--accent);
   transition: width 0.25s ease-out;
 }
+
+/* Streaming answer caret — shown at the end of the partial text while the
+   answer is still generating. */
+.stream-cursor {
+  display: inline-block;
+  width: 0.55ch;
+  height: 1em;
+  margin-left: 0.15ch;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: stream-cursor-blink 0.9s steps(1) infinite;
+}
+@keyframes stream-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Slim "persona restyle in flight" indicator under an already-visible plain
+   answer (replaces the old full-screen voice loader for that stage). */
+.voice-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}

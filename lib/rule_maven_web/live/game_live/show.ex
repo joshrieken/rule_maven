@@ -62,6 +62,9 @@ defmodule RuleMavenWeb.GameLive.Show do
        # {question_log_id, voice} restyles that failed — render falls back to the
        # plain answer for these instead of showing the loader forever.
        voice_failed: MapSet.new(),
+       # In-flight streamed answer text per question_log_id ({:ask_partial, …}
+       # broadcasts from the LLM SSE stream). Cleared on :ask_complete.
+       ask_partial: %{},
        # Voices available on this game: the built-in globals plus the game's own
        # generated, themed personas. Filled in once the game loads; updated live
        # by {:voices_ready} when generation finishes.
@@ -1599,7 +1602,10 @@ defmodule RuleMavenWeb.GameLive.Show do
     if Enum.any?(socket.assigns.threads, &(&1.id == prov_id)) do
       {:noreply,
        socket
-       |> assign(active_thread_id: source_id)
+       |> assign(
+         active_thread_id: source_id,
+         ask_partial: Map.delete(socket.assigns.ask_partial, prov_id)
+       )
        |> put_flash(:info, "You already asked this — here's your answer.")
        |> push_patch(
          to: ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(source_id)}"
@@ -1697,6 +1703,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           threads: threads,
           pending_count: pending_count,
           community_questions: community,
+          ask_partial: Map.delete(socket.assigns.ask_partial, question_log_id),
           refresh: socket.assigns.refresh + 1
         )
 
@@ -1766,6 +1773,26 @@ defmodule RuleMavenWeb.GameLive.Show do
      )}
   end
 
+  # Streamed answer text for a still-pending ask. Only track partials for
+  # rows this LiveView is actually showing as pending — every viewer of the
+  # game topic receives the broadcast, but only the asker has the pending row.
+  def handle_info({:ask_partial, %{question_log_id: ql_id, text: text}}, socket) do
+    tracked? =
+      Enum.any?(
+        socket.assigns.conversation,
+        &(&1[:id] == ql_id && &1[:role] == :assistant && &1[:pending])
+      )
+
+    if tracked? do
+      {:noreply,
+       socket
+       |> assign(ask_partial: Map.put(socket.assigns.ask_partial, ql_id, text))
+       |> push_event("scroll_bottom", %{})}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:voice_ready, ql_id, voice, content}, socket) do
     cache = Map.put(socket.assigns.voice_cache, {ql_id, voice}, content)
     pending = MapSet.delete(socket.assigns.voice_pending, {ql_id, voice})
@@ -1821,7 +1848,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        |> assign(
          conversation: conversation,
          threads: threads,
-         pending_count: Enum.count(threads, & &1.pending)
+         pending_count: Enum.count(threads, & &1.pending),
+         ask_partial: Map.delete(socket.assigns.ask_partial, question_log_id)
        )
        |> push_event("scroll_bottom", %{})}
     end
@@ -2818,18 +2846,27 @@ defmodule RuleMavenWeb.GameLive.Show do
                         do: nil,
                         else: Map.get(@voice_cache, {msg[:id], v_sel}) %>
                     <% v_failed = MapSet.member?(@voice_failed, {msg[:id], v_sel}) %>
-                    <%!-- Waiting covers two stages that both use the same loader now:
-                          (1) the answer itself hasn't landed yet ("Thinking...", still
-                          pending), or (2) the answer landed but this voice's restyle
-                          hasn't (non-neutral voice, not yet cached). Never render the
-                          plain answer or a bare typing indicator in between — a failed
-                          restyle falls through to the plain answer. --%>
-                    <% waiting? =
-                      (msg.content == "Thinking..." && msg[:pending]) ||
-                        (msg.content != "Thinking..." && v_sel != "neutral" && is_nil(v_content) &&
-                           not v_failed) %>
+                    <% partial =
+                      msg.role == :assistant && msg[:pending] &&
+                        Map.get(@ask_partial, msg[:id]) %>
+                    <%!-- Two distinct waiting stages: (1) the answer hasn't landed
+                          yet ("Thinking...", still pending) — show the streamed
+                          partial text once tokens arrive, the loader before that;
+                          (2) the answer landed but this voice's restyle hasn't —
+                          show the PLAIN answer immediately with a small "voicing"
+                          indicator, and {:voice_ready, ...} swaps the persona text
+                          in. A failed restyle falls through to the plain answer. --%>
+                    <% thinking? = msg.content == "Thinking..." && msg[:pending] %>
+                    <% voicing? =
+                      msg.content != "Thinking..." && v_sel != "neutral" && is_nil(v_content) &&
+                        not v_failed %>
                     <%= cond do %>
-                      <% waiting? -> %>
+                      <% thinking? && partial -> %>
+                        <div class="answer-in">
+                          {render_markdown(partial)}
+                          <span class="stream-cursor" aria-hidden="true"></span>
+                        </div>
+                      <% thinking? -> %>
                         <% v_def = v_sel != "neutral" && Enum.find(@voices, &(&1.id == v_sel)) %>
                         <div class="answer-in">
                           <%!-- Voice in the id so switching persona mid-wait replaces
@@ -2852,6 +2889,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                               <span class="voice-loader__phrase">Reticulating splines…</span>
                             </div>
                             <div class="voice-loader__bar"><div class="voice-loader__fill"></div></div>
+                          </div>
+                        </div>
+                      <% voicing? -> %>
+                        <% v_def = Enum.find(@voices, &(&1.id == v_sel)) %>
+                        <div class="answer-in">
+                          {render_markdown(msg.content)}
+                          <div class="voice-badge" role="status">
+                            <span class="voice-loader__spinner" aria-hidden="true"></span>
+                            <span :if={v_def} aria-hidden="true">{v_def.emoji}</span>
+                            <span>Retelling in {(v_def && v_def.label) || "persona"} voice…</span>
                           </div>
                         </div>
                       <% msg.role == :assistant && msg.content == "Thinking..." -> %>

@@ -99,19 +99,20 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
                     }}
   end
 
-  test "a game-generated (g:) persona is restyled inline and broadcast with the answer, no VoiceWorker job",
+  test "a game-generated (g:) persona broadcasts the plain answer immediately, restyle deferred",
        %{game: game, ql: ql} do
     # LLM.ask deliberately never emits styled_answer for generated voices (their
-    # style string is LLM output and must not enter the rulebook-access prompt),
-    # so AskWorker must run the rulebook-free restyle itself before broadcasting
-    # — otherwise the client shows the plain answer with a second loader.
+    # style string is LLM output and must not enter the rulebook-access prompt).
+    # AskWorker must NOT restyle inline either — that held the finished answer
+    # hostage behind a second ~20s LLM call. It broadcasts the canonical answer
+    # with no styled fields; the LiveView's :ask_complete handler enqueues the
+    # on-demand VoiceWorker restyle and swaps the persona text in later.
     :ok =
       Voices.replace_generated(game.id, [
         %{slug: "herald", label: "Woodland Herald", emoji: "🦉", style: "a courtly woodland herald"}
       ])
 
     canonical = "The d20 picks the first player."
-    styled = "Hear ye! The d20 doth choose who plays first."
 
     Application.put_env(:rule_maven, :llm_mock, fn body ->
       restyle? =
@@ -119,21 +120,20 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
           String.contains?(m.content, "courtly woodland herald")
         end)
 
-      if restyle? do
-        {:ok, %{answer: styled}}
-      else
-        {:ok,
-         %{
-           answer: canonical,
-           cited_passage: nil,
-           citations: [
-             %{"quote" => "Roll the d20 to determine the first player.", "page" => 5, "source" => "Core rules"}
-           ],
-           verdict: "info",
-           followups: [],
-           also_asked: []
-         }}
-      end
+      # The worker itself must never issue the restyle call anymore.
+      refute restyle?
+
+      {:ok,
+       %{
+         answer: canonical,
+         cited_passage: nil,
+         citations: [
+           %{"quote" => "Roll the d20 to determine the first player.", "page" => 5, "source" => "Core rules"}
+         ],
+         verdict: "info",
+         followups: [],
+         also_asked: []
+       }}
     end)
 
     on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
@@ -151,11 +151,11 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
                "voice" => "g:herald"
              })
 
-    assert Voices.get(ql.id, "g:herald") == styled
+    # No inline restyle happened — nothing cached, no styled fields broadcast.
+    assert Voices.get(ql.id, "g:herald") == nil
 
-    refute_enqueued worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id}
-
-    assert_receive {:ask_complete, %{styled_voice: "g:herald", styled_answer: ^styled}}
+    assert_receive {:ask_complete, %{styled_voice: nil, styled_answer: nil} = data}
+    assert data.question_log_id == ql.id
   end
 
   test "a refused question never broadcasts a styled answer, even if the LLM produced one", %{
