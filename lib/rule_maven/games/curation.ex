@@ -154,7 +154,7 @@ defmodule RuleMaven.Games.Curation do
         where:
           v.user_id == ^user_id and v.settled_outcome == "correct" and v.value == "up" and
             fragment(
-              "(SELECT COUNT(*) FROM question_votes v2 WHERE v2.question_log_id = ? AND v2.user_id != ? AND v2.inserted_at < ?) < ?",
+              "(SELECT COUNT(*) FROM question_votes v2 WHERE v2.question_log_id = ? AND v2.user_id != ? AND v2.inserted_at < ? AND v2.value = 'up' AND v2.weight > 0) < ?",
               v.question_log_id,
               ^user_id,
               v.inserted_at,

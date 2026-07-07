@@ -72,13 +72,13 @@ defmodule RuleMaven.Games do
     # Base games + expansions that have published documents.
     # Returns base games sorted by name.
     base_ids =
-      (from g in Game,
-         join: d in Document,
-         on: d.game_id == g.id,
-         where: d.status == "published",
-         where: is_nil(g.taken_down_at),
-         distinct: true,
-         select: g.id
+      from(g in Game,
+        join: d in Document,
+        on: d.game_id == g.id,
+        where: d.status == "published",
+        where: is_nil(g.taken_down_at),
+        distinct: true,
+        select: g.id
       )
       |> not_expansion()
       |> Repo.all()
@@ -94,9 +94,9 @@ defmodule RuleMaven.Games do
   no per-row document join.
   """
   def list_playable_games do
-    (from g in Game,
-       where: g.playable == true,
-       where: is_nil(g.taken_down_at)
+    from(g in Game,
+      where: g.playable == true,
+      where: is_nil(g.taken_down_at)
     )
     |> not_expansion()
     |> Repo.all()
@@ -114,12 +114,12 @@ defmodule RuleMaven.Games do
     limit = Keyword.get(opts, :limit, 20)
     term = "%#{String.trim(search || "")}%"
 
-    (from g in Game,
-       where: not is_nil(g.bgg_id),
-       where: is_nil(g.bgg_data),
-       where: ilike(g.name, ^term),
-       order_by: [asc_nulls_last: g.bgg_rank, asc: g.name],
-       limit: ^limit
+    from(g in Game,
+      where: not is_nil(g.bgg_id),
+      where: is_nil(g.bgg_data),
+      where: ilike(g.name, ^term),
+      order_by: [asc_nulls_last: g.bgg_rank, asc: g.name],
+      limit: ^limit
     )
     |> not_expansion()
     |> maybe_category(Keyword.get(opts, :category))
@@ -131,18 +131,20 @@ defmodule RuleMaven.Games do
   "Requested" view). Bounded set, returned in full.
   """
   def list_requested_games do
-    (from g in Game,
-       join: r in SupportRequest,
-       on: r.game_id == g.id,
-       group_by: [g.id],
-       order_by: [desc: count(r.id), asc: g.name]
+    from(g in Game,
+      join: r in SupportRequest,
+      on: r.game_id == g.id,
+      group_by: [g.id],
+      order_by: [desc: count(r.id), asc: g.name]
     )
     |> not_expansion()
     |> Repo.all()
   end
 
   def list_base_games do
-    (from g in Game) |> not_expansion() |> Repo.all()
+    from(g in Game)
+    |> not_expansion()
+    |> Repo.all()
     |> Enum.sort_by(&String.downcase(&1.name))
   end
 
@@ -168,7 +170,14 @@ defmodule RuleMaven.Games do
 
     Repo.insert_all(
       ExpansionLink,
-      [%{expansion_id: expansion_id, base_game_id: base_game_id, inserted_at: now, updated_at: now}],
+      [
+        %{
+          expansion_id: expansion_id,
+          base_game_id: base_game_id,
+          inserted_at: now,
+          updated_at: now
+        }
+      ],
       on_conflict: :nothing,
       conflict_target: [:expansion_id, :base_game_id]
     )
@@ -564,10 +573,10 @@ defmodule RuleMaven.Games do
 
   @doc "Base games in a user's collection, sorted by name."
   def list_collection(user_id) when is_integer(user_id) do
-    (from g in Game,
-       join: uc in UserCollection,
-       on: uc.game_id == g.id,
-       where: uc.user_id == ^user_id
+    from(g in Game,
+      join: uc in UserCollection,
+      on: uc.game_id == g.id,
+      where: uc.user_id == ^user_id
     )
     |> not_expansion()
     |> Repo.all()
@@ -608,10 +617,10 @@ defmodule RuleMaven.Games do
 
   @doc "Base games a user has favorited, sorted by name."
   def list_favorites(user_id) when is_integer(user_id) do
-    (from g in Game,
-       join: uf in UserFavorite,
-       on: uf.game_id == g.id,
-       where: uf.user_id == ^user_id
+    from(g in Game,
+      join: uf in UserFavorite,
+      on: uf.game_id == g.id,
+      where: uf.user_id == ^user_id
     )
     |> not_expansion()
     |> Repo.all()
@@ -1909,6 +1918,7 @@ defmodule RuleMaven.Games do
 
   def update_question_visibility(%QuestionLog{} = q, visibility) do
     # Promoting to community makes the row cache-eligible.
+    old_visibility = q.visibility
     attrs = %{visibility: visibility, pooled: visibility == "community" or q.pooled}
 
     with {:ok, updated} <- q |> QuestionLog.changeset(attrs) |> Repo.update() do
@@ -1917,6 +1927,21 @@ defmodule RuleMaven.Games do
       # counts community rows × bonus, so a tier change must re-derive it).
       RuleMaven.Games.Trust.recompute_trust(updated)
       if updated.user_id, do: RuleMaven.Games.Trust.recompute_reputation(updated.user_id)
+
+      # A manual admin visibility change is itself a terminal trust event:
+      # promotion to community confirms the upvotes; demotion to private
+      # rejects them (mirrors the automatic promotion/demotion paths above).
+      cond do
+        old_visibility != "community" and visibility == "community" ->
+          RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :confirmed)
+
+        old_visibility == "community" and visibility == "private" ->
+          RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :rejected)
+
+        true ->
+          :ok
+      end
+
       {:ok, updated}
     end
   end
@@ -1947,6 +1972,12 @@ defmodule RuleMaven.Games do
   defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: s)
 
   def set_question_visibility(id, visibility) when is_integer(id) do
+    old_visibility =
+      case Repo.get(QuestionLog, id) do
+        nil -> nil
+        q -> q.visibility
+      end
+
     set = [visibility: visibility]
     set = if visibility == "community", do: Keyword.put(set, :pooled, true), else: set
     Repo.update_all(from(q in QuestionLog, where: q.id == ^id), set: set)
@@ -1954,6 +1985,19 @@ defmodule RuleMaven.Games do
     if q = Repo.get(QuestionLog, id) do
       RuleMaven.Games.Trust.recompute_trust(q)
       if q.user_id, do: RuleMaven.Games.Trust.recompute_reputation(q.user_id)
+
+      # Same terminal-event logic as update_question_visibility/2 — a manual
+      # admin change to/from community is itself a confirm/reject signal.
+      cond do
+        old_visibility != "community" and visibility == "community" ->
+          RuleMaven.Workers.SettleVotesWorker.enqueue(q.id, :confirmed)
+
+        old_visibility == "community" and visibility == "private" ->
+          RuleMaven.Workers.SettleVotesWorker.enqueue(q.id, :rejected)
+
+        true ->
+          :ok
+      end
     end
   end
 
@@ -3272,8 +3316,7 @@ defmodule RuleMaven.Games do
           from c in Chunk,
             join: d in Document,
             on: c.document_id == d.id,
-            where:
-              d.game_id in ^game_ids and d.status == "published" and not is_nil(c.embedding),
+            where: d.game_id in ^game_ids and d.status == "published" and not is_nil(c.embedding),
             select: %{
               count: count(c.id),
               chars: coalesce(sum(fragment("length(?)", c.content)), 0)
@@ -3337,7 +3380,8 @@ defmodule RuleMaven.Games do
     top = Enum.take(chunks, limit)
     question_words = tokenize(question)
 
-    if question_words == [] or Enum.any?(top, & &1[:content] |> to_string() |> lexical_hit?(question_words)) do
+    if question_words == [] or
+         Enum.any?(top, &(&1[:content] |> to_string() |> lexical_hit?(question_words))) do
       chunks
     else
       case best_lexical_candidate(game_ids, question_words, top) do

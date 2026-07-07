@@ -6,7 +6,10 @@ defmodule RuleMaven.Workers.SettleVotesWorker do
   runs late. Settlement itself is idempotent, so retries are safe.
   """
 
-  use Oban.Worker, queue: :default, max_attempts: 3
+  use Oban.Worker,
+    queue: :default,
+    max_attempts: 3,
+    unique: [keys: [:question_log_id, :outcome], period: 60]
 
   alias RuleMaven.Games.{Curation, QuestionLog}
   alias RuleMaven.Jobs
@@ -38,11 +41,17 @@ defmodule RuleMaven.Workers.SettleVotesWorker do
             oban_job_id: oban_id
           )
 
-        {:ok, {correct, incorrect}} =
-          Curation.settle_votes(q, String.to_existing_atom(outcome), event_at)
+        try do
+          {:ok, {correct, incorrect}} =
+            Curation.settle_votes(q, String.to_existing_atom(outcome), event_at)
 
-        Jobs.finish_run(run, "ok", "#{outcome}: #{correct} correct, #{incorrect} incorrect")
-        :ok
+          Jobs.finish_run(run, "ok", "#{outcome}: #{correct} correct, #{incorrect} incorrect")
+          :ok
+        rescue
+          e ->
+            Jobs.finish_run(run, "error", Exception.message(e))
+            reraise e, __STACKTRACE__
+        end
     end
   end
 end
