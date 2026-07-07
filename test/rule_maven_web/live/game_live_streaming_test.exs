@@ -240,4 +240,69 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
     assert html =~ "Arr, three dice, matey."
     refute html =~ "voice-loader-#{ql.id}"
   end
+
+  test "{:ask_stage, …} broadcasts drive the loader's data-stage attribute", %{conn: conn} do
+    user = setup_user("stream_stage")
+    game = published_game_fixture(%{name: "Stream Stage Game"})
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    view
+    |> form("#ask-form", question: "How is the first player picked?")
+    |> render_submit()
+
+    ql =
+      RuleMaven.Repo.one!(
+        from(q in Games.QuestionLog,
+          where: q.game_id == ^game.id,
+          order_by: [desc: q.id],
+          limit: 1
+        )
+      )
+
+    # No stage broadcast yet: the loader starts at the first stage.
+    assert render(view) =~ ~s(data-stage="understanding")
+
+    send(view.pid, {:ask_stage, %{question_log_id: ql.id, stage: :searching}})
+    assert render(view) =~ ~s(data-stage="searching")
+
+    send(view.pid, {:ask_stage, %{question_log_id: ql.id, stage: :answering}})
+    assert render(view) =~ ~s(data-stage="answering")
+
+    # A stage for a question this session isn't waiting on is ignored.
+    send(view.pid, {:ask_stage, %{question_log_id: ql.id + 999, stage: :checking}})
+    assert render(view) =~ ~s(data-stage="answering")
+
+    # Completion clears the tracked stage.
+    {:ok, ql} = Games.log_question_update(ql, %{answer: "Roll the d20."})
+    send(view.pid, {:ask_complete, ask_complete_payload(ql)})
+    refute render(view) =~ "data-stage"
+  end
+
+  test "a finished answer awaiting persona restyle reports the voicing stage", %{conn: conn} do
+    user = setup_user("stream_stage_voice")
+    game = published_game_fixture(%{name: "Stream Stage Voice Game"})
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: user.id,
+        question: "How many dice do I roll?",
+        answer: "Thinking...",
+        visibility: "private"
+      })
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    render_hook(view, "default_voice_restore", %{"voice" => "pirate"})
+
+    {:ok, ql} = Games.log_question_update(ql, %{answer: "You roll 3 dice."})
+    send(view.pid, {:ask_complete, ask_complete_payload(ql)})
+
+    html = render(view)
+    assert html =~ "voice-loader-#{ql.id}-pirate"
+    assert html =~ ~s(data-stage="voicing")
+  end
 end

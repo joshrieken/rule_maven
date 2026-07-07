@@ -601,6 +601,21 @@ Hooks.VoiceDefault = {
 };
 
 Hooks.VoiceLoader = {
+  // Real pipeline stages (broadcast by the server as the ask progresses) map
+  // to progress bands. Within a band the bar eases asymptotically toward the
+  // band's cap — visible motion without claiming more progress than the
+  // pipeline has actually made — and a stage change jumps it to at least the
+  // new band's floor. Monotonic: it never moves backwards.
+  stages: {
+    understanding: [5, 20], // question normalize + embed + cache checks
+    searching: [20, 35], // rulebook chunk retrieval
+    answering: [35, 88], // the answer LLM call (longest wait)
+    checking: [88, 97], // grounding check / citations / verdict
+    voicing: [88, 97] // persona restyle of a finished answer
+  },
+  band() {
+    return this.stages[this.el.dataset.stage] || this.stages.understanding;
+  },
   mounted() {
     let phrases;
     try {
@@ -613,7 +628,7 @@ Hooks.VoiceLoader = {
     const phraseEl = this.el.querySelector(".voice-loader__phrase");
     const fillEl = this.el.querySelector(".voice-loader__fill");
     let last = -1;
-    let pct = 8;
+    this._pct = this.band()[0];
 
     const pickPhrase = () => {
       let i = Math.floor(Math.random() * phrases.length);
@@ -626,20 +641,29 @@ Hooks.VoiceLoader = {
     };
 
     const stepBar = () => {
-      // Eased random crawl toward ~90%, with occasional retro hiccup resets.
-      if (Math.random() < 0.08 && pct > 30) pct -= 10;
-      pct += Math.random() * (pct < 60 ? 9 : 3);
-      if (pct > 92) pct = 92;
-      if (fillEl) fillEl.style.width = pct.toFixed(1) + "%";
+      // Ease toward the current stage's cap; parks just short of it until
+      // the next stage broadcast arrives.
+      const cap = this.band()[1];
+      if (this._pct < cap) this._pct += (cap - this._pct) * 0.05;
+      if (fillEl) fillEl.style.width = this._pct.toFixed(1) + "%";
     };
+
+    // The element is phx-update="ignore", so watch the stage attribute
+    // directly — LiveView still syncs attributes on ignored elements.
+    this._stageObs = new MutationObserver(() => {
+      this._pct = Math.max(this._pct, this.band()[0]);
+      stepBar();
+    });
+    this._stageObs.observe(this.el, { attributes: true, attributeFilter: ["data-stage"] });
 
     pickPhrase();
     stepBar();
-    this._barTimer = setInterval(stepBar, 250);
+    this._barTimer = setInterval(stepBar, 200);
   },
   destroyed() {
     clearTimeout(this._phraseTimer);
     clearInterval(this._barTimer);
+    if (this._stageObs) this._stageObs.disconnect();
   }
 };
 

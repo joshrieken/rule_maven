@@ -37,6 +37,8 @@ defmodule RuleMaven.LLM do
     # Canonical sorted form — cache rows store and match this exact set.
     expansion_ids = Enum.sort(expansion_ids)
 
+    broadcast_ask_stage(game.id, :understanding)
+
     # Step 0: normalize the question to a standalone canonical form FIRST, then
     # drive everything downstream off the cleaned text. Paraphrases and terse
     # fragments ("snack bar max limit") collapse onto one phrasing, so they share
@@ -228,6 +230,7 @@ defmodule RuleMaven.LLM do
       [small_corpus_boost: true] ++
         if question_embedding, do: [embedding: question_embedding], else: []
 
+    broadcast_ask_stage(game.id, :searching)
     chunks = RuleMaven.Games.retrieve_chunks_for_games(game_ids, question, retrieval_opts)
     context = build_context_block(chunks, game.id)
 
@@ -247,6 +250,7 @@ defmodule RuleMaven.LLM do
 
     case request_answer(system_prompt, question, model_name, game.id, user_id, fresh) do
       {:ok, llm_result} ->
+        broadcast_ask_stage(game.id, :checking)
         llm_result = maybe_reground(llm_result, system_prompt, ctx, chunks)
 
         {llm_result, chunks} =
@@ -396,9 +400,26 @@ defmodule RuleMaven.LLM do
 
     opts = [operation: "ask", game_id: game_id, user_id: user_id, stream_to: stream_to]
 
+    broadcast_ask_stage(game_id, :answering)
+
     body
     |> do_request(1, opts)
     |> maybe_retry_bad_answer(body, game_id, opts)
+  end
+
+  # Real pipeline progress for the asker's loader bar. Broadcast on the game
+  # topic (same channel as :ask_partial) keyed by the in-flight question so
+  # the LiveView can advance the loader through actual stages instead of a
+  # faked crawl. Only fires when this process serves a logged question
+  # (AskWorker sets the metadata); ad-hoc callers broadcast nothing.
+  defp broadcast_ask_stage(game_id, stage) do
+    if ql_id = current_question_log_id() do
+      Phoenix.PubSub.broadcast(
+        RuleMaven.PubSub,
+        "game:#{game_id}",
+        {:ask_stage, %{question_log_id: ql_id, stage: stage}}
+      )
+    end
   end
 
   # A model occasionally returns a reply the worker can only surface as a

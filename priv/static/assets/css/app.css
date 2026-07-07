@@ -3036,9 +3036,19 @@ body:has([data-phx-main].phx-connected)::after {
 }
 .voice-loader__fill {
   height: 100%;
-  width: 8%;
+  width: 5%;
   background: var(--accent);
   transition: width 0.25s ease-out;
+  /* Gentle pulse: the bar only advances on real pipeline progress, so this
+     keeps it visibly alive while parked at a stage cap. */
+  animation: voice-loader-pulse 1.6s ease-in-out infinite;
+}
+@keyframes voice-loader-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-loader__fill { animation: none; }
 }
 
 /* Streaming answer caret — shown at the end of the partial text while the

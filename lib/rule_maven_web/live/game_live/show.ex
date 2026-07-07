@@ -71,6 +71,9 @@ defmodule RuleMavenWeb.GameLive.Show do
        # In-flight streamed answer text per question_log_id ({:ask_partial, …}
        # broadcasts from the LLM SSE stream). Cleared on :ask_complete.
        ask_partial: %{},
+       # Real pipeline stage per in-flight question ({:ask_stage, …} broadcasts
+       # from LLM.ask) — drives the loader bar. Cleared with ask_partial.
+       ask_stage: %{},
        # Voices available on this game: the built-in globals plus the game's own
        # generated, themed personas. Filled in once the game loads; updated live
        # by {:voices_ready} when generation finishes.
@@ -1767,7 +1770,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        socket
        |> assign(
          active_thread_id: source_id,
-         ask_partial: Map.delete(socket.assigns.ask_partial, prov_id)
+         ask_partial: Map.delete(socket.assigns.ask_partial, prov_id),
+         ask_stage: Map.delete(socket.assigns.ask_stage, prov_id)
        )
        |> put_flash(:info, "You already asked this — here's your answer.")
        |> push_patch(
@@ -1869,6 +1873,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           pending_count: pending_count,
           community_questions: community,
           ask_partial: Map.delete(socket.assigns.ask_partial, question_log_id),
+          ask_stage: Map.delete(socket.assigns.ask_stage, question_log_id),
           refresh: socket.assigns.refresh + 1
         )
 
@@ -1974,6 +1979,23 @@ defmodule RuleMavenWeb.GameLive.Show do
   # Streamed answer text for a still-pending ask. Only track partials for
   # rows this LiveView is actually showing as pending — every viewer of the
   # game topic receives the broadcast, but only the asker has the pending row.
+  # Real pipeline progress from LLM.ask — only track questions this session is
+  # actually waiting on (the broadcast goes to every viewer of the game topic).
+  def handle_info({:ask_stage, %{question_log_id: ql_id, stage: stage}}, socket) do
+    tracked? =
+      Enum.any?(
+        socket.assigns.conversation,
+        &(&1[:id] == ql_id && &1[:role] == :assistant && &1[:pending])
+      )
+
+    if tracked? do
+      {:noreply,
+       assign(socket, ask_stage: Map.put(socket.assigns.ask_stage, ql_id, to_string(stage)))}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:ask_partial, %{question_log_id: ql_id, text: text} = data}, socket) do
     tracked? =
       Enum.any?(
@@ -2068,7 +2090,8 @@ defmodule RuleMavenWeb.GameLive.Show do
          conversation: conversation,
          threads: threads,
          pending_count: Enum.count(threads, & &1.pending),
-         ask_partial: Map.delete(socket.assigns.ask_partial, question_log_id)
+         ask_partial: Map.delete(socket.assigns.ask_partial, question_log_id),
+         ask_stage: Map.delete(socket.assigns.ask_stage, question_log_id)
        )
        |> push_event("scroll_bottom", %{})}
     end
@@ -3311,6 +3334,12 @@ defmodule RuleMavenWeb.GameLive.Show do
                             phx-update="ignore"
                             data-phrases={
                               Jason.encode!(RuleMaven.Voices.loading_phrases(v_sel, @game))
+                            }
+                            data-stage={
+                              if(voicing?,
+                                do: "voicing",
+                                else: Map.get(@ask_stage, msg[:id], "understanding")
+                              )
                             }
                           >
                             <div :if={v_def} class="voice-loader__persona">
