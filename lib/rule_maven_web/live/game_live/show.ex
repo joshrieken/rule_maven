@@ -1830,6 +1830,16 @@ defmodule RuleMavenWeb.GameLive.Show do
       # house rules that sit near it.
       socket = if answer_ready?, do: load_hr_overlay(socket), else: socket
 
+      # First real answer this user has ever seen: walk them through its
+      # anatomy (verdict, confidence, citations, voting → curator points).
+      # The live answer is the tour's demo data, so it never runs on an empty
+      # page; tour_done marks it seen and it stops auto-starting.
+      socket =
+        if answer_ready? and not ql.refused and
+             RuleMavenWeb.Tours.autostart?(socket, "answer"),
+           do: RuleMavenWeb.Tours.push_tour(socket, "answer"),
+           else: socket
+
       # No scroll when the answer finishes — the reader is already at the top of
       # the answer (or wherever they scrolled to) and shouldn't be yanked down.
       {:noreply,
@@ -2294,6 +2304,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       id="tour-game"
       phx-hook="Tour"
       data-tour-page="game"
+      data-tour-also="answer"
       data-tour-autostart={@tour_autostart && "game"}
     >
     </div>
@@ -3165,7 +3176,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <%= if msg.content != "Thinking..." do %>
                     <%= for c <- citation_list(msg) do %>
                       <% on_user = msg.role == :user %>
-                      <figure style={"margin:0.75rem 0 0;border-radius:0.5rem;overflow:hidden;border:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 25%,transparent)", else: "var(--border)"};background:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 10%,transparent)", else: "var(--bg-subtle)"}"}>
+                      <figure
+                        data-tour={if !on_user, do: "citation"}
+                        style={"margin:0.75rem 0 0;border-radius:0.5rem;overflow:hidden;border:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 25%,transparent)", else: "var(--border)"};background:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 10%,transparent)", else: "var(--bg-subtle)"}"}
+                      >
                         <%= if c["page"] do %>
                           <figcaption style={"display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.6rem;font-size:0.66rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;border-bottom:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 15%,transparent)", else: "var(--border-subtle)"};color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 85%,transparent)", else: "var(--text-muted)"}"}>
                             <span aria-hidden="true">&#128206;</span>
@@ -3235,7 +3249,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <% has_followups = msg.role == :assistant && msg[:followups] not in [nil, []] %>
                   <% has_also = msg.role == :assistant && msg[:also_asked] not in [nil, []] %>
                   <%= if has_followups || has_also do %>
-                    <div style="margin-top:0.75rem;padding:0.6rem 0.75rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.5rem">
+                    <div
+                      data-tour="related"
+                      style="margin-top:0.75rem;padding:0.6rem 0.75rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.5rem"
+                    >
                       <div style="color:var(--text-muted);font-weight:600;margin-bottom:0.4rem;font-size:0.72rem">
                         Related questions
                       </div>
@@ -3405,7 +3422,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <%= if is_community_msg do %>
                     <% cv = Map.get(@community_user_votes, msg[:id]) %>
                     <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
-                    <span style="display:inline-flex;align-items:center;gap:0.15rem">
+                    <span data-tour="answer-vote" style="display:inline-flex;align-items:center;gap:0.15rem">
                       <button
                         type="button"
                         phx-click="community_vote"
@@ -3431,7 +3448,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <% sid = msg[:pool_source_id] %>
                       <% cv = Map.get(@community_user_votes, sid) %>
                       <% counts = Map.get(@community_vote_counts, sid, %{up: 0, down: 0}) %>
-                      <span style="display:inline-flex;align-items:center;gap:0.15rem">
+                      <span data-tour="answer-vote" style="display:inline-flex;align-items:center;gap:0.15rem">
                         <button
                           type="button"
                           phx-click="community_vote"
@@ -3460,6 +3477,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
                       <span
                         :if={!msg[:pool_hit]}
+                        data-tour="answer-vote"
                         style="display:inline-flex;align-items:center;gap:0.15rem"
                       >
                         <%!-- This branch is always the asker's own question: the

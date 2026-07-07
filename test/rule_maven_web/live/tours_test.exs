@@ -7,7 +7,11 @@ defmodule RuleMavenWeb.ToursTest do
   use RuleMavenWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+  import RuleMaven.GamesFixtures
 
+  import Ecto.Query
+
+  alias RuleMaven.Games
   alias RuleMaven.Users
   alias RuleMavenWeb.Tours
 
@@ -25,7 +29,7 @@ defmodule RuleMavenWeb.ToursTest do
   end
 
   test "every tour has steps with title and body" do
-    assert Enum.sort(Tours.ids()) == ["game", "games"]
+    assert Enum.sort(Tours.ids()) == ["answer", "game", "games"]
 
     for id <- Tours.ids(), step <- Tours.steps(id) do
       assert is_binary(step.title) and step.title != ""
@@ -90,6 +94,7 @@ defmodule RuleMavenWeb.ToursTest do
     assert html =~ ~s(href="/help")
     assert html =~ ~s(data-tour-replay="games")
     assert html =~ ~s(data-tour-replay="game")
+    assert html =~ ~s(data-tour-replay="answer")
   end
 
   test "/help renders the guide and FAQ without login", %{conn: conn} do
@@ -98,5 +103,81 @@ defmodule RuleMavenWeb.ToursTest do
     assert html =~ "Help &amp; Guide"
     assert html =~ "FAQ"
     assert html =~ "AI can still be wrong"
+  end
+
+  describe "answer tour" do
+    setup do
+      start_supervised!(
+        {Oban,
+         repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+      )
+
+      :ok
+    end
+
+    defp complete_ask(view, game, answer) do
+      view
+      |> form("#ask-form", question: "How do turns work?")
+      |> render_submit()
+
+      ql =
+        RuleMaven.Repo.one!(
+          from(q in Games.QuestionLog,
+            where: q.game_id == ^game.id,
+            order_by: [desc: q.id],
+            limit: 1
+          )
+        )
+
+      {:ok, ql} = Games.log_question_update(ql, %{answer: answer})
+
+      send(
+        view.pid,
+        {:ask_complete,
+         %{
+           question_log_id: ql.id,
+           faq_hit: false,
+           pool_hit: false,
+           tier: nil,
+           verified: false,
+           source_question_log_id: nil,
+           followups: [],
+           also_asked: [],
+           cited_page: nil,
+           refused: false,
+           verdict: "info",
+           raw_response: nil,
+           styled_voice: nil,
+           styled_answer: nil
+         }}
+      )
+
+      render(view)
+    end
+
+    test "auto-starts when the user's first answer lands", %{conn: conn} do
+      user = create_user("anstour")
+      game = published_game_fixture(%{name: "Answer Tour Game"})
+
+      {:ok, view, _html} =
+        conn |> login(user) |> live(~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+      complete_ask(view, game, "Play proceeds clockwise.")
+
+      assert_push_event(view, "tour:start", %{id: "answer", steps: [_ | _]})
+    end
+
+    test "does not start again once seen", %{conn: conn} do
+      user = create_user("anstour_seen")
+      {:ok, user} = Users.mark_tour_seen(user, "answer")
+      game = published_game_fixture(%{name: "Answer Tour Seen Game"})
+
+      {:ok, view, _html} =
+        conn |> login(user) |> live(~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+      complete_ask(view, game, "Play proceeds clockwise.")
+
+      refute_push_event(view, "tour:start", %{id: "answer"})
+    end
   end
 end

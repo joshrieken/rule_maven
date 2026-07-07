@@ -823,17 +823,23 @@ Hooks.InfiniteScroll = {
 };
 
 // Spotlight onboarding tour. Each tour-hosting page renders one element with
-// phx-hook="Tour" and data-tour-page="<id>". The server pushes "tour:start"
+// phx-hook="Tour" and data-tour-page="<id>" (plus optional space-separated
+// extra ids in data-tour-also — e.g. the game page also hosts the "answer"
+// tour). The server pushes "tour:start"
 // with {id, steps: [{sel, title, body}]} (see RuleMavenWeb.Tours): steps
 // highlight the element matching `sel`, a null `sel` renders a centered card,
 // and steps whose element isn't on the page are skipped. Ends (Done, ✕, Esc)
 // push "tour_done" so the tour stops auto-starting for this user.
 Hooks.Tour = {
+  hostsTour(id) {
+    if (id === this.el.dataset.tourPage) return true;
+    return (this.el.dataset.tourAlso || "").split(" ").includes(id);
+  },
   mounted() {
     this.handleEvent("tour:start", ({id, steps}) => this.start(id, steps));
     // Replay requested from the user dropdown while on this page.
     this._onReplay = (e) => {
-      if (e.detail.id === this.el.dataset.tourPage) {
+      if (this.hostsTour(e.detail.id)) {
         this.pushEvent("tour_replay", {id: e.detail.id});
       }
     };
@@ -841,10 +847,10 @@ Hooks.Tour = {
     // Replay requested from a page without this tour lands here via
     // localStorage (e.g. "game" tour picked on /settings → open a game).
     const pending = localStorage.getItem("rm:pending-tour");
-    if (pending === this.el.dataset.tourPage) {
+    if (pending && this.hostsTour(pending)) {
       localStorage.removeItem("rm:pending-tour");
       this.pushEvent("tour_replay", {id: pending});
-    } else if (pending === "game" && this.el.dataset.tourPage === "games") {
+    } else if (["game", "answer"].includes(pending) && this.el.dataset.tourPage === "games") {
       showToast("👇", "Open a game to start the tour");
     } else if (this.el.dataset.tourAutostart) {
       // First visit: the server rendered data-tour-autostart. Fetch the tour
@@ -997,7 +1003,9 @@ document.addEventListener("click", (e) => {
   const id = a.dataset.tourReplay;
   const details = a.closest("details");
   if (details) details.removeAttribute("open");
-  if (document.querySelector('[data-tour-page="' + id + '"]')) {
+  if (
+    document.querySelector('[data-tour-page="' + id + '"], [data-tour-also~="' + id + '"]')
+  ) {
     window.dispatchEvent(new CustomEvent("rm:tour:start", {detail: {id}}));
   } else {
     localStorage.setItem("rm:pending-tour", id);

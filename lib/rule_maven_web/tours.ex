@@ -96,7 +96,47 @@ defmodule RuleMavenWeb.Tours do
         sel: nil,
         title: "Good to go! 🎲",
         body:
-          "Once an answer arrives you can upvote it and check its confidence meter. Full guide + FAQ on the Help page — and you can replay this tour from your user menu."
+          "When your first answer arrives, a short walkthrough will show you around it — verdict, confidence, citations, and how voting earns you curator points. Full guide + FAQ on the Help page."
+      }
+    ],
+    # Auto-starts when the user's first real answer lands (pushed from
+    # :ask_complete in GameLive.Show) — a live answer beats a faked screenshot,
+    # and every selector below is guaranteed to exist at that moment.
+    "answer" => [
+      %{
+        sel: ".chat-msg .verdict-stamp",
+        title: "The verdict",
+        body:
+          "Your ruling at a glance: legal move, not allowed, in the rules, or rules silent — before you read a word."
+      },
+      %{
+        sel: ".chat-msg .conf-pill",
+        title: "Confidence meter",
+        body:
+          "How solid this answer is. Full marks means strong rulebook backing; lower means double-check the cited passage at the table."
+      },
+      %{
+        sel: "[data-tour='citation']",
+        title: "Straight from the rulebook",
+        body:
+          "Every answer quotes the exact passage it's based on, with source and page — so you can verify it in your own copy in seconds."
+      },
+      %{
+        sel: "[data-tour='answer-vote']",
+        title: "Vote on answers",
+        body:
+          "A 👍 confirms the answer helped. Votes decide which answers the whole community sees first — and they're how you earn curator points."
+      },
+      %{
+        sel: "[data-tour='related']",
+        title: "Keep digging",
+        body: "Related and follow-up questions are one tap away — no retyping."
+      },
+      %{
+        sel: nil,
+        title: "Become a curator 🏆",
+        body:
+          "When the community settles on an answer you voted for, you earn curator points — they unlock badges and bonus question quota. Track it all on your Standing page (user menu)."
       }
     ]
   }
