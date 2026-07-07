@@ -3037,6 +3037,40 @@ defmodule RuleMavenWeb.GameLive.Show do
                           <span aria-hidden="true">⏳</span> Checking rules
                         </div>
                       <% end %>
+                      <%= if show_voice do %>
+                        <% {conf_label, conf_level, conf_color, conf_help, conf_next} =
+                          answer_confidence(msg) %>
+                        <div
+                          class="conf-pill"
+                          aria-label={"Confidence: #{conf_word(conf_level)} (#{conf_level} of #{conf_max()})"}
+                        >
+                          <span class="conf-pill__dots" aria-hidden="true">
+                            <span
+                              :for={seg <- 1..conf_max()}
+                              class="conf-pill__dot"
+                              style={if seg <= conf_level, do: "background:#{conf_color}"}
+                            />
+                          </span>
+                          <span style={"color:#{conf_color};font-weight:700"}>{conf_word(conf_level)}</span>
+                          <span style="opacity:0.75">· {conf_label}</span>
+                          <span class="conf-help">
+                            <button
+                              type="button"
+                              class="conf-help__btn"
+                              aria-label={"What \"#{conf_label}\" means"}
+                            >?</button>
+                            <span class="conf-help__pop" role="tooltip">
+                              {conf_help}
+                              <span
+                                :if={conf_next}
+                                style="display:block;margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid rgba(255,255,255,0.2)"
+                              >
+                                <span style="font-weight:700">Next level:</span> {conf_next}
+                              </span>
+                            </span>
+                          </span>
+                        </div>
+                      <% end %>
                       <%= if show_voice || row_placeholder? do %>
                         <% cur_voice = Map.get(@voice_sel, msg[:id], @default_voice) %>
                         <% cur = Enum.find(@voices, &(&1.id == cur_voice)) || hd(@voices) %>
@@ -3191,44 +3225,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                         </blockquote>
                       </figure>
                     <% end %>
-                  <% end %>
-
-                  <!-- Citation confidence pill (compact) -->
-                  <%= if msg.role == :assistant && !msg[:refused] &&
-                         msg.content != "Thinking..." && !msg[:pending] &&
-                         not String.starts_with?(to_string(msg.content), "⚠️") do %>
-                    <% {conf_label, conf_level, conf_color, conf_help, conf_next} =
-                      answer_confidence(msg) %>
-                    <div
-                      class="conf-pill"
-                      aria-label={"Confidence: #{conf_word(conf_level)} (#{conf_level} of #{conf_max()})"}
-                    >
-                      <span class="conf-pill__dots" aria-hidden="true">
-                        <span
-                          :for={seg <- 1..conf_max()}
-                          class="conf-pill__dot"
-                          style={if seg <= conf_level, do: "background:#{conf_color}"}
-                        />
-                      </span>
-                      <span style={"color:#{conf_color};font-weight:700"}>{conf_word(conf_level)}</span>
-                      <span style="opacity:0.75">· {conf_label}</span>
-                      <span class="conf-help">
-                        <button
-                          type="button"
-                          class="conf-help__btn"
-                          aria-label={"What \"#{conf_label}\" means"}
-                        >?</button>
-                        <span class="conf-help__pop" role="tooltip">
-                          {conf_help}
-                          <span
-                            :if={conf_next}
-                            style="display:block;margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid rgba(255,255,255,0.2)"
-                          >
-                            <span style="font-weight:700">Next level:</span> {conf_next}
-                          </span>
-                        </span>
-                      </span>
-                    </div>
                   <% end %>
 
                   <!-- House-rule overlay: the user's own checked rules that embed near
