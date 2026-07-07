@@ -3991,6 +3991,11 @@ defmodule RuleMavenWeb.GameLive.Show do
               {@pending_count} of {@max_concurrent} questions in progress — please wait for one to finish
             </div>
           <% end %>
+          <%!-- Always-visible AI disclaimer: answers come from an LLM and can be
+                wrong, so keep the caveat in sight on every ask. --%>
+          <div style="text-align:center;font-size:0.7rem;color:var(--text-muted);margin-top:0.4rem">
+            🤖 Answers are AI-generated and can be wrong — double-check important rulings in the rulebook.
+          </div>
         </div>
       </div>
     </div>

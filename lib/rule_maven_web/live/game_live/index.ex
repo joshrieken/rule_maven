@@ -655,6 +655,17 @@ defmodule RuleMavenWeb.GameLive.Index do
   def render(assigns) do
     ~H"""
     <div class="game-list">
+      <%!-- Tagline: the point of the app is speed at the table — one place to
+            ask instead of hunting through rulebooks — plus an up-front caveat
+            that answers are AI-generated. --%>
+      <div style="margin-bottom:1rem">
+        <p style="font-size:0.92rem;font-weight:600;color:var(--text);margin:0">
+          ⚡ Ask a rules question, get a sourced answer in seconds — keep the game moving instead of flipping through rulebooks.
+        </p>
+        <p style="font-size:0.75rem;color:var(--text-muted);margin:0.25rem 0 0">
+          🤖 Answers are AI-generated and can be wrong — double-check anything important.
+        </p>
+      </div>
       <div class="list-controls">
         <form phx-change="search" phx-submit="search" class="mb-4">
           <div style="position:relative;display:flex;align-items:center">
