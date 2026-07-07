@@ -1350,6 +1350,7 @@ button.motion-toggle {
   justify-content: center;
   width: 1.85rem;
   height: 1.85rem;
+  flex-shrink: 0;
   padding: 0;
   font-size: 0.85rem;
   line-height: 1;
@@ -1378,7 +1379,9 @@ button.motion-toggle:hover {
   font-family: var(--font-body);
   font-size: 0.7rem;
   line-height: 1;
-  padding: 0.35rem 1.4rem 0.35rem 0.5rem;
+  /* Match the motion toggle's height so the header controls sit flush. */
+  height: 1.85rem;
+  padding: 0 1.4rem 0 0.5rem;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
   background-color: rgba(255, 255, 255, 0.08);
