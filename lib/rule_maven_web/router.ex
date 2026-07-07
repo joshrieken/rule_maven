@@ -29,6 +29,7 @@ defmodule RuleMavenWeb.Router do
   scope "/", RuleMavenWeb do
     pipe_through :browser
 
+    get "/help", PageController, :help
     get "/login", SessionController, :new
     post "/login", SessionController, :create
     get "/logout", AuthController, :logout

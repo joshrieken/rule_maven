@@ -116,6 +116,13 @@ defmodule RuleMaven.Users do
   def reset_reputation(%User{} = user),
     do: user |> Ecto.Changeset.change(reputation: 0) |> Repo.update()
 
+  @doc "Marks an onboarding tour as seen (completed or skipped)."
+  def mark_tour_seen(%User{} = user, tour_id),
+    do: user |> User.tour_seen_changeset(tour_id) |> Repo.update()
+
+  @doc "True once the user has completed or skipped the given tour."
+  def tour_seen?(user, tour_id), do: User.tour_seen?(user, tour_id)
+
   # --- email confirmation ----------------------------------------------------
 
   @doc "True once this user has confirmed their email address."
