@@ -663,7 +663,7 @@ defmodule RuleMavenWeb.GameLive.Index do
           ⚡ Ask a rules question, get a sourced answer in seconds — keep the game moving instead of flipping through rulebooks.
         </p>
         <p style="font-size:0.75rem;color:var(--text-muted);margin:0.25rem 0 0">
-          🤖 Answers are AI-generated and can be wrong — double-check anything important.
+          🤖 AI-powered with strict guardrails: every answer is grounded in the actual rulebook text and cites its sources. AI can still be wrong — double-check anything important.
         </p>
       </div>
       <div class="list-controls">
