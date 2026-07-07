@@ -147,4 +147,24 @@ defmodule RuleMaven.Games.CurationTest do
       assert Curation.unseen_correct_count(Repo.reload!(voter)) == 0
     end
   end
+
+  describe "quota bonus" do
+    test "correct settles raise the monthly quota", ctx do
+      # Give the voter a base quota of 0 so any allowance comes from the bonus.
+      Repo.update_all(
+        from(u in RuleMaven.Users.User, where: u.id == ^ctx.up_voter.id),
+        set: [monthly_quota: 0, email_confirmed_at: DateTime.utc_now() |> DateTime.truncate(:second)]
+      )
+
+      voter = Repo.reload!(ctx.up_voter)
+      assert {:error, msg} = Games.check_rate_limit(voter)
+      assert msg =~ "Monthly question quota reached (0)"
+
+      q = log(ctx.game, ctx.author)
+      Games.set_community_vote(q.id, voter.id, "up")
+      {:ok, _} = Curation.settle_votes(q, :confirmed)
+
+      assert :ok = Games.check_rate_limit(Repo.reload!(voter))
+    end
+  end
 end

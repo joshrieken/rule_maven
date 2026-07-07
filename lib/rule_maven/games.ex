@@ -1974,8 +1974,11 @@ defmodule RuleMaven.Games do
 
       daily_limit = parse_limit(Settings.get("rate_limit_daily"), 50)
       weekly_limit = parse_limit(Settings.get("rate_limit_weekly"), 200)
-      # Monthly is the per-user, admin-tunable quota — not a global setting.
-      monthly_limit = user.monthly_quota || 200
+      # Monthly is the per-user, admin-tunable quota — not a global setting —
+      # plus this month's earned curator bonus (capped in Curation).
+      monthly_limit =
+        (user.monthly_quota || 200) +
+          RuleMaven.Games.Curation.bonus_asks_this_month(user.id)
 
       # Daily $ budget cap (0 = disabled). Estimated from logged token usage.
       cost_cap = parse_cost(Settings.get("user_daily_cost_cap"), 0.0)
