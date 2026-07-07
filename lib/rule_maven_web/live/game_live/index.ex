@@ -39,12 +39,13 @@ defmodule RuleMavenWeb.GameLive.Index do
         exp_sync_subscribed: MapSet.new(),
         # game_ids with a BGG "Pull" in flight (drives the per-row spinner).
         bgg_pulling: MapSet.new(),
-        category_filter: nil
+        category_filter: nil,
+        # First-ever visit → the Tour hook auto-starts the games tour.
+        tour_autostart: RuleMavenWeb.Tours.autostart?(socket, "games")
       )
       |> assign_games(games)
       |> resume_exp_syncs()
       |> resume_bgg_pulls()
-      |> RuleMavenWeb.Tours.maybe_autostart("games")
 
     {:ok, socket}
   end
@@ -660,7 +661,13 @@ defmodule RuleMavenWeb.GameLive.Index do
     ~H"""
     <div class="game-list">
       <%!-- Hosts the spotlight onboarding tour for this page (Hooks.Tour). --%>
-      <div id="tour-games" phx-hook="Tour" data-tour-page="games"></div>
+      <div
+        id="tour-games"
+        phx-hook="Tour"
+        data-tour-page="games"
+        data-tour-autostart={@tour_autostart && "games"}
+      >
+      </div>
       <%!-- Tagline: the point of the app is speed at the table — one place to
             ask instead of hunting through rulebooks — plus an up-front caveat
             that answers are AI-generated. --%>

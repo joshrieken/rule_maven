@@ -101,7 +101,9 @@ defmodule RuleMavenWeb.GameLive.Show do
        hr_overlay: [],
        hr_overlay_deltas: %{},
        hr_delta_pending: MapSet.new(),
-       hr_delta_failed: MapSet.new()
+       hr_delta_failed: MapSet.new(),
+       # Set on the first handle_params load; false until then.
+       tour_autostart: false
      )}
   end
 
@@ -274,10 +276,13 @@ defmodule RuleMavenWeb.GameLive.Show do
     # still neutral — the VoiceDefault hook then fires default_voice_restore.
     socket = socket |> apply_default_voice(socket.assigns.default_voice) |> load_hr_overlay()
 
-    # Onboarding: first-ever game page → spotlight tour. Only on the initial
+    # Onboarding: first-ever game page → the Tour hook auto-starts the tour
+    # (via the data-tour-autostart attribute). Only computed on the initial
     # load of this mount (expansions_seeded gates first vs later handle_params).
     socket =
-      if seeded_before, do: socket, else: RuleMavenWeb.Tours.maybe_autostart(socket, "game")
+      if seeded_before,
+        do: socket,
+        else: assign(socket, :tour_autostart, RuleMavenWeb.Tours.autostart?(socket, "game"))
 
     suggestions =
       case RuleMaven.Settings.get("suggestions_#{game.id}") do
@@ -2285,7 +2290,13 @@ defmodule RuleMavenWeb.GameLive.Show do
     ~H"""
     {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
     <%!-- Hosts the spotlight onboarding tour for this page (Hooks.Tour). --%>
-    <div id="tour-game" phx-hook="Tour" data-tour-page="game"></div>
+    <div
+      id="tour-game"
+      phx-hook="Tour"
+      data-tour-page="game"
+      data-tour-autostart={@tour_autostart && "game"}
+    >
+    </div>
     <div
       :if={@is_admin and RuleMaven.Games.taken_down?(@game)}
       style="position:fixed;top:var(--header-height,3.125rem);left:0;right:0;z-index:20;background:var(--danger,#c0392b);color:#fff;font-size:0.8rem;font-weight:600;padding:0.4rem 0.9rem;text-align:center"

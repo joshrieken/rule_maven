@@ -33,10 +33,16 @@ defmodule RuleMavenWeb.ToursTest do
     end
   end
 
+  # Auto-start is attribute-driven: the hook sees data-tour-autostart and
+  # requests the tour via "tour_replay" (a mount-time push_event can be lost
+  # on join retries, so the client pulls instead).
   test "games tour auto-starts on the games list for a fresh user", %{conn: conn} do
     user = create_user("fresh")
     {:ok, view, _html} = conn |> login(user) |> live(~p"/")
 
+    assert render(view) =~ ~s(data-tour-autostart="games")
+
+    render_hook(view, "tour_replay", %{"id" => "games"})
     assert_push_event(view, "tour:start", %{id: "games", steps: [_ | _]})
   end
 
@@ -46,7 +52,7 @@ defmodule RuleMavenWeb.ToursTest do
 
     {:ok, view, _html} = conn |> login(user) |> live(~p"/")
 
-    refute_push_event(view, "tour:start", %{id: "games"})
+    refute render(view) =~ "data-tour-autostart"
   end
 
   test "tour_done stamps the tour seen", %{conn: conn} do

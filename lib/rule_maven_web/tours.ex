@@ -116,18 +116,16 @@ defmodule RuleMavenWeb.Tours do
   end
 
   @doc """
-  Starts a tour on first visit: pushes it when the socket is connected and the
-  current user hasn't seen it yet. Call once per mount (or first
-  handle_params); replays go through the "tour_replay" event instead.
+  Whether a tour should auto-start for the current user (connected socket,
+  logged in, not seen yet). Rendered into the hook element's
+  `data-tour-autostart` attribute — the Tour hook reads it on mount and asks
+  for the tour over a normal event round-trip. A `push_event` at mount time is
+  NOT reliable here: events riding the join reply are dropped if the client
+  retries the join, which intermittently ate the auto-start.
   """
-  def maybe_autostart(socket, tour_id) do
+  def autostart?(socket, tour_id) do
     user = socket.assigns[:current_user]
-
-    if connected?(socket) and user && not Users.tour_seen?(user, tour_id) do
-      push_tour(socket, tour_id)
-    else
-      socket
-    end
+    connected?(socket) and user != nil and not Users.tour_seen?(user, tour_id)
   end
 
   @doc """
