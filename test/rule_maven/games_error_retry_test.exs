@@ -58,8 +58,28 @@ defmodule RuleMaven.GamesErrorRetryTest do
     test "non-retryable kinds and healthy rows are not retryable" do
       refute Games.error_retryable?(%QuestionLog{error_kind: "too_long", error_retries: 0})
       refute Games.error_retryable?(%QuestionLog{error_kind: "paused", error_retries: 0})
-      refute Games.error_retryable?(%QuestionLog{error_kind: nil, error_retries: 0})
+
+      refute Games.error_retryable?(%QuestionLog{
+               error_kind: nil,
+               error_retries: 0,
+               answer: "Roll 3 dice."
+             })
+
       refute Games.error_retryable?(nil)
+    end
+
+    test "legacy pre-error_kind failure rows (nil kind, ⚠️ answer) are retryable" do
+      legacy = %QuestionLog{
+        error_kind: nil,
+        error_retries: 0,
+        answer: "⚠️ The AI returned an unexpected response format. Please retry."
+      }
+
+      assert Games.error_retryable?(legacy)
+      refute Games.error_retryable?(%{legacy | error_retries: Games.error_retry_limit()})
+      # Refused/blocked ⚠️ rows (security filter) stay dead-ended.
+      refute Games.error_retryable?(%{legacy | refused: true})
+      refute Games.error_retryable?(%{legacy | blocked: true})
     end
   end
 

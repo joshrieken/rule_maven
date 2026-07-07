@@ -1226,14 +1226,36 @@ defmodule RuleMaven.Games do
   Whether this failed answer can still be retried by its asker. Only genuinely
   retryable failure kinds count — "too_long" needs a shorter question,
   "paused" needs the kill switch lifted, and rate limits are handled with a
-  cooldown on the button instead.
+  cooldown on the button instead. Rows persisted before `error_kind` existed
+  carry a nil kind with a "⚠️ ..." answer; those must stay retryable (the UI
+  shows the button for them), except refused/blocked rows which are
+  dead-ended on purpose.
   """
-  def error_retryable?(%QuestionLog{error_kind: kind, error_retries: retries}) do
-    kind in ["empty", "format", "timeout", "unknown", "rate_limited"] and
-      retries < @error_retry_limit
+  def error_retryable?(%QuestionLog{} = q) do
+    retryable_kind? =
+      case q.error_kind do
+        nil -> legacy_error?(q)
+        kind -> kind in ["empty", "format", "timeout", "unknown", "rate_limited"]
+      end
+
+    retryable_kind? and q.error_retries < @error_retry_limit
   end
 
   def error_retryable?(_), do: false
+
+  @doc """
+  Whether this row holds a failed answer — an `error_kind`-classified failure
+  or a legacy pre-`error_kind` "⚠️ ..." row. Refused/blocked rows are
+  deliberate refusals, not failures.
+  """
+  def failed_answer?(%QuestionLog{} = q), do: q.error_kind != nil or legacy_error?(q)
+  def failed_answer?(_), do: false
+
+  # Pre-error_kind failure rows: the ⚠️-prefixed answer is the only marker.
+  defp legacy_error?(q) do
+    not q.refused and not q.blocked and is_binary(q.answer) and
+      String.starts_with?(q.answer, "⚠️")
+  end
 
   @doc """
   System-generated flag for a question whose retries are exhausted and still
