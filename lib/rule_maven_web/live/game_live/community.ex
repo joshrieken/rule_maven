@@ -716,7 +716,7 @@ defmodule RuleMavenWeb.GameLive.Community do
             tabindex="0"
             phx-click="toggle_expand"
             phx-value-id={@q.id}
-            style="font-size:0.82rem;font-weight:600;color:var(--text);cursor:pointer;word-break:break-word;line-height:1.4;margin-bottom:0.35rem"
+            style="font-size:0.82rem;font-weight:600;color:var(--text);cursor:pointer;word-break:break-word;line-height:1.4;margin:-0.75rem 0 0.35rem -0.75rem;padding:0.75rem 0 0 0.75rem"
             title={
               if MapSet.member?(@expanded, @q.id),
                 do: "Collapse the answer",
