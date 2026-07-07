@@ -83,6 +83,23 @@ defmodule RuleMavenWeb.GameLiveErrorRetryTest do
     assert replacement.error_retries == 1
   end
 
+  test "legacy error row (nil error_kind) shows Retry AND the click resubmits", %{conn: conn} do
+    # Rows persisted before error_kind existed: ⚠️ answer, error_kind nil.
+    # The UI's legacy path shows the button, so the server gate must honor it
+    # too — this click used to fall into the silent no-op branch.
+    {user, game, ql} = setup_error_thread("err_legacy", %{error_kind: nil})
+    {:ok, view, html} = open_thread(conn, user, game, ql)
+
+    assert html =~ "↻ Retry"
+
+    render_click(view, "retry_question", %{"id" => to_string(ql.id)})
+
+    refute Repo.get(QuestionLog, ql.id)
+    replacement = Repo.one(QuestionLog)
+    assert replacement.answer == "Thinking..."
+    assert replacement.error_retries == 1
+  end
+
   test "exhausted retries show the auto-reported notice, not a Retry button", %{conn: conn} do
     {user, game, ql} =
       setup_error_thread("err_done", %{

@@ -360,6 +360,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   defp asker_label(%{user_id: uid}, uid), do: "You"
+
   defp asker_label(%{user: %RuleMaven.Users.User{username: username}}, _uid)
        when is_binary(username),
        do: username
@@ -825,7 +826,11 @@ defmodule RuleMavenWeb.GameLive.Show do
             asker_confirmed_ids: cv_asker
           )
 
-        {:noreply, if(new_upvote?, do: push_event(socket, "vote_thanks", vote_thanks_payload(socket)), else: socket)}
+        {:noreply,
+         if(new_upvote?,
+           do: push_event(socket, "vote_thanks", vote_thanks_payload(socket)),
+           else: socket
+         )}
     end
   end
 
@@ -1301,8 +1306,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             RuleMaven.Audit.question_history(socket.assigns.game.id, seeds)
           end)
 
-        {:noreply,
-         assign(socket, history_open: MapSet.put(open, id), question_history: history)}
+        {:noreply, assign(socket, history_open: MapSet.put(open, id), question_history: history)}
       end
     else
       {:noreply, socket}
@@ -1459,7 +1463,8 @@ defmodule RuleMavenWeb.GameLive.Show do
       assign(socket,
         hr_overlay: rules,
         hr_overlay_deltas: deltas,
-        hr_delta_pending: MapSet.reject(socket.assigns.hr_delta_pending, &(&1 in Map.keys(deltas)))
+        hr_delta_pending:
+          MapSet.reject(socket.assigns.hr_delta_pending, &(&1 in Map.keys(deltas)))
       )
     else
       _ -> assign(socket, hr_overlay: [], hr_overlay_deltas: %{}, hr_delta_pending: MapSet.new())
@@ -1597,7 +1602,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         # replacement row since the old one is deleted below. A resubmit of a
         # healthy answer (regenerate, report-redo) starts fresh at 0.
         carried_retries =
-          if old_q && (old_q.error_kind || old_q.answer == "Thinking..."),
+          if old_q && (Games.failed_answer?(old_q) || old_q.answer == "Thinking..."),
             do: old_q.error_retries + 1,
             else: 0
 
@@ -1696,9 +1701,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                community_questions:
                  Games.community_questions(game, socket.assigns.current_user.id)
              )
-             |> push_patch(
-               to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}"
-             )}
+             |> push_patch(to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}")}
 
           {:error, reason} when is_binary(reason) ->
             {:noreply, put_flash(socket, :error, reason)}
@@ -2194,7 +2197,10 @@ defmodule RuleMavenWeb.GameLive.Show do
         <span aria-hidden="true">🏠</span> Your house rule may change this
       </div>
 
-      <div :for={hr <- @rules} style="padding:0.35rem 0;border-top:1px solid var(--border-subtle);font-size:0.8rem">
+      <div
+        :for={hr <- @rules}
+        style="padding:0.35rem 0;border-top:1px solid var(--border-subtle);font-size:0.8rem"
+      >
         <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.2rem">
           <span style="font-weight:600;color:var(--text)">
             {if hr.title not in [nil, ""], do: hr.title, else: String.slice(hr.body, 0, 40)}
@@ -2215,7 +2221,10 @@ defmodule RuleMavenWeb.GameLive.Show do
               {delta}
             </p>
           <% hr.id in @pending -> %>
-            <span style="font-size:0.72rem;color:var(--text-muted);font-weight:600" data-testid="hr-delta-pending">
+            <span
+              style="font-size:0.72rem;color:var(--text-muted);font-weight:600"
+              data-testid="hr-delta-pending"
+            >
               ⏳ Working out how this changes the answer…
             </span>
           <% true -> %>
@@ -2244,7 +2253,11 @@ defmodule RuleMavenWeb.GameLive.Show do
     ~H"""
     <div style="border-top:1px solid var(--border-subtle);padding:0.5rem 0;font-size:0.82rem">
       <%= if @editing do %>
-        <form phx-submit="edit_house_rule" phx-value-id={@hr.id} style="display:flex;flex-direction:column;gap:0.35rem">
+        <form
+          phx-submit="edit_house_rule"
+          phx-value-id={@hr.id}
+          style="display:flex;flex-direction:column;gap:0.35rem"
+        >
           <input
             type="text"
             name="house_rule[title]"
@@ -2259,10 +2272,17 @@ defmodule RuleMavenWeb.GameLive.Show do
             style="font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg);color:var(--text);resize:vertical"
           >{@hr.body}</textarea>
           <div style="display:flex;gap:0.4rem">
-            <button type="submit" style="background:var(--accent);color:var(--accent-text,#fff);border:none;border-radius:0.3rem;font-size:0.74rem;font-weight:700;padding:0.25rem 0.6rem;cursor:pointer">
+            <button
+              type="submit"
+              style="background:var(--accent);color:var(--accent-text,#fff);border:none;border-radius:0.3rem;font-size:0.74rem;font-weight:700;padding:0.25rem 0.6rem;cursor:pointer"
+            >
               Save
             </button>
-            <button type="button" phx-click="cancel_edit_house_rule" style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.74rem;padding:0.25rem 0.6rem;cursor:pointer;color:var(--text-muted)">
+            <button
+              type="button"
+              phx-click="cancel_edit_house_rule"
+              style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.74rem;padding:0.25rem 0.6rem;cursor:pointer;color:var(--text-muted)"
+            >
               Cancel
             </button>
           </div>
@@ -2277,7 +2297,10 @@ defmodule RuleMavenWeb.GameLive.Show do
 
               <%= cond do %>
                 <% @hr.check_status == "pending" -> %>
-                  <span style="font-size:0.65rem;color:var(--text-muted);font-weight:600" data-testid="hr-pending">
+                  <span
+                    style="font-size:0.65rem;color:var(--text-muted);font-weight:600"
+                    data-testid="hr-pending"
+                  >
                     ⏳ pending
                   </span>
                 <% @hr.check_status in ["stale", "failed"] -> %>
@@ -2287,7 +2310,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                     phx-value-id={@hr.id}
                     style="background:none;border:1px solid var(--border);border-radius:999px;font-size:0.62rem;cursor:pointer;padding:0.1rem 0.4rem;color:var(--text-muted);font-weight:600"
                   >
-                    {if @hr.check_status == "stale", do: "Stale — re-check", else: "Check failed — retry"}
+                    {if @hr.check_status == "stale",
+                      do: "Stale — re-check",
+                      else: "Check failed — retry"}
                   </button>
                 <% @hr.check_status == "done" -> %>
                   <% {emoji, label} = house_rule_stamp(@hr.verdict) %>
@@ -2309,7 +2334,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </blockquote>
               <% end %>
               <%= if @hr.check_note not in [nil, ""] do %>
-                <p style="margin:0.3rem 0 0;font-size:0.74rem;color:var(--text-muted)">{@hr.check_note}</p>
+                <p style="margin:0.3rem 0 0;font-size:0.74rem;color:var(--text-muted)">
+                  {@hr.check_note}
+                </p>
               <% end %>
             </details>
           </div>
@@ -2320,7 +2347,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                 type="button"
                 phx-click="toggle_house_rule_visibility"
                 phx-value-id={@hr.id}
-                title={if @hr.visibility == "community", do: "Community — click to make private", else: "Private — click to share"}
+                title={
+                  if @hr.visibility == "community",
+                    do: "Community — click to make private",
+                    else: "Private — click to share"
+                }
                 style="background:none;border:none;cursor:pointer;font-size:0.85rem;padding:0.1rem"
               >{if @hr.visibility == "community", do: "🌐", else: "🔒"}</button>
               <button
@@ -2342,7 +2373,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                 type="button"
                 phx-click="block_house_rule"
                 phx-value-id={@hr.id}
-                title={if @hr.blocked, do: "Blocked — click to unblock", else: "Block this house rule"}
+                title={
+                  if @hr.blocked, do: "Blocked — click to unblock", else: "Block this house rule"
+                }
                 style="background:none;border:none;cursor:pointer;font-size:0.75rem;padding:0.1rem;color:var(--text-muted)"
               >{if @hr.blocked, do: "🚫", else: "🛑"}</button>
             <% end %>
@@ -2423,7 +2456,9 @@ defmodule RuleMavenWeb.GameLive.Show do
               style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;text-decoration:none;color:inherit"
             >
               <h1 class="text-sm font-bold truncate" style="max-width:300px">{@game.name}</h1>
-              <.difficulty_badge weight={difficulty_weight(@game, {@expansions, @included_expansions})} />
+              <.difficulty_badge weight={
+                difficulty_weight(@game, {@expansions, @included_expansions})
+              } />
             </.link>
             <.link patch={~p"/games/#{@game}?start=1"} class="pill-link pill-link-accent">
               Overview
@@ -2791,7 +2826,9 @@ defmodule RuleMavenWeb.GameLive.Show do
               <% stats = bgg_stats(@game) %>
               <%= if stats != [] || @game.weight do %>
                 <div style="display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:0.4rem;margin:0 auto 0.75rem;max-width:30rem">
-                  <.difficulty_badge weight={difficulty_weight(@game, {@expansions, @included_expansions})} />
+                  <.difficulty_badge weight={
+                    difficulty_weight(@game, {@expansions, @included_expansions})
+                  } />
                   <span
                     :for={{icon, label} <- stats}
                     style="display:inline-flex;align-items:center;gap:0.25rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;font-size:0.7rem;font-weight:600;color:var(--text-secondary)"
@@ -2941,97 +2978,109 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </div>
               <% end %>
 
-              <div data-tour="house-rules" style="margin:1.25rem auto 0;max-width:30rem;text-align:left">
+              <div
+                data-tour="house-rules"
+                style="margin:1.25rem auto 0;max-width:30rem;text-align:left"
+              >
                 <% own_count = length(@house_rules) %>
-                  <% community_count_hr = length(@community_house_rules) %>
-                  <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
-                    <button
-                      type="button"
-                      phx-click="toggle_house_rules_card"
-                      style="display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;cursor:pointer;padding:0;margin-bottom:0.6rem"
-                    >
-                      <span style="font-size:0.78rem;font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--text)">
-                        🏠 House rules
+                <% community_count_hr = length(@community_house_rules) %>
+                <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
+                  <button
+                    type="button"
+                    phx-click="toggle_house_rules_card"
+                    style="display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;cursor:pointer;padding:0;margin-bottom:0.6rem"
+                  >
+                    <span style="font-size:0.78rem;font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--text)">
+                      🏠 House rules
+                    </span>
+                    <div style="display:flex;align-items:center;gap:0.5rem">
+                      <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">
+                        {own_count + community_count_hr}
                       </span>
-                      <div style="display:flex;align-items:center;gap:0.5rem">
-                        <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">
-                          {own_count + community_count_hr}
-                        </span>
-                        <span style="font-size:0.7rem;color:var(--text-muted)">
-                          {if @hr_card_open, do: "▾", else: "▸"}
-                        </span>
-                      </div>
-                    </button>
+                      <span style="font-size:0.7rem;color:var(--text-muted)">
+                        {if @hr_card_open, do: "▾", else: "▸"}
+                      </span>
+                    </div>
+                  </button>
 
-                    <%= if @hr_card_open do %>
-                      <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.3rem 0 0.3rem">
-                        Your house rules
-                      </div>
+                  <%= if @hr_card_open do %>
+                    <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.3rem 0 0.3rem">
+                      Your house rules
+                    </div>
 
-                      <%= for hr <- @house_rules do %>
-                        <.house_rule_row hr={hr} editing={@hr_editing_id == hr.id} owner?={true} is_admin={@is_admin} />
-                      <% end %>
+                    <%= for hr <- @house_rules do %>
+                      <.house_rule_row
+                        hr={hr}
+                        editing={@hr_editing_id == hr.id}
+                        owner?={true}
+                        is_admin={@is_admin}
+                      />
+                    <% end %>
 
-                      <%= if @house_rules == [] do %>
-                        <p style="font-size:0.76rem;color:var(--text-muted);margin:0 0 0.4rem">
-                          No house rules yet — add one below.
-                        </p>
-                      <% end %>
+                    <%= if @house_rules == [] do %>
+                      <p style="font-size:0.76rem;color:var(--text-muted);margin:0 0 0.4rem">
+                        No house rules yet — add one below.
+                      </p>
+                    <% end %>
 
-                      <%= if @hr_form_open do %>
-                        <form id="house-rule-form" phx-submit="add_house_rule" style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
-                          <input
-                            type="text"
-                            name="house_rule[title]"
-                            placeholder="Title (optional)"
-                            maxlength="80"
-                            style="font-size:0.8rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg);color:var(--text)"
-                          />
-                          <textarea
-                            name="house_rule[body]"
-                            placeholder="Describe the house rule…"
-                            maxlength="500"
-                            rows="3"
-                            style="font-size:0.8rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg);color:var(--text);resize:vertical"
-                          ></textarea>
-                          <div style="display:flex;gap:0.4rem">
-                            <button
-                              type="submit"
-                              style="background:var(--accent);color:var(--accent-text,#fff);border:none;border-radius:0.3rem;font-size:0.76rem;font-weight:700;padding:0.35rem 0.75rem;cursor:pointer"
-                            >
-                              Add house rule
-                            </button>
-                            <button
-                              type="button"
-                              phx-click="toggle_house_rule_form"
-                              style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.76rem;padding:0.35rem 0.75rem;cursor:pointer;color:var(--text-muted)"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </form>
-                      <% else %>
-                        <button
-                          type="button"
-                          phx-click="toggle_house_rule_form"
-                          style="margin-top:0.3rem;background:none;border:1px dashed var(--border);border-radius:0.3rem;font-size:0.76rem;padding:0.3rem 0.6rem;cursor:pointer;color:var(--text-muted);font-weight:600"
-                        >
-                          + Add a house rule
-                        </button>
-                      <% end %>
-
-                      <%= if @community_house_rules != [] do %>
-                        <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.8rem 0 0.3rem">
-                          Community house rules
+                    <%= if @hr_form_open do %>
+                      <form
+                        id="house-rule-form"
+                        phx-submit="add_house_rule"
+                        style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem"
+                      >
+                        <input
+                          type="text"
+                          name="house_rule[title]"
+                          placeholder="Title (optional)"
+                          maxlength="80"
+                          style="font-size:0.8rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg);color:var(--text)"
+                        />
+                        <textarea
+                          name="house_rule[body]"
+                          placeholder="Describe the house rule…"
+                          maxlength="500"
+                          rows="3"
+                          style="font-size:0.8rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:0.3rem;background:var(--bg);color:var(--text);resize:vertical"
+                        ></textarea>
+                        <div style="display:flex;gap:0.4rem">
+                          <button
+                            type="submit"
+                            style="background:var(--accent);color:var(--accent-text,#fff);border:none;border-radius:0.3rem;font-size:0.76rem;font-weight:700;padding:0.35rem 0.75rem;cursor:pointer"
+                          >
+                            Add house rule
+                          </button>
+                          <button
+                            type="button"
+                            phx-click="toggle_house_rule_form"
+                            style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.76rem;padding:0.35rem 0.75rem;cursor:pointer;color:var(--text-muted)"
+                          >
+                            Cancel
+                          </button>
                         </div>
+                      </form>
+                    <% else %>
+                      <button
+                        type="button"
+                        phx-click="toggle_house_rule_form"
+                        style="margin-top:0.3rem;background:none;border:1px dashed var(--border);border-radius:0.3rem;font-size:0.76rem;padding:0.3rem 0.6rem;cursor:pointer;color:var(--text-muted);font-weight:600"
+                      >
+                        + Add a house rule
+                      </button>
+                    <% end %>
 
-                        <%= for hr <- @community_house_rules do %>
-                          <.house_rule_row hr={hr} editing={false} owner?={false} is_admin={@is_admin} />
-                        <% end %>
+                    <%= if @community_house_rules != [] do %>
+                      <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.8rem 0 0.3rem">
+                        Community house rules
+                      </div>
+
+                      <%= for hr <- @community_house_rules do %>
+                        <.house_rule_row hr={hr} editing={false} owner?={false} is_admin={@is_admin} />
                       <% end %>
                     <% end %>
-                  </div>
+                  <% end %>
                 </div>
+              </div>
 
               <%= if @suggestions != [] && !Enum.any?(@conversation, & &1[:refused]) do %>
                 <div style="margin-top:1.5rem;text-align:left;max-width:28rem;margin-left:auto;margin-right:auto">
@@ -3167,7 +3216,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                               title={"#{@game.name} persona"}
                             >✦</span>
                             <span aria-hidden="true">{cur.emoji}</span>
-                            <span>{if speaking, do: "#{cur.label} speaking", else: "#{cur.label} persona"}</span>
+                            <span>{if speaking,
+                              do: "#{cur.label} speaking",
+                              else: "#{cur.label} persona"}</span>
                             <span style="opacity:0.6">▾</span>
                           </summary>
                           <.voice_menu
@@ -3258,10 +3309,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                             id={"voice-loader-#{msg[:id]}-#{v_sel}"}
                             phx-hook="VoiceLoader"
                             phx-update="ignore"
-                            data-phrases={Jason.encode!(RuleMaven.Voices.loading_phrases(v_sel, @game))}
+                            data-phrases={
+                              Jason.encode!(RuleMaven.Voices.loading_phrases(v_sel, @game))
+                            }
                           >
                             <div :if={v_def} class="voice-loader__persona">
-                              <span :if={String.starts_with?(v_sel, "g:")} aria-hidden="true" class="voice-loader__persona-star">✦</span>
+                              <span
+                                :if={String.starts_with?(v_sel, "g:")}
+                                aria-hidden="true"
+                                class="voice-loader__persona-star"
+                              >✦</span>
                               <span aria-hidden="true">{v_def.emoji}</span>
                               <span>{v_def.label} ANSWERING…</span>
                             </div>
@@ -3269,7 +3326,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                               <span class="voice-loader__spinner" aria-hidden="true"></span>
                               <span class="voice-loader__phrase">Reticulating splines…</span>
                             </div>
-                            <div class="voice-loader__bar"><div class="voice-loader__fill"></div></div>
+                            <div class="voice-loader__bar">
+                              <div class="voice-loader__fill"></div>
+                            </div>
                           </div>
                         </div>
                       <% msg.role == :assistant && msg.content == "Thinking..." -> %>
@@ -3517,60 +3576,37 @@ defmodule RuleMavenWeb.GameLive.Show do
                     }
                     style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-top:0.5rem"
                   >
-                  <% q_text = find_question_for_answer(@conversation, msg) %>
-                  <% plain_text = strip_markdown(msg.content) %>
-                  <% can_regen =
-                    cond do
-                      is_community_msg ->
-                        false
+                    <% q_text = find_question_for_answer(@conversation, msg) %>
+                    <% plain_text = strip_markdown(msg.content) %>
+                    <% can_regen =
+                      cond do
+                        is_community_msg ->
+                          false
 
-                      msg[:pool_hit] && msg[:pool_source_id] ->
-                        msg[:pool_provisional] &&
-                          (@is_admin or
-                             Map.get(@community_user_votes, msg[:pool_source_id]) != "up")
+                        msg[:pool_hit] && msg[:pool_source_id] ->
+                          msg[:pool_provisional] &&
+                            (@is_admin or
+                               Map.get(@community_user_votes, msg[:pool_source_id]) != "up")
 
-                      !msg[:pool_hit] ->
-                        @is_admin or Map.get(@community_user_votes, msg[:id]) != "up"
+                        !msg[:pool_hit] ->
+                          @is_admin or Map.get(@community_user_votes, msg[:id]) != "up"
 
-                      true ->
-                        false
-                    end %>
+                        true ->
+                          false
+                      end %>
 
-                  <!-- Community vote buttons (primary action, kept inline) -->
-                  <%= if is_community_msg do %>
-                    <% cv = Map.get(@community_user_votes, msg[:id]) %>
-                    <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
-                    <span data-tour="answer-vote" style="display:inline-flex;align-items:center;gap:0.15rem">
-                      <button
-                        type="button"
-                        phx-click="community_vote"
-                        phx-value-id={msg[:id]}
-                        phx-value-vote="up"
-                        style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
-                        title={if cv == "up", do: "Remove vote", else: "Helpful"}
-                      >👍</button>
+                    <!-- Community vote buttons (primary action, kept inline) -->
+                    <%= if is_community_msg do %>
+                      <% cv = Map.get(@community_user_votes, msg[:id]) %>
+                      <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
                       <span
-                        style="font-size:0.65rem;color:var(--text-muted)"
-                        title="Total helpful votes"
-                      >{Map.get(counts, :up, 0)}</span>
-                      <span
-                        :if={MapSet.member?(@asker_confirmed_ids, msg[:id])}
-                        style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
-                        title="Count includes the asker, who confirmed this answered their question"
-                      >✓ asker</span>
-                    </span>
-                  <% else %>
-                    <%= if msg[:pool_hit] && msg[:pool_source_id] do %>
-                      <!-- Pool hit (trusted or provisional): vote accrues to the
-                           source row, so every player sees the same tally. -->
-                      <% sid = msg[:pool_source_id] %>
-                      <% cv = Map.get(@community_user_votes, sid) %>
-                      <% counts = Map.get(@community_vote_counts, sid, %{up: 0, down: 0}) %>
-                      <span data-tour="answer-vote" style="display:inline-flex;align-items:center;gap:0.15rem">
+                        data-tour="answer-vote"
+                        style="display:inline-flex;align-items:center;gap:0.15rem"
+                      >
                         <button
                           type="button"
                           phx-click="community_vote"
-                          phx-value-id={sid}
+                          phx-value-id={msg[:id]}
                           phx-value-vote="up"
                           style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
                           title={if cv == "up", do: "Remove vote", else: "Helpful"}
@@ -3580,221 +3616,216 @@ defmodule RuleMavenWeb.GameLive.Show do
                           title="Total helpful votes"
                         >{Map.get(counts, :up, 0)}</span>
                         <span
-                          :if={MapSet.member?(@asker_confirmed_ids, sid)}
+                          :if={MapSet.member?(@asker_confirmed_ids, msg[:id])}
                           style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
                           title="Count includes the asker, who confirmed this answered their question"
                         >✓ asker</span>
                       </span>
                     <% else %>
-                      <!-- Own (non-pool) answer: votes go to the same QuestionVote
+                      <%= if msg[:pool_hit] && msg[:pool_source_id] do %>
+                        <!-- Pool hit (trusted or provisional): vote accrues to the
+                           source row, so every player sees the same tally. -->
+                        <% sid = msg[:pool_source_id] %>
+                        <% cv = Map.get(@community_user_votes, sid) %>
+                        <% counts = Map.get(@community_vote_counts, sid, %{up: 0, down: 0}) %>
+                        <span
+                          data-tour="answer-vote"
+                          style="display:inline-flex;align-items:center;gap:0.15rem"
+                        >
+                          <button
+                            type="button"
+                            phx-click="community_vote"
+                            phx-value-id={sid}
+                            phx-value-vote="up"
+                            style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
+                            title={if cv == "up", do: "Remove vote", else: "Helpful"}
+                          >👍</button>
+                          <span
+                            style="font-size:0.65rem;color:var(--text-muted)"
+                            title="Total helpful votes"
+                          >{Map.get(counts, :up, 0)}</span>
+                          <span
+                            :if={MapSet.member?(@asker_confirmed_ids, sid)}
+                            style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
+                            title="Count includes the asker, who confirmed this answered their question"
+                          >✓ asker</span>
+                        </span>
+                      <% else %>
+                        <!-- Own (non-pool) answer: votes go to the same QuestionVote
                            store as community/pool answers, so the asker's thumb and
                            every other player's vote sum into one per-user tally
                            (was a separate scalar `feedback` column that never
                            combined with other users' votes). -->
-                      <% cv = Map.get(@community_user_votes, msg[:id]) %>
-                      <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
-                      <span
-                        :if={!msg[:pool_hit]}
-                        data-tour="answer-vote"
-                        style="display:inline-flex;align-items:center;gap:0.15rem"
-                      >
-                        <%!-- This branch is always the asker's own question: the
+                        <% cv = Map.get(@community_user_votes, msg[:id]) %>
+                        <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
+                        <span
+                          :if={!msg[:pool_hit]}
+                          data-tour="answer-vote"
+                          style="display:inline-flex;align-items:center;gap:0.15rem"
+                        >
+                          <%!-- This branch is always the asker's own question: the
                               thumb is a self-confirmation, stored at weight 0. It
                               counts in the visible tally (a click must increment
                               the number) and shows other users an "asker
                               confirmed" badge. --%>
-                        <button
-                          type="button"
-                          phx-click="community_vote"
-                          phx-value-id={msg[:id]}
-                          phx-value-vote="up"
-                          style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
-                          title={
-                            if cv == "up",
-                              do: "Remove confirmation",
-                              else: "Confirm this answered your question"
-                          }
-                        >👍</button>
-                        <span
-                          style="font-size:0.65rem;color:var(--text-muted)"
-                          title="Total helpful votes"
-                        >{Map.get(counts, :up, 0)}</span>
-                      </span>
+                          <button
+                            type="button"
+                            phx-click="community_vote"
+                            phx-value-id={msg[:id]}
+                            phx-value-vote="up"
+                            style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
+                            title={
+                              if cv == "up",
+                                do: "Remove confirmation",
+                                else: "Confirm this answered your question"
+                            }
+                          >👍</button>
+                          <span
+                            style="font-size:0.65rem;color:var(--text-muted)"
+                            title="Total helpful votes"
+                          >{Map.get(counts, :up, 0)}</span>
+                        </span>
+                      <% end %>
                     <% end %>
-                  <% end %>
 
-                  <%!-- Everything else right-aligns in one group: category pills,
+                    <%!-- Everything else right-aligns in one group: category pills,
                         then the overflow menu. --%>
-                  <span style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-left:auto">
-                  <!-- Category pills. Categories live in the (community) FAQ, so
+                    <span style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-left:auto">
+                      <!-- Category pills. Categories live in the (community) FAQ, so
                        only show on community questions — except admins, who see
                        them on any answer to audit tagging before it goes
                        community. -->
-                  <% msg_cats =
-                    if (is_community_msg || @is_admin) && msg.role == :assistant && msg[:id],
-                      do: Map.get(@question_categories, msg[:id], []),
-                      else: [] %>
-                  <span
-                    :if={msg_cats != []}
-                    style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.25rem"
-                  >
-                    <span style="font-size:0.55rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);font-weight:600">
-                      Categories
-                    </span>
-                    <.link
-                      :for={cat <- msg_cats}
-                      navigate={~p"/games/#{@game}/faq?category=#{RuleMaven.Hashid.encode(cat.id)}"}
-                      style="font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:1rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);text-decoration:none"
-                    >
-                      {cat.name}
-                    </.link>
-                  </span>
+                      <% msg_cats =
+                        if (is_community_msg || @is_admin) && msg.role == :assistant && msg[:id],
+                          do: Map.get(@question_categories, msg[:id], []),
+                          else: [] %>
+                      <span
+                        :if={msg_cats != []}
+                        style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.25rem"
+                      >
+                        <span style="font-size:0.55rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);font-weight:600">
+                          Categories
+                        </span>
+                        <.link
+                          :for={cat <- msg_cats}
+                          navigate={
+                            ~p"/games/#{@game}/faq?category=#{RuleMaven.Hashid.encode(cat.id)}"
+                          }
+                          style="font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:1rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);text-decoration:none"
+                        >
+                          {cat.name}
+                        </.link>
+                      </span>
 
-                  <!-- Overflow: secondary actions (favorite, copy, regenerate) -->
-                  <details class="card-menu">
-                    <summary class="card-menu__trigger" title="More actions">
-                      ⋯
-                    </summary>
-                    <div class="card-menu__pop card-menu__pop--right card-menu__pop--up">
-                      <%= if is_community_msg do %>
-                        <%!-- Browsed community answer: favorite marks it for the
+                      <!-- Overflow: secondary actions (favorite, copy, regenerate) -->
+                      <details class="card-menu">
+                        <summary class="card-menu__trigger" title="More actions">
+                          ⋯
+                        </summary>
+                        <div class="card-menu__pop card-menu__pop--right card-menu__pop--up">
+                          <%= if is_community_msg do %>
+                            <%!-- Browsed community answer: favorite marks it for the
                               Community sidebar list, unrelated to thread order. --%>
-                        <% fav? = MapSet.member?(@favorited_answer_ids, msg[:id]) %>
-                        <button
-                          type="button"
-                          phx-click="favorite_community_answer"
-                          phx-value-id={msg[:id]}
-                          class="card-menu__item"
-                          title={
-                            if fav?,
-                              do: "Remove from your favorites",
-                              else: "Add to your favorites"
-                          }
-                        >{if fav?, do: "♥ Unfavorite", else: "♡ Favorite"}</button>
-                      <% else %>
-                        <%!-- Your own asked question (private or pool-served): pins
-                              it to the top of the sidebar's thread list. --%>
-                        <button
-                          type="button"
-                          phx-click="favorite_question"
-                          phx-value-id={msg.id}
-                          class="card-menu__item"
-                          title={
-                            if msg[:favorited],
-                              do: "Unfavorite",
-                              else: "Favorite — moves to top of your list"
-                          }
-                        >{if msg[:favorited], do: "♥ Unfavorite", else: "♡ Favorite"}</button>
-                      <% end %>
-                      <button
-                        type="button"
-                        id={"copy-btn-#{idx}"}
-                        phx-hook="ClipboardCopy"
-                        data-clipboard-text={"Q: #{q_text}\n\nA: #{plain_text}"}
-                        class="card-menu__item"
-                        title="Copy question and answer"
-                      >📋 Copy Q&amp;A</button>
-                      <button
-                        :if={can_regen}
-                        type="button"
-                        phx-click="regenerate_answer"
-                        phx-value-id={msg.id}
-                        data-confirm="Regenerate this answer? The current one will be replaced."
-                        class="card-menu__item"
-                        title="Generate a fresh answer from the rulebook"
-                      >↻ Regenerate</button>
-                      <% flag_id = msg[:pool_source_id] || msg[:id] %>
-                      <%= if flag_id && msg.content != "Thinking..." do %>
-                        <%= if @is_admin do %>
-                          <!-- Admins don't report (they ARE the moderators) —
-                               direct pull from the pool instead. -->
-                          <button
-                            type="button"
-                            phx-click="pull_for_review"
-                            phx-value-id={msg.id}
-                            data-confirm="Pull this answer from the shared pool for review? It stays out of the pool until re-approved."
-                            class="card-menu__item"
-                            title="Pull from the pool into the moderation queue"
-                          >⏸ Pull for review</button>
-                        <% else %>
-                          <%= if MapSet.member?(@flagged_ids, flag_id) do %>
+                            <% fav? = MapSet.member?(@favorited_answer_ids, msg[:id]) %>
                             <button
                               type="button"
-                              disabled
+                              phx-click="favorite_community_answer"
+                              phx-value-id={msg[:id]}
                               class="card-menu__item"
-                              style="opacity:0.6;cursor:default"
-                              title="You reported this answer"
-                            >✓ Reported</button>
+                              title={
+                                if fav?,
+                                  do: "Remove from your favorites",
+                                  else: "Add to your favorites"
+                              }
+                            >{if fav?, do: "♥ Unfavorite", else: "♡ Favorite"}</button>
                           <% else %>
+                            <%!-- Your own asked question (private or pool-served): pins
+                              it to the top of the sidebar's thread list. --%>
                             <button
                               type="button"
-                              phx-click="open_report"
+                              phx-click="favorite_question"
                               phx-value-id={msg.id}
                               class="card-menu__item"
-                              title="Report a wrong or unhelpful answer"
-                            >🚩 Report</button>
+                              title={
+                                if msg[:favorited],
+                                  do: "Unfavorite",
+                                  else: "Favorite — moves to top of your list"
+                              }
+                            >{if msg[:favorited], do: "♥ Unfavorite", else: "♡ Favorite"}</button>
                           <% end %>
-                        <% end %>
-                      <% end %>
-                    </div>
-                  </details>
-                  </span>
-                </div>
+                          <button
+                            type="button"
+                            id={"copy-btn-#{idx}"}
+                            phx-hook="ClipboardCopy"
+                            data-clipboard-text={"Q: #{q_text}\n\nA: #{plain_text}"}
+                            class="card-menu__item"
+                            title="Copy question and answer"
+                          >📋 Copy Q&amp;A</button>
+                          <button
+                            :if={can_regen}
+                            type="button"
+                            phx-click="regenerate_answer"
+                            phx-value-id={msg.id}
+                            data-confirm="Regenerate this answer? The current one will be replaced."
+                            class="card-menu__item"
+                            title="Generate a fresh answer from the rulebook"
+                          >↻ Regenerate</button>
+                          <% flag_id = msg[:pool_source_id] || msg[:id] %>
+                          <%= if flag_id && msg.content != "Thinking..." do %>
+                            <%= if @is_admin do %>
+                              <!-- Admins don't report (they ARE the moderators) —
+                               direct pull from the pool instead. -->
+                              <button
+                                type="button"
+                                phx-click="pull_for_review"
+                                phx-value-id={msg.id}
+                                data-confirm="Pull this answer from the shared pool for review? It stays out of the pool until re-approved."
+                                class="card-menu__item"
+                                title="Pull from the pool into the moderation queue"
+                              >⏸ Pull for review</button>
+                            <% else %>
+                              <%= if MapSet.member?(@flagged_ids, flag_id) do %>
+                                <button
+                                  type="button"
+                                  disabled
+                                  class="card-menu__item"
+                                  style="opacity:0.6;cursor:default"
+                                  title="You reported this answer"
+                                >✓ Reported</button>
+                              <% else %>
+                                <button
+                                  type="button"
+                                  phx-click="open_report"
+                                  phx-value-id={msg.id}
+                                  class="card-menu__item"
+                                  title="Report a wrong or unhelpful answer"
+                                >🚩 Report</button>
+                              <% end %>
+                            <% end %>
+                          <% end %>
+                        </div>
+                      </details>
+                    </span>
+                  </div>
 
-                <!-- Message actions (admin only). Also inside the bubble (like
+                  <!-- Message actions (admin only). Also inside the bubble (like
                      the row above) so it stretches to the bubble's own width
                      instead of shrink-wrapping — otherwise margin-left:auto on
                      the model-name span below has no room to push into. -->
-                <div
-                  :if={RuleMaven.Users.can?(@current_user, :admin) && msg.role == :assistant}
-                  class="flex items-center gap-1 mt-0.5"
-                  style="flex-wrap:wrap;min-width:0;padding-left:0.25rem"
-                >
-                  <%= if msg.content == "Thinking..." do %>
-                    <button
-                      type="button"
-                      phx-click="retry_question"
-                      phx-value-id={msg.id}
-                      disabled={@pending_count >= @max_concurrent}
-                      style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                      title="Re-ask"
-                    >↻</button>
-                    <%= if @confirm_delete_id == msg.id do %>
-                      <span class="text-xs" style="color:var(--red)">Delete?</span>
+                  <div
+                    :if={RuleMaven.Users.can?(@current_user, :admin) && msg.role == :assistant}
+                    class="flex items-center gap-1 mt-0.5"
+                    style="flex-wrap:wrap;min-width:0;padding-left:0.25rem"
+                  >
+                    <%= if msg.content == "Thinking..." do %>
                       <button
                         type="button"
-                        phx-click="confirm_delete_question"
+                        phx-click="retry_question"
                         phx-value-id={msg.id}
-                        style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
-                      >Yes</button>
-                      <button
-                        type="button"
-                        phx-click="cancel_delete_question"
+                        disabled={@pending_count >= @max_concurrent}
                         style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                      >No</button>
-                    <% else %>
-                      <button
-                        type="button"
-                        phx-click="delete_question"
-                        phx-value-id={msg.id}
-                        style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                        title="Delete"
-                      >✕</button>
-                    <% end %>
-                  <% else %>
-                    <% is_error = is_binary(msg.content) && String.starts_with?(msg.content, "⚠️") %>
-                    <%= if msg[:refused] || is_error do %>
-                      <!-- error/refused: retry + delete only -->
-                      <%= if is_error do %>
-                        <button
-                          type="button"
-                          phx-click="retry_question"
-                          phx-value-id={msg.id}
-                          disabled={@pending_count >= @max_concurrent}
-                          style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                          title="Re-ask"
-                        >↻</button>
-                      <% end %>
+                        title="Re-ask"
+                      >↻</button>
                       <%= if @confirm_delete_id == msg.id do %>
                         <span class="text-xs" style="color:var(--red)">Delete?</span>
                         <button
@@ -3810,7 +3841,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                         >No</button>
                       <% else %>
                         <button
-                          :if={!msg[:history]}
                           type="button"
                           phx-click="delete_question"
                           phx-value-id={msg.id}
@@ -3819,219 +3849,264 @@ defmodule RuleMavenWeb.GameLive.Show do
                         >✕</button>
                       <% end %>
                     <% else %>
-                      <!-- normal answer: full actions. Re-ask is dropped here —
+                      <% is_error = is_binary(msg.content) && String.starts_with?(msg.content, "⚠️") %>
+                      <%= if msg[:refused] || is_error do %>
+                        <!-- error/refused: retry + delete only -->
+                        <%= if is_error do %>
+                          <button
+                            type="button"
+                            phx-click="retry_question"
+                            phx-value-id={msg.id}
+                            disabled={@pending_count >= @max_concurrent}
+                            style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                            title="Re-ask"
+                          >↻</button>
+                        <% end %>
+                        <%= if @confirm_delete_id == msg.id do %>
+                          <span class="text-xs" style="color:var(--red)">Delete?</span>
+                          <button
+                            type="button"
+                            phx-click="confirm_delete_question"
+                            phx-value-id={msg.id}
+                            style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
+                          >Yes</button>
+                          <button
+                            type="button"
+                            phx-click="cancel_delete_question"
+                            style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                          >No</button>
+                        <% else %>
+                          <button
+                            :if={!msg[:history]}
+                            type="button"
+                            phx-click="delete_question"
+                            phx-value-id={msg.id}
+                            style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                            title="Delete"
+                          >✕</button>
+                        <% end %>
+                      <% else %>
+                        <!-- normal answer: full actions. Re-ask is dropped here —
                            skip_pool:false just re-serves the same pooled
                            answer, so it's a no-op vs the overflow menu's
                            "Regenerate" (skip_pool:true, forces fresh). -->
-                      <%!-- Demote-only: rows reach the community pool via vote
+                        <%!-- Demote-only: rows reach the community pool via vote
                             quorum or admin verify. A manual promote here would
                             render identically to a crowd-promoted row, passing
                             off an admin push as community consensus. --%>
-                      <button
-                        :if={
-                          @is_admin && !msg[:history] && !msg[:pool_hit] &&
-                            msg[:visibility] == "community"
-                        }
-                        type="button"
-                        phx-click="toggle_question_visibility"
-                        phx-value-id={msg.id}
-                        title="Remove from community (make private)"
-                        style="background:none;border:none;font-size:0.6rem;cursor:pointer;color:var(--accent-ink,var(--accent))"
-                      >🌐</button>
-                      <%!-- Favorite/pin-to-top moved to the main action row
-                            (visible to all users, not just admins). --%>
-                      <button
-                        :if={!msg[:history]}
-                        type="button"
-                        phx-click="verify_question"
-                        phx-value-id={msg.id}
-                        style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:verified], do: "color:#15803d", else: "color:var(--text-muted)"}"}
-                        title={
-                          if msg[:verified],
-                            do: "Admin-verified & published — click to unpublish",
-                            else: "Verify & publish to community (admin)"
-                        }
-                      >{if msg[:verified], do: "✔", else: "✓"}</button>
-                      <%= if @confirm_delete_id == msg.id do %>
-                        <span class="text-xs" style="color:var(--red)">{if msg[:pending],
-                          do: "Cancel?",
-                          else: "Delete?"}</span>
                         <button
+                          :if={
+                            @is_admin && !msg[:history] && !msg[:pool_hit] &&
+                              msg[:visibility] == "community"
+                          }
                           type="button"
-                          phx-click="confirm_delete_question"
+                          phx-click="toggle_question_visibility"
                           phx-value-id={msg.id}
-                          style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
-                        >Yes</button>
-                        <button
-                          type="button"
-                          phx-click="cancel_delete_question"
-                          style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                        >No</button>
-                      <% else %>
+                          title="Remove from community (make private)"
+                          style="background:none;border:none;font-size:0.6rem;cursor:pointer;color:var(--accent-ink,var(--accent))"
+                        >🌐</button>
+                        <%!-- Favorite/pin-to-top moved to the main action row
+                            (visible to all users, not just admins). --%>
                         <button
                           :if={!msg[:history]}
                           type="button"
-                          phx-click="delete_question"
+                          phx-click="verify_question"
                           phx-value-id={msg.id}
-                          style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                          title={if msg[:pending], do: "Cancel", else: "Delete"}
-                        >✕</button>
-                      <% end %>
-                      <%= if RuleMaven.Users.can?(@current_user, :admin) && (msg[:llm_provider] || msg[:llm_model]) do %>
-                        <span
-                          class="text-xs"
-                          style="color:var(--text-muted);margin-left:auto;min-width:0;overflow-wrap:anywhere;word-break:break-word;text-align:right"
-                        >{msg[
-                          :llm_provider
-                        ]} &middot; {msg[:llm_model]}</span>
+                          style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:verified], do: "color:#15803d", else: "color:var(--text-muted)"}"}
+                          title={
+                            if msg[:verified],
+                              do: "Admin-verified & published — click to unpublish",
+                              else: "Verify & publish to community (admin)"
+                          }
+                        >{if msg[:verified], do: "✔", else: "✓"}</button>
+                        <%= if @confirm_delete_id == msg.id do %>
+                          <span class="text-xs" style="color:var(--red)">{if msg[:pending],
+                            do: "Cancel?",
+                            else: "Delete?"}</span>
+                          <button
+                            type="button"
+                            phx-click="confirm_delete_question"
+                            phx-value-id={msg.id}
+                            style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
+                          >Yes</button>
+                          <button
+                            type="button"
+                            phx-click="cancel_delete_question"
+                            style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                          >No</button>
+                        <% else %>
+                          <button
+                            :if={!msg[:history]}
+                            type="button"
+                            phx-click="delete_question"
+                            phx-value-id={msg.id}
+                            style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                            title={if msg[:pending], do: "Cancel", else: "Delete"}
+                          >✕</button>
+                        <% end %>
+                        <%= if RuleMaven.Users.can?(@current_user, :admin) && (msg[:llm_provider] || msg[:llm_model]) do %>
+                          <span
+                            class="text-xs"
+                            style="color:var(--text-muted);margin-left:auto;min-width:0;overflow-wrap:anywhere;word-break:break-word;text-align:right"
+                          >{msg[
+                            :llm_provider
+                          ]} &middot; {msg[:llm_model]}</span>
+                        <% end %>
                       <% end %>
                     <% end %>
-                  <% end %>
-                  <!-- Admin debug: raw LLM response -->
-                  <details
-                    :if={
-                      RuleMaven.Users.can?(@current_user, :admin) && msg.role == :assistant &&
-                        msg[:raw_response] && msg.content != "Thinking..."
-                    }
-                    style="margin:0;font-size:0.6rem;color:var(--text-muted);opacity:0.6"
-                  >
-                    <summary style="cursor:pointer">raw</summary>
-                    <pre style="white-space:pre-wrap;word-break:break-word;margin-top:0.15rem;padding:0.25rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem;max-height:12rem;overflow-y:auto"><%= msg[:raw_response] %></pre>
-                  </details>
-                  <!-- Admin-only: version history (prior deleted regenerate/report
+                    <!-- Admin debug: raw LLM response -->
+                    <details
+                      :if={
+                        RuleMaven.Users.can?(@current_user, :admin) && msg.role == :assistant &&
+                          msg[:raw_response] && msg.content != "Thinking..."
+                      }
+                      style="margin:0;font-size:0.6rem;color:var(--text-muted);opacity:0.6"
+                    >
+                      <summary style="cursor:pointer">raw</summary>
+                      <pre style="white-space:pre-wrap;word-break:break-word;margin-top:0.15rem;padding:0.25rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem;max-height:12rem;overflow-y:auto"><%= msg[:raw_response] %></pre>
+                    </details>
+                    <!-- Admin-only: version history (prior deleted regenerate/report
                        versions of this Q&A — see Audit.question_history/2) -->
-                  <% q_text_hist =
-                    if @is_admin && msg.role == :assistant && !msg[:history] &&
-                         msg.content != "Thinking...",
-                       do: find_question_for_answer(@conversation, msg) %>
-                  <button
-                    :if={
-                      @is_admin && msg.role == :assistant && !msg[:history] &&
-                        msg.content != "Thinking..."
-                    }
-                    type="button"
-                    phx-click="toggle_question_history"
-                    phx-value-id={msg.id}
-                    phx-value-question={q_text_hist}
-                    style="margin:0;color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer;text-align:left"
-                  >{if MapSet.member?(@history_open, msg.id), do: "▾", else: "▸"} History</button>
-                  <!-- Admin-only: LLM trace (every llm_logs call recorded for
+                    <% q_text_hist =
+                      if @is_admin && msg.role == :assistant && !msg[:history] &&
+                           msg.content != "Thinking...",
+                         do: find_question_for_answer(@conversation, msg) %>
+                    <button
+                      :if={
+                        @is_admin && msg.role == :assistant && !msg[:history] &&
+                          msg.content != "Thinking..."
+                      }
+                      type="button"
+                      phx-click="toggle_question_history"
+                      phx-value-id={msg.id}
+                      phx-value-question={q_text_hist}
+                      style="margin:0;color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer;text-align:left"
+                    >{if MapSet.member?(@history_open, msg.id), do: "▾", else: "▸"} History</button>
+                    <!-- Admin-only: LLM trace (every llm_logs call recorded for
                        this question — see LLM.calls_for_question/1) -->
-                  <button
-                    :if={
-                      @is_admin && msg.role == :assistant && !msg[:history] &&
-                        msg.content != "Thinking..."
-                    }
-                    type="button"
-                    phx-click="toggle_llm_trace"
-                    phx-value-id={msg.id}
-                    style="margin:0;color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer;text-align:left"
-                  >{if MapSet.member?(@llm_trace_open, msg.id), do: "▾", else: "▸"} LLM trace</button>
-                </div>
-                <%= if @is_admin && msg.role == :assistant && !msg[:history] && msg.content != "Thinking..." do %>
-                  <div
-                    :if={MapSet.member?(@history_open, msg.id)}
-                    style="margin-top:0.25rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-subtle);display:flex;flex-direction:column;gap:0.4rem"
-                  >
-                    <% history = Map.get(@question_history, msg.id, []) %>
-                    <%= if history == [] do %>
-                      <span style="font-size:0.65rem;color:var(--text-muted)">No prior versions.</span>
-                    <% else %>
-                      <%= for entry <- history do %>
-                        <div style="font-size:0.65rem;color:var(--text-muted);border-bottom:1px solid var(--border);padding-bottom:0.35rem">
-                          <div style="font-weight:600;color:var(--text-secondary)">
-                            {entry.inserted_at |> Calendar.strftime("%Y-%m-%d %H:%M UTC")}
-                            &middot; {entry.actor_username || "system"}
-                            &middot; {entry.metadata["via"] || "system"}
-                          </div>
-                          <div style="margin-top:0.15rem;white-space:pre-wrap;word-break:break-word">
-                            {entry.metadata["answer"]}
-                          </div>
-                          <div style="margin-top:0.15rem;opacity:0.8">
-                            👍 {entry.metadata["upvotes"] || 0} &middot; 👎 {entry.metadata["downvotes"] || 0}
-                            <%= if entry.metadata["pooled"], do: " · pooled" %>
-                            <%= if entry.metadata["needs_review"], do: " · pulled for review" %>
-                            <%= if entry.metadata["verified"], do: " · verified" %>
-                          </div>
-                        </div>
-                      <% end %>
-                    <% end %>
+                    <button
+                      :if={
+                        @is_admin && msg.role == :assistant && !msg[:history] &&
+                          msg.content != "Thinking..."
+                      }
+                      type="button"
+                      phx-click="toggle_llm_trace"
+                      phx-value-id={msg.id}
+                      style="margin:0;color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer;text-align:left"
+                    >{if MapSet.member?(@llm_trace_open, msg.id), do: "▾", else: "▸"} LLM trace</button>
                   </div>
-                  <div
-                    :if={MapSet.member?(@llm_trace_open, msg.id)}
-                    style="margin-top:0.25rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-subtle);display:flex;flex-direction:column;gap:0.3rem"
-                  >
-                    <% trace = Map.get(@llm_traces, msg.id, %{calls: [], totals: nil}) %>
-                    <%= if trace.calls == [] do %>
-                      <span style="font-size:0.65rem;color:var(--text-muted)">
-                        No LLM calls recorded — served from cache, or asked before call tracing existed.
-                      </span>
-                    <% else %>
-                      <div style="font-size:0.65rem;font-weight:600;color:var(--text-secondary)">
-                        {trace.totals.count} call{if trace.totals.count != 1, do: "s"}
-                        &middot; {format_trace_cost(trace.totals.cost)}
-                        &middot; {format_trace_duration(trace.totals.duration_ms)}
-                        &middot; {trace.totals.tokens} tokens
-                      </div>
-                      <%= for call <- trace.calls do %>
-                        <div style="font-size:0.65rem;color:var(--text-muted);border-top:1px solid var(--border);padding-top:0.25rem;display:flex;flex-wrap:wrap;gap:0.15rem 0.45rem;align-items:baseline">
-                          <span style="font-variant-numeric:tabular-nums">{Calendar.strftime(call.inserted_at, "%H:%M:%S")}</span>
-                          <span style="font-weight:600;color:var(--text-secondary)">{call.operation}</span>
-                          <span style="overflow-wrap:anywhere">{call.model}</span>
-                          <span :if={call.total_tokens}>
-                            {call.prompt_tokens || 0}→{call.completion_tokens || 0} tok
-                          </span>
-                          <span>{format_trace_cost(call.cost)}</span>
-                          <span>{format_trace_duration(call.duration_ms)}</span>
-                          <span style={"color:#{if call.success, do: "var(--success, #16a34a)", else: "var(--danger, #dc2626)"}"}>
-                            {if call.success, do: "✓", else: "✗"}
-                          </span>
-                          <span :if={call.detail["cached_tokens"]} title="provider-cached prompt tokens">
-                            ⚡{call.detail["cached_tokens"]} cached
-                          </span>
-                          <span :if={call.detail["reasoning_effort"]}>
-                            🧠 {call.detail["reasoning_effort"]}
-                          </span>
-                          <span
-                            :if={call.detail["finish_reason"] not in [nil, "stop", "end_turn"]}
-                            style="color:var(--warning, #d97706)"
-                            title="model stopped before a natural end"
-                          >
-                            ⚠ {call.detail["finish_reason"]}
-                          </span>
-                          <span
-                            :if={call.detail["truncation_retry"]}
-                            style="color:var(--warning, #d97706)"
-                            title="retry of a truncated call with a doubled token cap"
-                          >
-                            ↻ retry
-                          </span>
-                          <span
-                            :if={!call.success && call.error_message}
-                            title={call.error_message}
-                            style="flex-basis:100%;overflow-wrap:anywhere;opacity:0.8"
-                          >
-                            {String.slice(call.error_message, 0, 200)}
-                          </span>
-                          <details
-                            :if={call.detail["input"] || call.detail["output"]}
-                            style="flex-basis:100%;margin:0"
-                          >
-                            <summary style="cursor:pointer;opacity:0.8;font-size:0.62rem">in/out</summary>
-                            <div :if={call.detail["input"]} style="margin-top:0.25rem">
-                              <div style="font-weight:600;color:var(--text-secondary)">→ in</div>
-                              <pre style="margin:0.1rem 0 0;padding:0.3rem 0.45rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.3rem;white-space:pre-wrap;word-break:break-word;font-size:0.62rem;max-height:12rem;overflow-y:auto">{call.detail["input"]}</pre>
+                  <%= if @is_admin && msg.role == :assistant && !msg[:history] && msg.content != "Thinking..." do %>
+                    <div
+                      :if={MapSet.member?(@history_open, msg.id)}
+                      style="margin-top:0.25rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-subtle);display:flex;flex-direction:column;gap:0.4rem"
+                    >
+                      <% history = Map.get(@question_history, msg.id, []) %>
+                      <%= if history == [] do %>
+                        <span style="font-size:0.65rem;color:var(--text-muted)">No prior versions.</span>
+                      <% else %>
+                        <%= for entry <- history do %>
+                          <div style="font-size:0.65rem;color:var(--text-muted);border-bottom:1px solid var(--border);padding-bottom:0.35rem">
+                            <div style="font-weight:600;color:var(--text-secondary)">
+                              {entry.inserted_at |> Calendar.strftime("%Y-%m-%d %H:%M UTC")} &middot; {entry.actor_username ||
+                                "system"} &middot; {entry.metadata["via"] || "system"}
                             </div>
-                            <div :if={call.detail["output"]} style="margin-top:0.25rem">
-                              <div style="font-weight:600;color:var(--text-secondary)">← out</div>
-                              <pre style="margin:0.1rem 0 0;padding:0.3rem 0.45rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.3rem;white-space:pre-wrap;word-break:break-word;font-size:0.62rem;max-height:12rem;overflow-y:auto">{call.detail["output"]}</pre>
+                            <div style="margin-top:0.15rem;white-space:pre-wrap;word-break:break-word">
+                              {entry.metadata["answer"]}
                             </div>
-                          </details>
-                        </div>
+                            <div style="margin-top:0.15rem;opacity:0.8">
+                              👍 {entry.metadata["upvotes"] || 0} &middot; 👎 {entry.metadata[
+                                "downvotes"
+                              ] || 0}
+                              {if entry.metadata["pooled"], do: " · pooled"}
+                              {if entry.metadata["needs_review"], do: " · pulled for review"}
+                              {if entry.metadata["verified"], do: " · verified"}
+                            </div>
+                          </div>
+                        <% end %>
                       <% end %>
-                    <% end %>
-                  </div>
-                <% end %>
+                    </div>
+                    <div
+                      :if={MapSet.member?(@llm_trace_open, msg.id)}
+                      style="margin-top:0.25rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-subtle);display:flex;flex-direction:column;gap:0.3rem"
+                    >
+                      <% trace = Map.get(@llm_traces, msg.id, %{calls: [], totals: nil}) %>
+                      <%= if trace.calls == [] do %>
+                        <span style="font-size:0.65rem;color:var(--text-muted)">
+                          No LLM calls recorded — served from cache, or asked before call tracing existed.
+                        </span>
+                      <% else %>
+                        <div style="font-size:0.65rem;font-weight:600;color:var(--text-secondary)">
+                          {trace.totals.count} call{if trace.totals.count != 1, do: "s"} &middot; {format_trace_cost(
+                            trace.totals.cost
+                          )} &middot; {format_trace_duration(trace.totals.duration_ms)} &middot; {trace.totals.tokens} tokens
+                        </div>
+                        <%= for call <- trace.calls do %>
+                          <div style="font-size:0.65rem;color:var(--text-muted);border-top:1px solid var(--border);padding-top:0.25rem;display:flex;flex-wrap:wrap;gap:0.15rem 0.45rem;align-items:baseline">
+                            <span style="font-variant-numeric:tabular-nums">{Calendar.strftime(
+                              call.inserted_at,
+                              "%H:%M:%S"
+                            )}</span>
+                            <span style="font-weight:600;color:var(--text-secondary)">{call.operation}</span>
+                            <span style="overflow-wrap:anywhere">{call.model}</span>
+                            <span :if={call.total_tokens}>
+                              {call.prompt_tokens || 0}→{call.completion_tokens || 0} tok
+                            </span>
+                            <span>{format_trace_cost(call.cost)}</span>
+                            <span>{format_trace_duration(call.duration_ms)}</span>
+                            <span style={"color:#{if call.success, do: "var(--success, #16a34a)", else: "var(--danger, #dc2626)"}"}>
+                              {if call.success, do: "✓", else: "✗"}
+                            </span>
+                            <span
+                              :if={call.detail["cached_tokens"]}
+                              title="provider-cached prompt tokens"
+                            >
+                              ⚡{call.detail["cached_tokens"]} cached
+                            </span>
+                            <span :if={call.detail["reasoning_effort"]}>
+                              🧠 {call.detail["reasoning_effort"]}
+                            </span>
+                            <span
+                              :if={call.detail["finish_reason"] not in [nil, "stop", "end_turn"]}
+                              style="color:var(--warning, #d97706)"
+                              title="model stopped before a natural end"
+                            >
+                              ⚠ {call.detail["finish_reason"]}
+                            </span>
+                            <span
+                              :if={call.detail["truncation_retry"]}
+                              style="color:var(--warning, #d97706)"
+                              title="retry of a truncated call with a doubled token cap"
+                            >
+                              ↻ retry
+                            </span>
+                            <span
+                              :if={!call.success && call.error_message}
+                              title={call.error_message}
+                              style="flex-basis:100%;overflow-wrap:anywhere;opacity:0.8"
+                            >
+                              {String.slice(call.error_message, 0, 200)}
+                            </span>
+                            <details
+                              :if={call.detail["input"] || call.detail["output"]}
+                              style="flex-basis:100%;margin:0"
+                            >
+                              <summary style="cursor:pointer;opacity:0.8;font-size:0.62rem">
+                                in/out
+                              </summary>
+                              <div :if={call.detail["input"]} style="margin-top:0.25rem">
+                                <div style="font-weight:600;color:var(--text-secondary)">→ in</div>
+                                <pre style="margin:0.1rem 0 0;padding:0.3rem 0.45rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.3rem;white-space:pre-wrap;word-break:break-word;font-size:0.62rem;max-height:12rem;overflow-y:auto">{call.detail["input"]}</pre>
+                              </div>
+                              <div :if={call.detail["output"]} style="margin-top:0.25rem">
+                                <div style="font-weight:600;color:var(--text-secondary)">← out</div>
+                                <pre style="margin:0.1rem 0 0;padding:0.3rem 0.45rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.3rem;white-space:pre-wrap;word-break:break-word;font-size:0.62rem;max-height:12rem;overflow-y:auto">{call.detail["output"]}</pre>
+                              </div>
+                            </details>
+                          </div>
+                        <% end %>
+                      <% end %>
+                    </div>
+                  <% end %>
                 </div>
               </div>
             <% end %>
@@ -4171,7 +4246,10 @@ defmodule RuleMavenWeb.GameLive.Show do
               data-target="ask-input"
               data-autosubmit="true"
               title="Ask by voice"
-              disabled={@pending_count >= @max_concurrent || @source_count == 0 || (not @game.playable and not @is_admin)}
+              disabled={
+                @pending_count >= @max_concurrent || @source_count == 0 ||
+                  (not @game.playable and not @is_admin)
+              }
               style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:2rem;padding:0.4rem 0.6rem;cursor:pointer;font-size:0.85rem;color:var(--text-muted)"
             >🎤</button>
             <input
@@ -4186,7 +4264,10 @@ defmodule RuleMavenWeb.GameLive.Show do
               maxlength={600}
               class="flex-1 border rounded-full px-4 py-2.5 text-sm"
               style="background:var(--bg);color:var(--text);border-color:var(--border-strong)"
-              disabled={@pending_count >= @max_concurrent || @source_count == 0 || (not @game.playable and not @is_admin)}
+              disabled={
+                @pending_count >= @max_concurrent || @source_count == 0 ||
+                  (not @game.playable and not @is_admin)
+              }
               autocomplete="off"
               id="ask-input"
               phx-hook="FocusInput"
@@ -4194,7 +4275,10 @@ defmodule RuleMavenWeb.GameLive.Show do
             <input type="hidden" name="visibility" value={@visibility} />
             <button
               type="submit"
-              disabled={@pending_count >= @max_concurrent || @source_count == 0 || (not @game.playable and not @is_admin)}
+              disabled={
+                @pending_count >= @max_concurrent || @source_count == 0 ||
+                  (not @game.playable and not @is_admin)
+              }
               style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.5rem 1.25rem;border-radius:2rem;font-weight:600;font-size:0.85rem;cursor:pointer"
             >
               {if @pending_count >= @max_concurrent, do: "Wait…", else: "Send"}
@@ -4246,6 +4330,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   # decimal places; sub-cent totals still render as non-zero.
   defp format_trace_cost(cost) when is_number(cost),
     do: "$#{:erlang.float_to_binary(cost * 1.0, decimals: 4)}"
+
   defp format_trace_cost(_), do: "$—"
 
   defp format_trace_duration(ms) when is_integer(ms) and ms >= 1000,
@@ -4610,7 +4695,13 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       _ ->
         if msg[:cited_passage] do
-          [%{"quote" => msg.cited_passage, "page" => msg[:cited_page], "source" => msg[:cited_source]}]
+          [
+            %{
+              "quote" => msg.cited_passage,
+              "page" => msg[:cited_page],
+              "source" => msg[:cited_source]
+            }
+          ]
         else
           []
         end
