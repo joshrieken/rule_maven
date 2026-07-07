@@ -50,15 +50,6 @@ defmodule RuleMavenWeb.GameLive.Review do
   end
 
   @impl true
-  def handle_event("promote", %{"id" => id_str}, socket) do
-    with {id, ""} <- Integer.parse(id_str) do
-      Games.set_question_visibility(id, "community")
-    end
-
-    {:noreply, assign(socket, community_questions: Games.faq_questions(socket.assigns.game, 100))}
-  end
-
-  @impl true
   def handle_event("reject", %{"id" => id_str}, socket) do
     with {id, ""} <- Integer.parse(id_str) do
       Games.set_question_visibility(id, "private")

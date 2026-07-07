@@ -73,17 +73,6 @@ defmodule RuleMavenWeb.GameLive.Faq do
   end
 
   @impl true
-  def handle_event("promote", %{"id" => id_str}, socket) do
-    if socket.assigns.is_admin do
-      with {id, ""} <- Integer.parse(id_str) do
-        Games.set_question_visibility(id, "community")
-      end
-    end
-
-    {:noreply, reload(socket)}
-  end
-
-  @impl true
   def handle_event("reject", %{"id" => id_str}, socket) do
     if socket.assigns.is_admin do
       with {id, ""} <- Integer.parse(id_str) do

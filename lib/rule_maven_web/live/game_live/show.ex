@@ -1458,14 +1458,19 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp house_rule_stamp("overrides"), do: {"🔀", "Overrides RAW"}
   defp house_rule_stamp(_), do: {"🤔", "Unclear"}
 
+  # Demote-only: promotion to community happens via vote quorum or admin
+  # verify, never this toggle (events are forgeable, so the promote direction
+  # is rejected server-side too, not just hidden in the template).
   defp do_toggle_question_visibility(socket, game, id) do
     case find_question_log(game, id) do
       nil ->
         {:noreply, socket}
 
+      %{visibility: vis} when vis != "community" ->
+        {:noreply, socket}
+
       q ->
-        new_vis = if q.visibility == "community", do: "private", else: "community"
-        Games.update_question_visibility(q, new_vis)
+        Games.update_question_visibility(q, "private")
 
         grouped = Games.grouped_questions(game, question_group_opts(socket))
         conversation = build_conversation_for_thread(grouped, socket.assigns.active_thread_id)
@@ -3698,18 +3703,21 @@ defmodule RuleMavenWeb.GameLive.Show do
                            skip_pool:false just re-serves the same pooled
                            answer, so it's a no-op vs the overflow menu's
                            "Regenerate" (skip_pool:true, forces fresh). -->
+                      <%!-- Demote-only: rows reach the community pool via vote
+                            quorum or admin verify. A manual promote here would
+                            render identically to a crowd-promoted row, passing
+                            off an admin push as community consensus. --%>
                       <button
-                        :if={@is_admin && !msg[:history] && !msg[:pool_hit]}
+                        :if={
+                          @is_admin && !msg[:history] && !msg[:pool_hit] &&
+                            msg[:visibility] == "community"
+                        }
                         type="button"
                         phx-click="toggle_question_visibility"
                         phx-value-id={msg.id}
-                        title={
-                          if msg[:visibility] == "community",
-                            do: "Make private",
-                            else: "Make community-visible"
-                        }
-                        style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:visibility] == "community", do: "color:var(--accent-ink,var(--accent))", else: "color:var(--text-muted)"}"}
-                      >{if msg[:visibility] == "community", do: "🌐", else: "🔒"}</button>
+                        title="Remove from community (make private)"
+                        style="background:none;border:none;font-size:0.6rem;cursor:pointer;color:var(--accent-ink,var(--accent))"
+                      >🌐</button>
                       <%!-- Favorite/pin-to-top moved to the main action row
                             (visible to all users, not just admins). --%>
                       <button
