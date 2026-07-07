@@ -658,7 +658,10 @@ defmodule RuleMavenWeb.GameLive.Index do
       <%!-- Tagline: the point of the app is speed at the table — one place to
             ask instead of hunting through rulebooks — plus an up-front caveat
             that answers are AI-generated. --%>
-      <div style="margin-bottom:1rem">
+      <%!-- padding-top (not margin) because .main-content:has(.game-list)
+            zeroes its own top padding for the sticky controls, leaving this
+            block flush against the header otherwise. --%>
+      <div style="padding-top:1.25rem;margin-bottom:1rem">
         <p style="font-size:0.92rem;font-weight:600;color:var(--text);margin:0">
           ⚡ Ask a rules question, get a sourced answer in seconds — keep the game moving instead of flipping through rulebooks.
         </p>
