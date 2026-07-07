@@ -201,6 +201,8 @@ defmodule RuleMavenWeb.GameLive.Show do
     # First load of this game: restore the user's remembered expansion set
     # (or default from their collection). Later handle_params runs (thread
     # nav, ?t=) keep the in-session toggles.
+    seeded_before = socket.assigns.expansions_seeded
+
     included_expansions =
       if socket.assigns.expansions_seeded do
         socket.assigns.included_expansions
@@ -271,6 +273,11 @@ defmodule RuleMavenWeb.GameLive.Show do
     # threads, ?t navigation, reload). No-op on first mount where the default is
     # still neutral — the VoiceDefault hook then fires default_voice_restore.
     socket = socket |> apply_default_voice(socket.assigns.default_voice) |> load_hr_overlay()
+
+    # Onboarding: first-ever game page → spotlight tour. Only on the initial
+    # load of this mount (expansions_seeded gates first vs later handle_params).
+    socket =
+      if seeded_before, do: socket, else: RuleMavenWeb.Tours.maybe_autostart(socket, "game")
 
     suggestions =
       case RuleMaven.Settings.get("suggestions_#{game.id}") do
@@ -540,6 +547,9 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
+  def handle_event("tour_" <> _ = event, params, socket),
+    do: RuleMavenWeb.Tours.handle_event(event, params, socket)
+
   def handle_event("toggle_expansion", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
     included = socket.assigns.included_expansions
@@ -2274,6 +2284,8 @@ defmodule RuleMavenWeb.GameLive.Show do
   def render(assigns) do
     ~H"""
     {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
+    <%!-- Hosts the spotlight onboarding tour for this page (Hooks.Tour). --%>
+    <div id="tour-game" phx-hook="Tour" data-tour-page="game"></div>
     <div
       :if={@is_admin and RuleMaven.Games.taken_down?(@game)}
       style="position:fixed;top:var(--header-height,3.125rem);left:0;right:0;z-index:20;background:var(--danger,#c0392b);color:#fff;font-size:0.8rem;font-weight:600;padding:0.4rem 0.9rem;text-align:center"
@@ -2710,7 +2722,10 @@ defmodule RuleMavenWeb.GameLive.Show do
               </p>
 
               <%= if @rule_card do %>
-                <div style="margin:1.5rem auto 0;max-width:30rem;text-align:left;background:linear-gradient(135deg,var(--bg-subtle),var(--bg-surface));border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+                <div
+                  data-tour="dyk"
+                  style="margin:1.5rem auto 0;max-width:30rem;text-align:left;background:linear-gradient(135deg,var(--bg-subtle),var(--bg-surface));border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
+                >
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
                     <span style="font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
                       💡 Did you know?
@@ -2828,7 +2843,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </div>
               <% end %>
 
-              <div style="margin:1.25rem auto 0;max-width:30rem;text-align:left">
+              <div data-tour="house-rules" style="margin:1.25rem auto 0;max-width:30rem;text-align:left">
                 <% own_count = length(@house_rules) %>
                   <% community_count_hr = length(@community_house_rules) %>
                   <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
@@ -3889,7 +3904,10 @@ defmodule RuleMavenWeb.GameLive.Show do
       >
         <div style="max-width:48rem;margin:0 auto;width:100%">
           <%= if length(@expansions) > 0 do %>
-            <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.5rem">
+            <div
+              data-tour="expansions"
+              style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.5rem"
+            >
               <span style="font-size:0.65rem;color:var(--text-muted);font-weight:600;align-self:center">Include:</span>
               <%= for exp <- @expansions do %>
                 <label style={"cursor:pointer;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:0.3rem;#{if Map.get(@included_expansions, exp.id), do: "background:var(--accent);color:var(--accent-text,#fff)", else: "background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border)"}"}>
@@ -3929,11 +3947,15 @@ defmodule RuleMavenWeb.GameLive.Show do
               :if={@suggestions != []}
               type="button"
               phx-click="open_suggestions"
+              data-tour="suggestions"
               style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:0"
             >
               <span aria-hidden="true">💡</span> Suggested questions
             </button>
-            <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto">
+            <div
+              data-tour="voices"
+              style="display:flex;align-items:center;gap:0.4rem;margin-left:auto"
+            >
               <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Answer persona</span>
               <details class="card-menu">
                 <summary style="font-size:0.68rem;color:var(--text);font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;background:var(--bg-surface);cursor:pointer;list-style:none">

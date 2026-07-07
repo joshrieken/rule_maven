@@ -3063,3 +3063,86 @@ body:has([data-phx-main].phx-connected)::after {
   letter-spacing: 0.02em;
   color: var(--text-muted);
 }
+
+/* ── Onboarding spotlight tour (Hooks.Tour) ──────────────────────────────
+   .tour-spot sits over the highlighted element; its huge box-shadow dims
+   everything else (a zero-size spot = fully dimmed, used for centered
+   final cards). The wrap captures clicks so the page is inert mid-tour. */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+}
+.tour-spot {
+  position: fixed;
+  border-radius: 10px;
+  pointer-events: none;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
+}
+.tour-card {
+  position: fixed;
+  background: var(--bg-surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 0.75rem;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.tour-x {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.6rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 0.15rem;
+  line-height: 1;
+}
+.tour-title {
+  font-weight: 800;
+  font-size: 0.95rem;
+  margin: 0 1.2rem 0.35rem 0;
+}
+.tour-body {
+  color: var(--text-secondary, var(--text));
+}
+.tour-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+}
+.tour-progress {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.tour-btns {
+  display: flex;
+  gap: 0.4rem;
+}
+.tour-back,
+.tour-next {
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  cursor: pointer;
+}
+.tour-back {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.tour-next {
+  background: var(--accent);
+  border: none;
+  color: var(--accent-text, #fff);
+}

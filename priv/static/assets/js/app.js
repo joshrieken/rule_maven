@@ -822,6 +822,184 @@ Hooks.InfiniteScroll = {
   }
 };
 
+// Spotlight onboarding tour. Each tour-hosting page renders one element with
+// phx-hook="Tour" and data-tour-page="<id>". The server pushes "tour:start"
+// with {id, steps: [{sel, title, body}]} (see RuleMavenWeb.Tours): steps
+// highlight the element matching `sel`, a null `sel` renders a centered card,
+// and steps whose element isn't on the page are skipped. Ends (Done, ✕, Esc)
+// push "tour_done" so the tour stops auto-starting for this user.
+Hooks.Tour = {
+  mounted() {
+    this.handleEvent("tour:start", ({id, steps}) => this.start(id, steps));
+    // Replay requested from the user dropdown while on this page.
+    this._onReplay = (e) => {
+      if (e.detail.id === this.el.dataset.tourPage) {
+        this.pushEvent("tour_replay", {id: e.detail.id});
+      }
+    };
+    window.addEventListener("rm:tour:start", this._onReplay);
+    // Replay requested from a page without this tour lands here via
+    // localStorage (e.g. "game" tour picked on /settings → open a game).
+    const pending = localStorage.getItem("rm:pending-tour");
+    if (pending === this.el.dataset.tourPage) {
+      localStorage.removeItem("rm:pending-tour");
+      this.pushEvent("tour_replay", {id: pending});
+    } else if (pending === "game" && this.el.dataset.tourPage === "games") {
+      showToast("👇", "Open a game to start the tour");
+    }
+  },
+  destroyed() {
+    window.removeEventListener("rm:tour:start", this._onReplay);
+    this.end(false);
+  },
+  start(id, steps) {
+    this.end(false);
+    this.tourId = id;
+    this.steps = steps;
+    this.idx = -1;
+    this.build();
+    this.move(1);
+  },
+  build() {
+    const wrap = document.createElement("div");
+    wrap.className = "tour";
+    wrap.innerHTML =
+      '<div class="tour-spot"></div>' +
+      '<div class="tour-card" role="dialog" aria-modal="true">' +
+      '<button type="button" class="tour-x" aria-label="Skip tour">✕</button>' +
+      '<div class="tour-title"></div>' +
+      '<div class="tour-body"></div>' +
+      '<div class="tour-foot">' +
+      '<span class="tour-progress"></span>' +
+      '<span class="tour-btns">' +
+      '<button type="button" class="tour-back">Back</button>' +
+      '<button type="button" class="tour-next">Next</button>' +
+      "</span></div></div>";
+    document.body.appendChild(wrap);
+    this.ui = wrap;
+    wrap.querySelector(".tour-x").addEventListener("click", () => this.end(true));
+    wrap.querySelector(".tour-back").addEventListener("click", () => this.move(-1));
+    wrap.querySelector(".tour-next").addEventListener("click", () => this.move(1));
+    // Click on the dimmed backdrop advances, like Next.
+    wrap.addEventListener("click", (e) => {
+      if (e.target === wrap) this.move(1);
+    });
+    this._onKey = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        this.end(true);
+      } else if (e.key === "ArrowRight" || e.key === "Enter") {
+        this.move(1);
+      } else if (e.key === "ArrowLeft") {
+        this.move(-1);
+      }
+    };
+    window.addEventListener("keydown", this._onKey, true);
+    this._onMove = () => this.position();
+    window.addEventListener("resize", this._onMove);
+    window.addEventListener("scroll", this._onMove, true);
+  },
+  // Present on this page = highlightable now (or a centered sel:null card).
+  present(step) {
+    return !step.sel || !!document.querySelector(step.sel);
+  },
+  // Advance `dir` steps, skipping steps whose target isn't on the page.
+  move(dir) {
+    let i = this.idx + dir;
+    while (i >= 0 && i < this.steps.length && !this.present(this.steps[i])) i += dir;
+    if (i < 0) return;
+    if (i >= this.steps.length) {
+      this.end(true);
+      return;
+    }
+    this.idx = i;
+    this.show();
+  },
+  show() {
+    const s = this.steps[this.idx];
+    this.target = s.sel ? document.querySelector(s.sel) : null;
+    this.ui.querySelector(".tour-title").textContent = s.title;
+    this.ui.querySelector(".tour-body").textContent = s.body;
+    const presentSteps = this.steps.filter((st) => this.present(st));
+    this.ui.querySelector(".tour-progress").textContent =
+      presentSteps.indexOf(s) + 1 + " / " + presentSteps.length;
+    const hasPrev = this.steps.slice(0, this.idx).some((st) => this.present(st));
+    const hasNext = this.steps.slice(this.idx + 1).some((st) => this.present(st));
+    this.ui.querySelector(".tour-back").style.visibility = hasPrev ? "visible" : "hidden";
+    this.ui.querySelector(".tour-next").textContent = hasNext ? "Next" : "Done";
+    if (this.target) this.target.scrollIntoView({block: "center"});
+    this.position();
+  },
+  position() {
+    if (!this.ui) return;
+    const spot = this.ui.querySelector(".tour-spot");
+    const card = this.ui.querySelector(".tour-card");
+    const pad = 6;
+    if (this.target && document.contains(this.target)) {
+      const r = this.target.getBoundingClientRect();
+      spot.style.top = r.top - pad + "px";
+      spot.style.left = r.left - pad + "px";
+      spot.style.width = r.width + pad * 2 + "px";
+      spot.style.height = r.height + pad * 2 + "px";
+      const cw = Math.min(340, window.innerWidth - 24);
+      card.style.width = cw + "px";
+      card.style.transform = "none";
+      // Below the target if it fits, else above; clamped into the viewport.
+      const ch = card.offsetHeight || 160;
+      let top = r.bottom + pad + 12;
+      if (top + ch > window.innerHeight - 12) top = Math.max(12, r.top - pad - 12 - ch);
+      card.style.top = top + "px";
+      card.style.left = Math.min(Math.max(12, r.left), window.innerWidth - cw - 12) + "px";
+    } else {
+      // Centered card; the zero-size spot keeps the full-screen dim.
+      spot.style.top = "50%";
+      spot.style.left = "50%";
+      spot.style.width = "0";
+      spot.style.height = "0";
+      card.style.width = Math.min(360, window.innerWidth - 24) + "px";
+      card.style.top = "50%";
+      card.style.left = "50%";
+      card.style.transform = "translate(-50%, -50%)";
+    }
+  },
+  end(notify) {
+    if (this._onKey) {
+      window.removeEventListener("keydown", this._onKey, true);
+      this._onKey = null;
+    }
+    if (this._onMove) {
+      window.removeEventListener("resize", this._onMove);
+      window.removeEventListener("scroll", this._onMove, true);
+      this._onMove = null;
+    }
+    if (this.ui) {
+      this.ui.remove();
+      this.ui = null;
+    }
+    if (notify && this.tourId) this.pushEvent("tour_done", {id: this.tourId});
+    this.tourId = null;
+  }
+};
+
+// User-dropdown "replay tour" links (data-tour-replay="<id>"). If the current
+// page hosts that tour, start it in place; otherwise remember it and go home —
+// the "games" tour then starts on landing, the "game" tour on the next game
+// page opened (with a toast pointing the user at the list).
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-tour-replay]");
+  if (!a) return;
+  e.preventDefault();
+  const id = a.dataset.tourReplay;
+  const details = a.closest("details");
+  if (details) details.removeAttribute("open");
+  if (document.querySelector('[data-tour-page="' + id + '"]')) {
+    window.dispatchEvent(new CustomEvent("rm:tour:start", {detail: {id}}));
+  } else {
+    localStorage.setItem("rm:pending-tour", id);
+    window.location.href = "/";
+  }
+});
+
 let liveSocket = new LiveView.LiveSocket("/live", Phoenix.Socket, {
   params: () => ({
     _csrf_token: csrfToken,

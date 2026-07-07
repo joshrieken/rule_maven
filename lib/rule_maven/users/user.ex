@@ -19,6 +19,9 @@ defmodule RuleMaven.Users.User do
     # Per-user monthly question allowance (fresh LLM generations only; cache hits
     # don't count). Replaces the global monthly limit; an admin can raise it.
     field :monthly_quota, :integer, default: 200
+    # Onboarding tours completed/skipped: tour id => ISO8601 timestamp. A tour
+    # auto-starts on its page until its key appears here.
+    field :tours_seen, :map, default: %{}
 
     timestamps(type: :utc_datetime)
   end
@@ -133,6 +136,18 @@ defmodule RuleMaven.Users.User do
       less_than_or_equal_to: 1_000_000
     )
   end
+
+  @doc "Stamps an onboarding tour as seen (completed or skipped)."
+  def tour_seen_changeset(user, tour_id) when is_binary(tour_id) do
+    seen = Map.put(user.tours_seen || %{}, tour_id, DateTime.utc_now() |> DateTime.to_iso8601())
+    change(user, tours_seen: seen)
+  end
+
+  @doc "True once the user has completed or skipped the given tour."
+  def tour_seen?(%__MODULE__{tours_seen: seen}, tour_id) when is_map(seen),
+    do: Map.has_key?(seen, tour_id)
+
+  def tour_seen?(_, _), do: false
 
   @doc "True for anyone with the :admin capability."
   def admin?(user), do: can?(user, :admin)

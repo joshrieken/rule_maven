@@ -152,6 +152,14 @@
                   <div class="user-dropdown-menu">
                     <.link href={~p"/curator"} class="user-dropdown-link">Curator</.link>
                     <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>
+                    <.link href={~p"/help"} class="user-dropdown-link">Help &amp; FAQ</.link>
+                    <div class="user-dropdown-section">Tours</div>
+                    <a href={~p"/"} class="user-dropdown-link" data-tour-replay="games">
+                      🧭 Finding games
+                    </a>
+                    <a href={~p"/"} class="user-dropdown-link" data-tour-replay="game">
+                      🧭 Asking questions
+                    </a>
                     <.link href={~p"/logout"} class="user-dropdown-link">Log out</.link>
                   </div>
                 </details>
@@ -195,6 +203,7 @@
             <.link href={~p"/oban"} class="drawer-link" target="_blank">Oban Dashboard ↗</.link>
           <% end %>
           <div class="drawer-section"></div>
+          <.link href={~p"/help"} class="drawer-link">📖 Help &amp; FAQ</.link>
           <%= if me do %>
             <.link href={~p"/curator"} class="drawer-link">Curator</.link>
             <.link href={~p"/logout"} class="drawer-link">Log out</.link>

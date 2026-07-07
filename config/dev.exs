@@ -20,7 +20,9 @@ config :rule_maven, RuleMaven.Repo,
 config :rule_maven, RuleMavenWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {127, 0, 0, 1}],
+  # DEV_PORT lets a worktree run its own dev server beside the main
+  # checkout's (default 4000), same idea as the per-worktree test port.
+  http: [ip: {127, 0, 0, 1}, port: String.to_integer(System.get_env("DEV_PORT") || "4000")],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,

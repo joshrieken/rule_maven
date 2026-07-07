@@ -44,6 +44,7 @@ defmodule RuleMavenWeb.GameLive.Index do
       |> assign_games(games)
       |> resume_exp_syncs()
       |> resume_bgg_pulls()
+      |> RuleMavenWeb.Tours.maybe_autostart("games")
 
     {:ok, socket}
   end
@@ -254,6 +255,9 @@ defmodule RuleMavenWeb.GameLive.Index do
   end
 
   @impl true
+  def handle_event("tour_" <> _ = event, params, socket),
+    do: RuleMavenWeb.Tours.handle_event(event, params, socket)
+
   def handle_event("toggle_expansions", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
     expanded = socket.assigns.expanded_games
@@ -655,6 +659,8 @@ defmodule RuleMavenWeb.GameLive.Index do
   def render(assigns) do
     ~H"""
     <div class="game-list">
+      <%!-- Hosts the spotlight onboarding tour for this page (Hooks.Tour). --%>
+      <div id="tour-games" phx-hook="Tour" data-tour-page="games"></div>
       <%!-- Tagline: the point of the app is speed at the table — one place to
             ask instead of hunting through rulebooks — plus an up-front caveat
             that answers are AI-generated. --%>
@@ -734,7 +740,9 @@ defmodule RuleMavenWeb.GameLive.Index do
             variant="primary"
             navigate={~p"/games/new"}
           >+ Add Game</.button>
-          <.button variant="secondary" navigate={~p"/games/import"}>Sync Your BGG Collection</.button>
+          <.button variant="secondary" navigate={~p"/games/import"} data-tour="bgg-sync">
+            Sync Your BGG Collection
+          </.button>
         </div>
       </div>
 
