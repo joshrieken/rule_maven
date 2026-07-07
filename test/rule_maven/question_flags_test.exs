@@ -25,6 +25,12 @@ defmodule RuleMaven.QuestionFlagsTest do
   end
 
   setup do
+    # set_question_visibility enqueues SettleVotesWorker, so Oban must be
+    # supervised here (same pattern as moderation_test.exs).
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
     game = game_fixture()
     author = user_fixture("author")
     %{game: game, q: log(game, author)}
