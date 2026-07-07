@@ -789,6 +789,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                   <%= if game.playing_time && RuleMaven.Games.Category.player_count_relevant?(game.category) do %>
                     &middot; ~{game.playing_time}m
                   <% end %>
+                  <.difficulty_badge weight={game.weight} />
                 </p>
                 <%!-- The expansions line doubles as the expand/collapse toggle;
                       pointer-events re-enabled so it's clickable inside the

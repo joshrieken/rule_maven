@@ -455,6 +455,44 @@ defmodule RuleMavenWeb.CoreComponents do
   end
 
   @doc """
+  Difficulty badge: BGG community complexity ("weight", 1.0-5.0) shown as a
+  number plus bucket label, e.g. "2.3 · Medium-Light". Renders nothing when
+  weight is nil (unrated / not yet backfilled) — no fallback text.
+  """
+  attr :weight, :float, default: nil
+
+  def difficulty_badge(assigns) do
+    ~H"""
+    <span
+      :if={@weight}
+      class="difficulty-badge"
+      style={"--difficulty-color:#{elem(difficulty_bucket(@weight), 1)}"}
+      title={"Complexity #{format_weight(@weight)} / 5 (BGG community rating)"}
+    >
+      <strong>{format_weight(@weight)}</strong> {elem(difficulty_bucket(@weight), 0)}
+    </span>
+    """
+  end
+
+  @doc """
+  Buckets a BGG weight (1.0-5.0) into `{label, css_color}` using BGG's own
+  category names. Returns nil for nil weight.
+  """
+  def difficulty_bucket(nil), do: nil
+
+  def difficulty_bucket(weight) do
+    cond do
+      weight < 1.5 -> {"Light", "var(--green)"}
+      weight < 2.5 -> {"Medium-Light", "var(--blue)"}
+      weight < 3.5 -> {"Medium", "var(--yellow)"}
+      weight < 4.5 -> {"Medium-Heavy", "var(--orange, var(--yellow))"}
+      true -> {"Heavy", "var(--red)"}
+    end
+  end
+
+  defp format_weight(weight), do: :erlang.float_to_binary(weight / 1, decimals: 1)
+
+  @doc """
   Translates an error message using gettext.
   """
   def translate_error({msg, opts}) do
