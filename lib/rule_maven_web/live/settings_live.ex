@@ -123,7 +123,6 @@ defmodule RuleMavenWeb.SettingsLive do
        saved: false,
        usage_stats: nil,
        curator_stats: RuleMaven.Games.Curation.curator_stats(socket.assigns.current_user.id),
-       curator_bonus_cap: RuleMaven.Games.Curation.bonus_cap(),
        page_title: "Settings"
      )}
   end
@@ -536,32 +535,11 @@ defmodule RuleMavenWeb.SettingsLive do
 
           <div style="margin-top:1.25rem;border-top:1px solid var(--border);padding-top:1rem">
             <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 0.5rem 0">Curator</h3>
-            <p style="font-size:0.82rem;color:var(--text-muted);margin:0 0 0.75rem 0">
-              When an answer you voted on is later confirmed or removed, your vote "settles".
-              Correct votes earn curator points and bonus questions.
+            <p style="font-size:0.82rem;color:var(--text-muted);margin:0">
+              <strong style="color:var(--text)">{@curator_stats.points}</strong>
+              curator points earned from votes that settled correct.
+              <.link navigate={~p"/curator"} style="font-weight:600">View your curator page →</.link>
             </p>
-            <div style="display:flex;gap:1.5rem;flex-wrap:wrap;font-size:0.85rem">
-              <div><strong>{@curator_stats.points}</strong> curator points</div>
-              <div>
-                <strong>{@curator_stats.correct}</strong>
-                correct / <strong>{@curator_stats.incorrect}</strong>
-                incorrect settled votes
-              </div>
-              <div>
-                <strong>{@curator_stats.bonus_this_month}</strong>/{@curator_bonus_cap} bonus questions this month
-              </div>
-            </div>
-            <div
-              :if={@curator_stats.badges != []}
-              style="margin-top:0.6rem;display:flex;gap:0.5rem;flex-wrap:wrap"
-            >
-              <span
-                :for={badge <- @curator_stats.badges}
-                style="font-size:0.75rem;font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.6rem;background:var(--bg-subtle)"
-              >
-                🏅 {badge.label}
-              </span>
-            </div>
           </div>
         </section>
 

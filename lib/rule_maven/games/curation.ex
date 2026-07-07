@@ -181,4 +181,51 @@ defmodule RuleMaven.Games.Curation do
     Repo.update_all(from(u in User, where: u.id == ^id), set: [curator_seen_at: now])
     :ok
   end
+
+  @doc """
+  Recent settled votes with their question and game, newest first, for the
+  curator page's history list.
+  """
+  def settled_history(user_id, limit \\ 50) do
+    Repo.all(
+      from v in QuestionVote,
+        join: q in QuestionLog,
+        on: q.id == v.question_log_id,
+        join: g in RuleMaven.Games.Game,
+        on: g.id == q.game_id,
+        where: v.user_id == ^user_id and not is_nil(v.settled_at),
+        order_by: [desc: v.settled_at, desc: v.id],
+        limit: ^limit,
+        select: %{
+          value: v.value,
+          outcome: v.settled_outcome,
+          settled_at: v.settled_at,
+          question: q,
+          game: g
+        }
+    )
+  end
+
+  @doc """
+  The nearest unearned badge with progress, or nil when all are earned.
+  Ordered by effort: Curator, Taste Maker, Sharp Eye.
+  """
+  def next_badge(user_id) do
+    {correct, _} = settled_counts(user_id)
+    taste = taste_maker_count(user_id)
+
+    cond do
+      correct < @curator_threshold ->
+        %{label: "Curator", have: correct, need: @curator_threshold}
+
+      taste < @taste_maker_threshold ->
+        %{label: "Taste Maker", have: taste, need: @taste_maker_threshold}
+
+      correct < @sharp_eye_threshold ->
+        %{label: "Sharp Eye", have: correct, need: @sharp_eye_threshold}
+
+      true ->
+        nil
+    end
+  end
 end
