@@ -103,4 +103,48 @@ defmodule RuleMaven.Games.CurationTest do
       assert Repo.reload!(ctx.author).curator_points == 0
     end
   end
+
+  describe "stats and notices" do
+    test "curator_stats counts settles, caps monthly bonus, awards badges", ctx do
+      # 11 correct settles → Curator badge (10) but not Sharp Eye (25).
+      for i <- 1..11 do
+        q = log(ctx.game, ctx.author, %{question: "Q#{i}?"})
+        Games.set_community_vote(q.id, ctx.up_voter.id, "up")
+        {:ok, {1, 0}} = Curation.settle_votes(q, :confirmed)
+      end
+
+      stats = Curation.curator_stats(ctx.up_voter.id)
+      assert stats.points == 11
+      assert stats.correct == 11
+      assert stats.incorrect == 0
+      assert stats.bonus_this_month == 11
+      badge_keys = Enum.map(stats.badges, & &1.key)
+      assert :curator in badge_keys
+      refute :sharp_eye in badge_keys
+    end
+
+    test "bonus_asks_this_month is capped at bonus_cap", ctx do
+      RuleMaven.Settings.put("curator_bonus_cap", "3")
+
+      for i <- 1..5 do
+        q = log(ctx.game, ctx.author, %{question: "Cap#{i}?"})
+        Games.set_community_vote(q.id, ctx.up_voter.id, "up")
+        {:ok, _} = Curation.settle_votes(q, :confirmed)
+      end
+
+      assert Curation.bonus_asks_this_month(ctx.up_voter.id) == 3
+    end
+
+    test "unseen_correct_count resets after mark_notices_seen", ctx do
+      q = log(ctx.game, ctx.author)
+      Games.set_community_vote(q.id, ctx.up_voter.id, "up")
+      {:ok, _} = Curation.settle_votes(q, :confirmed)
+
+      voter = Repo.reload!(ctx.up_voter)
+      assert Curation.unseen_correct_count(voter) == 1
+
+      :ok = Curation.mark_notices_seen(voter)
+      assert Curation.unseen_correct_count(Repo.reload!(voter)) == 0
+    end
+  end
 end
