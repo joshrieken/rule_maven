@@ -3162,3 +3162,13 @@ body:has([data-phx-main].phx-connected)::after {
   border: none;
   color: var(--accent-text, #fff);
 }
+/* Re-assert the accent fill: the generic [type="button"]:hover/:active rules
+   outrank .tour-next alone and swap it to the page background, leaving
+   accent-text-on-page-bg (invisible on generated dark themes). Same trap
+   .btn-primary guards against. */
+.tour-next:hover {
+  background: var(--accent-light, var(--accent));
+}
+.tour-next:active {
+  background: var(--accent);
+}
