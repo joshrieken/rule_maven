@@ -809,11 +809,11 @@ defmodule RuleMavenWeb.GameLive.Community do
           <% cv = Map.get(@user_votes, @q.id) %>
           <% counts = Map.get(@vote_counts, @q.id, %{up: 0, down: 0}) %>
           <span style="display:inline-flex;align-items:center;gap:0.15rem">
-            <button
-              type="button"
-              phx-click="vote"
-              phx-value-id={@q.id}
-              style={"background:none;border:none;padding:0;line-height:1;cursor:pointer;display:inline-flex;color:#{if cv == "up", do: "var(--accent)", else: "var(--text-muted)"}"}
+            <.vote_thumb
+              event="vote"
+              id={@q.id}
+              voted={cv == "up"}
+              count={Map.get(counts, :up, 0)}
               title={
                 cond do
                   cv == "up" -> "Remove vote"
@@ -822,15 +822,7 @@ defmodule RuleMavenWeb.GameLive.Community do
                   true -> "Helpful"
                 end
               }
-            ><.icon
-              name={if cv == "up", do: "hero-hand-thumb-up-solid", else: "hero-hand-thumb-up"}
-              class="size-4"
-            /></button>
-            <span style="font-size:0.65rem;color:var(--text-muted)" title="Total helpful votes">{Map.get(
-              counts,
-              :up,
-              0
-            )}</span>
+            />
             <span
               :if={MapSet.member?(@asker_confirmed, @q.id)}
               style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"

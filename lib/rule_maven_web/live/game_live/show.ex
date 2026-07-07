@@ -3632,23 +3632,13 @@ defmodule RuleMavenWeb.GameLive.Show do
                         data-tour="answer-vote"
                         style="display:inline-flex;align-items:center;gap:0.15rem"
                       >
-                        <button
-                          type="button"
-                          phx-click="community_vote"
-                          phx-value-id={msg[:id]}
-                          phx-value-vote="up"
-                          style={"background:none;border:none;padding:0;line-height:1;cursor:pointer;display:inline-flex;color:#{if cv == "up", do: "var(--accent)", else: "var(--text-muted)"}"}
+                        <.vote_thumb
+                          event="community_vote"
+                          id={msg[:id]}
+                          voted={cv == "up"}
+                          count={Map.get(counts, :up, 0)}
                           title={if cv == "up", do: "Remove vote", else: "Helpful"}
-                        ><.icon
-                          name={
-                            if cv == "up", do: "hero-hand-thumb-up-solid", else: "hero-hand-thumb-up"
-                          }
-                          class="size-4"
-                        /></button>
-                        <span
-                          style="font-size:0.65rem;color:var(--text-muted)"
-                          title="Total helpful votes"
-                        >{Map.get(counts, :up, 0)}</span>
+                        />
                         <span
                           :if={MapSet.member?(@asker_confirmed_ids, msg[:id])}
                           style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
@@ -3666,25 +3656,13 @@ defmodule RuleMavenWeb.GameLive.Show do
                           data-tour="answer-vote"
                           style="display:inline-flex;align-items:center;gap:0.15rem"
                         >
-                          <button
-                            type="button"
-                            phx-click="community_vote"
-                            phx-value-id={sid}
-                            phx-value-vote="up"
-                            style={"background:none;border:none;padding:0;line-height:1;cursor:pointer;display:inline-flex;color:#{if cv == "up", do: "var(--accent)", else: "var(--text-muted)"}"}
+                          <.vote_thumb
+                            event="community_vote"
+                            id={sid}
+                            voted={cv == "up"}
+                            count={Map.get(counts, :up, 0)}
                             title={if cv == "up", do: "Remove vote", else: "Helpful"}
-                          ><.icon
-                            name={
-                              if cv == "up",
-                                do: "hero-hand-thumb-up-solid",
-                                else: "hero-hand-thumb-up"
-                            }
-                            class="size-4"
-                          /></button>
-                          <span
-                            style="font-size:0.65rem;color:var(--text-muted)"
-                            title="Total helpful votes"
-                          >{Map.get(counts, :up, 0)}</span>
+                          />
                           <span
                             :if={MapSet.member?(@asker_confirmed_ids, sid)}
                             style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
@@ -3709,29 +3687,17 @@ defmodule RuleMavenWeb.GameLive.Show do
                               counts in the visible tally (a click must increment
                               the number) and shows other users an "asker
                               confirmed" badge. --%>
-                          <button
-                            type="button"
-                            phx-click="community_vote"
-                            phx-value-id={msg[:id]}
-                            phx-value-vote="up"
-                            style={"background:none;border:none;padding:0;line-height:1;cursor:pointer;display:inline-flex;color:#{if cv == "up", do: "var(--accent)", else: "var(--text-muted)"}"}
+                          <.vote_thumb
+                            event="community_vote"
+                            id={msg[:id]}
+                            voted={cv == "up"}
+                            count={Map.get(counts, :up, 0)}
                             title={
                               if cv == "up",
                                 do: "Remove confirmation",
                                 else: "Confirm this answered your question"
                             }
-                          ><.icon
-                            name={
-                              if cv == "up",
-                                do: "hero-hand-thumb-up-solid",
-                                else: "hero-hand-thumb-up"
-                            }
-                            class="size-4"
-                          /></button>
-                          <span
-                            style="font-size:0.65rem;color:var(--text-muted)"
-                            title="Total helpful votes"
-                          >{Map.get(counts, :up, 0)}</span>
+                          />
                         </span>
                       <% end %>
                     <% end %>
