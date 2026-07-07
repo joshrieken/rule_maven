@@ -11,8 +11,11 @@ defmodule RuleMaven.HouseRules do
   # Rules whose body embeds within this cosine similarity of a question's
   # embedding are surfaced as an overlay under that answer. Rule↔question
   # relatedness sits far below the near-duplicate band the answer pool uses
-  # (0.92), so this floor is deliberately loose and admin-tunable.
-  @default_overlay_similarity 0.60
+  # (0.92): measured on a real rule ("domestic trades must be 1-for-1 value"),
+  # on-topic questions score 0.42–0.54 and off-topic ones ≤0.29, so 0.35 splits
+  # the bands with margin on both sides. Admin-tunable via
+  # `house_rule_overlay_similarity`.
+  @default_overlay_similarity 0.35
 
   def get(id), do: Repo.get(HouseRule, id)
 
