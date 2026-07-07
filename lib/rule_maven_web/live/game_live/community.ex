@@ -22,8 +22,7 @@ defmodule RuleMavenWeb.GameLive.Community do
   def mount(%{"id" => id}, _session, socket) do
     case Games.get_game_by_token(id) do
       nil ->
-        {:ok,
-         socket |> put_flash(:error, "That game doesn’t exist.") |> push_navigate(to: ~p"/")}
+        {:ok, socket |> put_flash(:error, "That game doesn’t exist.") |> push_navigate(to: ~p"/")}
 
       game ->
         mount_game(game, socket)
@@ -800,7 +799,7 @@ defmodule RuleMavenWeb.GameLive.Community do
               type="button"
               phx-click="vote"
               phx-value-id={@q.id}
-              style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
+              style={"background:none;border:none;padding:0;line-height:1;cursor:pointer;display:inline-flex;color:#{if cv == "up", do: "var(--accent)", else: "var(--text-muted)"}"}
               title={
                 cond do
                   cv == "up" -> "Remove vote"
@@ -809,7 +808,10 @@ defmodule RuleMavenWeb.GameLive.Community do
                   true -> "Helpful"
                 end
               }
-            >👍</button>
+            ><.icon
+              name={if cv == "up", do: "hero-hand-thumb-up-solid", else: "hero-hand-thumb-up"}
+              class="size-4"
+            /></button>
             <span style="font-size:0.65rem;color:var(--text-muted)" title="Total helpful votes">{Map.get(
               counts,
               :up,
