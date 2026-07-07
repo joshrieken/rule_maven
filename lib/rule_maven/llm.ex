@@ -1618,7 +1618,14 @@ defmodule RuleMaven.LLM do
   end
 
   defp new_sse_state do
-    %{buffer: "", raw: "", content: "", finish_reason: nil, usage: nil, sent: ""}
+    %{
+      buffer: "",
+      raw: "",
+      content: "",
+      finish_reason: nil,
+      usage: nil,
+      sent: %{text: "", styled: ""}
+    }
   end
 
   # Feed a transport chunk into the SSE state: split off complete lines
@@ -1661,26 +1668,32 @@ defmodule RuleMaven.LLM do
     }
   end
 
-  # Broadcast the partial answer when it grew meaningfully since the last
-  # emit — chunk arrival already paces this to at most a few frames/sec, the
-  # char floor just avoids spamming one-token diffs at the LiveView.
+  # Broadcast the partial answer when either extractable field grew
+  # meaningfully since the last emit — chunk arrival already paces this to at
+  # most a few frames/sec, the char floor just avoids spamming one-token diffs
+  # at the LiveView.
   @partial_emit_min_growth 24
 
   defp maybe_emit_partial(state, stream_to) do
-    partial = partial_answer(state.content)
+    text = partial_answer(state.content)
+    styled = partial_styled_answer(state.content)
 
-    if is_binary(partial) and
-         String.length(partial) - String.length(state.sent) >= @partial_emit_min_growth do
+    if grown?(text, state.sent.text) or grown?(styled, state.sent.styled) do
       Phoenix.PubSub.broadcast(
         RuleMaven.PubSub,
         "game:#{stream_to.game_id}",
-        {:ask_partial, %{question_log_id: stream_to.question_log_id, text: partial}}
+        {:ask_partial,
+         %{question_log_id: stream_to.question_log_id, text: text, styled_text: styled}}
       )
 
-      %{state | sent: partial}
+      %{state | sent: %{text: text || "", styled: styled || ""}}
     else
       state
     end
+  end
+
+  defp grown?(partial, sent) do
+    is_binary(partial) and String.length(partial) - String.length(sent) >= @partial_emit_min_growth
   end
 
   @doc false
@@ -1689,8 +1702,21 @@ defmodule RuleMaven.LLM do
   # citations. Returns nil until the field opens. Public for tests.
   def __partial_answer__(content), do: partial_answer(content)
 
+  @doc false
+  # Same for "styled_answer" (persona-direct path asks the model to place it
+  # right after "answer", so it streams before the citations too).
+  def __partial_styled_answer__(content), do: partial_styled_answer(content)
+
   defp partial_answer(content) do
-    case Regex.run(~r/"answer"\s*:\s*"((?:\\.|[^"\\])*)/s, content) do
+    # `(?<!_)` keeps this from matching the tail of "styled_answer".
+    case Regex.run(~r/(?<![\w_])"answer"\s*:\s*"((?:\\.|[^"\\])*)/s, content) do
+      [_, frag] -> unescape_json_fragment(frag)
+      _ -> nil
+    end
+  end
+
+  defp partial_styled_answer(content) do
+    case Regex.run(~r/"styled_answer"\s*:\s*"((?:\\.|[^"\\])*)/s, content) do
       [_, frag] -> unescape_json_fragment(frag)
       _ -> nil
     end
@@ -1885,6 +1911,8 @@ defmodule RuleMaven.LLM do
 
 
         VOICE INSTRUCTIONS — the asker has an active persona selected. In ADDITION to "answer", include a "styled_answer" field: rewrite "answer" in the voice of #{style}
+
+        Place "styled_answer" IMMEDIATELY AFTER "answer" in the JSON object, before "verdict" — the client streams it to the reader as it is generated.
 
         Commit fully to the bit — the funny comes from a sharp, specific point of view, not from stacking catchphrases, accents, or corny filler. Be witty and dry over loud and cheesy. One genuinely good line beats five clichés.
 

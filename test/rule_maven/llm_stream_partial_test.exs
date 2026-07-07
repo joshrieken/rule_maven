@@ -36,4 +36,25 @@ defmodule RuleMaven.LLMStreamPartialTest do
   test "handles unicode escapes" do
     assert LLM.__partial_answer__("{\"answer\": \"5 \\u2192 6") == "5 → 6"
   end
+
+  # __partial_styled_answer__/1 — persona-direct path streams "styled_answer"
+  # (placed right after "answer") so a persona viewer can watch it type out.
+
+  test "styled_answer extracts independently of answer" do
+    content = "{\"answer\": \"Roll the d20.\", \"styled_answer\": \"Arr, roll ye d2"
+
+    assert LLM.__partial_answer__(content) == "Roll the d20."
+    assert LLM.__partial_styled_answer__(content) == "Arr, roll ye d2"
+  end
+
+  test "styled_answer is nil until its field opens" do
+    assert LLM.__partial_styled_answer__("{\"answer\": \"Roll the d20.\", \"sty") == nil
+  end
+
+  test "the styled_answer key never bleeds into the plain extraction" do
+    # No plain "answer" field at all — the styled key alone must not match it.
+    content = "{\"styled_answer\": \"Arr, roll ye d20"
+    assert LLM.__partial_answer__(content) == nil
+    assert LLM.__partial_styled_answer__(content) == "Arr, roll ye d20"
+  end
 end

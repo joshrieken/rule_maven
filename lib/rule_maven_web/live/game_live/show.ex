@@ -1776,7 +1776,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   # Streamed answer text for a still-pending ask. Only track partials for
   # rows this LiveView is actually showing as pending — every viewer of the
   # game topic receives the broadcast, but only the asker has the pending row.
-  def handle_info({:ask_partial, %{question_log_id: ql_id, text: text}}, socket) do
+  def handle_info({:ask_partial, %{question_log_id: ql_id, text: text} = data}, socket) do
     tracked? =
       Enum.any?(
         socket.assigns.conversation,
@@ -1784,9 +1784,15 @@ defmodule RuleMavenWeb.GameLive.Show do
       )
 
     if tracked? do
+      # `styled_text` streams on the persona-direct path (vetted voice styled
+      # in the same ask call); a persona viewer streams that instead of the
+      # plain text so the plain answer never flashes. Older payload shape
+      # (pre-deploy broadcasts) simply has no :styled_text key.
+      partial = %{text: text, styled: data[:styled_text]}
+
       {:noreply,
        socket
-       |> assign(ask_partial: Map.put(socket.assigns.ask_partial, ql_id, text))
+       |> assign(ask_partial: Map.put(socket.assigns.ask_partial, ql_id, partial))
        |> push_event("scroll_bottom", %{})}
     else
       {:noreply, socket}
@@ -2849,29 +2855,39 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% partial =
                       msg.role == :assistant && msg[:pending] &&
                         Map.get(@ask_partial, msg[:id]) %>
-                    <%!-- Two distinct waiting stages: (1) the answer hasn't landed
-                          yet ("Thinking...", still pending) — show the streamed
-                          partial text once tokens arrive, the loader before that;
-                          (2) the answer landed but this voice's restyle hasn't —
-                          show the PLAIN answer immediately with a small "voicing"
-                          indicator, and {:voice_ready, ...} swaps the persona text
-                          in. A failed restyle falls through to the plain answer. --%>
+                    <%!-- A persona viewer only ever sees persona text: stream the
+                          styled_answer partial when the single-call path emits one,
+                          and show the voice loader through every other wait (plain
+                          text streaming underneath, pool-hit restyle in flight) —
+                          the plain answer must never flash first. Neutral viewers
+                          stream the plain partial as before. A failed restyle
+                          falls through to the plain answer. --%>
+                    <% stream_text =
+                      case partial do
+                        %{styled: styled, text: text} ->
+                          if v_sel == "neutral", do: text, else: styled
+
+                        _ ->
+                          nil
+                      end %>
                     <% thinking? = msg.content == "Thinking..." && msg[:pending] %>
                     <% voicing? =
                       msg.content != "Thinking..." && v_sel != "neutral" && is_nil(v_content) &&
                         not v_failed %>
                     <%= cond do %>
-                      <% thinking? && partial -> %>
+                      <% thinking? && stream_text -> %>
                         <div class="answer-in">
-                          {render_markdown(partial)}
+                          {render_markdown(stream_text)}
                           <span class="stream-cursor" aria-hidden="true"></span>
                         </div>
-                      <% thinking? -> %>
+                      <% thinking? || voicing? -> %>
                         <% v_def = v_sel != "neutral" && Enum.find(@voices, &(&1.id == v_sel)) %>
                         <div class="answer-in">
                           <%!-- Voice in the id so switching persona mid-wait replaces
                                 the ignored element — remounting the hook with the new
-                                persona's phrases and label. --%>
+                                persona's phrases and label. The id is shared across
+                                the thinking → voicing stages so the loader (and its
+                                phrase cycle) persists seamlessly between them. --%>
                           <div
                             class="voice-loader"
                             id={"voice-loader-#{msg[:id]}-#{v_sel}"}
@@ -2889,16 +2905,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                               <span class="voice-loader__phrase">Reticulating splines…</span>
                             </div>
                             <div class="voice-loader__bar"><div class="voice-loader__fill"></div></div>
-                          </div>
-                        </div>
-                      <% voicing? -> %>
-                        <% v_def = Enum.find(@voices, &(&1.id == v_sel)) %>
-                        <div class="answer-in">
-                          {render_markdown(msg.content)}
-                          <div class="voice-badge" role="status">
-                            <span class="voice-loader__spinner" aria-hidden="true"></span>
-                            <span :if={v_def} aria-hidden="true">{v_def.emoji}</span>
-                            <span>Retelling in {(v_def && v_def.label) || "persona"} voice…</span>
                           </div>
                         </div>
                       <% msg.role == :assistant && msg.content == "Thinking..." -> %>
@@ -3873,7 +3879,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     ~H"""
     <div
       class={["card-menu__pop", @up && "card-menu__pop--up"]}
-      style="min-width:230px;max-width:280px"
+      style="min-width:230px;max-width:280px;max-height:min(45vh,320px);overflow-y:auto"
     >
       <%= if @game_voices != [] do %>
         <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);padding:0.2rem 0.4rem 0.05rem">
