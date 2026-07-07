@@ -272,6 +272,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         rule_card: dyk_card_for(dyk_facts, socket.assigns.dyk_seed),
         setup_status: setup_status,
         setup_checklist: setup_checklist,
+        fp_selectors: load_first_player(game),
+        fp_pick: nil,
         house_rules: load_own_house_rules(game, socket.assigns.current_user),
         community_house_rules:
           RuleMaven.HouseRules.community_for_game(game.id, socket.assigns.current_user.id)
@@ -599,6 +601,20 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def handle_event("shuffle_rule", _params, socket) do
     {:noreply, assign(socket, rule_card: fact_card(socket.assigns.dyk_facts))}
+  end
+
+  # Re-roll until it lands on something new, so mashing the button never
+  # repeats (with 2+ selectors).
+  def handle_event("roll_first_player", _params, socket) do
+    pick =
+      socket.assigns.fp_selectors
+      |> Enum.reject(&(&1 == socket.assigns.fp_pick))
+      |> case do
+        [] -> socket.assigns.fp_pick
+        rest -> Enum.random(rest)
+      end
+
+    {:noreply, assign(socket, fp_pick: pick)}
   end
 
   def handle_event("toggle_step", %{"key" => key}, socket) do
@@ -2906,6 +2922,34 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </div>
               <% end %>
 
+              <%= if @fp_selectors != [] do %>
+                <%!-- Themed table ritual for picking the first player. Flavor
+                    only — never a ruling. Generated at finalize, cached. --%>
+                <div style="margin:1.25rem auto 0;max-width:30rem;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+                    <span style="font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
+                      🎲 Who goes first?
+                    </span>
+                    <button
+                      type="button"
+                      phx-click="roll_first_player"
+                      style="background:none;border:1px solid var(--border);border-radius:999px;font-size:0.65rem;cursor:pointer;padding:0.12rem 0.5rem;color:var(--text-muted);font-weight:600"
+                    >
+                      {if @fp_pick, do: "🎲 Roll again", else: "🎲 Roll"}
+                    </button>
+                  </div>
+                  <p style="font-size:0.85rem;line-height:1.55;color:var(--text);margin:0">
+                    <%= if @fp_pick do %>
+                      {@fp_pick}
+                    <% else %>
+                      <span style="color:var(--text-muted)">
+                        Roll for a fun, on-theme way to pick who starts.
+                      </span>
+                    <% end %>
+                  </p>
+                </div>
+              <% end %>
+
               <%= if @setup_checklist && (@setup_checklist["components"] != [] || @setup_checklist["setup"] != []) do %>
                 <div style="margin:1.25rem auto 0;max-width:30rem;text-align:left">
                   <% delta_total =
@@ -4647,6 +4691,15 @@ defmodule RuleMavenWeb.GameLive.Show do
   # Generation is not automatic — it runs at finalize. Returns {status, checklist}.
   defp load_setup(game, _sources) do
     {RuleMaven.Setup.status(game.id), RuleMaven.Setup.stored_checklist(game.id)}
+  end
+
+  # Cached first-player selectors (generated at finalize). Empty until the
+  # worker has run — the picker card is simply hidden.
+  defp load_first_player(game) do
+    case RuleMaven.Settings.get("first_player_#{game.id}") do
+      nil -> []
+      json -> Jason.decode!(json)
+    end
   end
 
   # Deltas for the currently-included expansions that have one stored, in

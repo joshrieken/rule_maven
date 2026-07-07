@@ -473,6 +473,31 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
+  # Vars: game_name, rulebook
+  @first_player_picks """
+  For the board game "{{game_name}}", invent up to 25 playful ways for a table
+  of players to decide who goes first, themed to the game's world and flavor.
+
+  Rules:
+  - Each selector must be decidable at the table in seconds, with no game
+    components and no preparation — "Whoever most recently watered a plant
+    goes first", "The player who can name a sea creature fastest goes first".
+  - Draw the THEME (setting, characters, activities) from the text below, but
+    do NOT state or imply actual game rules — these are table rituals, not
+    rulings.
+  - If the text below explicitly states the game's official first-player rule,
+    put it FIRST, prefixed "Official: ", quoted faithfully in plain words. If
+    it doesn't, do not invent one.
+  - Inclusive and family-friendly: nothing physical beyond a show of hands,
+    nothing embarrassing, nothing requiring money, drinking, or phones.
+  - One sentence each, plain language, no numbering, no markdown.
+
+  Return each selector on its own line starting with "- ".
+
+  RULEBOOK (sampled across the whole book):
+  {{rulebook}}
+  """
+
   # Vars: game_name, rulebook, items
   @setup_verify """
   You are a strict fact-checker for a board-game SETUP checklist for "{{game_name}}". Check each numbered item (components to gather and setup steps) against the rulebook text.
@@ -558,6 +583,7 @@ defmodule RuleMaven.Prompts do
   # above). Short steering strings; kept as their own editable templates. ──
   @suggest_questions_system "You generate categorized board game rules questions. Group by topic. Be specific. #{@english_output}"
   @did_you_know_system "You surface interesting, accurate board game rule facts. Never invent rules; only use the provided text. #{@english_output}"
+  @first_player_system "You invent playful, inclusive table rituals for choosing a first player, themed to a board game's world. Flavor only — never state game rules. #{@english_output}"
   @did_you_know_verify_system "You are a strict board-game rulebook fact-checker. Pass only fully, accurately supported facts; reject anything misleading or unconfirmed. Output only the numbers in the requested format — never prose in any language."
   @categories_system "You generate topic categories for board game rulebooks. Be concise and specific. #{@english_output}"
 
@@ -1079,6 +1105,22 @@ defmodule RuleMaven.Prompts do
       description: "Generates the short rule facts shown on a game's page.",
       vars: ~w(game_name rulebook),
       default: @did_you_know
+    },
+    %{
+      key: "first_player_picks",
+      group: "Content generation",
+      label: "First-player picker selectors",
+      description: "Generates themed 'who goes first' table rituals for a game.",
+      vars: ~w(game_name rulebook),
+      default: @first_player_picks
+    },
+    %{
+      key: "first_player_system",
+      group: "Content generation",
+      label: "First-player picker — system",
+      description: "System prompt for the first-player selector generator.",
+      vars: [],
+      default: @first_player_system
     },
     %{
       key: "did_you_know_verify",

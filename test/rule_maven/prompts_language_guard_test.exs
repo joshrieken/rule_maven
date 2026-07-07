@@ -20,6 +20,7 @@ defmodule RuleMaven.PromptsLanguageGuardTest do
     house_rule_delta_system
     suggest_questions_system
     did_you_know_system
+    first_player_system
     categories_system
     setup_generate_system
     expansion_delta_system

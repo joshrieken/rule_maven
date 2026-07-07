@@ -44,6 +44,31 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
     end
   end
 
+  describe "FirstPlayerWorker" do
+    test "persists selectors and broadcasts to the game topic" do
+      mock_llm(
+        "- Official: the youngest player goes first.\n- Whoever most recently watered a plant goes first."
+      )
+
+      game = game_with_rulebook()
+
+      Phoenix.PubSub.subscribe(
+        RuleMaven.PubSub,
+        RuleMaven.Workers.FirstPlayerWorker.topic(game.id)
+      )
+
+      assert :ok =
+               RuleMaven.Workers.FirstPlayerWorker.perform(%Oban.Job{
+                 args: %{"game_id" => game.id}
+               })
+
+      assert_received {:first_player_ready, selectors}
+      assert "Official: the youngest player goes first." in selectors
+      assert length(selectors) == 2
+      assert Settings.get("first_player_#{game.id}") =~ "watered a plant"
+    end
+  end
+
   describe "CategoriesWorker" do
     setup do
       # Stub embeddings so replace_game_categories doesn't hit the network; it

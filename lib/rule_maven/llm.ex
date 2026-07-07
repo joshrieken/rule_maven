@@ -2860,6 +2860,41 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
+  Generates themed "who goes first" table rituals for a game — flavor drawn
+  from the rulebook's world, never rules. Returns `{:ok, [selector]}` or
+  `{:error, reason}`.
+  """
+  def generate_first_player(game_name, rulebook_text, game_id \\ nil) do
+    prompt =
+      RuleMaven.Prompts.render("first_player_picks", %{
+        game_name: game_name,
+        rulebook: sample_across(rulebook_text, 12000, 2000)
+      })
+
+    case chat(prompt, "first_player_picks",
+           model: model(:cheap),
+           operation: "first_player_picks",
+           game_id: game_id,
+           system: RuleMaven.Prompts.template("first_player_system"),
+           max_tokens: 4000
+         ) do
+      {:ok, text} ->
+        selectors =
+          text
+          |> bullet_lines()
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(String.length(&1) < 12))
+          |> Enum.uniq()
+          |> Enum.take(30)
+
+        {:ok, selectors}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
   Generates a set of in-character persona voices themed to a specific game from
   its rulebook text. Each voice is a tone instruction (never a rule source) the
   restyler later uses to re-voice canonical answers. Returns
