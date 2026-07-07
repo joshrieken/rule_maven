@@ -1813,9 +1813,11 @@ defmodule RuleMavenWeb.GameLive.Show do
       # house rules that sit near it.
       socket = if answer_ready?, do: load_hr_overlay(socket), else: socket
 
+      # No scroll when the answer finishes — the reader is already at the top of
+      # the answer (or wherever they scrolled to) and shouldn't be yanked down.
       {:noreply,
        if(answer_ready?,
-         do: push_event(socket, "scroll_answer_top", %{}),
+         do: socket,
          else: push_event(socket, "scroll_bottom", %{})
        )}
     else

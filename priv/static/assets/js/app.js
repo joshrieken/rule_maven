@@ -147,9 +147,6 @@ Hooks.ChatScroll = {
     // happens on later updates (a new answer arriving) and the scroll_bottom event.
     this.answerCount = this.countAnswers();
     this.handleEvent("scroll_bottom", () => this.scrollToBottom());
-    // Server fires this when a finished answer arrives — jump to its top so the
-    // reader starts at the beginning of the answer.
-    this.handleEvent("scroll_answer_top", () => this.scrollToLatestAnswer());
   },
   updated() {
     // updated() fires on every LiveView patch — voting, toggling the sidebar,
