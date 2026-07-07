@@ -9,6 +9,8 @@ defmodule RuleMaven.Users.User do
     field :password, :string, virtual: true
     field :password_hash, :string
     field :reputation, :integer, default: 0
+    field :curator_points, :integer, default: 0
+    field :curator_seen_at, :utc_datetime
     field :email_confirmed_at, :utc_datetime
     field :suspended_at, :utc_datetime
     # Force-logout cutoff: sessions whose login predates this are rejected. An

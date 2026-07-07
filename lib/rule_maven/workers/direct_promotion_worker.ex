@@ -106,6 +106,8 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
 
     # Promotion rewards the author's reputation.
     if best.user_id, do: RuleMaven.Games.Trust.recompute_reputation(best.user_id)
+
+    RuleMaven.Workers.SettleVotesWorker.enqueue(best.id, :confirmed)
   end
 
   defp cosine_distance(a, b) do
