@@ -101,10 +101,11 @@ defmodule RuleMaven.LLMBlankAnswerRetryTest do
     assert Process.get(:ask_calls) == 2
 
     # The retry must alter the messages array (the LLM proxy caches responses
-    # keyed on messages) and re-state the schema requirement.
+    # keyed on messages) and re-state the schema requirement. User role, not
+    # system — deepseek ignored a trailing system nudge (2026-07-07).
     assert_receive {:ask_body, 2, body}
     nudge = List.last(body.messages)
-    assert nudge.role == "system"
+    assert nudge.role == "user"
     assert nudge.content =~ "answer"
   end
 

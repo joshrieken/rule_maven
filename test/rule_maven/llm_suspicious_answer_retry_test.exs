@@ -97,7 +97,10 @@ defmodule RuleMaven.LLMSuspiciousAnswerRetryTest do
 
     assert_receive {:ask_body, 2, body}
     nudge = List.last(body.messages)
-    assert nudge.role == "system"
+    # user role, not system — deepseek ignored a trailing system message and
+    # answered in Chinese again (2026-07-07); models reliably attend to the
+    # last user message.
+    assert nudge.role == "user"
     assert nudge.content =~ "English"
   end
 

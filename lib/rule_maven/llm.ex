@@ -405,9 +405,11 @@ defmodule RuleMaven.LLM do
   # "please retry" error: syntactically valid JSON missing the "answer" key
   # (decodes to a blank answer), or an answer that isn't plain English prose
   # (deepseek drifting into Chinese, encoded output). Retry ONCE with a nudge
-  # naming the defect in an appended system message — which also alters the
-  # messages array, so the proxy's message-keyed response cache can't replay
-  # the bad reply. A second bad reply is returned as-is.
+  # naming the defect in an appended USER message — user role because deepseek
+  # ignored a trailing system message and answered in Chinese again
+  # (2026-07-07); appending also alters the messages array, so the proxy's
+  # message-keyed response cache can't replay the bad reply. A second bad
+  # reply is returned as-is.
   defp maybe_retry_bad_answer({:ok, res} = result, body, game_id, opts) do
     nudge_key =
       cond do
@@ -423,7 +425,7 @@ defmodule RuleMaven.LLM do
         "LLM ask reply was unusable (#{nudge_key}, game_id=#{game_id}) — retrying with nudge"
       )
 
-      nudge = %{role: "system", content: RuleMaven.Prompts.template(nudge_key)}
+      nudge = %{role: "user", content: RuleMaven.Prompts.template(nudge_key)}
 
       body
       |> Map.update!(:messages, &(&1 ++ [nudge]))
@@ -1805,6 +1807,12 @@ defmodule RuleMaven.LLM do
       verdict == "silent" ->
         nil
 
+      # Wrong-language/encoded text: AskWorker's output guard replaces it at
+      # :ask_complete — streaming the doomed text would show the reader an
+      # answer that then vanishes.
+      suspicious_answer?(raw) ->
+        nil
+
       true ->
         # Mirror decode_answer's trimmed_string: full trim once the string is
         # closed; only a leading trim mid-stream (the tail is still growing).
@@ -1862,8 +1870,13 @@ defmodule RuleMaven.LLM do
 
   defp partial_styled_answer(content) do
     case Regex.run(~r/"styled_answer"\s*:\s*"((?:\\.|[^"\\])*)/s, content) do
-      [_, frag] -> unescape_json_fragment(frag)
-      _ -> nil
+      [_, frag] ->
+        text = unescape_json_fragment(frag)
+        # Same wrong-language guard as partial_display_answer.
+        if is_binary(text) and suspicious_answer?(text), do: nil, else: text
+
+      _ ->
+        nil
     end
   end
 
