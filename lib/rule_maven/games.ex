@@ -3854,9 +3854,10 @@ defmodule RuleMaven.Games do
   end
 
   def community_vote_maps(question_log_ids, user_id) do
-    # Tag each vote with whether its caster authored the row: the asker's own
-    # "up" renders as a distinct "asker confirmed" badge, not an anonymous +1,
-    # so counts exclude author votes and asker_confirmed carries them instead.
+    # The asker's own "up" counts in the displayed tally like any other vote
+    # (clicking the thumb must visibly increment it) — asker_confirmed just
+    # annotates which rows include one, rendered as an "✓ asker" badge. Weight
+    # stays 0, so trust/reputation/quorum ignore it either way.
     all_votes =
       Repo.all(
         from v in QuestionVote,
@@ -3865,26 +3866,22 @@ defmodule RuleMaven.Games do
           where: v.question_log_id in ^question_log_ids,
           select: {v.question_log_id, v.user_id, v.value, q.user_id}
       )
-      |> Enum.map(fn {id, uid, value, author_id} ->
-        {id, uid, value, not is_nil(author_id) and uid == author_id}
-      end)
 
     counts =
-      Enum.reduce(all_votes, %{}, fn
-        {_id, _uid, _value, true}, acc ->
-          acc
-
-        {id, _uid, value, false}, acc ->
-          acc
-          |> Map.update(id, %{up: 0, down: 0}, & &1)
-          |> update_in([id, String.to_atom(value)], &(&1 + 1))
+      Enum.reduce(all_votes, %{}, fn {id, _uid, value, _author_id}, acc ->
+        acc
+        |> Map.update(id, %{up: 0, down: 0}, & &1)
+        |> update_in([id, String.to_atom(value)], &(&1 + 1))
       end)
 
     user_votes =
-      for {id, uid, value, _author?} <- all_votes, uid == user_id, into: %{}, do: {id, value}
+      for {id, uid, value, _author_id} <- all_votes, uid == user_id, into: %{}, do: {id, value}
 
     asker_confirmed =
-      for {id, _uid, "up", true} <- all_votes, into: MapSet.new(), do: id
+      for {id, uid, "up", author_id} <- all_votes,
+          not is_nil(author_id) and uid == author_id,
+          into: MapSet.new(),
+          do: id
 
     {counts, user_votes, asker_confirmed}
   end

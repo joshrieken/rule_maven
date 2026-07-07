@@ -317,7 +317,7 @@ defmodule RuleMaven.TrustTest do
   end
 
   describe "community_vote_maps/2" do
-    test "splits the asker's confirmation out of the public tally" do
+    test "counts the asker's confirmation in the tally and flags it as a badge" do
       game = game_fixture()
       author = user_fixture("maps_author")
       voter = user_fixture("maps_voter")
@@ -328,8 +328,9 @@ defmodule RuleMaven.TrustTest do
 
       {counts, user_votes, asker_confirmed} = Games.community_vote_maps([q.id], voter.id)
 
-      # Tally counts only the non-author vote; the asker's vote surfaces as a badge.
-      assert counts[q.id] == %{up: 1, down: 0}
+      # Tally includes the asker's vote (a thumb click must visibly increment
+      # the number); the badge annotates that one counted vote is the asker's.
+      assert counts[q.id] == %{up: 2, down: 0}
       assert user_votes[q.id] == "up"
       assert MapSet.member?(asker_confirmed, q.id)
 
