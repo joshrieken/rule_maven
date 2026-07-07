@@ -1,4 +1,4 @@
-const CACHE = "rules-buddy-v4"
+const CACHE = "rules-buddy-v5"
 
 self.addEventListener("install", (event) => {
   self.skipWaiting()
