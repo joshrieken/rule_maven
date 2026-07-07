@@ -1,0 +1,39 @@
+defmodule RuleMaven.LLMStreamPartialTest do
+  use ExUnit.Case, async: true
+
+  alias RuleMaven.LLM
+
+  # __partial_answer__/1 extracts the (possibly still-open) "answer" string
+  # out of the streaming ask JSON, so the LiveView can show text while the
+  # rest of the object (citations, followups…) is still generating.
+
+  test "nil until the answer field opens" do
+    assert LLM.__partial_answer__("") == nil
+    assert LLM.__partial_answer__("{\"ans") == nil
+    assert LLM.__partial_answer__("{\"answer\":") == nil
+  end
+
+  test "extracts a partial answer mid-string" do
+    assert LLM.__partial_answer__("{\"answer\": \"Roll the d20 to det") ==
+             "Roll the d20 to det"
+  end
+
+  test "extracts a completed answer while later fields stream" do
+    content = "{\"answer\": \"**Yes** — roll the d20.\", \"verdict\": \"legal\", \"cit"
+    assert LLM.__partial_answer__(content) == "**Yes** — roll the d20."
+  end
+
+  test "unescapes JSON escapes" do
+    assert LLM.__partial_answer__("{\"answer\": \"line one\\nline \\\"two\\\"") ==
+             "line one\nline \"two\""
+  end
+
+  test "drops a trailing incomplete escape instead of failing" do
+    assert LLM.__partial_answer__("{\"answer\": \"50\\u00b") == "50"
+    assert LLM.__partial_answer__("{\"answer\": \"half \\") == "half "
+  end
+
+  test "handles unicode escapes" do
+    assert LLM.__partial_answer__("{\"answer\": \"5 \\u2192 6") == "5 → 6"
+  end
+end

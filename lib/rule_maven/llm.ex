@@ -385,9 +385,20 @@ defmodule RuleMaven.LLM do
       messages: messages
     }
 
+    # Stream partial answer text to the asker's LiveView as it generates —
+    # only when this process is serving a logged question (AskWorker sets the
+    # Logger metadata). The 16s answer call is the longest wait in the ask
+    # pipeline; streaming turns it into visible progress.
+    stream_to =
+      if ql_id = current_question_log_id() do
+        %{game_id: game_id, question_log_id: ql_id}
+      end
+
+    opts = [operation: "ask", game_id: game_id, user_id: user_id, stream_to: stream_to]
+
     body
-    |> do_request(1, operation: "ask", game_id: game_id, user_id: user_id)
-    |> maybe_retry_bad_answer(body, game_id, user_id)
+    |> do_request(1, opts)
+    |> maybe_retry_bad_answer(body, game_id, opts)
   end
 
   # A model occasionally returns a reply the worker can only surface as a
@@ -397,7 +408,7 @@ defmodule RuleMaven.LLM do
   # naming the defect in an appended system message — which also alters the
   # messages array, so the proxy's message-keyed response cache can't replay
   # the bad reply. A second bad reply is returned as-is.
-  defp maybe_retry_bad_answer({:ok, res} = result, body, game_id, user_id) do
+  defp maybe_retry_bad_answer({:ok, res} = result, body, game_id, opts) do
     nudge_key =
       cond do
         String.trim(to_string(res[:answer])) == "" -> "blank_answer_retry"
@@ -416,7 +427,7 @@ defmodule RuleMaven.LLM do
 
       body
       |> Map.update!(:messages, &(&1 ++ [nudge]))
-      |> do_request(1, operation: "ask", game_id: game_id, user_id: user_id)
+      |> do_request(1, opts)
       |> case do
         {:ok, _retried} = retried_result -> retried_result
         {:error, _reason} -> result
@@ -426,7 +437,7 @@ defmodule RuleMaven.LLM do
     end
   end
 
-  defp maybe_retry_bad_answer(result, _body, _game_id, _user_id), do: result
+  defp maybe_retry_bad_answer(result, _body, _game_id, _opts), do: result
 
   @doc """
   True when an answer doesn't look like plain English prose: a very high
@@ -1232,11 +1243,13 @@ defmodule RuleMaven.LLM do
         [%{role: "user", content: prompt}]
       end
 
-    body = %{
-      model: opts[:model] || model(),
-      max_tokens: opts[:max_tokens] || 2048,
-      messages: messages
-    }
+    body =
+      %{
+        model: opts[:model] || model(),
+        max_tokens: opts[:max_tokens] || 2048,
+        messages: messages
+      }
+      |> maybe_reasoning(opts[:reasoning_effort])
 
     case do_request(body, 1,
            operation: opts[:operation] || "chat_#{context}",
@@ -1469,6 +1482,22 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  # Interactive ask-path operations where a user is actively waiting on the
+  # response. On OpenRouter these get provider routing sorted by throughput
+  # (fastest tokens/sec first) instead of the default price sort — the
+  # ask-path models are cheap enough that the latency win dominates the
+  # small price delta. Batch work (extraction, cleanup, tagging…) keeps the
+  # default price-first routing.
+  @interactive_ops ~w(normalize ask pool_tiebreaker voice)
+
+  defp maybe_throughput_sort(body, opts) do
+    if provider() == "openrouter" and to_string(opts[:operation]) in @interactive_ops do
+      Map.put(body, :provider, %{sort: "throughput"})
+    else
+      body
+    end
+  end
+
   defp do_request_real(body, attempt, opts) do
     key = api_key()
     url = RuleMaven.LLMProxy.chat_url() || api_url()
@@ -1490,8 +1519,10 @@ defmodule RuleMaven.LLM do
           []
         end
 
+    body = maybe_throughput_sort(body, opts)
+
     result =
-      case Req.post(url, json: body, headers: headers, receive_timeout: 120_000) do
+      case post_chat(url, body, headers, opts[:stream_to]) do
         {:ok, %{status: 200, body: response_body}} ->
           duration = System.monotonic_time(:millisecond) - start
           usage = extract_usage(response_body)
@@ -1529,6 +1560,173 @@ defmodule RuleMaven.LLM do
       end
 
     result
+  end
+
+  # ── Streaming (ask path only) ──────────────────────────────────────────────
+  #
+  # When `stream_to` names a game + question, the request is issued with
+  # `stream: true` and partial answer text is broadcast as
+  # `{:ask_partial, %{question_log_id:, text:}}` on "game:<id>" while tokens
+  # arrive. The SSE events are re-assembled into the same response-body shape
+  # the non-streaming path returns, so everything downstream (usage logging,
+  # parse_response, truncation retry) is untouched. If the endpoint ignores
+  # `stream: true` and replies with a plain JSON body (the LLM proxy replaying
+  # a cached response does exactly this), the fallback decode below handles it
+  # — the caller just gets no partials, same as before.
+
+  defp post_chat(url, body, headers, nil) do
+    Req.post(url, json: body, headers: headers, receive_timeout: 120_000)
+  end
+
+  defp post_chat(url, body, headers, stream_to) do
+    body =
+      body
+      |> Map.put(:stream, true)
+      # Usage normally rides on the non-stream response; ask for it as the
+      # final SSE event so cost logging keeps working.
+      |> Map.put(:stream_options, %{include_usage: true})
+
+    # Req's `into:` fun carries no custom accumulator, so the SSE state lives
+    # in the process dictionary for the duration of this one call. The whole
+    # ask pipeline is synchronous in one process (AskWorker), so there's no
+    # concurrent request to collide with; delete-on-exit keeps Oban's process
+    # reuse clean.
+    Process.put(:llm_sse_state, new_sse_state())
+
+    into = fn {:data, chunk}, {req, resp} ->
+      if resp.status == 200 do
+        Process.put(:llm_sse_state, ingest_sse(Process.get(:llm_sse_state), chunk, stream_to))
+        {:cont, {req, resp}}
+      else
+        # Error responses arrive through the same fun — keep the raw body so
+        # the caller's error branch can report it.
+        {:cont, {req, %{resp | body: (if is_binary(resp.body), do: resp.body, else: "") <> chunk}}}
+      end
+    end
+
+    try do
+      case Req.post(url, json: body, headers: headers, receive_timeout: 120_000, into: into) do
+        {:ok, %{status: 200} = resp} ->
+          {:ok, %{resp | body: finalize_sse(Process.get(:llm_sse_state))}}
+
+        other ->
+          other
+      end
+    after
+      Process.delete(:llm_sse_state)
+    end
+  end
+
+  defp new_sse_state do
+    %{buffer: "", raw: "", content: "", finish_reason: nil, usage: nil, sent: ""}
+  end
+
+  # Feed a transport chunk into the SSE state: split off complete lines
+  # (a chunk can end mid-line or mid-event), apply each, then emit a partial
+  # if the extractable answer text grew enough to be worth a broadcast.
+  defp ingest_sse(state, chunk, stream_to) do
+    parts = String.split(state.buffer <> chunk, "\n")
+    {lines, [rest]} = Enum.split(parts, -1)
+
+    state = %{state | buffer: rest, raw: state.raw <> chunk}
+    state = Enum.reduce(lines, state, &apply_sse_line(&2, &1))
+    maybe_emit_partial(state, stream_to)
+  end
+
+  defp apply_sse_line(state, line) do
+    case String.trim(line) do
+      "data: [DONE]" ->
+        state
+
+      "data: " <> json ->
+        case Jason.decode(json) do
+          {:ok, event} -> apply_sse_event(state, event)
+          _ -> state
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  defp apply_sse_event(state, event) do
+    choice = List.first(event["choices"] || []) || %{}
+    delta = get_in(choice, ["delta", "content"]) || ""
+
+    %{
+      state
+      | content: state.content <> delta,
+        finish_reason: choice["finish_reason"] || state[:finish_reason],
+        usage: event["usage"] || state[:usage]
+    }
+  end
+
+  # Broadcast the partial answer when it grew meaningfully since the last
+  # emit — chunk arrival already paces this to at most a few frames/sec, the
+  # char floor just avoids spamming one-token diffs at the LiveView.
+  @partial_emit_min_growth 24
+
+  defp maybe_emit_partial(state, stream_to) do
+    partial = partial_answer(state.content)
+
+    if is_binary(partial) and
+         String.length(partial) - String.length(state.sent) >= @partial_emit_min_growth do
+      Phoenix.PubSub.broadcast(
+        RuleMaven.PubSub,
+        "game:#{stream_to.game_id}",
+        {:ask_partial, %{question_log_id: stream_to.question_log_id, text: partial}}
+      )
+
+      %{state | sent: partial}
+    else
+      state
+    end
+  end
+
+  @doc false
+  # Extract the (possibly still-open) "answer" string value out of a partial
+  # JSON object. The ask schema lists "answer" first, so it streams before the
+  # citations. Returns nil until the field opens. Public for tests.
+  def __partial_answer__(content), do: partial_answer(content)
+
+  defp partial_answer(content) do
+    case Regex.run(~r/"answer"\s*:\s*"((?:\\.|[^"\\])*)/s, content) do
+      [_, frag] -> unescape_json_fragment(frag)
+      _ -> nil
+    end
+  end
+
+  # `frag` is the inside of a JSON string literal, possibly cut mid-escape.
+  # Drop a trailing incomplete escape, then let Jason do the real unescaping.
+  defp unescape_json_fragment(frag) do
+    frag = String.replace(frag, ~r/\\(?:u[0-9a-fA-F]{0,3})?\z/, "")
+
+    case Jason.decode(~s("#{frag}")) do
+      {:ok, text} when is_binary(text) -> text
+      _ -> nil
+    end
+  end
+
+  # Re-assemble the streamed events into the non-streaming response-body
+  # shape. When no SSE event ever decoded (content == "" and raw present),
+  # the endpoint didn't actually stream — decode the raw body as plain JSON.
+  defp finalize_sse(%{content: "", raw: raw}) when raw != "" do
+    case Jason.decode(raw) do
+      {:ok, decoded} -> decoded
+      _ -> %{}
+    end
+  end
+
+  defp finalize_sse(state) do
+    %{
+      "choices" => [
+        %{
+          "message" => %{"content" => state.content},
+          "finish_reason" => state.finish_reason
+        }
+      ],
+      "usage" => state.usage
+    }
   end
 
   defp extract_usage(body) do
