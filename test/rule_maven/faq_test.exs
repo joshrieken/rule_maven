@@ -38,6 +38,40 @@ defmodule RuleMaven.FaqTest do
       assert Faq.community_count(game) == 1
     end
 
+    test "community_count/1 includes eligible unverified pooled questions", %{game: game} do
+      {:ok, _} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "Pooled Q",
+          answer: "A",
+          visibility: "private",
+          pooled: true
+        })
+
+      # Ineligible pooled rows don't count.
+      {:ok, _} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "Blocked Q",
+          answer: "A",
+          visibility: "private",
+          pooled: true,
+          blocked: true
+        })
+
+      {:ok, _} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "Downvoted Q",
+          answer: "A",
+          visibility: "private",
+          pooled: true,
+          trust_score: -2.0
+        })
+
+      assert Faq.community_count(game) == 1
+    end
+
     test "stats/0 reports total community count", %{game: game} do
       {:ok, _} =
         Games.log_question(%{
