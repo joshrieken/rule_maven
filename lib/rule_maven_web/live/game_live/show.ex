@@ -3637,9 +3637,14 @@ defmodule RuleMavenWeb.GameLive.Show do
                           phx-click="community_vote"
                           phx-value-id={msg[:id]}
                           phx-value-vote="up"
-                          style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
+                          style={"background:none;border:none;padding:0;line-height:1;cursor:pointer;display:inline-flex;color:#{if cv == "up", do: "var(--accent)", else: "var(--text-muted)"}"}
                           title={if cv == "up", do: "Remove vote", else: "Helpful"}
-                        >👍</button>
+                        ><.icon
+                          name={
+                            if cv == "up", do: "hero-hand-thumb-up-solid", else: "hero-hand-thumb-up"
+                          }
+                          class="size-4"
+                        /></button>
                         <span
                           style="font-size:0.65rem;color:var(--text-muted)"
                           title="Total helpful votes"
@@ -3666,9 +3671,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                             phx-click="community_vote"
                             phx-value-id={sid}
                             phx-value-vote="up"
-                            style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
+                            style={"background:none;border:none;padding:0;line-height:1;cursor:pointer;display:inline-flex;color:#{if cv == "up", do: "var(--accent)", else: "var(--text-muted)"}"}
                             title={if cv == "up", do: "Remove vote", else: "Helpful"}
-                          >👍</button>
+                          ><.icon
+                            name={
+                              if cv == "up",
+                                do: "hero-hand-thumb-up-solid",
+                                else: "hero-hand-thumb-up"
+                            }
+                            class="size-4"
+                          /></button>
                           <span
                             style="font-size:0.65rem;color:var(--text-muted)"
                             title="Total helpful votes"
@@ -3702,13 +3714,20 @@ defmodule RuleMavenWeb.GameLive.Show do
                             phx-click="community_vote"
                             phx-value-id={msg[:id]}
                             phx-value-vote="up"
-                            style={"background:none;border:none;padding:0;line-height:1;font-size:1rem;cursor:pointer;opacity:#{if cv == "up", do: "1", else: "0.4"}"}
+                            style={"background:none;border:none;padding:0;line-height:1;cursor:pointer;display:inline-flex;color:#{if cv == "up", do: "var(--accent)", else: "var(--text-muted)"}"}
                             title={
                               if cv == "up",
                                 do: "Remove confirmation",
                                 else: "Confirm this answered your question"
                             }
-                          >👍</button>
+                          ><.icon
+                            name={
+                              if cv == "up",
+                                do: "hero-hand-thumb-up-solid",
+                                else: "hero-hand-thumb-up"
+                            }
+                            class="size-4"
+                          /></button>
                           <span
                             style="font-size:0.65rem;color:var(--text-muted)"
                             title="Total helpful votes"
