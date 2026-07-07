@@ -4448,9 +4448,9 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       msg =
         if n == 1 do
-          "1 of your votes was confirmed — +1 curator point. See your Curator page for details."
+          "1 of your votes was confirmed — +1 curator point. See your Standing page for details."
         else
-          "#{n} of your votes were confirmed — +#{n} curator points. See your Curator page for details."
+          "#{n} of your votes were confirmed — +#{n} curator points. See your Standing page for details."
         end
 
       Phoenix.LiveView.put_flash(socket, :info, msg)

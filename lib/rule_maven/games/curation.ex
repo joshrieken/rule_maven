@@ -228,4 +228,28 @@ defmodule RuleMaven.Games.Curation do
         nil
     end
   end
+
+  @doc """
+  Contribution stats for the standing page: reputation (see
+  `RuleMaven.Games.Trust.recompute_reputation/1`) plus how many answers the
+  user asked that reached the community pool or an admin verify.
+  """
+  def contributor_stats(user_id) do
+    reputation =
+      Repo.one(from u in User, where: u.id == ^user_id, select: u.reputation) || 0
+
+    promoted =
+      Repo.aggregate(
+        from(q in QuestionLog, where: q.user_id == ^user_id and q.visibility == "community"),
+        :count
+      )
+
+    verified =
+      Repo.aggregate(
+        from(q in QuestionLog, where: q.user_id == ^user_id and q.verified == true),
+        :count
+      )
+
+    %{reputation: reputation, promoted: promoted, verified: verified}
+  end
 end

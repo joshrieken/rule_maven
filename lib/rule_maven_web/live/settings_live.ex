@@ -534,11 +534,11 @@ defmodule RuleMavenWeb.SettingsLive do
           </div>
 
           <div style="margin-top:1.25rem;border-top:1px solid var(--border);padding-top:1rem">
-            <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 0.5rem 0">Curator</h3>
+            <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 0.5rem 0">Community standing</h3>
             <p style="font-size:0.82rem;color:var(--text-muted);margin:0">
               <strong style="color:var(--text)">{@curator_stats.points}</strong>
               curator points earned from votes that settled correct.
-              <.link navigate={~p"/curator"} style="font-weight:600">View your curator page →</.link>
+              <.link navigate={~p"/standing"} style="font-weight:600">View your standing page →</.link>
             </p>
           </div>
         </section>
