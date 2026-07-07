@@ -1788,7 +1788,15 @@ defmodule RuleMavenWeb.GameLive.Show do
       # in the same ask call); a persona viewer streams that instead of the
       # plain text so the plain answer never flashes. Older payload shape
       # (pre-deploy broadcasts) simply has no :styled_text key.
-      partial = %{text: text, styled: data[:styled_text]}
+      partial = %{
+        text: text,
+        styled: data[:styled_text],
+        # Answer/styled_answer string closed on the wire — the visible text
+        # is final and the remaining wait is citations + verdict. Older
+        # payloads (pre-deploy broadcasts) have no done keys → false.
+        text_done: data[:text_done] == true,
+        styled_done: data[:styled_done] == true
+      }
 
       {:noreply,
        socket
@@ -2870,6 +2878,15 @@ defmodule RuleMavenWeb.GameLive.Show do
                         _ ->
                           nil
                       end %>
+                    <% stream_done =
+                      case partial do
+                        %{} = p ->
+                          (v_sel == "neutral" && p[:text_done] == true) ||
+                            (v_sel != "neutral" && p[:styled_done] == true)
+
+                        _ ->
+                          false
+                      end %>
                     <% thinking? = msg.content == "Thinking..." && msg[:pending] %>
                     <% voicing? =
                       msg.content != "Thinking..." && v_sel != "neutral" && is_nil(v_content) &&
@@ -2878,7 +2895,15 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <% thinking? && stream_text -> %>
                         <div class="answer-in">
                           {render_markdown(stream_text)}
-                          <span class="stream-cursor" aria-hidden="true"></span>
+                          <span :if={!stream_done} class="stream-cursor" aria-hidden="true"></span>
+                        </div>
+                        <%!-- Answer text is final but citations + verdict are
+                              still streaming/being checked — without this the
+                              finished-looking text just sits there until
+                              :ask_complete swaps everything in. --%>
+                        <div :if={stream_done} class="cite-pending">
+                          <span class="voice-loader__spinner" aria-hidden="true"></span>
+                          <span>Gathering rulebook citations…</span>
                         </div>
                       <% thinking? || voicing? -> %>
                         <% v_def = v_sel != "neutral" && Enum.find(@voices, &(&1.id == v_sel)) %>

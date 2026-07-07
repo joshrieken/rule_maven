@@ -57,4 +57,34 @@ defmodule RuleMaven.LLMStreamPartialTest do
     assert LLM.__partial_answer__(content) == nil
     assert LLM.__partial_styled_answer__(content) == "Arr, roll ye d20"
   end
+
+  # __answer_closed__/1 & __styled_answer_closed__/1 — the field's closing
+  # quote has streamed, so the visible text is final and the LiveView can swap
+  # the stream cursor for the citations-pending indicator.
+
+  test "answer not closed while the string is still open" do
+    refute LLM.__answer_closed__("")
+    refute LLM.__answer_closed__("{\"answer\": \"Roll the d20 to det")
+    refute LLM.__answer_closed__("{\"answer\": \"escaped quote \\\"still open")
+  end
+
+  test "answer closed once the closing quote streams" do
+    assert LLM.__answer_closed__("{\"answer\": \"Roll the d20.\"")
+    assert LLM.__answer_closed__("{\"answer\": \"Roll the d20.\", \"cit")
+    assert LLM.__answer_closed__("{\"answer\": \"quote \\\" inside\", \"verdict")
+  end
+
+  test "styled_answer closure tracked independently" do
+    content = "{\"answer\": \"Roll the d20.\", \"styled_answer\": \"Arr, roll ye d2"
+    assert LLM.__answer_closed__(content)
+    refute LLM.__styled_answer_closed__(content)
+
+    assert LLM.__styled_answer_closed__(content <> "0!\"")
+  end
+
+  test "a closed styled_answer alone does not close the plain answer" do
+    content = "{\"styled_answer\": \"Arr!\""
+    refute LLM.__answer_closed__(content)
+    assert LLM.__styled_answer_closed__(content)
+  end
 end

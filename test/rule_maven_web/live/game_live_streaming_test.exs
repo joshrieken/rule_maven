@@ -146,6 +146,58 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
     refute html =~ "voice-loader-#{ql.id}"
   end
 
+  test "text_done swaps the stream cursor for the citations-pending indicator", %{conn: conn} do
+    user = setup_user("stream_done")
+    game = published_game_fixture(%{name: "Stream Done Game"})
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    view
+    |> form("#ask-form", question: "How is the first player picked?")
+    |> render_submit()
+
+    ql =
+      RuleMaven.Repo.one!(
+        from(q in Games.QuestionLog,
+          where: q.game_id == ^game.id,
+          order_by: [desc: q.id],
+          limit: 1
+        )
+      )
+
+    # Text still streaming: cursor, no indicator.
+    send(
+      view.pid,
+      {:ask_partial, %{question_log_id: ql.id, text: "Roll the d20 to", text_done: false}}
+    )
+
+    html = render(view)
+    assert html =~ "stream-cursor"
+    refute html =~ "cite-pending"
+
+    # Answer string closed on the wire: citations/verdict still in flight —
+    # drop the cursor, show the pending indicator.
+    send(
+      view.pid,
+      {:ask_partial,
+       %{question_log_id: ql.id, text: "Roll the d20 to pick.", text_done: true}}
+    )
+
+    html = render(view)
+    assert html =~ "Roll the d20 to pick."
+    refute html =~ "stream-cursor"
+    assert html =~ "cite-pending"
+    assert html =~ "Gathering rulebook citations"
+
+    # :ask_complete clears the indicator.
+    {:ok, ql} = Games.log_question_update(ql, %{answer: "Roll the d20 to pick."})
+    send(view.pid, {:ask_complete, ask_complete_payload(ql)})
+
+    html = render(view)
+    refute html =~ "cite-pending"
+  end
+
   test "deferred persona restyle keeps the voice loader up (no plain flash), then swaps", %{
     conn: conn
   } do

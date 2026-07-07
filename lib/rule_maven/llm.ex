@@ -1624,7 +1624,7 @@ defmodule RuleMaven.LLM do
       content: "",
       finish_reason: nil,
       usage: nil,
-      sent: %{text: "", styled: ""}
+      sent: %{text: "", styled: "", text_done: false, styled_done: false}
     }
   end
 
@@ -1677,16 +1677,37 @@ defmodule RuleMaven.LLM do
   defp maybe_emit_partial(state, stream_to) do
     text = partial_answer(state.content)
     styled = partial_styled_answer(state.content)
+    text_done = answer_closed?(state.content)
+    styled_done = styled_answer_closed?(state.content)
 
-    if grown?(text, state.sent.text) or grown?(styled, state.sent.styled) do
+    # A done flag flipping forces an emit even below the growth floor: it
+    # carries the final tail of the text and tells the LiveView to swap the
+    # stream cursor for the citations-pending indicator.
+    if grown?(text, state.sent.text) or grown?(styled, state.sent.styled) or
+         (text_done and not state.sent.text_done) or
+         (styled_done and not state.sent.styled_done) do
       Phoenix.PubSub.broadcast(
         RuleMaven.PubSub,
         "game:#{stream_to.game_id}",
         {:ask_partial,
-         %{question_log_id: stream_to.question_log_id, text: text, styled_text: styled}}
+         %{
+           question_log_id: stream_to.question_log_id,
+           text: text,
+           styled_text: styled,
+           text_done: text_done,
+           styled_done: styled_done
+         }}
       )
 
-      %{state | sent: %{text: text || "", styled: styled || ""}}
+      %{
+        state
+        | sent: %{
+            text: text || "",
+            styled: styled || "",
+            text_done: text_done,
+            styled_done: styled_done
+          }
+      }
     else
       state
     end
@@ -1714,6 +1735,20 @@ defmodule RuleMaven.LLM do
       _ -> nil
     end
   end
+
+  @doc false
+  def __answer_closed__(content), do: answer_closed?(content)
+
+  @doc false
+  def __styled_answer_closed__(content), do: styled_answer_closed?(content)
+
+  # The answer string's closing quote has streamed — the visible text is
+  # final; whatever is still arriving is citations/metadata.
+  defp answer_closed?(content),
+    do: Regex.match?(~r/(?<![\w_])"answer"\s*:\s*"(?:\\.|[^"\\])*"/s, content)
+
+  defp styled_answer_closed?(content),
+    do: Regex.match?(~r/"styled_answer"\s*:\s*"(?:\\.|[^"\\])*"/s, content)
 
   defp partial_styled_answer(content) do
     case Regex.run(~r/"styled_answer"\s*:\s*"((?:\\.|[^"\\])*)/s, content) do
