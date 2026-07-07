@@ -261,7 +261,8 @@ defmodule RuleMaven.Voices do
           description: gv.description,
           loading_phrases: gv.loading_phrases,
           thanks_phrases: gv.thanks_phrases,
-          popularity_rank: gv.popularity_rank
+          popularity_rank: gv.popularity_rank,
+          vetted: gv.vetted
         }
     )
     |> Enum.map(fn gv ->
@@ -273,7 +274,8 @@ defmodule RuleMaven.Voices do
         description: gv.description,
         loading_phrases: gv.loading_phrases || [],
         thanks_phrases: gv.thanks_phrases || [],
-        popularity_rank: gv.popularity_rank
+        popularity_rank: gv.popularity_rank,
+        vetted: gv.vetted || false
       }
     end)
   end
@@ -545,7 +547,10 @@ defmodule RuleMaven.Voices do
         thanks_phrases: Map.get(v, :thanks_phrases, []),
         popularity_rank: Map.get(v, :popularity_rank),
         source: "generated",
-        position: idx
+        position: idx,
+        # Fail-closed: a caller that didn't run the vet pass writes false, and
+        # a style edit through here re-vets from scratch (see VoiceVetWorker).
+        vetted: Map.get(v, :vetted, false)
       }
 
       case Map.get(by_slug, v.slug) do
@@ -564,6 +569,31 @@ defmodule RuleMaven.Voices do
           row |> GameVoice.changeset(attrs) |> Repo.update()
       end
     end)
+
+    :ok
+  end
+
+  @doc "A game's generated voices that haven't passed the style vet yet."
+  def unvetted_generated(game_id) do
+    Repo.all(
+      from gv in GameVoice,
+        where: gv.game_id == ^game_id and gv.vetted == false,
+        select: %{slug: gv.slug, style: gv.style}
+    )
+  end
+
+  @doc """
+  Marks the given slugs of a game's generated voices as vetted (style judged a
+  pure tone description, safe for the single-call ask prompt). Slugs that
+  failed the vet are simply left `vetted: false` — they keep the restyle path.
+  """
+  def mark_vetted(_game_id, []), do: :ok
+
+  def mark_vetted(game_id, slugs) do
+    Repo.update_all(
+      from(gv in GameVoice, where: gv.game_id == ^game_id and gv.slug in ^slugs),
+      set: [vetted: true]
+    )
 
     :ok
   end

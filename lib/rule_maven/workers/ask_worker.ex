@@ -79,6 +79,17 @@ defmodule RuleMaven.Workers.AskWorker do
         :ok
 
       true ->
+        # Pre-vet backfill: a generated (g:) voice that hasn't passed the style
+        # vet can't take the single-call persona path (voice_style_block returns
+        # "" for it), so this ask falls back to the on-demand restyle. Kick off
+        # the vet now so later asks with this persona get the single-call path.
+        if String.starts_with?(voice, "g:") do
+          case RuleMaven.Voices.get_def(voice, game) do
+            %{vetted: false} -> RuleMaven.Workers.VoiceVetWorker.enqueue(game_id)
+            _ -> :ok
+          end
+        end
+
         Jobs.event(
           run,
           :info,
