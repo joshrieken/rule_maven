@@ -1635,12 +1635,13 @@ h1 span.subtitle {
   to   { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
-/* Honor the ambient-motion off switch and OS reduced-motion. */
+/* Honor the ambient-motion off switch. The sidebar-item cascade is functional
+   feedback (it shows the list arriving), not ambient decoration, so it is
+   deliberately NOT in this list — only OS prefers-reduced-motion disables it. */
 [data-motion="off"] .chat-msg,
 [data-motion="off"] .chat-msg-user,
 [data-motion="off"] .answer-in,
-[data-motion="off"] .verdict-stamp,
-[data-motion="off"] .sidebar-item {
+[data-motion="off"] .verdict-stamp {
   animation: none !important;
 }
 
