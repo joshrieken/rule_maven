@@ -69,6 +69,16 @@ defmodule RuleMavenWeb.Tours do
           "Have answers delivered in a themed character voice. Pure fun — the rules content stays exactly as accurate."
       },
       %{
+        # :not([hidden]) — the picker is server-rendered hidden and unhidden by
+        # the root-layout script only when the page has a game palette; the Tour
+        # hook's present() is a bare querySelector, so without the guard this
+        # step would spotlight an invisible element on palette-less games.
+        sel: "#game-theme-select:not([hidden])",
+        title: "Dress for the game",
+        body:
+          "Restyle the page in this game's own colors, drawn from its cover art. Pick 🖌️ Game Light or Game Dark here — your usual theme comes right back when you leave."
+      },
+      %{
         sel: "[data-tour='expansions']",
         title: "Playing with expansions?",
         body:
