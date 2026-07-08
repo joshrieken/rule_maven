@@ -3,14 +3,14 @@ defmodule RuleMaven.LLMStalledStreamRetryTest do
 
   alias RuleMaven.LLM
 
-  # A stalled/runaway answer stream (chiefly a poisoned proxy cache entry
-  # replaying a reasoning-only stream) is retried ONCE with a cache-busting
-  # nonce, which forces a cache miss and a genuine new generation.
+  # A runaway answer stream is retried ONCE with a cache-busting nonce, which
+  # forces a cache miss and a genuine new generation.
 
-  test "flags reasoning_stall and runaway, but not a genuine timeout" do
-    assert LLM.__stalled_stream_error__({:error, "HTTP error: :reasoning_stall"})
+  test "flags runaway, but not a genuine timeout or reasoning" do
     assert LLM.__stalled_stream_error__({:error, "HTTP error: :runaway_answer"})
     refute LLM.__stalled_stream_error__({:error, "HTTP error: :timeout"})
+    # :reasoning_stall was removed — long reasoning is normal, never an error.
+    refute LLM.__stalled_stream_error__({:error, "HTTP error: :reasoning_stall"})
     refute LLM.__stalled_stream_error__({:ok, %{answer: "fine"}})
   end
 
@@ -28,7 +28,7 @@ defmodule RuleMaven.LLMStalledStreamRetryTest do
 
     result =
       LLM.__maybe_retry_stalled_stream__(
-        {:error, "HTTP error: :reasoning_stall"},
+        {:error, "HTTP error: :runaway_answer"},
         body,
         operation: "ask"
       )
@@ -45,7 +45,7 @@ defmodule RuleMaven.LLMStalledStreamRetryTest do
     Application.put_env(:rule_maven, :llm_mock, fn _ -> flunk("must not re-call the model") end)
     on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
-    err = {:error, "HTTP error: :reasoning_stall"}
+    err = {:error, "HTTP error: :runaway_answer"}
     assert LLM.__maybe_retry_stalled_stream__(err, %{messages: []}, stream_retried: true) == err
   end
 
