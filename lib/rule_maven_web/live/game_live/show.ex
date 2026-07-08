@@ -175,9 +175,10 @@ defmodule RuleMavenWeb.GameLive.Show do
     grouped = Games.grouped_questions(game, question_group_opts(socket))
     threads = build_thread_summaries(grouped, socket.assigns.current_user.id)
 
-    # ?start=1 forces the start screen (suggested questions, setup checklist) —
-    # no active thread. Otherwise prefer ?t=THREAD_ID, then socket assign, then
-    # the first thread.
+    # Landing on the page shows the start screen (overview: suggested
+    # questions, setup checklist) — no active thread — unless ?t=THREAD_ID
+    # explicitly targets a thread. A thread already selected in this session
+    # (socket assign) is kept across patches. ?start=1 forces the overview.
     active_thread_id =
       cond do
         params["start"] ->
@@ -186,17 +187,17 @@ defmodule RuleMavenWeb.GameLive.Show do
         t = params["t"] ->
           case RuleMaven.Hashid.decode(t) do
             {:ok, tid} ->
-              if Enum.any?(threads, &(&1.id == tid)), do: tid, else: select_active_thread(threads)
+              if Enum.any?(threads, &(&1.id == tid)), do: tid, else: nil
 
             :error ->
-              select_active_thread(threads)
+              nil
           end
 
         id = socket.assigns.active_thread_id ->
-          if Enum.any?(threads, &(&1.id == id)), do: id, else: select_active_thread(threads)
+          if Enum.any?(threads, &(&1.id == id)), do: id, else: nil
 
         true ->
-          select_active_thread(threads)
+          nil
       end
 
     conversation = build_conversation_for_thread(grouped, active_thread_id)
@@ -334,13 +335,6 @@ defmodule RuleMavenWeb.GameLive.Show do
       {:noreply,
        assign(socket, suggestions: suggestions, suggestions_open: false, stale_timer: nil)}
     end
-  end
-
-  # Pick the first non-refused thread, or the first thread, or nil.
-  defp select_active_thread([]), do: nil
-
-  defp select_active_thread(threads) do
-    (Enum.find(threads, &(!&1.refused)) || List.first(threads)).id
   end
 
   # Build thread summary list from grouped questions (one per root).

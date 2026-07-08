@@ -31,7 +31,7 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
     user = setup_user("cite_src")
     game = published_game_fixture(%{name: "Cite Src Game"})
 
-    {:ok, _ql} =
+    {:ok, ql} =
       Games.log_question(%{
         game_id: game.id,
         user_id: user.id,
@@ -44,7 +44,12 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
       })
 
     conn = login(conn, user)
-    {:ok, _view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    {:ok, _view, html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     assert html =~ "Official FAQ · p.2"
   end
@@ -53,7 +58,7 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
     user = setup_user("cite_nil")
     game = published_game_fixture(%{name: "Cite Nil Game"})
 
-    {:ok, _ql} =
+    {:ok, ql} =
       Games.log_question(%{
         game_id: game.id,
         user_id: user.id,
@@ -65,7 +70,12 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
       })
 
     conn = login(conn, user)
-    {:ok, _view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    {:ok, _view, html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     assert html =~ "Rulebook · p.5"
   end
@@ -76,22 +86,39 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
     user = setup_user("cite_group")
     game = published_game_fixture(%{name: "Cite Group Game"})
 
-    {:ok, _ql} =
+    {:ok, ql} =
       Games.log_question(%{
         game_id: game.id,
         user_id: user.id,
         question: "How is the d20 used?",
         answer: "It picks the first player and damages the Beholder.",
         citations: [
-          %{"quote" => "Damage the Beholder's eyestalks.", "page" => 11, "source" => "Core rules"},
-          %{"quote" => "Roll the d20 to determine the first player.", "page" => 5, "source" => "Core rules"},
-          %{"quote" => "then blind its central antimagic eye.", "page" => 11, "source" => "Core rules"}
+          %{
+            "quote" => "Damage the Beholder's eyestalks.",
+            "page" => 11,
+            "source" => "Core rules"
+          },
+          %{
+            "quote" => "Roll the d20 to determine the first player.",
+            "page" => 5,
+            "source" => "Core rules"
+          },
+          %{
+            "quote" => "then blind its central antimagic eye.",
+            "page" => 11,
+            "source" => "Core rules"
+          }
         ],
         visibility: "private"
       })
 
     conn = login(conn, user)
-    {:ok, _view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    {:ok, _view, html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     # Same-page citations (p.11) are merged with ellipsis (apostrophe HTML-encoded as &#39;)
     assert html =~ "Damage the Beholder&#39;s eyestalks. … then blind its central antimagic eye."

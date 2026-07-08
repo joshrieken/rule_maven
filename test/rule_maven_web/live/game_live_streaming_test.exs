@@ -126,7 +126,10 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
       )
 
     # Plain text streaming but no styled text yet: keep the loader, hide the plain.
-    send(view.pid, {:ask_partial, %{question_log_id: ql.id, text: "Roll the d20", styled_text: nil}})
+    send(
+      view.pid,
+      {:ask_partial, %{question_log_id: ql.id, text: "Roll the d20", styled_text: nil}}
+    )
 
     html = render(view)
     refute html =~ "Roll the d20"
@@ -180,8 +183,7 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
     # drop the cursor, show the pending indicator.
     send(
       view.pid,
-      {:ask_partial,
-       %{question_log_id: ql.id, text: "Roll the d20 to pick.", text_done: true}}
+      {:ask_partial, %{question_log_id: ql.id, text: "Roll the d20 to pick.", text_done: true}}
     )
 
     html = render(view)
@@ -214,7 +216,12 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
       })
 
     conn = login(conn, user)
-    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    {:ok, view, _html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     render_hook(view, "default_voice_restore", %{"voice" => "pirate"})
 
@@ -232,7 +239,7 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
     refute html =~ "<p>You roll 3 dice."
     refute html =~ "voice-badge"
     assert html =~ "voice-loader-#{ql.id}-pirate"
-    assert_enqueued worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id}
+    assert_enqueued(worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id})
 
     send(view.pid, {:voice_ready, ql.id, "pirate", "Arr, three dice, matey."})
 
@@ -294,7 +301,12 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
       })
 
     conn = login(conn, user)
-    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    {:ok, view, _html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     render_hook(view, "default_voice_restore", %{"voice" => "pirate"})
 

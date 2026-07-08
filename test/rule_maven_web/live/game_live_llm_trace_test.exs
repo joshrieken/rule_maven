@@ -17,7 +17,11 @@ defmodule RuleMavenWeb.GameLiveLlmTraceTest do
     {:ok, user} =
       RuleMaven.Users.create_user(
         Map.merge(
-          %{username: "#{prefix}_user", email: "#{prefix}_user@test.com", password: "password1234"},
+          %{
+            username: "#{prefix}_user",
+            email: "#{prefix}_user@test.com",
+            password: "password1234"
+          },
           attrs
         )
       )
@@ -59,7 +63,12 @@ defmodule RuleMavenWeb.GameLiveLlmTraceTest do
     trace_row(ql.id)
 
     conn = login(conn, admin)
-    {:ok, view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    {:ok, view, html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     assert html =~ "LLM trace"
 
@@ -77,7 +86,12 @@ defmodule RuleMavenWeb.GameLiveLlmTraceTest do
     ql = answered_question(game, admin)
 
     conn = login(conn, admin)
-    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    {:ok, view, _html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     html = render_click(view, "toggle_llm_trace", %{"id" => to_string(ql.id)})
 
@@ -91,7 +105,12 @@ defmodule RuleMavenWeb.GameLiveLlmTraceTest do
     trace_row(ql.id)
 
     conn = login(conn, viewer)
-    {:ok, view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    {:ok, view, html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     refute html =~ "LLM trace"
 

@@ -33,7 +33,10 @@ defmodule RuleMavenWeb.GameLivePersonaDirectTest do
   # (unnamed) insert calls resolve for real, matching the established pattern
   # in test/rule_maven/workers/theme_palette_worker_test.exs.
   setup do
-    start_supervised!({Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false})
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
     :ok
   end
 
@@ -53,10 +56,15 @@ defmodule RuleMavenWeb.GameLivePersonaDirectTest do
       })
 
     conn = login(conn, user)
-    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
 
-    # Set the active persona while the question is still pending. Mount
-    # auto-selects this thread as active (it's the user's only question), so
+    {:ok, view, _html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
+
+    # Set the active persona while the question is still pending. The ?t= param
+    # opens this thread as active, so
     # if it already carried a final answer at this point, this same
     # `default_voice_restore` hook would fire `apply_default_voice/2` against
     # it immediately and enqueue a VoiceWorker job of its own —
@@ -91,7 +99,7 @@ defmodule RuleMavenWeb.GameLivePersonaDirectTest do
 
     html = render(view)
     assert html =~ "Arr, roll three dice"
-    refute_enqueued worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id}
+    refute_enqueued(worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id})
   end
 
   test "a refused answer with a persona active renders plain — no stuck loader, no VoiceWorker job",
@@ -109,7 +117,12 @@ defmodule RuleMavenWeb.GameLivePersonaDirectTest do
       })
 
     conn = login(conn, user)
-    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    {:ok, view, _html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     render_hook(view, "default_voice_restore", %{"voice" => "pirate"})
 
@@ -147,7 +160,7 @@ defmodule RuleMavenWeb.GameLivePersonaDirectTest do
     html = render(view)
     assert html =~ "does not cover this question"
     refute html =~ "voice-loader-#{ql.id}"
-    refute_enqueued worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id}
+    refute_enqueued(worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id})
   end
 
   test "a fresh ask with a persona active shows the loading bar, never the typing dots", %{

@@ -84,10 +84,15 @@ defmodule RuleMavenWeb.GameLiveVisibilityDemoteOnlyTest do
   test "visibility button renders only for community rows", %{conn: conn} do
     admin = create_admin("vd_admin3")
     game = published_game_fixture(%{name: "Button Render Game"})
-    log(game, admin, %{visibility: "private"})
+    q1 = log(game, admin, %{visibility: "private"})
 
     conn = login(conn, admin)
-    {:ok, _view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    {:ok, _view, html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(q1.id)}"
+      )
 
     refute html =~ "Make community-visible"
     refute html =~ ~s(phx-click="toggle_question_visibility")
@@ -95,7 +100,12 @@ defmodule RuleMavenWeb.GameLiveVisibilityDemoteOnlyTest do
     game2 = published_game_fixture(%{name: "Button Render Game 2", bgg_id: 43})
     q2 = log(game2, admin, %{visibility: "community", pooled: true})
 
-    {:ok, view2, _} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game2.id)}")
+    {:ok, view2, _} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game2.id)}?t=#{RuleMaven.Hashid.encode(q2.id)}"
+      )
+
     html2 = render(view2)
 
     assert html2 =~ ~s(phx-click="toggle_question_visibility")
