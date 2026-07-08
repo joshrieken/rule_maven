@@ -19,6 +19,21 @@ end
 
 browser_dir = Path.expand("../priv/browser", __DIR__)
 platform = "#{os}-#{arch}"
+
+# Worktrees don't get the chrome/chromedriver bundles: priv/browser can't be
+# whole-dir symlinked (tracked install.sh makes it non-empty) and the
+# CwdChanged/SessionStart setup hook never fires for subagent-created
+# worktrees. Fall back to the main checkout's bundles in that case.
+browser_dir =
+  with false <- File.exists?(Path.join(browser_dir, "chrome-#{platform}")),
+       {git_common, 0} <- System.cmd("git", ["rev-parse", "--git-common-dir"]),
+       main_root = git_common |> String.trim() |> Path.expand() |> Path.dirname(),
+       main_browser = Path.join(main_root, "priv/browser"),
+       true <- File.exists?(Path.join(main_browser, "chrome-#{platform}")) do
+    main_browser
+  else
+    _ -> browser_dir
+  end
 chrome_dir = Path.join(browser_dir, "chrome-#{platform}")
 driver_bin = Path.join([browser_dir, "chromedriver-#{platform}", "chromedriver"])
 
