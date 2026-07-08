@@ -510,7 +510,13 @@ Hooks.VoiceDictation = {
     const autoSubmit = this.el.getAttribute("data-autosubmit") === "true";
     const idleHTML = this.el.innerHTML;
 
+    // `listening` = recognition is actually running (driven by onstart/onend).
+    // `wantListen` = user has asked to listen and we haven't stopped on purpose.
+    // `retried` = we've already auto-restarted once for the permission race.
     this.listening = false;
+    this.wantListen = false;
+    this.retried = false;
+
     this.rec = new SR();
     this.rec.lang = navigator.language || "en-US";
     this.rec.interimResults = true;
@@ -518,10 +524,38 @@ Hooks.VoiceDictation = {
 
     const input = () => document.getElementById(targetId);
 
-    const stop = () => {
+    const showListening = () => {
+      this.listening = true;
+      this.el.innerHTML = "🎙️";
+      this.el.style.color = "var(--accent)";
+    };
+
+    // Reset UI to the idle mic. Does NOT clear `wantListen`, so the onstart/
+    // onend/onerror handlers can tell a deliberate stop from a dropped session.
+    const showIdle = () => {
       this.listening = false;
       this.el.innerHTML = idleHTML;
       this.el.style.color = "var(--text-muted)";
+    };
+
+    // Chrome aborts the recognition that triggered the mic-permission prompt,
+    // firing onerror("aborted")/onend before it ever really starts — the button
+    // flashes 🎙️ then snaps back to 🎤. When the user still wants to listen,
+    // silently restart once so it actually begins after they grant access.
+    const maybeRetry = () => {
+      if (this.wantListen && !this.listening && !this.retried) {
+        this.retried = true;
+        try {
+          this.rec.start();
+          return true;
+        } catch (_e) {}
+      }
+      return false;
+    };
+
+    this.rec.onstart = () => {
+      this.retried = false;
+      showListening();
     };
 
     this.rec.onresult = (e) => {
@@ -535,36 +569,59 @@ Hooks.VoiceDictation = {
         el.dispatchEvent(new Event("input", { bubbles: true }));
       }
       if (e.results[e.results.length - 1].isFinal && autoSubmit && transcript !== "") {
+        this.wantListen = false;
         const form = el && el.closest("form");
         if (form) form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
       }
     };
 
-    this.rec.onerror = stop;
-    this.rec.onend = stop;
+    this.rec.onerror = (e) => {
+      const err = e && e.error;
+      if (err === "not-allowed" || err === "service-not-allowed") {
+        // Permission is genuinely blocked — don't loop, tell the user why.
+        this.wantListen = false;
+        this.el.title = "Microphone blocked — allow mic access for this site, then tap again";
+        showIdle();
+        return;
+      }
+      if (maybeRetry()) return;
+      this.wantListen = false;
+      showIdle();
+    };
+
+    this.rec.onend = () => {
+      if (maybeRetry()) return;
+      this.wantListen = false;
+      showIdle();
+    };
 
     this._click = () => {
-      if (this.listening) {
-        this.rec.stop();
-        stop();
+      if (this.wantListen) {
+        this.wantListen = false;
+        try { this.rec.stop(); } catch (_e) {}
+        showIdle();
         return;
       }
       const el = input();
       if (el && el.disabled) return;
+      this.wantListen = true;
+      this.retried = false;
       try {
         this.rec.start();
-        this.listening = true;
-        this.el.innerHTML = "🎙️";
-        this.el.style.color = "var(--accent)";
         if (el) el.focus();
       } catch (_e) {
-        stop();
+        // start() throws if a prior session hasn't fully ended; retry shortly.
+        setTimeout(() => {
+          if (!this.wantListen) return;
+          try { this.rec.start(); } catch (_e2) { this.wantListen = false; showIdle(); }
+        }, 150);
       }
     };
 
     this.el.addEventListener("click", this._click);
   },
   destroyed() {
+    this.wantListen = false;
     if (this.rec) {
       try { this.rec.abort(); } catch (_e) {}
     }
