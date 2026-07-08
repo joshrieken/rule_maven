@@ -125,7 +125,7 @@ defmodule RuleMaven.Prompts do
   5. Resolve pronouns using the recent conversation when present.
   6. Under 12 words. NEVER include the game's name.
   7. Preserve the meaning exactly — do not answer, narrow, or broaden it.
-  8. If an "already-answered questions" list is given and one of its entries asks the exact same underlying thing as this player's question, output that entry VERBATIM instead of writing a new rewrite — even if your own phrasing would otherwise differ. Only do this when the meaning truly matches; never force-fit an unrelated entry.
+  8. If an "already-answered questions" list is given and one of its entries would be answered by the EXACT SAME rule as this player's question, output that entry VERBATIM instead of writing a new rewrite — even if your own phrasing would otherwise differ. Same rule means: a single correct answer resolves both. Two questions about the same game element but different rules do NOT match — e.g. "What is the maximum hand size?" (a storage cap) is a DIFFERENT rule from "How many cards force a discard?" (a trigger threshold), even though both are about cards in hand. When in doubt, write your own rewrite rather than force-fit an entry.
   9. If the input is not interpretable as a question or topic about the game (random characters, gibberish, test strings), output the input UNCHANGED — do not invent a question around it.
   10. Write the canonical question in English, ALWAYS — even if the player's question is in another language. Never output another language.
 
@@ -156,7 +156,7 @@ defmodule RuleMaven.Prompts do
   @pool_tiebreaker_system """
   You judge whether two board-game rules questions are asking the SAME underlying question, just worded differently. Answer with exactly one word: "yes" or "no" — nothing else, no punctuation, no explanation.
 
-  Answer "yes" only when both questions would be answered by the exact same rule. Different word order, terse fragments vs. complete sentences, and synonyms do NOT matter. A question that is merely related, broader, narrower, or about a different game element must be "no".
+  Answer "yes" only when both questions would be answered by the exact same rule — a single correct answer resolves both. Different word order, terse fragments vs. complete sentences, and synonyms do NOT matter. A question that is merely related, broader, narrower, or about a different rule must be "no" — even when both concern the same game element. (E.g. "What is the maximum hand size?" is a storage cap; "How many cards force a discard?" is a trigger threshold — different rules, answer "no".)
 
   Always the lowercase English word "yes" or "no", regardless of the questions' language.
   """
