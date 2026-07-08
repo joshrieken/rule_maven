@@ -382,6 +382,22 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp asker_label(_question, _current_user_id), do: "Unknown"
 
+  # True when the normalized/displayed question meaningfully differs from the raw
+  # text the user typed. Ignores capitalization and whitespace so trivial cleanups
+  # don't trigger the "You asked:" disclosure.
+  defp normalization_changed?(original, displayed)
+       when is_binary(original) and is_binary(displayed),
+       do: canon_compare(original) != canon_compare(displayed)
+
+  defp normalization_changed?(_original, _displayed), do: false
+
+  defp canon_compare(text) do
+    text
+    |> String.downcase()
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+  end
+
   defp question_group_opts(socket) do
     if socket.assigns.is_admin do
       [limit: nil]
@@ -406,6 +422,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         role: :user,
         content: QuestionLog.display_question(g.primary),
         cleaned_question: g.primary.cleaned_question,
+        original_question: g.primary.question,
         refused: g.primary.refused,
         timestamp: g.primary.inserted_at
       }
@@ -1959,6 +1976,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               msg
               |> Map.put(:content, QuestionLog.display_question(ql))
               |> Map.put(:cleaned_question, ql.cleaned_question)
+              |> Map.put(:original_question, ql.question)
 
             %{id: ^question_log_id, role: :assistant} = msg ->
               if ql.answer == "Thinking..." do
@@ -3866,6 +3884,30 @@ defmodule RuleMavenWeb.GameLive.Show do
                         <div class="answer-in">
                           {render_markdown(v_content || msg.content)}
                         </div>
+                        <%!-- Disclose that we rewrote the asker's raw question into
+                              a normalized form. Only the asker (own questions) and
+                              admins reach this branch — the main-chat query scopes
+                              non-admins to their own rows. --%>
+                        <%= if msg.role == :user &&
+                               normalization_changed?(msg[:original_question], msg.content) do %>
+                          <div class="ask-orig">
+                            <span class="ask-orig__label">↳ You asked:</span>
+                            <span class="ask-orig__text">"{msg[:original_question]}"</span>
+                            <span class="conf-help">
+                              <button
+                                type="button"
+                                class="conf-help__btn"
+                                aria-label="Why the wording changed"
+                              >?</button>
+                              <span class="conf-help__pop" role="tooltip">
+                                We rewrote your question into a standard form before
+                                searching the rulebook. It helps match the right rules
+                                and reuse trusted answers to similar questions. Your
+                                original wording is always kept.
+                              </span>
+                            </span>
+                          </div>
+                        <% end %>
                     <% end %>
                   </div>
 
