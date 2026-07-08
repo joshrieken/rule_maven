@@ -286,6 +286,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         score_categories: load_score_categories(game),
         turn_flow: load_turn_flow(game),
         turn_phase: 0,
+        turn_open: false,
         quiz: load_quiz(game),
         quiz_idx: 0,
         quiz_choice: nil,
@@ -665,17 +666,23 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   # Turn wizard: step through the cached turn phases (pure client-agnostic
   # navigation over already-loaded data — no LLM at play time). Clamp to bounds.
+  # `turn_open` is server-controlled so the LiveView re-render on nav doesn't
+  # strip the browser-set `open` attr off the <details> (which collapsed it).
+  def handle_event("turn_toggle", _params, socket) do
+    {:noreply, assign(socket, turn_open: !socket.assigns.turn_open)}
+  end
+
   def handle_event("turn_next", _params, socket) do
     last = max(length(socket.assigns.turn_flow) - 1, 0)
-    {:noreply, assign(socket, turn_phase: min(socket.assigns.turn_phase + 1, last))}
+    {:noreply, assign(socket, turn_phase: min(socket.assigns.turn_phase + 1, last), turn_open: true)}
   end
 
   def handle_event("turn_prev", _params, socket) do
-    {:noreply, assign(socket, turn_phase: max(socket.assigns.turn_phase - 1, 0))}
+    {:noreply, assign(socket, turn_phase: max(socket.assigns.turn_phase - 1, 0), turn_open: true)}
   end
 
   def handle_event("turn_restart", _params, socket) do
-    {:noreply, assign(socket, turn_phase: 0)}
+    {:noreply, assign(socket, turn_phase: 0, turn_open: true)}
   end
 
   def handle_event("toggle_step", %{"key" => key}, socket) do
@@ -3145,8 +3152,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                     no LLM at play time. Mobile-first single column. --%>
                 <% phase = Enum.at(@turn_flow, @turn_phase) %>
                 <% phase_count = length(@turn_flow) %>
-                <details data-tour="turnwizard" style="margin:1.25rem auto 0;max-width:30rem;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
-                  <summary style="cursor:pointer;font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
+                <details data-tour="turnwizard" open={@turn_open} style="margin:1.25rem auto 0;max-width:30rem;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
+                  <summary phx-click="turn_toggle" style="cursor:pointer;font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
                     🕹️ What can I do now?
                   </summary>
                   <%= if phase do %>
