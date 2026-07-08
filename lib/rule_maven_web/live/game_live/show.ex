@@ -3142,6 +3142,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                       </dd>
                     </div>
                   </dl>
+                  <button
+                    type="button"
+                    id="teach-read"
+                    phx-hook="ReadAloud"
+                    data-speak={teach_speech(@teach_pitch)}
+                    aria-pressed="false"
+                    class="btn-outline btn-xs"
+                    style="margin-top:0.6rem"
+                    title="Read the teach aloud"
+                  >🔊 Read aloud</button>
                 </details>
               <% end %>
 
@@ -4161,6 +4171,15 @@ defmodule RuleMavenWeb.GameLive.Show do
                             class="card-menu__item"
                             title="Copy question and answer"
                           >📋 Copy Q&amp;A</button>
+                          <button
+                            type="button"
+                            id={"read-btn-#{idx}"}
+                            phx-hook="ReadAloud"
+                            data-speak={plain_text}
+                            aria-pressed="false"
+                            class="card-menu__item"
+                            title="Read this answer aloud"
+                          >🔊 Read aloud</button>
                           <button
                             :if={can_regen}
                             type="button"
@@ -5242,6 +5261,14 @@ defmodule RuleMavenWeb.GameLive.Show do
       nil -> %{}
       json -> Jason.decode!(json)
     end
+  end
+
+  # The teach spoken aloud: its filled lines in goal→loop→win→trap order.
+  defp teach_speech(pitch) do
+    ~w(goal loop win trap)
+    |> Enum.map(&pitch[&1])
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
   end
 
   # Heavier games get a longer suggested turn clock. Weight is BGG's 1–5

@@ -495,6 +495,69 @@ Hooks.ClipboardCopy = {
   }
 };
 
+// Read-aloud (TTS) for answers and the 60-second teach. Click to hear the text
+// spoken; click again to stop. Uses the browser SpeechSynthesis API and hides
+// itself where unsupported. Fully client-side — no server round-trip, no cost.
+// Reads `data-speak` (inline text) or, failing that, the innerText of the
+// element named by `data-speak-target`.
+Hooks.ReadAloud = {
+  mounted() {
+    const synth = window.speechSynthesis;
+    if (!synth || typeof SpeechSynthesisUtterance === "undefined") {
+      this.el.style.display = "none";
+      return;
+    }
+    this.idleHTML = this.el.innerHTML;
+
+    this.text = () => {
+      const inline = this.el.getAttribute("data-speak");
+      if (inline && inline.trim()) return inline.trim();
+      const tid = this.el.getAttribute("data-speak-target");
+      const src = tid && document.getElementById(tid);
+      return src ? (src.innerText || src.textContent || "").trim() : "";
+    };
+
+    this.reset = () => {
+      this.el.innerHTML = this.idleHTML;
+      this.el.setAttribute("aria-pressed", "false");
+    };
+
+    this.speak = () => {
+      const text = this.text();
+      if (!text) return;
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = this.el.getAttribute("data-lang") || navigator.language || "en-US";
+      const rate = parseFloat(this.el.getAttribute("data-rate"));
+      if (!isNaN(rate)) u.rate = rate;
+      u.onend = () => this.reset();
+      u.onerror = () => this.reset();
+      this.el.innerHTML = this.el.getAttribute("data-stop-label") || "⏹ Stop";
+      this.el.setAttribute("aria-pressed", "true");
+      synth.speak(u);
+    };
+
+    this.onClick = (e) => {
+      e.preventDefault();
+      if (synth.speaking || synth.pending) {
+        synth.cancel();
+        this.reset();
+      } else {
+        this.speak();
+      }
+    };
+
+    this.el.addEventListener("click", this.onClick);
+  },
+  destroyed() {
+    try {
+      window.speechSynthesis.cancel();
+    } catch (e) {
+      /* nothing to cancel */
+    }
+  }
+};
+
 // Voice dictation for the ask box. Click to speak; the transcript fills the
 // target input and (on a final result) submits the form hands-free. Uses the
 // browser Web Speech API; the button hides itself where it's unsupported.
