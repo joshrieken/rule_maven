@@ -4385,6 +4385,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             panel; picking a question asks it and closes (ask_suggestion). --%>
       <div
         :if={@suggestions_modal}
+        id="suggestions-modal"
         style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:60;background:rgba(0,0,0,0.45);display:flex;align-items:flex-end;justify-content:center;padding:1rem"
       >
         <div
@@ -4427,9 +4428,15 @@ defmodule RuleMavenWeb.GameLive.Show do
       </div>
 
       <%!-- Argument-settler modal: two opposing readings → one composed ask
-            whose answer opens with a ⚖️ verdict line. --%>
+            whose answer opens with a ⚖️ verdict line.
+            Both this modal and the suggestions one need an id: they're :if
+            siblings of .chat-input, and without one the patcher matches divs
+            by position — the modal steals .chat-input's node, the input area
+            is recreated, and its qa-rise-in entrance animation replays every
+            time a modal opens. --%>
       <div
         :if={@settle_modal}
+        id="settle-modal"
         style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:60;background:rgba(0,0,0,0.45);display:flex;align-items:flex-end;justify-content:center;padding:1rem"
       >
         <div
@@ -4461,6 +4468,8 @@ defmodule RuleMavenWeb.GameLive.Show do
               <input
                 type="text"
                 name="a"
+                id="settle-a-input"
+                phx-hook="FocusInput"
                 maxlength={220}
                 placeholder="You draw your new card immediately."
                 autocomplete="off"
