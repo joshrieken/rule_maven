@@ -2798,6 +2798,69 @@ body:has([data-phx-main].phx-connected)::after {
    desktop, revealed in the ≤640px block below. Pairs with .hide-mobile. */
 .show-mobile { display: none !important; }
 
+/* ── Persona picker modal ─────────────────────────────────────────────── */
+.persona-modal-backdrop {
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.persona-modal {
+  background: var(--bg-surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 0.75rem;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+  width: 100%; max-width: 420px; max-height: 85vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.persona-modal__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border);
+}
+.persona-modal__title { font-weight: 700; font-size: 0.9rem; }
+.persona-modal__search {
+  margin: 0.6rem 0.75rem 0.4rem; padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border); border-radius: 0.5rem;
+  background: var(--bg); color: var(--text); font-size: 0.8rem;
+}
+.persona-modal__scroll { overflow-y: auto; padding: 0 0.5rem 0.6rem; }
+.persona-modal__section {
+  font-size: 0.55rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-muted);
+  padding: 0.5rem 0.5rem 0.2rem;
+}
+.persona-modal__section--game { color: var(--accent); }
+.persona-card {
+  display: flex; align-items: flex-start; gap: 0.55rem; width: 100%;
+  text-align: left; background: none; border: 1px solid transparent;
+  border-radius: 0.5rem; padding: 0.5rem; cursor: pointer;
+  color: var(--text); transition: background 0.12s, border-color 0.12s;
+  /* Reset inherited button white-space:nowrap so descriptions can wrap. */
+  white-space: normal;
+}
+.persona-card:hover { background: var(--bg-subtle); }
+.persona-card--selected {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.persona-card__emoji { font-size: 1.15rem; line-height: 1.3; flex-shrink: 0; }
+.persona-card__body { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; flex: 1; }
+.persona-card__title {
+  font-weight: 700; font-size: 0.8rem;
+  display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;
+}
+.persona-card__badge {
+  font-size: 0.55rem; font-weight: 700; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  padding: 0.05rem 0.3rem; border-radius: 999px;
+}
+.persona-card__badge--star { color: #e0a83a; background: none; padding: 0; }
+.persona-card__desc { font-size: 0.7rem; color: var(--text-secondary); line-height: 1.3; overflow-wrap: anywhere; }
+.persona-card__sample { font-size: 0.68rem; color: var(--text-muted); font-style: italic; line-height: 1.3; overflow-wrap: anywhere; }
+.persona-card__check { color: var(--accent); font-weight: 800; flex-shrink: 0; }
+@media (max-width: 640px) {
+  .persona-modal { max-width: none; max-height: 88vh; }
+}
+
 /* Q&A page on phones: the chrome (site header + game toolbar + composer)
    already eats most of a small viewport, so trim everything non-essential. */
 @media (max-width: 640px) {

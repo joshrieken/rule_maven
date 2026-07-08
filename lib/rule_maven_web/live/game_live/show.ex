@@ -30,6 +30,11 @@ defmodule RuleMavenWeb.GameLive.Show do
        source_count: 0,
        retry_cooldowns: %{},
        confirm_delete_id: nil,
+       # Persona picker modal: nil when closed, else %{target: :default | {:answer, id}}.
+       # popular/recent are computed once when the modal opens.
+       persona_modal: nil,
+       persona_popular: MapSet.new(),
+       persona_recent: [],
        suggestions: [],
        suggestions_open: true,
        suggestions_modal: false,
@@ -480,6 +485,13 @@ defmodule RuleMavenWeb.GameLive.Show do
   # open thread. Manual per-answer selections in `voice_sel` are left untouched;
   # the default only fills in answers the user hasn't overridden (via the display
   # fallback). Already-cached restyles are reused; uncached ones enqueue a job.
+  # Best-effort persona-selection stat (popularity + recently-used). Never
+  # affects the reply.
+  defp record_persona_pick(socket, voice) do
+    uid = socket.assigns.current_user && socket.assigns.current_user.id
+    RuleMaven.Voices.record_event(uid, socket.assigns.game.id, voice)
+  end
+
   defp apply_default_voice(socket, voice) do
     # Coerce an unknown/stale voice to neutral so the render never shows the
     # loader for a voice that will never resolve.
@@ -821,20 +833,50 @@ defmodule RuleMavenWeb.GameLive.Show do
     if not RuleMaven.Voices.valid?(voice, socket.assigns.game) do
       {:noreply, socket}
     else
+      record_persona_pick(socket, voice)
+
       {:noreply,
        socket
-       |> assign(voice_sel: %{})
+       |> assign(voice_sel: %{}, persona_modal: nil)
        |> apply_default_voice(voice)
        |> push_event("save_default_voice", %{voice: voice})}
     end
+  end
+
+  # Persona picker modal open/close. popular + recent are computed once on open
+  # (not per render). target routes the eventual pick to set_default_voice
+  # (composer) or set_voice (a specific answer).
+  def handle_event("open_persona_modal", params, socket) do
+    target =
+      case params do
+        %{"target" => "answer", "msg-id" => id} -> {:answer, String.to_integer(id)}
+        _ -> :default
+      end
+
+    game = socket.assigns.game
+    uid = socket.assigns.current_user && socket.assigns.current_user.id
+
+    {:noreply,
+     assign(socket,
+       persona_modal: %{target: target},
+       persona_popular: RuleMaven.Voices.popular_voice_ids(game.id),
+       persona_recent: RuleMaven.Voices.recent_voice_ids(uid, game.id)
+     )}
+  end
+
+  def handle_event("close_persona_modal", _params, socket) do
+    {:noreply, assign(socket, persona_modal: nil)}
   end
 
   # Choose a default voice, auto-applied to every answer. Persist it per-browser
   # (the VoiceDefault hook writes localStorage) and apply it to the open thread.
   def handle_event("set_default_voice", %{"voice" => voice}, socket) do
     if RuleMaven.Voices.valid?(voice, socket.assigns.game) do
+      record_persona_pick(socket, voice)
+
       {:noreply,
        socket
+       |> assign(persona_modal: nil)
        |> apply_default_voice(voice)
        |> push_event("save_default_voice", %{voice: voice})}
     else
@@ -3549,36 +3591,27 @@ defmodule RuleMavenWeb.GameLive.Show do
                         <% cur_voice = Map.get(@voice_sel, msg[:id], @default_voice) %>
                         <% cur = Enum.find(@voices, &(&1.id == cur_voice)) || hd(@voices) %>
                         <% speaking = cur_voice != "neutral" %>
-                        <details
-                          class="card-menu"
-                          style={if !show_voice, do: "opacity:0.55;pointer-events:none", else: nil}
+                        <button
+                          type="button"
+                          phx-click={show_voice && "open_persona_modal"}
+                          phx-value-target="answer"
+                          phx-value-msg-id={msg[:id]}
+                          disabled={!show_voice}
                           aria-disabled={!show_voice}
+                          style={"font-size:0.65rem;font-weight:600;border-radius:999px;padding:0.12rem 0.5rem;display:inline-flex;align-items:center;gap:0.2rem;cursor:pointer;#{if !show_voice, do: "opacity:0.55;pointer-events:none;"}#{if speaking, do: "border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--text)", else: "border:1px solid var(--border);background:var(--bg-surface);color:var(--text-muted)"}"}
+                          title="Answer persona — your pick applies to every answer and is remembered"
                         >
-                          <summary
-                            style={"font-size:0.65rem;font-weight:600;border-radius:999px;padding:0.12rem 0.5rem;#{if speaking, do: "border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--text)", else: "border:1px solid var(--border);background:var(--bg-surface);color:var(--text-muted)"}"}
-                            title="Answer persona — your pick applies to every answer and is remembered"
-                          >
-                            <span
-                              :if={String.starts_with?(cur_voice, "g:")}
-                              aria-hidden="true"
-                              style="color:var(--accent)"
-                              title={"#{@game.name} persona"}
-                            >✦</span>
-                            <span aria-hidden="true">{cur.emoji}</span>
-                            <span>{if speaking,
-                              do: "#{cur.label} speaking",
-                              else: "#{cur.label} persona"}</span>
-                            <span style="opacity:0.6">▾</span>
-                          </summary>
-                          <.voice_menu
-                            :if={show_voice}
-                            voices={@voices}
-                            game_name={@game.name}
-                            current={cur_voice}
-                            event="set_voice"
-                            msg_id={msg[:id]}
-                          />
-                        </details>
+                          <span
+                            :if={String.starts_with?(cur_voice, "g:")}
+                            aria-hidden="true"
+                            style="color:var(--accent)"
+                          >✦</span>
+                          <span aria-hidden="true">{cur.emoji}</span>
+                          <span>{if speaking,
+                            do: "#{cur.label} speaking",
+                            else: "#{cur.label} persona"}</span>
+                          <span style="opacity:0.6">▾</span>
+                        </button>
                       <% end %>
                     </div>
                   <% end %>
@@ -4546,20 +4579,16 @@ defmodule RuleMavenWeb.GameLive.Show do
               style="display:flex;align-items:center;gap:0.4rem;margin-left:auto"
             >
               <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Answer persona</span>
-              <details class="card-menu">
-                <summary style="font-size:0.68rem;color:var(--text);font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;background:var(--bg-surface);cursor:pointer;list-style:none">
-                  <span aria-hidden="true">{cur_default.emoji}</span>
-                  <span>{cur_default.label}</span>
-                  <span style="opacity:0.6">▾</span>
-                </summary>
-                <.voice_menu
-                  voices={@voices}
-                  game_name={@game.name}
-                  current={@default_voice}
-                  event="set_default_voice"
-                  up={true}
-                />
-              </details>
+              <button
+                type="button"
+                phx-click="open_persona_modal"
+                phx-value-target="default"
+                style="font-size:0.68rem;color:var(--text);font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;background:var(--bg-surface);cursor:pointer;display:inline-flex;align-items:center;gap:0.25rem"
+              >
+                <span aria-hidden="true">{cur_default.emoji}</span>
+                <span>{cur_default.label}</span>
+                <span style="opacity:0.6">▾</span>
+              </button>
             </div>
           </div>
           <form phx-submit="ask" class="flex gap-2" phx-hook="KeyboardSubmit" id="ask-form">
@@ -4634,6 +4663,19 @@ defmodule RuleMavenWeb.GameLive.Show do
             restarts its qa-rise-in entrance animation on every modal open. --%>
       <%!-- Report-reason modal: pick why the answer is being reported. --%>
       <ReportModal.report_modal :if={@report_target} />
+
+      <%!-- Persona picker modal (shared by the composer default picker and each
+            answer's switcher). Centered, viewport-safe on mobile. --%>
+      <.persona_modal
+        :if={@persona_modal}
+        target={@persona_modal.target}
+        voices={@voices}
+        game={@game}
+        default_voice={@default_voice}
+        current={persona_modal_current(@persona_modal.target, @voice_sel, @default_voice)}
+        popular={@persona_popular}
+        recent={@persona_recent}
+      />
 
       <%!-- Suggested-questions modal. Backdrop closes via phx-click-away on the
             panel; picking a question asks it and closes (ask_suggestion). --%>
@@ -4853,92 +4895,158 @@ defmodule RuleMavenWeb.GameLive.Show do
     """
   end
 
-  # The voice picker popup, shared by the answer byline and the composer's
-  # default-voice control: Plain first, then the game-specific section, then
-  # the remaining built-ins under "Alternatives".
+  # Which voice renders as "selected" in the modal for a given target: the
+  # composer picks the default; a per-answer switcher picks that answer's
+  # current voice (falling back to the default).
+  defp persona_modal_current(:default, _voice_sel, default_voice), do: default_voice
+
+  defp persona_modal_current({:answer, msg_id}, voice_sel, default_voice),
+    do: Map.get(voice_sel, msg_id, default_voice)
+
+  # The persona picker modal, shared by the composer's default-voice control and
+  # each answer's switcher. Centered + viewport-safe; groups personas Plain /
+  # ✦ game / Alternatives, with a recently-used strip, search filter, 🔥 Popular
+  # badges, descriptions and a sample line.
+  attr :target, :any, required: true
   attr :voices, :list, required: true
-  attr :game_name, :string, required: true
+  attr :game, :map, required: true
+  attr :default_voice, :string, required: true
   attr :current, :string, required: true
-  attr :event, :string, required: true
-  attr :msg_id, :any, default: nil
-  attr :up, :boolean, default: false
+  attr :popular, :any, required: true
+  attr :recent, :list, required: true
 
-  defp voice_menu(assigns) do
-    {game_voices, builtin_voices} =
-      Enum.split_with(assigns.voices, &String.starts_with?(&1.id, "g:"))
+  defp persona_modal(assigns) do
+    {game_voices, builtin} = Enum.split_with(assigns.voices, &String.starts_with?(&1.id, "g:"))
+    {plain, alt} = Enum.split_with(builtin, &(&1.id == "neutral"))
+    by_id = Map.new(assigns.voices, &{&1.id, &1})
+    recent = Enum.map(assigns.recent, &Map.get(by_id, &1)) |> Enum.reject(&is_nil/1)
 
-    {plain_voices, alt_voices} = Enum.split_with(builtin_voices, &(&1.id == "neutral"))
+    event =
+      case assigns.target do
+        :default -> "set_default_voice"
+        {:answer, _} -> "set_voice"
+      end
 
     assigns =
       assign(assigns,
-        plain_voices: plain_voices,
+        plain: plain,
         game_voices: game_voices,
-        alt_voices: alt_voices
+        alt: alt,
+        recent_voices: recent,
+        event: event
       )
 
     ~H"""
     <div
-      class={["card-menu__pop", @up && "card-menu__pop--up"]}
-      style="min-width:230px;max-width:280px;max-height:min(45vh,320px);overflow-y:auto"
+      id="persona-modal"
+      class="persona-modal-backdrop"
+      phx-click="close_persona_modal"
+      phx-window-keydown="close_persona_modal"
+      phx-key="Escape"
     >
-      <.voice_menu_item
-        :for={v <- @plain_voices}
-        voice={v}
-        event={@event}
-        msg_id={@msg_id}
-        selected={@current == v.id}
-      />
-      <%= if @game_voices != [] do %>
-        <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);padding:0.2rem 0.4rem 0.05rem;border-top:1px solid var(--border);margin-top:0.15rem;padding-top:0.35rem">
-          ✦ {@game_name}
+      <div id="persona-modal-panel" class="persona-modal" phx-click-away="close_persona_modal" phx-hook="PersonaFilter">
+        <div class="persona-modal__head">
+          <span class="persona-modal__title">Answer persona</span>
+          <button type="button" class="btn-icon" phx-click="close_persona_modal" aria-label="Close">✕</button>
         </div>
-        <.voice_menu_item
-          :for={v <- @game_voices}
-          voice={v}
-          event={@event}
-          msg_id={@msg_id}
-          selected={@current == v.id}
+        <input
+          type="text"
+          id="persona-search"
+          class="persona-modal__search"
+          placeholder="Search personas…"
+          data-persona-filter-input
+          autocomplete="off"
+          phx-update="ignore"
         />
-      <% end %>
-      <div style="font-size:0.55rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);padding:0.2rem 0.4rem 0.05rem;border-top:1px solid var(--border);margin-top:0.15rem;padding-top:0.35rem">
-        Alternatives
+        <div class="persona-modal__scroll">
+          <div :if={@recent_voices != []} class="persona-modal__section">Recently used</div>
+          <.persona_card
+            :for={v <- @recent_voices}
+            voice={v}
+            event={@event}
+            selected={@current == v.id}
+            is_default={@default_voice == v.id}
+            popular={MapSet.member?(@popular, v.id)}
+          />
+
+          <.persona_card
+            :for={v <- @plain}
+            voice={v}
+            event={@event}
+            selected={@current == v.id}
+            is_default={@default_voice == v.id}
+            popular={MapSet.member?(@popular, v.id)}
+          />
+
+          <div :if={@game_voices != []} class="persona-modal__section persona-modal__section--game">
+            ✦ {@game.name}
+          </div>
+          <.persona_card
+            :for={v <- @game_voices}
+            voice={v}
+            event={@event}
+            selected={@current == v.id}
+            is_default={@default_voice == v.id}
+            popular={MapSet.member?(@popular, v.id)}
+          />
+
+          <div class="persona-modal__section">Alternatives</div>
+          <.persona_card
+            :for={v <- @alt}
+            voice={v}
+            event={@event}
+            selected={@current == v.id}
+            is_default={@default_voice == v.id}
+            popular={MapSet.member?(@popular, v.id)}
+          />
+        </div>
       </div>
-      <.voice_menu_item
-        :for={v <- @alt_voices}
-        voice={v}
-        event={@event}
-        msg_id={@msg_id}
-        selected={@current == v.id}
-      />
     </div>
     """
   end
 
-  # One row in the voice picker menu: fixed emoji gutter + left-aligned label
-  # with an optional muted description line, always full menu width.
+  # One persona card: emoji + label (with 🔥 Popular / ★ default badges),
+  # description, and a muted sample line drawn from the persona's loading phrases.
   attr :voice, :map, required: true
   attr :event, :string, required: true
-  attr :msg_id, :any, default: nil
   attr :selected, :boolean, required: true
+  attr :is_default, :boolean, required: true
+  attr :popular, :boolean, required: true
 
-  defp voice_menu_item(assigns) do
+  defp persona_card(assigns) do
+    # The persona's OWN sample line — not the generic loading pool, so a
+    # built-in without its own phrases simply shows no sample.
+    sample =
+      case assigns.voice[:loading_phrases] do
+        [p | _] when is_binary(p) -> p
+        _ -> nil
+      end
+
+    assigns = assign(assigns, :sample, sample)
+
     ~H"""
     <button
       type="button"
+      class={["persona-card", @selected && "persona-card--selected"]}
       phx-click={@event}
-      phx-value-id={@msg_id}
       phx-value-voice={@voice.id}
-      class="card-menu__item"
-      style={"display:flex;width:100%;justify-content:flex-start;align-items:flex-start;white-space:normal;#{if @selected, do: "background:var(--accent);color:var(--accent-text,#fff)"}"}
+      data-search={String.downcase("#{@voice.label} #{@voice[:description]}")}
     >
-      <span aria-hidden="true" style="flex:none;width:1.3rem;text-align:center">{@voice.emoji}</span>
-      <span style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;text-align:left">
-        <span>{@voice.label}</span>
-        <span
-          :if={@voice[:description]}
-          style="font-size:0.6rem;font-weight:400;opacity:0.7;line-height:1.3"
-        >{@voice.description}</span>
+      <span class="persona-card__emoji" aria-hidden="true">{@voice.emoji}</span>
+      <span class="persona-card__body">
+        <span class="persona-card__title">
+          {@voice.label}
+          <span :if={@popular} class="persona-card__badge">🔥 Popular</span>
+          <span
+            :if={@is_default}
+            class="persona-card__badge persona-card__badge--star"
+            title="Your default"
+          >★</span>
+        </span>
+        <span :if={@voice[:description]} class="persona-card__desc">{@voice.description}</span>
+        <span :if={@sample} class="persona-card__sample">“{@sample}”</span>
       </span>
+      <span :if={@selected} class="persona-card__check" aria-hidden="true">✓</span>
     </button>
     """
   end

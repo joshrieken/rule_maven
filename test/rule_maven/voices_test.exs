@@ -2,9 +2,22 @@ defmodule RuleMaven.VoicesTest do
   use RuleMaven.DataCase
 
   alias RuleMaven.{Games, Repo, Voices}
-  alias RuleMaven.Voices.{AnswerVoice, GameVoice}
+  alias RuleMaven.Voices.{AnswerVoice, GameVoice, PersonaEvent}
 
   defp game, do: elem(Games.create_game(%{name: "V #{System.unique_integer([:positive])}"}), 1)
+
+  defp a_user do
+    n = System.unique_integer([:positive])
+
+    {:ok, user} =
+      RuleMaven.Users.create_user(%{
+        username: "voices_#{n}",
+        email: "voices_#{n}@test.com",
+        password: "password1234"
+      })
+
+    user
+  end
 
   defp question(game) do
     {:ok, q} = Games.log_question(%{game_id: game.id, question: "q", answer: "a"})
@@ -338,6 +351,55 @@ defmodule RuleMaven.VoicesTest do
     test "tolerates light compression (>= 50%)" do
       half = String.slice(@answer, 0, round(String.length(@answer) * 0.6))
       assert Voices.__plausible_restyle__(half, @answer)
+    end
+  end
+
+  describe "record_event/3" do
+    test "inserts a persona event row" do
+      g = game()
+      assert :ok = Voices.record_event(nil, g.id, "neutral")
+
+      assert [%PersonaEvent{voice_id: "neutral", game_id: gid}] = Repo.all(PersonaEvent)
+      assert gid == g.id
+    end
+
+    test "returns :ok even on bad input (best-effort)" do
+      assert :ok = Voices.record_event(nil, nil, nil)
+      assert Repo.all(PersonaEvent) == []
+    end
+  end
+
+  describe "popular_voice_ids/2" do
+    test "ranks voices by selection count, honoring the limit" do
+      g = game()
+      for _ <- 1..3, do: Voices.record_event(nil, g.id, "neutral")
+      for _ <- 1..2, do: Voices.record_event(nil, g.id, "court-case")
+      Voices.record_event(nil, g.id, "gran")
+
+      assert Voices.popular_voice_ids(g.id, 2) == MapSet.new(["neutral", "court-case"])
+    end
+
+    test "empty when no events" do
+      g = game()
+      assert Voices.popular_voice_ids(g.id) == MapSet.new([])
+    end
+  end
+
+  describe "recent_voice_ids/3" do
+    test "returns distinct recent voices, newest first, scoped to user+game" do
+      g = game()
+      u = a_user()
+      Voices.record_event(u.id, g.id, "neutral")
+      Voices.record_event(u.id, g.id, "court-case")
+      # Re-pick neutral: dedups and bumps it back to the front.
+      Voices.record_event(u.id, g.id, "neutral")
+
+      assert Voices.recent_voice_ids(u.id, g.id, 4) == ["neutral", "court-case"]
+    end
+
+    test "empty for nil user" do
+      g = game()
+      assert Voices.recent_voice_ids(nil, g.id) == []
     end
   end
 end
