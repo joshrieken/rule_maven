@@ -2157,6 +2157,41 @@ defmodule RuleMavenWeb.GameLive.Show do
   # game topic receives the broadcast, but only the asker has the pending row.
   # Real pipeline progress from LLM.ask — only track questions this session is
   # actually waiting on (the broadcast goes to every viewer of the game topic).
+  # Early normalized-question push: settle the asker's question bubble to its
+  # final form (cleaned text + "You asked" disclosure) before any answer text
+  # streams underneath, so the answer never reflows the page as it loads. Only
+  # touches the active thread's still-pending user turn.
+  def handle_info(
+        {:ask_normalized, %{question_log_id: ql_id, original: original, cleaned: cleaned}},
+        socket
+      ) do
+    active? = socket.assigns.active_thread_id == ql_id
+
+    still_pending? =
+      Enum.any?(
+        socket.assigns.conversation,
+        &(&1[:id] == ql_id && &1[:role] == :assistant && &1[:pending])
+      )
+
+    if active? and still_pending? do
+      conversation =
+        Enum.map(socket.assigns.conversation, fn
+          %{id: ^ql_id, role: :user} = msg ->
+            msg
+            |> Map.put(:content, cleaned)
+            |> Map.put(:cleaned_question, cleaned)
+            |> Map.put(:original_question, original)
+
+          msg ->
+            msg
+        end)
+
+      {:noreply, assign(socket, conversation: conversation)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:ask_stage, %{question_log_id: ql_id, stage: stage}}, socket) do
     tracked? =
       Enum.any?(
