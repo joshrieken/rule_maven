@@ -539,6 +539,83 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
+  # Vars: game_name, rulebook
+  @teach_pitch """
+  From the rulebook text below for "{{game_name}}", write a punchy
+  "teach it in 60 seconds" summary — the four things a brand-new player needs to
+  start playing right now, in plain words you'd say out loud to the table.
+
+  The text below is SAMPLED from across the rulebook, so you are NOT seeing every
+  rule. Treat it as partial. Only state things supported by the text; if the text
+  is too thin to fill a line honestly, write "none" for that line rather than
+  guessing or inventing.
+
+  Write EXACTLY four lines, each starting with "- " then a KEY, the key and the
+  text separated by " || ":
+  - GOAL || what you're trying to do and what ends the game (one sentence).
+  - LOOP || what you actually do on your turn — the core repeated action (one sentence).
+  - WIN || how the winner is decided (one sentence).
+  - TRAP || the single rule new players most often get wrong, stated as the correct rule (one sentence).
+
+  Rules:
+  - Plain, friendly, spoken-aloud language. No markdown, no page numbers, no
+    preamble, no numbering beyond the "- KEY ||" prefix.
+  - Each line is one self-contained sentence. Never invent rules or numbers that
+    aren't in the text.
+
+  RULEBOOK (sampled across the whole book):
+  {{rulebook}}
+  """
+
+  # Vars: game_name, rulebook
+  @score_categories """
+  From the rulebook text below for "{{game_name}}", list the scoring categories a
+  table tallies at the END of the game to work out the winner — the separate
+  buckets of points players add up.
+
+  If this game is NOT decided by adding up points (for example it's cooperative,
+  or the winner is whoever reaches a goal first, or the last player standing),
+  output exactly "none" on a single line and nothing else.
+
+  Otherwise return each scoring category on its own line starting with "- ", the
+  label and a short hint separated by " || ":
+  - LABEL || a few words on what earns these points.
+
+  Rules:
+  - Labels are short (1–4 words). Only include categories the text supports —
+    never invent one. Order them the way players would total them at game end.
+  - Plain language. No markdown, no page numbers, no preamble.
+
+  RULEBOOK (sampled across the whole book):
+  {{rulebook}}
+  """
+
+  # Vars: game_name, rulebook
+  @turn_flow """
+  From the rulebook text below for "{{game_name}}", map out what a player does on
+  a single turn, so a new player can step through "what can I do now?".
+
+  Break a turn into its ordered PHASES (for example an upkeep step, a main action
+  step, a cleanup step). For each phase, list the actions a player may take, each
+  with a one-line plain explanation.
+
+  If a turn has NO fixed phase order — players act freely, or turns are
+  simultaneous — return a SINGLE phase named "Your turn" listing the available
+  actions.
+
+  The text below is SAMPLED from across the rulebook, so treat it as partial.
+  Only include phases and actions the text supports; never invent one. If the
+  text is too thin to describe a turn, return [].
+
+  Return ONLY a JSON array — no prose, no markdown fences. Each element:
+  {"name": "phase name", "note": "optional one-line note, or empty string", "actions": [{"label": "short action name", "rule": "one plain sentence explaining the action"}]}
+
+  Keep phase names and action labels short. Keep each "rule" to one sentence.
+
+  RULEBOOK (sampled across the whole book):
+  {{rulebook}}
+  """
+
   # Vars: game_name, rulebook, items
   @setup_verify """
   You are a strict fact-checker for a board-game SETUP checklist for "{{game_name}}". Check each numbered item (components to gather and setup steps) against the rulebook text.
@@ -659,6 +736,9 @@ defmodule RuleMaven.Prompts do
   @did_you_know_system "You surface interesting, accurate board game rule facts. Never invent rules; only use the provided text. #{@english_output}"
   @first_player_system "You invent simple, playful, inclusive ways for a table to pick who goes first, lightly themed to a board game's world. Every pick has an obvious winner that anyone can settle in one breath — no judging, timing, or contests. Flavor only — never state game rules. #{@english_output}"
   @common_mistakes_system "You surface board game rules that tables commonly misplay, with the accurate correction. Never invent rules; corrections come only from the provided text. #{@english_output}"
+  @teach_pitch_system "You give fast, accurate 'how to play' summaries of board games for brand-new players. Never invent rules; only use the provided text. #{@english_output}"
+  @score_categories_system "You identify the end-game scoring categories a table adds up to find the winner. Never invent categories; only use the provided text. Say 'none' when the game isn't decided by totting up points. #{@english_output}"
+  @turn_flow_system "You map a board game's turn structure into ordered phases and the actions available in each, for a 'what can I do now?' helper. Never invent rules; only use the provided text. Output only JSON. #{@english_output}"
   @quiz_generate_system "You write fun, accurate multiple-choice quizzes about board game rules. Correct answers come only from the provided text; never invent rules. Output only the requested JSON. #{@english_output}"
   @did_you_know_verify_system "You are a strict board-game rulebook fact-checker. Pass only fully, accurately supported facts; reject anything misleading or unconfirmed. Output only the numbers in the requested format — never prose in any language."
   @categories_system "You generate topic categories for board game rulebooks. Be concise and specific. #{@english_output}"
@@ -1224,6 +1304,54 @@ defmodule RuleMaven.Prompts do
       description: "System prompt for the common-mistakes generator.",
       vars: [],
       default: @common_mistakes_system
+    },
+    %{
+      key: "teach_pitch",
+      group: "Content generation",
+      label: "60-second teach",
+      description: "Generates the quick goal/loop/win/trap 'teach it in 60 seconds' summary.",
+      vars: ~w(game_name rulebook),
+      default: @teach_pitch
+    },
+    %{
+      key: "teach_pitch_system",
+      group: "Content generation",
+      label: "60-second teach — system",
+      description: "System primer paired with the 60-second teach prompt.",
+      vars: [],
+      default: @teach_pitch_system
+    },
+    %{
+      key: "score_categories",
+      group: "Content generation",
+      label: "Score pad categories",
+      description: "Generates the end-game scoring categories for the score pad (or 'none').",
+      vars: ~w(game_name rulebook),
+      default: @score_categories
+    },
+    %{
+      key: "score_categories_system",
+      group: "Content generation",
+      label: "Score pad categories — system",
+      description: "System primer paired with the score-pad categories prompt.",
+      vars: [],
+      default: @score_categories_system
+    },
+    %{
+      key: "turn_flow",
+      group: "Content generation",
+      label: "Turn wizard",
+      description: "Generates the ordered turn phases + available actions for the 'what can I do now?' wizard.",
+      vars: ~w(game_name rulebook),
+      default: @turn_flow
+    },
+    %{
+      key: "turn_flow_system",
+      group: "Content generation",
+      label: "Turn wizard — system",
+      description: "System primer paired with the turn-wizard prompt.",
+      vars: [],
+      default: @turn_flow_system
     },
     %{
       key: "quiz_generate",

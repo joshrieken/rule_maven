@@ -96,6 +96,108 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
     end
   end
 
+  describe "TeachPitchWorker" do
+    test "persists the parsed teach map and broadcasts to the game topic" do
+      mock_llm(
+        "- GOAL || Build the longest road across the island.\n" <>
+          "- LOOP || On your turn you roll, trade, then build.\n" <>
+          "- WIN || The first player to reach ten points wins.\n" <>
+          "- TRAP || You collect resources on everyone's roll, not just your own.\n" <>
+          "- BOGUS || this key is ignored"
+      )
+
+      game = game_with_rulebook()
+
+      Phoenix.PubSub.subscribe(
+        RuleMaven.PubSub,
+        RuleMaven.Workers.TeachPitchWorker.topic(game.id)
+      )
+
+      assert :ok =
+               RuleMaven.Workers.TeachPitchWorker.perform(%Oban.Job{
+                 args: %{"game_id" => game.id}
+               })
+
+      assert_received {:teach_pitch_ready, pitch}
+      assert map_size(pitch) == 4
+      assert pitch["goal"] =~ "longest road"
+      assert pitch["trap"] =~ "everyone's roll"
+      refute Map.has_key?(pitch, "bogus")
+      assert Settings.get("teach_pitch_#{game.id}") =~ "ten points"
+    end
+  end
+
+  describe "TurnFlowWorker" do
+    test "persists parsed turn phases and broadcasts to the game topic" do
+      mock_llm(~s([
+        {"name": "Upkeep", "note": "Start of turn", "actions": [{"label": "Collect income", "rule": "Take 2 coins from the bank."}]},
+        {"name": "Main", "note": "", "actions": [
+          {"label": "Build", "rule": "Pay the cost to place a piece."},
+          {"label": "Trade", "rule": "Swap resources with the bank."},
+          {"label": "Malformed"}
+        ]}
+      ]))
+
+      game = game_with_rulebook()
+
+      Phoenix.PubSub.subscribe(
+        RuleMaven.PubSub,
+        RuleMaven.Workers.TurnFlowWorker.topic(game.id)
+      )
+
+      assert :ok =
+               RuleMaven.Workers.TurnFlowWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
+
+      assert_received {:turn_flow_ready, phases}
+      assert length(phases) == 2
+      assert Enum.map(phases, & &1["name"]) == ["Upkeep", "Main"]
+      # "Malformed" (no label key? it has label but no rule) is kept with empty rule;
+      # an action missing "label" would be dropped.
+      main = Enum.at(phases, 1)
+      assert Enum.map(main["actions"], & &1["label"]) == ["Build", "Trade", "Malformed"]
+      assert Settings.get("turn_flow_#{game.id}") =~ "Collect income"
+    end
+  end
+
+  describe "ScoreCategoriesWorker" do
+    test "persists parsed scoring categories and broadcasts to the game topic" do
+      mock_llm(
+        "- Victory Points || from completed objectives\n" <>
+          "- Longest Road || 2 points for the longest\n" <>
+          "- none"
+      )
+
+      game = game_with_rulebook()
+
+      Phoenix.PubSub.subscribe(
+        RuleMaven.PubSub,
+        RuleMaven.Workers.ScoreCategoriesWorker.topic(game.id)
+      )
+
+      assert :ok =
+               RuleMaven.Workers.ScoreCategoriesWorker.perform(%Oban.Job{
+                 args: %{"game_id" => game.id}
+               })
+
+      assert_received {:score_categories_ready, cats}
+      assert length(cats) == 2
+      assert Enum.map(cats, & &1["label"]) == ["Victory Points", "Longest Road"]
+      assert Settings.get("score_categories_#{game.id}") =~ "Longest Road"
+    end
+
+    test "stores nothing when the game isn't decided by points" do
+      mock_llm("none")
+      game = game_with_rulebook()
+
+      assert :ok =
+               RuleMaven.Workers.ScoreCategoriesWorker.perform(%Oban.Job{
+                 args: %{"game_id" => game.id}
+               })
+
+      assert Settings.get("score_categories_#{game.id}") == nil
+    end
+  end
+
   describe "QuizWorker" do
     test "persists parsed quiz questions and broadcasts to the game topic" do
       mock_llm(~s([

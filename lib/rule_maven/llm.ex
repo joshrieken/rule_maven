@@ -2990,6 +2990,194 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
+  Generates the "teach it in 60 seconds" summary for a game: a map with any of
+  the `goal`, `loop`, `win`, `trap` keys the rulebook supports (lines the model
+  marks "none" are dropped). Returns `{:ok, map}` (possibly empty when the
+  rulebook is too thin) or `{:error, reason}`.
+  """
+  def generate_teach_pitch(game_name, rulebook_text, game_id \\ nil) do
+    prompt =
+      RuleMaven.Prompts.render("teach_pitch", %{
+        game_name: game_name,
+        rulebook: sample_across(rulebook_text, 14000, 2000)
+      })
+
+    case chat(prompt, "teach_pitch",
+           model: model(:cheap),
+           operation: "teach_pitch",
+           game_id: game_id,
+           system: RuleMaven.Prompts.template("teach_pitch_system"),
+           max_tokens: 2000
+         ) do
+      {:ok, text} ->
+        pitch =
+          text
+          |> bullet_lines()
+          |> Enum.reduce(%{}, fn line, acc ->
+            case String.split(line, "||", parts: 2) do
+              [key, val] ->
+                k = key |> String.trim() |> String.downcase()
+                v = String.trim(val)
+
+                if k in ~w(goal loop win trap) and String.length(v) >= 8 and
+                     String.downcase(v) != "none",
+                   do: Map.put(acc, k, v),
+                   else: acc
+
+              _ ->
+                acc
+            end
+          end)
+
+        {:ok, pitch}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Generates the end-game scoring categories for a game's score pad: a list of
+  `%{"label" => label, "hint" => hint}`. Returns `{:ok, []}` when the game isn't
+  decided by adding up points (the model replies "none") or the rulebook is too
+  thin, or `{:error, reason}`.
+  """
+  def generate_score_categories(game_name, rulebook_text, game_id \\ nil) do
+    prompt =
+      RuleMaven.Prompts.render("score_categories", %{
+        game_name: game_name,
+        rulebook: sample_across(rulebook_text, 14000, 2000)
+      })
+
+    case chat(prompt, "score_categories",
+           model: model(:cheap),
+           operation: "score_categories",
+           game_id: game_id,
+           system: RuleMaven.Prompts.template("score_categories_system"),
+           max_tokens: 2000
+         ) do
+      {:ok, text} ->
+        if String.downcase(String.trim(text)) == "none" do
+          {:ok, []}
+        else
+          cats =
+            text
+            |> bullet_lines()
+            |> Enum.flat_map(fn line ->
+              case String.split(line, "||", parts: 2) do
+                [label, hint] ->
+                  label = label |> String.trim() |> String.replace(~r/^none$/i, "")
+                  hint = String.trim(hint)
+
+                  if label != "" and String.length(label) <= 40,
+                    do: [%{"label" => label, "hint" => hint}],
+                    else: []
+
+                [label] ->
+                  label = String.trim(label)
+
+                  if label != "" and String.downcase(label) != "none" and
+                       String.length(label) <= 40,
+                     do: [%{"label" => label, "hint" => ""}],
+                     else: []
+
+                _ ->
+                  []
+              end
+            end)
+            |> Enum.uniq_by(& &1["label"])
+            |> Enum.take(12)
+
+          {:ok, cats}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Generates the turn structure for a game's "what can I do now?" wizard: an
+  ordered list of phases, each `%{"name", "note", "actions" => [%{"label",
+  "rule"}]}`. Freeform/simultaneous turns come back as a single "Your turn"
+  phase. Returns `{:ok, phases}` (possibly empty on a thin rulebook or
+  unparseable output) or `{:error, reason}`.
+  """
+  def generate_turn_flow(game_name, rulebook_text, game_id \\ nil) do
+    prompt =
+      RuleMaven.Prompts.render("turn_flow", %{
+        game_name: game_name,
+        rulebook: sample_across(rulebook_text, 16000, 2000)
+      })
+
+    case chat(prompt, "turn_flow",
+           model: model(:cheap),
+           operation: "turn_flow",
+           game_id: game_id,
+           system: RuleMaven.Prompts.template("turn_flow_system"),
+           # Ordered phases with several actions each is a fair bit of JSON; too
+           # low truncates mid-array and the parse returns [].
+           max_tokens: 6000
+         ) do
+      {:ok, text} ->
+        {:ok, parse_turn_flow(text)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp parse_turn_flow(text) do
+    json =
+      case Regex.run(~r/\[.*\]/s, text || "") do
+        [match] -> match
+        _ -> text || ""
+      end
+
+    case Jason.decode(json) do
+      {:ok, list} when is_list(list) ->
+        list
+        |> Enum.flat_map(fn
+          %{"name" => name, "actions" => actions} = phase
+          when is_binary(name) and is_list(actions) ->
+            clean =
+              actions
+              |> Enum.flat_map(fn
+                %{"label" => label} = a when is_binary(label) ->
+                  label = String.trim(label)
+
+                  if label == "",
+                    do: [],
+                    else: [%{"label" => label, "rule" => String.trim(to_string(a["rule"] || ""))}]
+
+                _ ->
+                  []
+              end)
+              |> Enum.take(12)
+
+            if clean == [] do
+              []
+            else
+              [
+                %{
+                  "name" => String.trim(name),
+                  "note" => String.trim(to_string(Map.get(phase, "note", ""))),
+                  "actions" => clean
+                }
+              ]
+            end
+
+          _ ->
+            []
+        end)
+        |> Enum.take(10)
+
+      _ ->
+        []
+    end
+  end
+
+  @doc """
   Generates themed "who goes first" table rituals for a game — flavor drawn
   from the rulebook's world, never rules. Returns `{:ok, [selector]}` or
   `{:error, reason}`.
