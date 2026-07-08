@@ -58,15 +58,16 @@ defmodule RuleMaven.LLMStreamDeadlineTest do
     assert Process.get(:llm_sse_abort) == :runaway_answer
   end
 
-  test "halts with :reasoning_stall when bytes flood but the answer never opens" do
-    # Reasoning tokens arrive as non-content deltas: raw grows past
-    # @answer_reasoning_stall_bytes (16_000) while `content` stays empty, so the
-    # "answer" field never opens.
-    reasoning = String.duplicate("z", 20_000)
+  test "long reasoning with an unopened answer field is NOT aborted (regression)" do
+    # A reasoning model streams its chain-of-thought as `reasoning` deltas while
+    # `content` stays empty — legitimately tens of KB of raw SSE before the
+    # answer field opens. This must NOT be treated as a stall: an earlier
+    # 16KB-raw byte guard fired here and broke every reasoning-heavy question.
+    reasoning = String.duplicate("z", 60_000)
     chunk = "data: {\"choices\":[{\"delta\":{\"reasoning\":#{Jason.encode!(reasoning)}}}]}\n\n"
 
-    assert {:halt, _} = feed_raw(chunk)
-    assert Process.get(:llm_sse_abort) == :reasoning_stall
+    assert {:cont, _} = feed_raw(chunk)
+    refute Process.get(:llm_sse_abort)
   end
 
   test "a normal answer that opens the field is NOT flagged a stall" do

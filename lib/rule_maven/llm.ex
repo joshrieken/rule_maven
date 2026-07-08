@@ -409,20 +409,18 @@ defmodule RuleMaven.LLM do
     messages ++ [%{role: "system", content: RuleMaven.Prompts.render("regenerate_nonce", %{nonce: nonce})}]
   end
 
-  # Stream aborts that mean "the response we got is garbage, a fresh generation
-  # would likely be fine" — chiefly a poisoned proxy cache entry replaying a
-  # reasoning-only stream (content never opens) or a runaway loop. These fail
-  # fast (seconds), so one retry is cheap. NOT :timeout — a genuine 60s-slow
-  # call shouldn't be doubled.
+  # A runaway answer stream (visible answer text looping past @answer_content_cap)
+  # is worth one fresh retry: if it was a cache-replayed loop, a cache-busting
+  # nonce forces a genuine new generation. Fails fast, so the retry is cheap.
+  # NOT :timeout — a genuine 60s-slow call shouldn't be doubled.
   defp stalled_stream_error?({:error, msg}) when is_binary(msg),
-    do: String.contains?(msg, [":reasoning_stall", ":runaway_answer"])
+    do: String.contains?(msg, ":runaway_answer")
 
   defp stalled_stream_error?(_), do: false
 
-  # A stalled/runaway answer stream is retried ONCE with a cache-busting nonce:
-  # the bare messages hit a poisoned proxy entry, but a nonce forces a cache
-  # miss and a genuine new generation (which streams a real answer). Self-heals
-  # the poisoned entry instead of surfacing an error to the asker.
+  # A runaway answer stream is retried ONCE with a cache-busting nonce: a nonce
+  # forces the proxy past its message-keyed cache to a genuine new generation,
+  # which usually streams a clean answer instead of surfacing an error.
   defp maybe_retry_stalled_stream(result, body, opts) do
     if stalled_stream_error?(result) and not Keyword.get(opts, :stream_retried, false) do
       require Logger
@@ -1814,16 +1812,22 @@ defmodule RuleMaven.LLM do
   # rambling, so cut it off rather than stream garbage.
   @answer_content_cap 6_000
 
-  # A model that keeps emitting (reasoning tokens, keepalives) this many bytes
-  # without the "answer" field ever opening is stuck thinking and never
-  # committing — bail early instead of waiting out the full deadline.
-  @answer_reasoning_stall_bytes 16_000
+  # NB: there is deliberately NO "reasoning stall" byte guard. A reasoning model
+  # (deepseek-v4-flash) streams its chain-of-thought as fat `reasoning` deltas
+  # — each SSE event is a full JSON object with `reasoning_details` duplicating
+  # the text plus id/model/provider framing, ~130 bytes per token — so a normal
+  # answer legitimately emits 40-50KB of raw SSE (≈300-700 completion tokens)
+  # before the `answer` field ever opens, finishing in well under 10s. An
+  # earlier guard that aborted once raw exceeded 16KB with the answer field
+  # still closed was a FALSE POSITIVE: it fired ~3s into healthy generation and
+  # broke every reasoning-heavy question. A genuinely endless/stuck stream is
+  # already caught by the wall-clock @ask_stream_deadline_ms below; raw byte
+  # count is not a usable "stuck" signal for a reasoning model.
 
   # One transport chunk of a streaming response. Returns Req's `{:cont | :halt,
-  # acc}`. Halts (flagging :llm_sse_abort with the reason) on three progress
+  # acc}`. Halts (flagging :llm_sse_abort with the reason) on two progress
   # failures so a nonsense/endless stream can't pin the ask pipeline: the
-  # wall-clock deadline, a runaway answer, or a reasoning stall that never opens
-  # the answer field.
+  # wall-clock deadline and a runaway answer.
   defp sse_into_step(deadline, {req, resp}, chunk, stream_to) do
     cond do
       System.monotonic_time(:millisecond) > deadline ->
@@ -1842,16 +1846,10 @@ defmodule RuleMaven.LLM do
 
         Process.put(:llm_sse_state, state)
 
-        cond do
-          String.length(state.content) > @answer_content_cap ->
-            abort_stream(:runaway_answer, {req, resp})
-
-          byte_size(state.raw) > @answer_reasoning_stall_bytes and
-              partial_answer(state.content) == nil ->
-            abort_stream(:reasoning_stall, {req, resp})
-
-          true ->
-            {:cont, {req, resp}}
+        if String.length(state.content) > @answer_content_cap do
+          abort_stream(:runaway_answer, {req, resp})
+        else
+          {:cont, {req, resp}}
         end
     end
   end
