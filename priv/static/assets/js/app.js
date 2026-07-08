@@ -601,6 +601,39 @@ Hooks.ChecklistStore = {
   }
 };
 
+// Overview nudge: one-click opt-in to the game's own palette. Applies the
+// light/dark game variant matching the viewer's CURRENT look (sampled from the
+// live background luminance, so it fits whatever base theme is active), exactly
+// like the header game-theme control (localStorage themeGameMatch + data-theme).
+// Self-hides once a game variant is already active so it never nags returning
+// users, and after a click.
+Hooks.GameThemeHint = {
+  mounted() {
+    var cur = localStorage.getItem("themeGameMatch");
+    if (cur === "game-light" || cur === "game-dark") {
+      this.el.hidden = true;
+      return;
+    }
+    var el = this.el;
+    el.addEventListener("click", function() {
+      var variant = "game-light";
+      try {
+        var bg = getComputedStyle(document.body).backgroundColor;
+        var m = bg.match(/\d+/g);
+        if (m && m.length >= 3) {
+          var lum = 0.299 * (+m[0]) + 0.587 * (+m[1]) + 0.114 * (+m[2]);
+          if (lum < 128) variant = "game-dark";
+        }
+      } catch (_e) {}
+      localStorage.setItem("themeGameMatch", variant);
+      document.documentElement.setAttribute("data-theme", variant);
+      var sel = document.getElementById("game-theme-select");
+      if (sel) sel.value = variant;
+      el.hidden = true;
+    });
+  }
+};
+
 // Prepare-page pipeline: each step with a result gets a collapsible body
 // (collapsed by default). The set of expanded step ids persists per game in
 // localStorage and is re-applied on every LiveView patch, so the frequent

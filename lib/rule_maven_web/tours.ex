@@ -70,15 +70,15 @@ defmodule RuleMavenWeb.Tours do
           "Have answers delivered in a themed character voice. Pure fun — the rules content stays exactly as accurate."
       },
       %{
-        # :not([hidden]) — the picker is server-rendered hidden and unhidden by
-        # the root-layout script only when the page has a game palette, so this
-        # step must not match on palette-less games. On mobile the control is
-        # display:none (options fold into #theme-select) and present()'s
-        # rendered-box check skips the step.
-        sel: "#game-theme-select:not([hidden])",
+        # Targets the empty-state opt-in button (present on both mobile and
+        # desktop, and only when the game has a palette). The button self-hides
+        # once a game variant is already active, so on replay this step just
+        # skips via present()'s rendered-box check — same graceful degrade as a
+        # palette-less game.
+        sel: "#game-theme-hint",
         title: "Dress for the game",
         body:
-          "Restyle the page in this game's own colors, drawn from its cover art. Pick 🖌️ Game Light or Game Dark here — your usual theme comes right back when you leave."
+          "One tap paints the whole page in this game's own colors, drawn from its cover art. It sticks with this game — your everyday theme won't override it, and the game look is waiting when you come back. Turn it off anytime from the 🖌️ theme menu."
       },
       %{
         sel: "[data-tour='expansions']",
