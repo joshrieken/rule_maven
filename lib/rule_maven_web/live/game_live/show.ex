@@ -4023,6 +4023,35 @@ defmodule RuleMavenWeb.GameLive.Show do
                             </span>
                           </div>
                         <% end %>
+                        <%!-- "Ask exactly this" — escape hatch below the original
+                              question when the served answer may not fit what the
+                              asker meant: the wording was rewritten OR the pool
+                              matched a similar-but-different neighbor. Re-asks the
+                              literal words with no cache + no rewrite. Gated on the
+                              paired answer being ready; hidden once the wording
+                              matches (incl. the verbatim re-ask's own row, so it
+                              can't loop). Own rows only — non-admins are scoped to
+                              their own threads and the server re-checks ownership. --%>
+                        <% ans_msg =
+                          msg.role == :user &&
+                            Enum.find(@conversation, &(&1[:id] == msg.id && &1.role == :assistant)) %>
+                        <% answer_ready? =
+                          ans_msg && !ans_msg[:pending] && !ans_msg[:refused] &&
+                            ans_msg.content != "Thinking..." && is_binary(ans_msg.content) &&
+                            not String.starts_with?(ans_msg.content, "⚠️") %>
+                        <%= if answer_ready? &&
+                               (ans_msg[:pool_hit] ||
+                                  normalization_changed?(asked_as, msg.content)) do %>
+                          <button
+                            type="button"
+                            phx-click="ask_exactly"
+                            phx-value-id={msg.id}
+                            disabled={@pending_count >= @max_concurrent}
+                            data-confirm="Re-ask using your exact original wording, without rewriting or reusing a cached answer? We'll fetch a fresh answer for exactly what you asked."
+                            class="ask-redo"
+                            title="Answer my literal wording — fresh, no rewrite"
+                          >🎯 Ask exactly this</button>
+                        <% end %>
                     <% end %>
                   </div>
 
@@ -4188,40 +4217,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                     🔎 Unverified answer &mdash; single source, not yet community-reviewed.
                     Vote below to help, or regenerate a fresh answer.
                   </div>
-                  <%!-- "Ask exactly this" — the single escape hatch when the
-                        served answer didn't fit what the asker meant: either the
-                        pool matched a similar-but-different neighbor, OR the
-                        normalizer rewrote the wording. Re-asks the literal words
-                        with no cache + no rewrite. Shown on an answered own row
-                        that is a pool hit or was normalized; hidden once the
-                        wording matches (incl. the verbatim re-ask's own row, so
-                        it can't loop). Own rows only — non-admins are scoped to
-                        their own threads and the server re-checks ownership. --%>
-                  <% answered_row? =
-                    msg.role == :assistant && !msg[:pending] && !msg[:refused] &&
-                      msg.content != "Thinking..." && is_binary(msg.content) &&
-                      not String.starts_with?(msg.content, "⚠️") %>
-                  <% u_msg =
-                    answered_row? &&
-                      Enum.find(@conversation, &(&1[:id] == msg.id && &1.role == :user)) %>
-                  <% asked_raw =
-                    u_msg && (Map.get(@reask_typed, msg[:id]) || u_msg[:original_question]) %>
-                  <% rewritten? = u_msg && normalization_changed?(asked_raw, u_msg.content) %>
-                  <div
-                    :if={answered_row? && (msg[:pool_hit] || rewritten?)}
-                    style="margin-top:0.35rem"
-                  >
-                    <button
-                      type="button"
-                      phx-click="ask_exactly"
-                      phx-value-id={msg.id}
-                      disabled={@pending_count >= @max_concurrent}
-                      data-confirm="Re-ask using your exact original wording, without rewriting or reusing a cached answer? We'll fetch a fresh answer for exactly what you asked."
-                      class="btn-xs"
-                      title="Answer my literal wording — fresh, no rewrite"
-                    >🎯 Ask exactly this</button>
-                  </div>
-
                   <%!-- Player-facing affordance for failed ("⚠️ ...") answers.
                         Admins get their own re-ask row below; refused/blocked
                         rows and the kill-switch "paused" notice stay dead-ended
