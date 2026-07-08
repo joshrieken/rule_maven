@@ -28,7 +28,6 @@ defmodule RuleMavenWeb.GameLive.Index do
         requested_ids: Games.requested_game_ids(socket.assigns.current_user.id),
         search: if(connected?(socket), do: nil, else: ""),
         search_ready: false,
-        delete_id: nil,
         page: 1,
         per_page: 20,
         selected_idx: -1,
@@ -275,17 +274,7 @@ defmodule RuleMavenWeb.GameLive.Index do
     {:noreply, assign(socket, expanded_games: expanded)}
   end
 
-  @impl true
-  def handle_event("delete_game", %{"id" => id_str}, socket) do
-    {id, _} = Integer.parse(id_str)
-    {:noreply, assign(socket, delete_id: id)}
-  end
-
-  @impl true
-  def handle_event("cancel_delete", _params, socket) do
-    {:noreply, assign(socket, delete_id: nil)}
-  end
-
+  # Deletion is confirmed client-side via data-confirm on the "⋯" menu item.
   @impl true
   def handle_event("confirm_delete", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
@@ -295,7 +284,6 @@ defmodule RuleMavenWeb.GameLive.Index do
       {:ok, _} ->
         {:noreply,
          socket
-         |> assign(delete_id: nil)
          |> reload_games()
          |> put_flash(:info, "Deleted #{game.name}.")}
 
@@ -658,6 +646,28 @@ defmodule RuleMavenWeb.GameLive.Index do
     end)
   end
 
+  # "⋯" overflow menu holding a card's secondary actions (progressive
+  # disclosure: only Ask/Request + favorite stay on the card itself). Uses the
+  # app-wide <details class="card-menu"> pattern — app.js already closes it on
+  # outside click, opens one at a time, and closes on LV navigation.
+  slot :inner_block, required: true
+
+  defp card_menu(assigns) do
+    ~H"""
+    <details class="card-menu" style="flex-shrink:0">
+      <%!-- stopPropagation: the whole game card is phx-click=go_to_game; opening
+            the menu must not also navigate. (Items inside the pop are fine —
+            LiveView dispatches only the nearest phx-click.) --%>
+      <summary class="card-menu__trigger" title="More actions" onclick="event.stopPropagation()">
+        ⋯
+      </summary>
+      <div class="card-menu__pop card-menu__pop--right">
+        {render_slot(@inner_block)}
+      </div>
+    </details>
+    """
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -810,16 +820,6 @@ defmodule RuleMavenWeb.GameLive.Index do
                   >
                     ✓ Ready
                   </span>
-                  <.link
-                    :if={
-                      has_source and RuleMaven.Games.bgg_synced?(game) and
-                        RuleMaven.Users.can?(@current_user, :admin)
-                    }
-                    href={~p"/games/#{game}/prepare"}
-                    style="font-size:0.6rem;font-weight:700;vertical-align:middle;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:0.05rem 0.4rem;margin-left:0.4rem;pointer-events:auto"
-                  >
-                    {if game.playable, do: "Readiness →", else: "Prepare →"}
-                  </.link>
                 </h2>
                 <p class="text-sm text-gray-500">
                   <span style="font-size:0.7rem;font-weight:600;opacity:0.65">{RuleMaven.Games.Category.label(
@@ -866,9 +866,15 @@ defmodule RuleMavenWeb.GameLive.Index do
                   >{if exp_syncing, do: "⟳ Syncing…", else: "⬇ Exp (#{exp_to_pull})"}</button>
                 </div>
               </div>
+              <% is_admin = RuleMaven.Users.can?(@current_user, :admin) %>
+              <% in_collection = MapSet.member?(@collection_ids, game.id) %>
+              <% favorited = MapSet.member?(@favorite_ids, game.id) %>
               <div class="flex gap-1.5 flex-shrink-0 game-actions items-center">
+                <%!-- Progressive disclosure: only the primary action (Ask /
+                      Request / admin Pull) and the favorite heart sit on the
+                      card. Everything else lives in the "⋯" menu. --%>
                 <button
-                  :if={unsupported and needs_pull}
+                  :if={needs_pull}
                   type="button"
                   phx-click="pull_bgg"
                   phx-value-id={game.id}
@@ -889,50 +895,14 @@ defmodule RuleMavenWeb.GameLive.Index do
                     >Request</button>
                   <% end %>
                 <% else %>
-                  <button
-                    :if={needs_pull}
-                    type="button"
-                    phx-click="pull_bgg"
-                    phx-value-id={game.id}
-                    disabled={MapSet.member?(@bgg_pulling, game.id)}
-                    class="btn-primary btn-xs"
-                    style={"cursor:#{if MapSet.member?(@bgg_pulling, game.id), do: "default", else: "pointer"};opacity:#{if MapSet.member?(@bgg_pulling, game.id), do: "0.6", else: "1"}"}
-                  >{if MapSet.member?(@bgg_pulling, game.id), do: "⟳ Pulling…", else: "⬇ Pull BGG"}</button>
-                  <a
-                    :if={game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(game.category)}
-                    id={"bgg-link-#{game.id}"}
-                    href={"https://boardgamegeek.com/boardgame/#{game.bgg_id}"}
-                    target="_blank"
-                    rel="noopener"
-                    phx-hook="ExternalLink"
-                    class="btn btn-xs"
-                  >BGG</a>
                   <% askable =
                     Map.get(@source_counts, game.id, 0) > 0 and
-                      (game.playable or RuleMaven.Users.can?(@current_user, :admin)) %>
+                      (game.playable or is_admin) %>
                   <.link
                     :if={askable}
                     navigate={~p"/games/#{game}"}
                     class="btn btn-primary btn-xs"
                   >Ask</.link>
-                  <span
-                    :if={not askable}
-                    style="display:inline-block;visibility:hidden;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;line-height:1.2"
-                  >Ask</span>
-                  <% in_collection = MapSet.member?(@collection_ids, game.id) %>
-                  <% favorited = MapSet.member?(@favorite_ids, game.id) %>
-                  <button
-                    type="button"
-                    phx-click="toggle_collection"
-                    phx-value-id={game.id}
-                    title={
-                      if in_collection,
-                        do: "In your collection — click to remove",
-                        else: "Add to your collection (games you own)"
-                    }
-                    class="btn-xs"
-                    style={"background:#{if in_collection, do: "color-mix(in srgb,var(--accent) 14%,transparent)", else: "var(--bg-subtle)"};color:#{if in_collection, do: "var(--accent)", else: "var(--text-muted)"};border-color:#{if in_collection, do: "var(--accent)", else: "var(--border-strong)"};white-space:nowrap"}
-                  >{if in_collection, do: "✓ Collection", else: "+ Collection"}</button>
                   <button
                     type="button"
                     phx-click="toggle_favorite"
@@ -941,36 +911,41 @@ defmodule RuleMavenWeb.GameLive.Index do
                     class="btn-icon btn-xs"
                     style={"background:#{if favorited, do: "color-mix(in srgb,var(--red) 14%,transparent)", else: "var(--bg-subtle)"};color:#{if favorited, do: "var(--red)", else: "var(--text-muted)"}"}
                   >{if favorited, do: "♥", else: "♡"}</button>
-                  <.link
-                    :if={RuleMaven.Users.can?(@current_user, :admin)}
-                    navigate={~p"/games/#{game}/edit"}
-                    class="action-link"
-                  >Edit</.link>
-                  <%= if RuleMaven.Users.can?(@current_user, :admin) do %>
-                    <%= if @delete_id == game.id do %>
-                      <span class="text-xs" style="color:var(--red);padding:0.2rem 0">Delete?</span>
-                      <button
-                        type="button"
-                        phx-click="confirm_delete"
-                        phx-value-id={game.id}
-                        class="btn-danger-outline btn-xs"
-                      >Yes</button>
-                      <button
-                        type="button"
-                        phx-click="cancel_delete"
-                        class="btn-xs"
-                      >No</button>
-                    <% else %>
-                      <button
-                        type="button"
-                        phx-click="delete_game"
-                        phx-value-id={game.id}
-                        class="btn-icon btn-xs"
-                        title="Delete game"
-                      >✕</button>
-                    <% end %>
-                  <% end %>
                 <% end %>
+                <.card_menu>
+                  <button
+                    type="button"
+                    phx-click="toggle_collection"
+                    phx-value-id={game.id}
+                    class="card-menu__item"
+                    title={unless in_collection, do: "Games you own"}
+                  >{if in_collection, do: "✓ In collection — remove", else: "+ Add to collection"}</button>
+                  <a
+                    :if={game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(game.category)}
+                    id={"bgg-link-#{game.id}"}
+                    href={"https://boardgamegeek.com/boardgame/#{game.bgg_id}"}
+                    target="_blank"
+                    rel="noopener"
+                    phx-hook="ExternalLink"
+                    class="card-menu__item"
+                  >View on BGG ↗</a>
+                  <%= if is_admin do %>
+                    <div class="card-menu__divider"></div>
+                    <.link
+                      :if={has_source and RuleMaven.Games.bgg_synced?(game)}
+                      href={~p"/games/#{game}/prepare"}
+                      class="card-menu__item"
+                    >{if game.playable, do: "Readiness →", else: "Prepare →"}</.link>
+                    <.link navigate={~p"/games/#{game}/edit"} class="card-menu__item">Edit</.link>
+                    <button
+                      type="button"
+                      phx-click="confirm_delete"
+                      phx-value-id={game.id}
+                      data-confirm={"Delete #{game.name}? This cannot be undone."}
+                      class="card-menu__item card-menu__item--err"
+                    >Delete…</button>
+                  <% end %>
+                </.card_menu>
               </div>
             </div>
 
@@ -1023,54 +998,36 @@ defmodule RuleMavenWeb.GameLive.Index do
                         <% end %>
                       </p>
                     </div>
+                    <% exp_admin = RuleMaven.Users.can?(@current_user, :admin) %>
+                    <% exp_bgg = exp.bgg_id && RuleMaven.Games.Category.bgg_relevant?(exp.category) %>
                     <div class="flex gap-1.5 flex-shrink-0 game-actions items-center">
-                      <a
-                        :if={exp.bgg_id && RuleMaven.Games.Category.bgg_relevant?(exp.category)}
-                        id={"bgg-link-exp-#{exp.id}"}
-                        href={"https://boardgamegeek.com/boardgame/#{exp.bgg_id}"}
-                        target="_blank"
-                        rel="noopener"
-                        phx-hook="ExternalLink"
-                        class="btn btn-xs"
-                      >BGG</a>
                       <.link
                         :if={Map.get(@source_counts, exp.id, 0) > 0}
                         navigate={~p"/games/#{exp}"}
                         class="btn btn-primary btn-xs"
                       >Ask</.link>
-                      <span
-                        :if={Map.get(@source_counts, exp.id, 0) == 0}
-                        style="display:inline-block;visibility:hidden;font-size:0.7rem;font-weight:600;padding:0.15rem 0.45rem;line-height:1.2"
-                      >Ask</span>
-                      <.link
-                        :if={RuleMaven.Users.can?(@current_user, :admin)}
-                        navigate={~p"/games/#{exp}/edit"}
-                        class="action-link"
-                      >Edit</.link>
-                      <%= if RuleMaven.Users.can?(@current_user, :admin) do %>
-                        <%= if @delete_id == exp.id do %>
-                          <span class="text-xs" style="color:var(--red);padding:0.2rem 0">Delete?</span>
+                      <.card_menu :if={exp_bgg || exp_admin}>
+                        <a
+                          :if={exp_bgg}
+                          id={"bgg-link-exp-#{exp.id}"}
+                          href={"https://boardgamegeek.com/boardgame/#{exp.bgg_id}"}
+                          target="_blank"
+                          rel="noopener"
+                          phx-hook="ExternalLink"
+                          class="card-menu__item"
+                        >View on BGG ↗</a>
+                        <%= if exp_admin do %>
+                          <div :if={exp_bgg} class="card-menu__divider"></div>
+                          <.link navigate={~p"/games/#{exp}/edit"} class="card-menu__item">Edit</.link>
                           <button
                             type="button"
                             phx-click="confirm_delete"
                             phx-value-id={exp.id}
-                            class="btn-danger-outline btn-xs"
-                          >Yes</button>
-                          <button
-                            type="button"
-                            phx-click="cancel_delete"
-                            class="btn-xs"
-                          >No</button>
-                        <% else %>
-                          <button
-                            type="button"
-                            phx-click="delete_game"
-                            phx-value-id={exp.id}
-                            class="btn-icon btn-xs"
-                            title="Delete expansion"
-                          >✕</button>
+                            data-confirm={"Delete #{exp.name}? This cannot be undone."}
+                            class="card-menu__item card-menu__item--err"
+                          >Delete…</button>
                         <% end %>
-                      <% end %>
+                      </.card_menu>
                     </div>
                   </div>
                 <% end %>
