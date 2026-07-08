@@ -133,6 +133,29 @@ defmodule RuleMaven.Setup do
     steps = steps |> Enum.reverse() |> Enum.reject(&(&1["title"] in [nil, "", "nil"]))
 
     if components == [] and steps == [],
+      do: parse_headerless(lines),
+      else: %{"components" => components, "setup" => steps}
+  end
+
+  # The reasoning model sometimes emits both lists as one bare bullet run with
+  # no section headers at all (seen with Ethnos: 2nd Edition), which the header
+  # scan above can't place. Classify each bullet instead: count-prefixed lines
+  # ("144 Ally Cards") are components, everything else is a setup step. A
+  # miscall is tolerable — the verify pass fact-checks every item afterwards.
+  defp parse_headerless(lines) do
+    items =
+      lines
+      |> Enum.map(fn line -> line |> String.trim() |> bullet_text() |> strip_md() end)
+      |> Enum.reject(&is_nil/1)
+
+    {components, steps} = Enum.split_with(items, &Regex.match?(~r/^\d+\s/, &1))
+
+    steps =
+      steps
+      |> Enum.map(&parse_step/1)
+      |> Enum.reject(&(&1["title"] in [nil, "", "nil"]))
+
+    if components == [] and steps == [],
       do: nil,
       else: %{"components" => components, "setup" => steps}
   end
