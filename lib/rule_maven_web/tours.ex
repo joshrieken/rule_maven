@@ -87,40 +87,10 @@ defmodule RuleMavenWeb.Tours do
           "Toggle the ones on your table. Answers automatically account for their rule changes."
       },
       %{
-        sel: "#setup-checklist",
-        title: "Setup checklist",
+        sel: "[data-tour='tools-subbar']",
+        title: "Every table tool lives here",
         body:
-          "Tick off components and setup steps as you lay out the game — expansion extras included."
-      },
-      %{
-        sel: "[data-tour='turnwizard']",
-        title: "What can I do now?",
-        body:
-          "Frozen mid-game? Step through each phase of a turn and see exactly which actions are on the table right now, with the rule behind each."
-      },
-      %{
-        sel: "[data-tour='teach']",
-        title: "Teach it in 60 seconds",
-        body:
-          "New to this game? Goal, your turn, how to win, and the rule people always miss — just enough to start playing right now. Read it aloud to the table."
-      },
-      %{
-        sel: "[data-tour='dyk']",
-        title: "Did you know?",
-        body:
-          "A random rule straight from the rulebook. Shuffle for another — great for the rules everyone forgets."
-      },
-      %{
-        sel: "[data-tour='scorepad']",
-        title: "Score pad",
-        body:
-          "At game end, tally each player against the game's real scoring categories and reveal the winner with a little ceremony. It saves on your device between rounds."
-      },
-      %{
-        sel: "[data-tour='house-rules']",
-        title: "House rules",
-        body:
-          "Save how your table actually plays. When an answer touches one of your house rules, you'll see a callout under it."
+          "Tap 🎲 Play or 📚 Learn to open Turn Wizard, Quiz, Setup checklist, Score pad, and more — they open as movable panels you can minimize to the dock, and they remember where you left off."
       },
       %{
         sel: nil,
