@@ -366,8 +366,14 @@
             return;
           }
           localStorage.setItem('theme', this.value);
-          localStorage.setItem('themeGameMatch', '0');
-          if (gameThemeAvailable()) gameSelect.value = '0';
+          // Only opt out of the game variant when we're actually on a game
+          // page (deliberate off-switch). Picking a main theme elsewhere must
+          // NOT clear a standing game selection — game-light/dark always takes
+          // precedence when you return to a game page.
+          if (gameThemeAvailable()) {
+            localStorage.setItem('themeGameMatch', '0');
+            gameSelect.value = '0';
+          }
           html.setAttribute('data-theme', this.value);
           track(this.value);
         });
