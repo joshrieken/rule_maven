@@ -2696,6 +2696,18 @@ body:has([data-phx-main].phx-connected)::after {
   .sidebar-closed { display: none !important; }
 }
 
+/* Q&A page on phones: the chrome (site header + game toolbar + composer)
+   already eats most of a small viewport, so trim everything non-essential. */
+@media (max-width: 640px) {
+  /* Secondary pills (View on BGG) — still reachable from the Overview panel. */
+  .hide-mobile { display: none !important; }
+  /* !important: overrides the element's inline padding. */
+  .chat-layout .chat-header { padding: 0.25rem 0.5rem !important; }
+  /* The confidence tooltip opens left-anchored from a button in the right
+     half of the card, so left-anchoring runs it off the viewport edge. */
+  .conf-help__pop { left: auto; right: -0.5rem; }
+}
+
 /* ===== New Nav System ===== */
 .header-nav {
   display: flex;
@@ -2836,9 +2848,16 @@ body:has([data-phx-main].phx-connected)::after {
   .header-right .header-user { display: none; }
   .header-right > .nav-link { display: none; }
   .hamburger { display: flex; }
-  .header-inner { gap: 0.35rem; }
+  /* Single row: the wrapped second row (theme selects + user menu) doubled
+     the header height, and the Q&A page sizes itself off --header-height, so
+     every wasted pixel comes straight out of the chat area. */
+  .header-inner { gap: 0.35rem; flex-wrap: nowrap; padding: 0.5rem 0; }
   .header-title { font-size: 0.95rem; }
   .header { padding: 0 0.75rem; }
+  /* Per-game theme matching is a desktop nicety; dropping it is what lets the
+     remaining controls fit on one row. */
+  #game-theme-select { display: none !important; }
+  .theme-select { max-width: 6.5rem; }
 }
 
 /* ── Admin background-job panel (DevTools-style docked) ───────────────────── */
