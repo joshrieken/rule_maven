@@ -4,6 +4,16 @@ defmodule RuleMavenWeb.CommunityLiveTest do
   import RuleMaven.GamesFixtures
 
   alias RuleMaven.Games
+  alias RuleMaven.Repo
+  alias RuleMaven.Games.{GameCategory, QuestionCategoryTag}
+
+  defp category(game, name) do
+    Repo.insert!(%GameCategory{game_id: game.id, name: name, description: "#{name} rules."})
+  end
+
+  defp tag(question, cat) do
+    Repo.insert!(%QuestionCategoryTag{question_log_id: question.id, game_category_id: cat.id})
+  end
 
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
 
@@ -11,7 +21,11 @@ defmodule RuleMavenWeb.CommunityLiveTest do
     {:ok, user} =
       RuleMaven.Users.create_user(
         Map.merge(
-          %{username: "#{prefix}_user", email: "#{prefix}_user@test.com", password: "password1234"},
+          %{
+            username: "#{prefix}_user",
+            email: "#{prefix}_user@test.com",
+            password: "password1234"
+          },
           attrs
         )
       )
@@ -238,6 +252,32 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       html = render_click(view, "toggle_expand", %{"id" => to_string(cited.id)})
       refute html =~ "Show less"
       refute html =~ "Settlements are placed in reverse order."
+    end
+
+    test "category pills filter to the selected category; only categories with shown questions get a pill",
+         %{conn: conn, game: game, viewer: viewer, unverified: unverified} do
+      # unverified question = "Unverified question about movement?"
+      movement = category(game, "Movement")
+      # Combat exists as a category but tags nothing shown → no pill.
+      _combat = category(game, "Combat")
+      tag(unverified, movement)
+
+      conn = login(conn, viewer)
+      {:ok, view, _html} = live(conn, ~p"/games/#{game}/community")
+      html = render_click(view, "switch_tab", %{"tab" => "unverified"})
+
+      # A pill renders for the category that actually has a shown question…
+      assert html =~ "Movement"
+      # …but not for a category with zero shown questions.
+      refute html =~ "Combat"
+
+      # Selecting the category narrows to its questions.
+      html = render_click(view, "filter_category", %{"id" => to_string(movement.id)})
+      assert html =~ "Unverified question about movement?"
+
+      # Clearing (re-click) restores the full list.
+      html = render_click(view, "filter_category", %{"id" => to_string(movement.id)})
+      assert html =~ "Unverified question about movement?"
     end
 
     test "forged ids from other games can't be voted or reported here",

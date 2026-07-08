@@ -332,6 +332,18 @@ defmodule RuleMavenWeb.GameLive.Community do
     end)
   end
 
+  # Categories that tag at least one of the given (currently shown) questions.
+  # Keeps a pill off the bar unless clicking it would surface something, so the
+  # filter never lands on an empty "No questions in this category yet" view.
+  defp categories_with_questions(categories, questions, category_map) do
+    present =
+      questions
+      |> Enum.flat_map(fn q -> Map.get(category_map, q.id, []) end)
+      |> MapSet.new(& &1.id)
+
+    Enum.filter(categories, &MapSet.member?(present, &1.id))
+  end
+
   defp matches_search?(_q, ""), do: true
 
   defp matches_search?(q, query) do
@@ -500,10 +512,12 @@ defmodule RuleMavenWeb.GameLive.Community do
           <% end %>
         <% end %>
 
-        <%!-- Category filter pills --%>
-        <%= if @categories != [] do %>
+        <%!-- Category filter pills — only categories that actually tag a question
+             in this tab, so every pill yields results when clicked. --%>
+        <% shown_cats = categories_with_questions(@categories, questions, @category_map) %>
+        <%= if shown_cats != [] do %>
           <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:1.25rem">
-            <%= for cat <- @categories do %>
+            <%= for cat <- shown_cats do %>
               <button
                 type="button"
                 phx-click="filter_category"
