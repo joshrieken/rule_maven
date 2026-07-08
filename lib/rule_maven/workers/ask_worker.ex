@@ -6,7 +6,19 @@ defmodule RuleMaven.Workers.AskWorker do
   """
   use Oban.Worker, queue: :default, max_attempts: 2
 
+  require Logger
+
   alias RuleMaven.{Games, Jobs}
+
+  # Hard wall-clock ceiling on a whole ask. LLM.ask's only internal limit is
+  # the 60s @ask_stream_deadline_ms, and that is checked *only* inside the
+  # per-SSE-chunk callback — so an upstream stall that delivers no chunks (a
+  # wedged connection, a stuck Finch pool checkout, or a hang in the
+  # synchronous pre-stream steps) never trips it, and the job runs forever:
+  # the question stays pinned on "Thinking..." and the Oban slot leaks. Cap
+  # the entire call (well above 60s stream + a possible runaway re-generation
+  # + critic + restyle) so a hang surfaces as a normal retryable timeout.
+  @ask_hard_timeout_ms 180_000
 
   @impl Oban.Worker
   def perform(%Oban.Job{id: oban_id, args: args}) do
@@ -96,11 +108,13 @@ defmodule RuleMaven.Workers.AskWorker do
           "Answering against the rulebook#{if expansion_ids != [], do: " (+#{length(expansion_ids)} expansion(s))", else: ""}…"
         )
 
-        case RuleMaven.LLM.ask(game, question, expansion_ids, recent_context,
-               user_id: user_id,
-               skip_pool: skip_pool,
-               voice: voice
-             ) do
+        case run_bounded(fn ->
+               RuleMaven.LLM.ask(game, question, expansion_ids, recent_context,
+                 user_id: user_id,
+                 skip_pool: skip_pool,
+                 voice: voice
+               )
+             end) do
           {:ok, %{answer: raw_answer} = llm_result} ->
             {answer, error_kind} =
               cond do
@@ -447,6 +461,29 @@ defmodule RuleMaven.Workers.AskWorker do
             Jobs.finish_run(run, "failed", to_string(reason))
             :ok
         end
+    end
+  end
+
+  # Runs `fun` under a hard wall-clock cap (same idiom as
+  # RulebookDownloader.cmd/4 for wedged binaries). Its return value passes
+  # through unchanged; if it overruns, the task is killed and a timeout error
+  # is returned — the word "timeout" routes it through the {:error, reason}
+  # branch's classification, so the question row is flipped to a retryable
+  # ⚠️ answer instead of hanging on "Thinking..." forever. Logger.metadata is
+  # copied into the task so llm_logs rows written inside it still tag the
+  # question (LLM.current_question_log_id/0 reads that metadata).
+  def run_bounded(fun, timeout_ms \\ @ask_hard_timeout_ms) do
+    md = Logger.metadata()
+
+    task =
+      Task.async(fn ->
+        Logger.metadata(md)
+        fun.()
+      end)
+
+    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      nil -> {:error, "ask exceeded #{timeout_ms}ms timeout"}
     end
   end
 
