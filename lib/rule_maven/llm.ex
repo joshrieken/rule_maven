@@ -44,8 +44,27 @@ defmodule RuleMaven.LLM do
     # fragments ("snack bar max limit") collapse onto one phrasing, so they share
     # an embedding — lifting the pool hit rate — and the retrieval + LLM answer
     # also run on the cleaned question. Falls back to the raw question on error.
-    cleaned = normalize_question(game, question, recent_context, user_id: opts[:user_id])
+    #
+    # `skip_normalize` is the "Ask exactly this" escape hatch: the asker forces
+    # the answer to run on their LITERAL words when a rewrite changed their
+    # meaning. Skip the normalize LLM call entirely and treat the raw text as
+    # canonical (cleaned = "" → match_text = question, cleaned_question stored
+    # nil → no "You asked" disclosure on the new row).
+    cleaned =
+      if Keyword.get(opts, :skip_normalize, false),
+        do: "",
+        else: normalize_question(game, question, recent_context, user_id: opts[:user_id])
+
     match_text = if cleaned == "", do: question, else: cleaned
+
+    # Settle the asker's question bubble NOW — the normalized form + "You asked"
+    # disclosure are known here, long before the answer streams. Pushing them to
+    # the LiveView up front means the bubble reaches its final height before any
+    # answer text lands underneath, so the streaming answer never reflows the
+    # page out from under the reader. Fires only when normalization actually
+    # rewrote the text; otherwise the bubble is already correct.
+    if cleaned != "" and cleaned != question,
+      do: broadcast_ask_normalized(game.id, question, cleaned)
 
     # Embed the cleaned question (used for pool check + stored on the logged row,
     # so a future paraphrase normalizes to the same form and matches it).
@@ -406,7 +425,9 @@ defmodule RuleMaven.LLM do
   # forcing the LLM proxy past every cache tier (it keys on messages only).
   defp append_cache_bust_nonce(messages) do
     nonce = "#{System.system_time(:millisecond)}-#{System.unique_integer([:positive])}"
-    messages ++ [%{role: "system", content: RuleMaven.Prompts.render("regenerate_nonce", %{nonce: nonce})}]
+
+    messages ++
+      [%{role: "system", content: RuleMaven.Prompts.render("regenerate_nonce", %{nonce: nonce})}]
   end
 
   # A runaway answer stream (visible answer text looping past @answer_content_cap)
@@ -424,7 +445,10 @@ defmodule RuleMaven.LLM do
   defp maybe_retry_stalled_stream(result, body, opts) do
     if stalled_stream_error?(result) and not Keyword.get(opts, :stream_retried, false) do
       require Logger
-      Logger.warning("answer stream stalled (#{inspect(result)}) — retrying once with cache-busting nonce")
+
+      Logger.warning(
+        "answer stream stalled (#{inspect(result)}) — retrying once with cache-busting nonce"
+      )
 
       body
       |> Map.update!(:messages, &append_cache_bust_nonce/1)
@@ -445,6 +469,21 @@ defmodule RuleMaven.LLM do
         RuleMaven.PubSub,
         "game:#{game_id}",
         {:ask_stage, %{question_log_id: ql_id, stage: stage}}
+      )
+    end
+  end
+
+  # Pushes the normalized question to the asker's LiveView as soon as it's known
+  # (right after the normalize step, before retrieval/answer). Lets the question
+  # bubble render its final form — cleaned text + "You asked" disclosure — up
+  # front so the streaming answer below it never reflows. Same gating as
+  # broadcast_ask_stage/2: only fires for a logged question (AskWorker metadata).
+  defp broadcast_ask_normalized(game_id, original, cleaned) do
+    if ql_id = current_question_log_id() do
+      Phoenix.PubSub.broadcast(
+        RuleMaven.PubSub,
+        "game:#{game_id}",
+        {:ask_normalized, %{question_log_id: ql_id, original: original, cleaned: cleaned}}
       )
     end
   end
@@ -1628,6 +1667,7 @@ defmodule RuleMaven.LLM do
             nil,
             build_call_detail(body, response_body, usage, opts)
           )
+
           record_call_savings(actual_model, opts, usage)
           parse_response(response_body)
 
@@ -1651,6 +1691,7 @@ defmodule RuleMaven.LLM do
             error,
             build_call_detail(body, nil, nil, opts)
           )
+
           {:error, error}
 
         {:error, %{reason: reason}} ->
@@ -1667,6 +1708,7 @@ defmodule RuleMaven.LLM do
             error,
             build_call_detail(body, nil, nil, opts)
           )
+
           {:error, error}
 
         # Catch-all for any other Req error shape (exception structs without a
@@ -1686,6 +1728,7 @@ defmodule RuleMaven.LLM do
             error,
             build_call_detail(body, nil, nil, opts)
           )
+
           {:error, error}
       end
 
@@ -1836,7 +1879,7 @@ defmodule RuleMaven.LLM do
       resp.status != 200 ->
         # Error responses arrive through the same fun — keep the raw body so
         # the caller's error branch can report it.
-        {:cont, {req, %{resp | body: (if is_binary(resp.body), do: resp.body, else: "") <> chunk}}}
+        {:cont, {req, %{resp | body: if(is_binary(resp.body), do: resp.body, else: "") <> chunk}}}
 
       true ->
         state =
@@ -1961,7 +2004,8 @@ defmodule RuleMaven.LLM do
   end
 
   defp grown?(partial, sent) do
-    is_binary(partial) and String.length(partial) - String.length(sent) >= @partial_emit_min_growth
+    is_binary(partial) and
+      String.length(partial) - String.length(sent) >= @partial_emit_min_growth
   end
 
   @doc false
@@ -3424,7 +3468,9 @@ defmodule RuleMaven.LLM do
     # (fail closed) but still sent — truncated — so the real-person judgment
     # covers every voice.
     vettable =
-      for v <- voices, String.length(v.style) <= @vet_style_max_chars, into: MapSet.new(),
+      for v <- voices,
+          String.length(v.style) <= @vet_style_max_chars,
+          into: MapSet.new(),
           do: v.slug
 
     styles_json =

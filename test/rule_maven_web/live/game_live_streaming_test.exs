@@ -287,6 +287,63 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
     refute render(view) =~ "data-stage"
   end
 
+  test "{:ask_normalized, …} settles the question bubble before the answer streams", %{
+    conn: conn
+  } do
+    user = setup_user("stream_norm")
+    game = published_game_fixture(%{name: "Stream Norm Game"})
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    view
+    |> form("#ask-form", question: "how many cards do i draw")
+    |> render_submit()
+
+    ql =
+      RuleMaven.Repo.one!(
+        from(q in Games.QuestionLog,
+          where: q.game_id == ^game.id,
+          order_by: [desc: q.id],
+          limit: 1
+        )
+      )
+
+    # No answer yet — the loader is still up.
+    html = render(view)
+    assert html =~ "voice-loader"
+    refute html =~ "You asked:"
+
+    # Normalized form arrives well before any answer token: the bubble settles
+    # to its final layout (cleaned text + "You asked" disclosure) now, so the
+    # streaming answer below never reflows it.
+    send(
+      view.pid,
+      {:ask_normalized,
+       %{
+         question_log_id: ql.id,
+         original: "how many cards do i draw",
+         cleaned: "How many cards does a player draw per turn?"
+       }}
+    )
+
+    html = render(view)
+    assert html =~ "How many cards does a player draw per turn?"
+    assert html =~ "You asked:"
+    assert html =~ "how many cards do i draw"
+    # Still pending — the answer has not landed.
+    assert html =~ "voice-loader"
+
+    # A normalized push for a question this session isn't waiting on is ignored.
+    send(
+      view.pid,
+      {:ask_normalized,
+       %{question_log_id: ql.id + 999, original: "x", cleaned: "totally different text"}}
+    )
+
+    refute render(view) =~ "totally different text"
+  end
+
   test "a finished answer awaiting persona restyle reports the voicing stage", %{conn: conn} do
     user = setup_user("stream_stage_voice")
     game = published_game_fixture(%{name: "Stream Stage Voice Game"})

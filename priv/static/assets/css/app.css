@@ -2463,16 +2463,65 @@ textarea {
   color: var(--accent-text, #fff);
   align-self: center;
 }
-/* The user bubble is right-aligned and the disclosure sits at its bottom, so
-   the shared popover would spill off the right edge (opening rightward) or drop
-   down over the answer bubble below. Anchor it to the right and open UPWARD,
-   into the bubble's own space, and lift it above neighbouring bubbles. */
+
+/* "Ask exactly this" escape hatch, rendered on the accent user bubble under the
+   original-question disclosure. On-accent variant of a small outline button:
+   derives border/text from accent-text so it reads in every theme, fills a
+   touch more on hover. Right-aligned to match the bubble. */
+.ask-redo {
+  align-self: flex-end;
+  margin-top: 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--accent-text, #fff) 45%, transparent);
+  background: color-mix(in srgb, var(--accent-text, #fff) 12%, transparent);
+  color: var(--accent-text, #fff);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.ask-redo:hover,
+.ask-redo:focus-visible {
+  background: color-mix(in srgb, var(--accent-text, #fff) 24%, transparent);
+}
+.ask-redo:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* The user bubble is right-aligned, so left-anchoring spills the popover off
+   the right edge — anchor it to the right instead. It must open DOWNWARD
+   (default direction): #chat-messages is an `overflow-y:auto` scroller whose
+   top edge sits just under the chat-header, and answers scroll to that top, so
+   an upward popover pokes past the scroller's top edge and gets clipped away
+   (looking "hidden behind the top bar"). Clipping is z-index-independent, and
+   the popover is trapped in the chat-messages (z:1) / chat-layout (z:10)
+   stacking contexts anyway, so no z-index can lift an upward popover out. Down
+   is the only direction with open room; it floats over the answer below, which
+   is fine for a transient hover tooltip. */
 .ask-orig .conf-help__pop {
   left: auto;
   right: 0;
-  top: auto;
-  bottom: calc(100% + 6px);
+  top: calc(100% + 6px);
+  bottom: auto;
   z-index: 60;
+}
+/* The downward popover overlaps the answer bubble below it. Both bubbles are
+   direct children of #chat-messages with no z-index (steady state), so they
+   paint in DOM order — the later answer bubble on top — and the popover's own
+   z-index only orders it WITHIN its user bubble, never against a sibling
+   bubble. Lift the whole user bubble into a raised stacking context while the
+   tooltip is open so the popover rises with it above the answer. Scoped to
+   :hover/:focus-within so it's momentary and can't bury the answer-card menus
+   the way an always-on z-index would (see the msg-in transform note). */
+.chat-msg-user:has(.ask-orig .conf-help:hover),
+.chat-msg-user:has(.ask-orig .conf-help:focus-within) {
+  position: relative;
+  z-index: 70;
 }
 
 /* ===== Collapsible menus on answer cards ===== */

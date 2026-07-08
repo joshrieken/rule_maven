@@ -501,6 +501,44 @@ defmodule RuleMaven.LLMTest do
              |> Enum.all?(fn m -> not (m.content =~ "regeneration") end)
     end
 
+    test "skip_normalize skips the normalize LLM call and answers the raw wording" do
+      {:ok, game} = Games.create_game(%{name: "VerbatimGame"})
+      test_pid = self()
+
+      mock_llm(fn body ->
+        send(test_pid, {:llm_body, body})
+        {:ok, %{answer: "Fresh answer", cited_passage: "p.1", followups: []}}
+      end)
+
+      {:ok, result} =
+        LLM.ask(game, "how many cards do i draw", [], [], skip_pool: true, skip_normalize: true)
+
+      # The normalize request carries a distinctive system prompt; with
+      # skip_normalize it must never be sent.
+      refute collect_llm_bodies()
+             |> Enum.flat_map(& &1.messages)
+             |> Enum.any?(fn m -> m.content =~ "canonical question" end)
+
+      # No canonical rewrite is produced, so the row shows no "You asked" note.
+      assert result[:cleaned_question] in [nil, ""]
+    end
+
+    test "a normalized ask DOES issue the normalize LLM call (control)" do
+      {:ok, game} = Games.create_game(%{name: "NormalizeControlGame"})
+      test_pid = self()
+
+      mock_llm(fn body ->
+        send(test_pid, {:llm_body, body})
+        {:ok, %{answer: "Fresh answer", cited_passage: "p.1", followups: []}}
+      end)
+
+      {:ok, _} = LLM.ask(game, "how many cards do i draw", [], [], skip_pool: true)
+
+      assert collect_llm_bodies()
+             |> Enum.flat_map(& &1.messages)
+             |> Enum.any?(fn m -> m.content =~ "canonical question" end)
+    end
+
     test "serves the same user's own un-pooled prior answer (exact dup)" do
       {:ok, game} = Games.create_game(%{name: "UserDupGame"})
 

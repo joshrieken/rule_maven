@@ -729,7 +729,9 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def handle_event("turn_next", _params, socket) do
     last = max(length(socket.assigns.turn_flow) - 1, 0)
-    {:noreply, assign(socket, turn_phase: min(socket.assigns.turn_phase + 1, last), turn_open: true)}
+
+    {:noreply,
+     assign(socket, turn_phase: min(socket.assigns.turn_phase + 1, last), turn_open: true)}
   end
 
   def handle_event("turn_prev", _params, socket) do
@@ -1574,20 +1576,34 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
-  def handle_event("not_my_question", %{"id" => id_str}, socket) do
+  def handle_event("ask_exactly", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
     user = socket.assigns.current_user
 
-    # "This answered a different question": the pool matcher served a cached
-    # answer that doesn't fit what the asker meant. Bump the mismatch counter
-    # on the matched row (a threshold-tuning signal — the answer itself stays
-    # untouched for its own question), then re-ask with skip_pool: no cache
-    # tier at all, so the fresh answer can't re-match the same wrong neighbor.
+    # "Ask exactly this" — the single escape hatch when the served answer didn't
+    # fit what the asker meant, whether because the normalizer rewrote their
+    # question OR the pool matcher served a similar-but-different neighbor. Re-ask
+    # their LITERAL wording with no normalization (skip_normalize) and no cache
+    # (skip_pool), so neither a rewrite nor a wrong pool match can recur. Bumps
+    # the mismatch counter (lands on the pool source for a pool copy, else the
+    # row itself) and drops an audit entry so admins can review bad rewrites.
+    # Own answered rows only; the button is gated the same way in the template,
+    # but LiveView events are forgeable.
     q = find_question_log(socket.assigns.game, id)
 
-    if user && q && q.user_id == user.id && q.llm_provider == "pool" do
+    if user && q && q.user_id == user.id && q.answer != "Thinking..." do
+      RuleMaven.Audit.log(user, "question.ask_verbatim",
+        target_type: "question",
+        target_id: q.id,
+        target_label: q.question,
+        metadata: %{"original" => q.question, "cleaned" => q.cleaned_question}
+      )
+
       Games.record_pool_mismatch(q)
-      regen_fresh(id, socket)
+
+      socket
+      |> put_flash(:info, "Asking your exact wording — fetching a fresh answer.")
+      |> then(&resubmit_question(id, &1, skip_pool: true, verbatim: true))
     else
       {:noreply, socket}
     end
@@ -1766,6 +1782,10 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp resubmit_question(id, socket, opts) do
     skip_pool = Keyword.get(opts, :skip_pool, false)
+    # Verbatim ("Ask exactly this"): re-ask the raw text the asker typed instead
+    # of the cleaned bubble content, and skip normalization so it isn't rewritten
+    # again. The raw text comes from the DB row below, not the conversation.
+    verbatim = Keyword.get(opts, :verbatim, false)
     cooldowns = socket.assigns.retry_cooldowns
     now = System.system_time(:second)
 
@@ -1793,6 +1813,10 @@ defmodule RuleMavenWeb.GameLive.Show do
 
         old_q = find_question_log(game, id)
         was_pending = old_q && old_q.answer == "Thinking..."
+
+        # Verbatim re-ask uses the raw text as stored, bypassing the cleaned
+        # bubble content captured above.
+        question = if verbatim && old_q, do: old_q.question, else: question
 
         # Resubmitting a failed (or stuck-"Thinking...") answer consumes one of
         # the question's bounded error retries; the count rides along to the
@@ -1855,6 +1879,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               recent_context: recent,
               user_id: socket.assigns.current_user.id,
               skip_pool: skip_pool,
+              skip_normalize: verbatim,
               never_pool: protect_existing?
             }
             |> RuleMaven.Workers.AskWorker.new()
@@ -2177,6 +2202,41 @@ defmodule RuleMavenWeb.GameLive.Show do
   # game topic receives the broadcast, but only the asker has the pending row.
   # Real pipeline progress from LLM.ask — only track questions this session is
   # actually waiting on (the broadcast goes to every viewer of the game topic).
+  # Early normalized-question push: settle the asker's question bubble to its
+  # final form (cleaned text + "You asked" disclosure) before any answer text
+  # streams underneath, so the answer never reflows the page as it loads. Only
+  # touches the active thread's still-pending user turn.
+  def handle_info(
+        {:ask_normalized, %{question_log_id: ql_id, original: original, cleaned: cleaned}},
+        socket
+      ) do
+    active? = socket.assigns.active_thread_id == ql_id
+
+    still_pending? =
+      Enum.any?(
+        socket.assigns.conversation,
+        &(&1[:id] == ql_id && &1[:role] == :assistant && &1[:pending])
+      )
+
+    if active? and still_pending? do
+      conversation =
+        Enum.map(socket.assigns.conversation, fn
+          %{id: ^ql_id, role: :user} = msg ->
+            msg
+            |> Map.put(:content, cleaned)
+            |> Map.put(:cleaned_question, cleaned)
+            |> Map.put(:original_question, original)
+
+          msg ->
+            msg
+        end)
+
+      {:noreply, assign(socket, conversation: conversation)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:ask_stage, %{question_log_id: ql_id, stage: stage}}, socket) do
     tracked? =
       Enum.any?(
@@ -3246,6 +3306,35 @@ defmodule RuleMavenWeb.GameLive.Show do
                             </span>
                           </div>
                         <% end %>
+                        <%!-- "Ask exactly this" — escape hatch below the original
+                              question when the served answer may not fit what the
+                              asker meant: the wording was rewritten OR the pool
+                              matched a similar-but-different neighbor. Re-asks the
+                              literal words with no cache + no rewrite. Gated on the
+                              paired answer being ready; hidden once the wording
+                              matches (incl. the verbatim re-ask's own row, so it
+                              can't loop). Own rows only — non-admins are scoped to
+                              their own threads and the server re-checks ownership. --%>
+                        <% ans_msg =
+                          msg.role == :user &&
+                            Enum.find(@conversation, &(&1[:id] == msg.id && &1.role == :assistant)) %>
+                        <% answer_ready? =
+                          ans_msg && !ans_msg[:pending] && !ans_msg[:refused] &&
+                            ans_msg.content != "Thinking..." && is_binary(ans_msg.content) &&
+                            not String.starts_with?(ans_msg.content, "⚠️") %>
+                        <%= if answer_ready? &&
+                               (ans_msg[:pool_hit] ||
+                                  normalization_changed?(asked_as, msg.content)) do %>
+                          <button
+                            type="button"
+                            phx-click="ask_exactly"
+                            phx-value-id={msg.id}
+                            disabled={@pending_count >= @max_concurrent}
+                            data-confirm="Re-ask using your exact original wording, without rewriting or reusing a cached answer? We'll fetch a fresh answer for exactly what you asked."
+                            class="ask-redo"
+                            title="Answer my literal wording — fresh, no rewrite"
+                          >🎯 Ask exactly this</button>
+                        <% end %>
                     <% end %>
                   </div>
 
@@ -3411,17 +3500,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                     🔎 Unverified answer &mdash; single source, not yet community-reviewed.
                     Vote below to help, or regenerate a fresh answer.
                   </div>
-                  <div :if={msg[:pool_hit]} style="margin-top:0.35rem">
-                    <button
-                      type="button"
-                      phx-click="not_my_question"
-                      phx-value-id={msg.id}
-                      data-confirm="This answer matched a similar question, not yours? We'll fetch a fresh answer for exactly what you asked."
-                      class="btn-xs"
-                      title="This matched a different question — get a fresh answer to yours"
-                    >🙋 Not my question — ask fresh</button>
-                  </div>
-
                   <%!-- Player-facing affordance for failed ("⚠️ ...") answers.
                         Admins get their own re-ask row below; refused/blocked
                         rows and the kill-switch "paused" notice stay dead-ended
@@ -4474,7 +4552,12 @@ defmodule RuleMavenWeb.GameLive.Show do
       phx-window-keydown="close_persona_modal"
       phx-key="Escape"
     >
-      <div id="persona-modal-panel" class="persona-modal" phx-click-away="close_persona_modal" phx-hook="PersonaFilter">
+      <div
+        id="persona-modal-panel"
+        class="persona-modal"
+        phx-click-away="close_persona_modal"
+        phx-hook="PersonaFilter"
+      >
         <div class="persona-modal__head">
           <span class="persona-modal__title">Answer persona</span>
           <button type="button" class="btn-icon" phx-click="close_persona_modal" aria-label="Close">✕</button>
