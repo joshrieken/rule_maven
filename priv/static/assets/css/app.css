@@ -2096,6 +2096,27 @@ textarea {
   transition: color 0.15s;
 }
 
+/* Game-list "⋯" menus reuse the answer-card <details class="card-menu">
+   pattern (see "Collapsible menus on answer cards"). Two additions: */
+
+/* .game-card clips overflow for its accent stripe; let an open menu's pop
+   escape, and raise the card so it paints above the following cards. */
+.game-card:has(details.card-menu[open]) {
+  overflow: visible;
+  z-index: 5;
+}
+
+/* Beat .game-actions a (0,1,1) so link items match button items' sizing. */
+.game-actions .card-menu__item {
+  font-size: 0.72rem;
+}
+
+.card-menu__divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0.25rem 0.2rem;
+}
+
 /* ===== Empty State ===== */
 .empty-state {
   text-align: center;
