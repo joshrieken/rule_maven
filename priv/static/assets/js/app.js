@@ -569,6 +569,11 @@ Hooks.VoiceDictation = {
       return;
     }
 
+    // TEMP DIAGNOSTIC: confirms this build is live and surfaces the real
+    // SpeechRecognition error/lifecycle. Remove once the mic bug is root-caused.
+    const log = (...a) => console.log("[voiceask]", ...a);
+    log("mounted build=diag-1", { SR: SR.name, lang: navigator.language, secure: window.isSecureContext });
+
     const targetId = this.el.getAttribute("data-target");
     const autoSubmit = this.el.getAttribute("data-autosubmit") === "true";
     const idleHTML = this.el.innerHTML;
@@ -608,15 +613,17 @@ Hooks.VoiceDictation = {
     const maybeRetry = () => {
       if (this.wantListen && !this.listening && !this.retried) {
         this.retried = true;
+        log("maybeRetry -> restart");
         try {
           this.rec.start();
           return true;
-        } catch (_e) {}
+        } catch (e) { log("retry start threw", e && e.message); }
       }
       return false;
     };
 
     this.rec.onstart = () => {
+      log("onstart");
       this.retried = false;
       showListening();
     };
@@ -640,6 +647,7 @@ Hooks.VoiceDictation = {
 
     this.rec.onerror = (e) => {
       const err = e && e.error;
+      log("onerror", err, "wantListen=" + this.wantListen, "listening=" + this.listening, "retried=" + this.retried);
       if (err === "not-allowed" || err === "service-not-allowed") {
         // Permission is genuinely blocked — don't loop, tell the user why.
         this.wantListen = false;
@@ -653,12 +661,14 @@ Hooks.VoiceDictation = {
     };
 
     this.rec.onend = () => {
+      log("onend", "wantListen=" + this.wantListen, "listening=" + this.listening, "retried=" + this.retried);
       if (maybeRetry()) return;
       this.wantListen = false;
       showIdle();
     };
 
     this._click = () => {
+      log("click", "wantListen=" + this.wantListen);
       if (this.wantListen) {
         this.wantListen = false;
         try { this.rec.stop(); } catch (_e) {}
