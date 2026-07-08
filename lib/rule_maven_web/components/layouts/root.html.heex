@@ -300,7 +300,9 @@
                 if (opt.value === '0') return;
                 group.appendChild(opt.cloneNode(true));
               });
-              select.appendChild(group);
+              // Pin to the TOP of the picker: buried under 20+ site themes it
+              // was effectively invisible on mobile. First thing you see now.
+              select.insertBefore(group, select.firstChild);
             }
           } else if (group) {
             group.remove();

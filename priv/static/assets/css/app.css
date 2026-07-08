@@ -2495,6 +2495,15 @@ textarea {
   margin-bottom: 0.3rem;
   z-index: 60;
 }
+/* Section heading inside a card menu (e.g. "Rulebooks" over the source rows). */
+.card-menu__label {
+  padding: 0.3rem 0.45rem 0.1rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
 /* generic small row button inside a card menu */
 .card-menu__item {
   display: inline-flex;
@@ -2785,11 +2794,19 @@ body:has([data-phx-main].phx-connected)::after {
 .ai-note-summary::-webkit-details-marker { display: none; }
 .ai-note-summary::marker { display: none; content: ""; }
 
+/* Mobile-only element (e.g. the game header's ⋯ overflow menu): hidden on
+   desktop, revealed in the ≤640px block below. Pairs with .hide-mobile. */
+.show-mobile { display: none !important; }
+
 /* Q&A page on phones: the chrome (site header + game toolbar + composer)
    already eats most of a small viewport, so trim everything non-essential. */
 @media (max-width: 640px) {
   /* Secondary pills (View on BGG) — still reachable from the Overview panel. */
   .hide-mobile { display: none !important; }
+  .show-mobile { display: inline-flex !important; }
+  /* Collapse the game header to a single row: the leftover controls (back,
+     title, ☰, ⋯) fit one line, so let the title truncate rather than wrap. */
+  .chat-layout .chat-header .flex { flex-wrap: nowrap !important; }
   /* !important: overrides the element's inline padding. */
   .chat-layout .chat-header { padding: 0.25rem 0.5rem !important; }
   /* The confidence tooltip opens left-anchored from a button in the right

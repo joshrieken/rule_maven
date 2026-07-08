@@ -2549,11 +2549,16 @@ defmodule RuleMavenWeb.GameLive.Show do
               style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;text-decoration:none;color:inherit"
             >
               <h1 class="text-sm font-bold truncate" style="max-width:300px">{@game.name}</h1>
-              <.difficulty_badge weight={
-                difficulty_weight(@game, {@expansions, @included_expansions})
-              } />
+              <span class="hide-mobile" style="display:inline-flex">
+                <.difficulty_badge weight={
+                  difficulty_weight(@game, {@expansions, @included_expansions})
+                } />
+              </span>
             </.link>
-            <.link patch={~p"/games/#{@game}?start=1"} class="pill-link pill-link-accent">
+            <.link
+              patch={~p"/games/#{@game}?start=1"}
+              class="pill-link pill-link-accent hide-mobile"
+            >
               Overview
             </.link>
             <%= if @game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category) do %>
@@ -2573,10 +2578,65 @@ defmodule RuleMavenWeb.GameLive.Show do
               phx-click="toggle_sidebar"
               class="sidebar-toggle btn-icon btn-sm"
             >☰</button>
+            <%!-- Mobile overflow: on phones the header collapses to a single
+                  row (back · title · ☰ · ⋯), so every secondary control below
+                  carries hide-mobile and is mirrored here as a flat menu row.
+                  Desktop hides this whole menu (show-mobile) and shows the
+                  inline controls instead. --%>
+            <details class="card-menu show-mobile" style="flex-shrink:0">
+              <summary class="card-menu__trigger" title="More actions">⋯</summary>
+              <div class="card-menu__pop card-menu__pop--right">
+                <.link patch={~p"/games/#{@game}?start=1"} class="card-menu__item">
+                  🔍 Overview
+                </.link>
+                <%= if @sources != [] do %>
+                  <div class="card-menu__divider"></div>
+                  <div class="card-menu__label">📖 Rulebooks</div>
+                  <%= for src <- @sources do %>
+                    <%= if @is_admin and src.html_path do %>
+                      <.link href={~p"/rulebooks/#{src}/html"} target="_blank" class="card-menu__item">
+                        {src.label}
+                      </.link>
+                    <% else %>
+                      <div class="card-menu__item" style="cursor:default">{src.label}</div>
+                    <% end %>
+                  <% end %>
+                <% end %>
+                <%= if @community_count > 0 do %>
+                  <div class="card-menu__divider"></div>
+                  <.link navigate={~p"/games/#{@game}/community"} class="card-menu__item">
+                    💬 Community Q&amp;A ({@community_count})
+                  </.link>
+                <% end %>
+                <%= if Enum.any?(@sources, &(CheatSheet.active_version(&1.id) != nil)) do %>
+                  <.link href={~p"/games/#{@game}/cheatsheet"} target="_blank" class="card-menu__item">
+                    📋 Cheat Sheet
+                  </.link>
+                <% end %>
+                <%= if @game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category) do %>
+                  <.link
+                    href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
+                    target="_blank"
+                    rel="noopener"
+                    class="card-menu__item"
+                  >🔗 View on BGG</.link>
+                <% end %>
+                <%= if RuleMaven.Users.can?(@current_user, :admin) do %>
+                  <div class="card-menu__divider"></div>
+                  <.link navigate={~p"/games/#{@game}/edit"} class="card-menu__item">✏️ Edit</.link>
+                  <.link navigate={~p"/games/#{@game}/review"} class="card-menu__item">🔍 Review</.link>
+                  <.link
+                    :if={RuleMaven.Games.bgg_synced?(@game)}
+                    href={~p"/games/#{@game}/prepare"}
+                    class="card-menu__item"
+                  >🚀 Prepare</.link>
+                <% end %>
+              </div>
+            </details>
             <%!-- Rulebook sources dropdown --%>
             <details
               :if={@sources != []}
-              class="sources-dropdown"
+              class="sources-dropdown hide-mobile"
               style="flex-shrink:0;position:relative;display:inline-flex;align-items:center"
             >
               <summary
@@ -2618,7 +2678,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             <%= if @community_count > 0 do %>
               <.link
                 navigate={~p"/games/#{@game}/community"}
-                class="btn btn-primary btn-xs"
+                class="btn btn-primary btn-xs hide-mobile"
                 style="flex-shrink:0"
               >
                 <span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})
@@ -2629,7 +2689,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               <.link
                 href={~p"/games/#{@game}/cheatsheet"}
                 target="_blank"
-                class="btn btn-xs"
+                class="btn btn-xs hide-mobile"
                 style="flex-shrink:0"
               >
                 Cheat Sheet
@@ -2637,7 +2697,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             <% end %>
             <details
               :if={RuleMaven.Users.can?(@current_user, :admin)}
-              class="card-menu"
+              class="card-menu hide-mobile"
               style="flex-shrink:0"
             >
               <summary
