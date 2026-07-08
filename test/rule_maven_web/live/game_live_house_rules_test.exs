@@ -48,6 +48,8 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     conn = login(conn, user)
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
 
+    # House rules live in a floating tool panel; open it before touching the form.
+    render_click(view, "open_tool", %{"tool" => "house_rules"})
     render_click(view, "toggle_house_rule_form", %{})
 
     html =
@@ -224,7 +226,9 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     {:ok, _} = HouseRules.set_blocked(blocked_hr, true)
 
     conn = login(conn, viewer)
-    {:ok, _view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    html = render_click(view, "open_tool", %{"tool" => "house_rules"})
 
     assert html =~ "Shared rule"
     refute html =~ "Blocked rule"
@@ -246,6 +250,8 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     conn = login(conn, other)
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
 
+    render_click(view, "open_tool", %{"tool" => "house_rules"})
+
     html = render_click(view, "delete_house_rule", %{"id" => hr.id})
     assert html =~ "Protected rule"
     assert HouseRules.get(hr.id) != nil
@@ -263,6 +269,8 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
 
     conn = login(conn, user)
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    render_click(view, "open_tool", %{"tool" => "house_rules"})
 
     {:ok, hr} =
       HouseRules.mark_checked(hr, %{
@@ -289,6 +297,7 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     conn = login(conn, user)
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
 
+    render_click(view, "open_tool", %{"tool" => "house_rules"})
     render_click(view, "start_edit_house_rule", %{"id" => hr.id})
 
     html =
@@ -344,11 +353,13 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
       })
 
     admin_conn = login(conn, admin)
-    {:ok, _view, admin_html} = live(admin_conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+    {:ok, admin_view, _html} = live(admin_conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+    admin_html = render_click(admin_view, "open_tool", %{"tool" => "house_rules"})
     assert admin_html =~ "block_house_rule"
 
     regular_conn = login(conn, regular)
-    {:ok, _view, regular_html} = live(regular_conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+    {:ok, regular_view, _html} = live(regular_conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+    regular_html = render_click(regular_view, "open_tool", %{"tool" => "house_rules"})
     refute regular_html =~ "block_house_rule"
   end
 end

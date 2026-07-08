@@ -1,9 +1,9 @@
 defmodule RuleMavenWeb.GameLiveTurnWizardTest do
   @moduledoc """
-  The "What can I do now?" turn wizard lives in a <details> element. Its open
-  state is server-controlled (`turn_open`) so a LiveView re-render on phase
-  navigation doesn't strip the browser-set `open` attribute and collapse the
-  wizard. Pins that clicking Next/Back advances the phase AND keeps it open.
+  The "What can I do now?" turn wizard opens as a floating tool panel (launched
+  from the Play menu via the `open_tool` event). Pins that the wizard renders its
+  first phase once opened, and that clicking Next advances the phase while the
+  panel stays expanded.
   """
 
   use RuleMavenWeb.ConnCase, async: true
@@ -38,18 +38,22 @@ defmodule RuleMavenWeb.GameLiveTurnWizardTest do
     seed_turn_flow(game)
 
     conn = login(conn, user)
-    {:ok, view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
 
-    # Wizard renders, starts on phase 1, and is collapsed (no `open`).
+    # Launch the wizard from the Play menu: it opens as an expanded tool panel,
+    # starting on phase 1.
+    html = render_click(view, "open_tool", %{"tool" => "turn"})
+
+    assert html =~ ~s(data-tool-panel="turn")
+    assert html =~ ~s(data-tool-state="expanded")
     assert html =~ "Phase 1 of 2"
     assert html =~ "Roll dice"
 
-    # Click Next: phase advances to 2 AND the <details> re-renders with `open`
-    # (the bug: it lost `open` on patch and visually collapsed).
+    # Click Next: phase advances to 2 and the panel stays expanded.
     html = view |> element("button[phx-click=turn_next]") |> render_click()
 
     assert html =~ "Phase 2 of 2"
     assert html =~ "Move token"
-    assert html =~ ~r/<details[^>]*\bopen\b/
+    assert html =~ ~s(data-tool-state="expanded")
   end
 end
