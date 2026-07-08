@@ -60,6 +60,28 @@ defmodule RuleMaven.SetupParseTest do
       assert Enum.map(steps, & &1["title"]) == ["Setup the board first", "Then deal cards"]
     end
 
+    test "falls back to count-vs-verb classification when the model omits headers" do
+      # Real deepseek-v4-flash output shape for Ethnos: 2nd Edition — one bare
+      # bullet run, no "Components:"/"Setup:" headers at all.
+      content = """
+      - 1 Game Board
+      - 144 Ally Cards (12 per Clan)
+      - 6 Fox Tokens
+      - Place the game board in the middle of the table
+      - Shuffle all the Setup cards and reveal 6 of them
+      - If the Fox Clan is chosen, place all 6 Fox tokens next to the game board
+      """
+
+      assert %{"components" => comps, "setup" => steps} = Setup.parse_sections(content)
+      assert comps == ["1 Game Board", "144 Ally Cards (12 per Clan)", "6 Fox Tokens"]
+
+      assert Enum.map(steps, & &1["title"]) == [
+               "Place the game board in the middle of the table",
+               "Shuffle all the Setup cards and reveal 6 of them",
+               "If the Fox Clan is chosen, place all 6 Fox tokens next to the game board"
+             ]
+    end
+
     test "returns nil when nothing parses" do
       assert Setup.parse_sections("just some prose with no bullets or headers") == nil
     end
