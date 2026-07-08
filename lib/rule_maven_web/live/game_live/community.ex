@@ -853,6 +853,17 @@ defmodule RuleMavenWeb.GameLive.Community do
                 class="card-menu__item"
                 title="Copy question and answer"
               >📋 Copy Q&amp;A</button>
+              <button
+                type="button"
+                id={"community-share-#{@q.id}"}
+                phx-hook="ShareCard"
+                data-share-game={@game.name}
+                data-share-question={QuestionLog.display_question(@q)}
+                data-share-answer={strip_markdown(@q.canonical_answer || @q.answer || "")}
+                data-share-page={@q.cited_page}
+                class="card-menu__item"
+                title="Download this Q&A as an image for the group chat"
+              >🖼 Share as image</button>
               <.link
                 :if={@status != "unverified"}
                 navigate={~p"/games/#{@game}?t=#{RuleMaven.Hashid.encode(@q.id)}"}

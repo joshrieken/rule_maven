@@ -341,6 +341,102 @@ Hooks.ScrollToMessage = {
   }
 };
 
+Hooks.ShareCard = {
+  // Renders the Q&A on a canvas and downloads it as a PNG — a card you can
+  // drop straight into the group chat. All client-side: data-share-* attrs
+  // carry the (plain text) content; colors come from the current theme vars.
+  mounted() {
+    this.el.addEventListener("click", () => this.download());
+  },
+  cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  },
+  wrap(ctx, text, maxWidth) {
+    const words = (text || "").split(/\s+/);
+    const lines = [];
+    let line = "";
+    for (const w of words) {
+      const probe = line ? line + " " + w : w;
+      if (ctx.measureText(probe).width > maxWidth && line) {
+        lines.push(line);
+        line = w;
+      } else {
+        line = probe;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  },
+  download() {
+    const d = this.el.dataset;
+    const W = 1000;
+    const pad = 56;
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    const bg = this.cssVar("--bg-surface", "#ffffff");
+    const text = this.cssVar("--text", "#1a1a1a");
+    const muted = this.cssVar("--text-muted", "#777777");
+    const accent = this.cssVar("--accent", "#3b6ea5");
+
+    // Measure pass: wrap at final fonts to compute the height.
+    ctx.font = "600 30px system-ui, sans-serif";
+    const qLines = this.wrap(ctx, d.shareQuestion, W - pad * 2);
+    ctx.font = "400 26px system-ui, sans-serif";
+    const aLines = this.wrap(ctx, d.shareAnswer, W - pad * 2).slice(0, 24);
+
+    const qH = qLines.length * 40;
+    const aH = aLines.length * 36;
+    const H = pad + 34 + 24 + qH + 20 + aH + 28 + 60 + pad / 2;
+
+    canvas.width = W;
+    canvas.height = H;
+
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = accent;
+    ctx.fillRect(0, 0, W, 10);
+
+    let y = pad;
+    ctx.fillStyle = accent;
+    ctx.font = "700 22px system-ui, sans-serif";
+    ctx.fillText((d.shareGame || "").toUpperCase(), pad, y);
+    y += 24 + 34;
+
+    ctx.fillStyle = text;
+    ctx.font = "600 30px system-ui, sans-serif";
+    for (const line of qLines) {
+      ctx.fillText(line, pad, y);
+      y += 40;
+    }
+    y += 20;
+
+    ctx.fillStyle = text;
+    ctx.font = "400 26px system-ui, sans-serif";
+    for (const line of aLines) {
+      ctx.fillText(line, pad, y);
+      y += 36;
+    }
+    y += 28;
+
+    ctx.fillStyle = muted;
+    ctx.font = "500 20px system-ui, sans-serif";
+    const cite = d.sharePage ? `📖 Rulebook p.${d.sharePage} · ` : "";
+    ctx.fillText(
+      `${cite}RuleMaven — AI-answered, rulebook-cited. Double-check important rulings.`,
+      pad,
+      y
+    );
+
+    const a = document.createElement("a");
+    const slug = (d.shareGame || "answer").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    a.download = `rulemaven-${slug}.png`;
+    a.href = canvas.toDataURL("image/png");
+    a.click();
+  }
+};
+
 Hooks.ClipboardCopy = {
   mounted() {
     this.el.addEventListener("click", async () => {
