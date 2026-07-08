@@ -4378,125 +4378,6 @@ defmodule RuleMavenWeb.GameLive.Show do
         </div>
       </div>
 
-      <%!-- Report-reason modal: pick why the answer is being reported. --%>
-      <ReportModal.report_modal :if={@report_target} />
-
-      <%!-- Suggested-questions modal. Backdrop closes via phx-click-away on the
-            panel; picking a question asks it and closes (ask_suggestion). --%>
-      <div
-        :if={@suggestions_modal}
-        id="suggestions-modal"
-        style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:60;background:rgba(0,0,0,0.45);display:flex;align-items:flex-end;justify-content:center;padding:1rem"
-      >
-        <div
-          phx-click-away="close_suggestions"
-          phx-window-keydown="close_suggestions"
-          phx-key="Escape"
-          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:42rem;width:100%;max-height:70vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,0.3)"
-        >
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-surface);z-index:1">
-            <div style="font-size:0.95rem;font-weight:700;color:var(--text)">Suggested questions</div>
-            <button
-              type="button"
-              phx-click="close_suggestions"
-              aria-label="Close"
-              class="btn-icon"
-            >✕</button>
-          </div>
-          <div style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:1rem">
-            <%= for cat <- @suggestions do %>
-              <div>
-                <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:0.35rem">
-                  {cat.category}
-                </div>
-                <div style="display:flex;flex-direction:column;gap:0.3rem">
-                  <%= for q <- cat.questions do %>
-                    <button
-                      type="button"
-                      phx-click="ask_suggestion"
-                      phx-value-q={q}
-                      disabled={@pending_count >= @max_concurrent}
-                      class="btn-sm"
-                      style="text-align:left;white-space:normal;word-break:break-word;line-height:1.45"
-                    >{q}</button>
-                  <% end %>
-                </div>
-              </div>
-            <% end %>
-          </div>
-        </div>
-      </div>
-
-      <%!-- Argument-settler modal: two opposing readings → one composed ask
-            whose answer opens with a ⚖️ verdict line.
-            Both this modal and the suggestions one need an id: they're :if
-            siblings of .chat-input, and without one the patcher matches divs
-            by position — the modal steals .chat-input's node, the input area
-            is recreated, and its qa-rise-in entrance animation replays every
-            time a modal opens. --%>
-      <div
-        :if={@settle_modal}
-        id="settle-modal"
-        style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:60;background:rgba(0,0,0,0.45);display:flex;align-items:flex-end;justify-content:center;padding:1rem"
-      >
-        <div
-          phx-click-away="close_settle"
-          phx-window-keydown="close_settle"
-          phx-key="Escape"
-          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:32rem;width:100%;box-shadow:0 10px 40px rgba(0,0,0,0.3)"
-        >
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border)">
-            <div style="font-size:0.95rem;font-weight:700;color:var(--text)">
-              ⚖️ Settle an argument
-            </div>
-            <button
-              type="button"
-              phx-click="close_settle"
-              aria-label="Close"
-              class="btn-icon"
-            >✕</button>
-          </div>
-          <form
-            phx-submit="submit_settle"
-            style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:0.7rem"
-          >
-            <p style="font-size:0.75rem;color:var(--text-muted);margin:0;line-height:1.45">
-              Each side states their reading of the rule — the answer opens with a verdict on who's right, citing the rulebook.
-            </p>
-            <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary)">
-              Player A says…
-              <input
-                type="text"
-                name="a"
-                id="settle-a-input"
-                phx-hook="FocusInput"
-                maxlength={220}
-                placeholder="You draw your new card immediately."
-                autocomplete="off"
-                style="display:block;width:100%;margin-top:0.25rem;background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:0.4rem;padding:0.45rem 0.6rem;font-size:0.82rem"
-              />
-            </label>
-            <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary)">
-              Player B says…
-              <input
-                type="text"
-                name="b"
-                maxlength={220}
-                placeholder="No — you wait until the end of the turn."
-                autocomplete="off"
-                style="display:block;width:100%;margin-top:0.25rem;background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:0.4rem;padding:0.45rem 0.6rem;font-size:0.82rem"
-              />
-            </label>
-            <button
-              type="submit"
-              style="align-self:flex-end;background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.45rem 1.1rem;border-radius:2rem;font-weight:600;font-size:0.82rem;cursor:pointer"
-            >
-              ⚖️ Settle it
-            </button>
-          </form>
-        </div>
-      </div>
-
       <!-- Input -->
       <%!-- id keys this node for the patcher: without it, a modal appearing
             as the previous sibling gets morphed INTO this div (ids on the
@@ -4665,6 +4546,124 @@ defmodule RuleMavenWeb.GameLive.Show do
               Answers use strict guardrails: grounded in the rulebook, citing their sources. Answered questions may be shared anonymously in the Community Q&A.
             </div>
           </details>
+        </div>
+      </div>
+
+      <%!-- Modals live AFTER the input panel on purpose: position:fixed makes
+            DOM order irrelevant visually, and inserting a modal before
+            .chat-input made the patcher reinsert the input panel node, which
+            restarts its qa-rise-in entrance animation on every modal open. --%>
+      <%!-- Report-reason modal: pick why the answer is being reported. --%>
+      <ReportModal.report_modal :if={@report_target} />
+
+      <%!-- Suggested-questions modal. Backdrop closes via phx-click-away on the
+            panel; picking a question asks it and closes (ask_suggestion). --%>
+      <div
+        :if={@suggestions_modal}
+        id="suggestions-modal"
+        style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:60;background:rgba(0,0,0,0.45);display:flex;align-items:flex-end;justify-content:center;padding:1rem"
+      >
+        <div
+          phx-click-away="close_suggestions"
+          phx-window-keydown="close_suggestions"
+          phx-key="Escape"
+          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:42rem;width:100%;max-height:70vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,0.3)"
+        >
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-surface);z-index:1">
+            <div style="font-size:0.95rem;font-weight:700;color:var(--text)">Suggested questions</div>
+            <button
+              type="button"
+              phx-click="close_suggestions"
+              aria-label="Close"
+              class="btn-icon"
+            >✕</button>
+          </div>
+          <div style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:1rem">
+            <%= for cat <- @suggestions do %>
+              <div>
+                <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:0.35rem">
+                  {cat.category}
+                </div>
+                <div style="display:flex;flex-direction:column;gap:0.3rem">
+                  <%= for q <- cat.questions do %>
+                    <button
+                      type="button"
+                      phx-click="ask_suggestion"
+                      phx-value-q={q}
+                      disabled={@pending_count >= @max_concurrent}
+                      class="btn-sm"
+                      style="text-align:left;white-space:normal;word-break:break-word;line-height:1.45"
+                    >{q}</button>
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Argument-settler modal: two opposing readings → one composed ask
+            whose answer opens with a ⚖️ verdict line. --%>
+      <div
+        :if={@settle_modal}
+        id="settle-modal"
+        style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:60;background:rgba(0,0,0,0.45);display:flex;align-items:flex-end;justify-content:center;padding:1rem"
+      >
+        <div
+          phx-click-away="close_settle"
+          phx-window-keydown="close_settle"
+          phx-key="Escape"
+          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:32rem;width:100%;box-shadow:0 10px 40px rgba(0,0,0,0.3)"
+        >
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border)">
+            <div style="font-size:0.95rem;font-weight:700;color:var(--text)">
+              ⚖️ Settle an argument
+            </div>
+            <button
+              type="button"
+              phx-click="close_settle"
+              aria-label="Close"
+              class="btn-icon"
+            >✕</button>
+          </div>
+          <form
+            phx-submit="submit_settle"
+            style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:0.7rem"
+          >
+            <p style="font-size:0.75rem;color:var(--text-muted);margin:0;line-height:1.45">
+              Each side states their reading of the rule — the answer opens with a verdict on who's right, citing the rulebook.
+            </p>
+            <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary)">
+              Player A says…
+              <input
+                type="text"
+                name="a"
+                id="settle-a-input"
+                phx-hook="FocusInput"
+                maxlength={220}
+                placeholder="You draw your new card immediately."
+                autocomplete="off"
+                style="display:block;width:100%;margin-top:0.25rem;background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:0.4rem;padding:0.45rem 0.6rem;font-size:0.82rem"
+              />
+            </label>
+            <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary)">
+              Player B says…
+              <input
+                type="text"
+                name="b"
+                maxlength={220}
+                placeholder="No — you wait until the end of the turn."
+                autocomplete="off"
+                style="display:block;width:100%;margin-top:0.25rem;background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:0.4rem;padding:0.45rem 0.6rem;font-size:0.82rem"
+              />
+            </label>
+            <button
+              type="submit"
+              style="align-self:flex-end;background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.45rem 1.1rem;border-radius:2rem;font-weight:600;font-size:0.82rem;cursor:pointer"
+            >
+              ⚖️ Settle it
+            </button>
+          </form>
         </div>
       </div>
     </div>
