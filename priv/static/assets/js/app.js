@@ -185,11 +185,24 @@ Hooks.ChatScroll = {
   }
 };
 
+// On touch devices autofocus pops the keyboard and scrolls the page to the
+// input, so pages appear to load "scrolled down" — desktop only.
+const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+
 Hooks.FocusInput = {
   mounted() {
+    if (coarsePointer) return;
     requestAnimationFrame(() => this.el.focus({ preventScroll: true }));
   }
 };
+
+// Static `autofocus` attributes (login form, game search) fire during parse,
+// before any hook runs. This script is deferred, so undo them right here.
+if (coarsePointer) {
+  const el = document.activeElement;
+  if (el && el.matches("input, textarea, select")) el.blur();
+  window.scrollTo(0, 0);
+}
 
 Hooks.KeyboardSubmit = {
   mounted() {
@@ -214,7 +227,7 @@ Hooks.Refocus = {
     this.pushEvent("restore_search", { value: saved });
     // preventScroll: .main-content is now a scroll container; a plain focus()
     // scrolls it to the input, jolting the controls down after first paint.
-    this.el.focus({ preventScroll: true });
+    if (!coarsePointer) this.el.focus({ preventScroll: true });
     // Save on each input change
     this._saveHandler = () => {
       localStorage.setItem("game-search", this.el.value);

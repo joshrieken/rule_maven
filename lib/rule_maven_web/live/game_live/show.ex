@@ -3147,7 +3147,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% end %>
                   </div>
                   <div style="margin-top:0.4rem;font-size:0.62rem;color:var(--text-muted)">
-                    Suggested for this game's weight: {div(suggested, 60)}:{String.pad_leading(to_string(rem(suggested, 60)), 2, "0")} per turn
+                    Suggested for this game's weight: {div(suggested, 60)}:{String.pad_leading(
+                      to_string(rem(suggested, 60)),
+                      2,
+                      "0"
+                    )} per turn
                   </div>
                 </div>
               </details>
@@ -4435,7 +4439,9 @@ defmodule RuleMavenWeb.GameLive.Show do
           style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:32rem;width:100%;box-shadow:0 10px 40px rgba(0,0,0,0.3)"
         >
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border)">
-            <div style="font-size:0.95rem;font-weight:700;color:var(--text)">⚖️ Settle an argument</div>
+            <div style="font-size:0.95rem;font-weight:700;color:var(--text)">
+              ⚖️ Settle an argument
+            </div>
             <button
               type="button"
               phx-click="close_settle"
@@ -4443,7 +4449,10 @@ defmodule RuleMavenWeb.GameLive.Show do
               style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--text-muted);line-height:1"
             >✕</button>
           </div>
-          <form phx-submit="submit_settle" style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:0.7rem">
+          <form
+            phx-submit="submit_settle"
+            style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:0.7rem"
+          >
             <p style="font-size:0.75rem;color:var(--text-muted);margin:0;line-height:1.45">
               Each side states their reading of the rule — the answer opens with a verdict on who's right, citing the rulebook.
             </p>
@@ -4617,11 +4626,18 @@ defmodule RuleMavenWeb.GameLive.Show do
               {@pending_count} of {@max_concurrent} questions in progress — please wait for one to finish
             </div>
           <% end %>
-          <%!-- Always-visible AI disclaimer: answers come from an LLM and can be
-                wrong, so keep the caveat in sight on every ask. --%>
-          <div style="text-align:center;font-size:0.68rem;line-height:1.3;color:var(--text-muted);margin-top:0.3rem">
-            🤖 AI with strict guardrails — answers are grounded in the rulebook and cite their sources. AI can still be wrong: double-check important rulings. Answered questions may be shared anonymously in the Community Q&A.
-          </div>
+          <%!-- AI disclaimer: the core caveat (AI can be wrong) must stay visible
+                on every ask — product rule. The one-liner keeps it in sight; the
+                grounding/sharing details expand on tap. --%>
+          <details style="text-align:center;font-size:0.62rem;line-height:1.3;color:var(--text-muted);margin-top:0.3rem">
+            <summary class="ai-note-summary" style="cursor:pointer;list-style:none;display:inline">
+              🤖 AI can be wrong — double-check important rulings.
+              <span style="text-decoration:underline;opacity:0.8">more</span>
+            </summary>
+            <div style="margin-top:0.2rem">
+              Answers use strict guardrails: grounded in the rulebook, citing their sources. Answered questions may be shared anonymously in the Community Q&A.
+            </div>
+          </details>
         </div>
       </div>
     </div>

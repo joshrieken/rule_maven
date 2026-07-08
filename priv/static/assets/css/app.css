@@ -2696,6 +2696,10 @@ body:has([data-phx-main].phx-connected)::after {
   .sidebar-closed { display: none !important; }
 }
 
+/* Collapsed AI-disclaimer toggle under the composer. */
+.ai-note-summary::-webkit-details-marker { display: none; }
+.ai-note-summary::marker { display: none; content: ""; }
+
 /* Q&A page on phones: the chrome (site header + game toolbar + composer)
    already eats most of a small viewport, so trim everything non-essential. */
 @media (max-width: 640px) {

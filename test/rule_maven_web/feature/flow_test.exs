@@ -37,7 +37,15 @@ defmodule RuleMavenWeb.Feature.FlowTest do
         role: role
       })
 
+    # Fresh users autostart the onboarding tour; its spotlight overlay sits on
+    # top of the page and swallows the clicks these tests make. Pre-mark every
+    # tour as seen so features exercise the page, not the tour.
+    seen =
+      Map.new(RuleMavenWeb.Tours.ids(), &{&1, DateTime.utc_now() |> DateTime.to_iso8601()})
+
     user
+    |> Ecto.Changeset.change(tours_seen: seen)
+    |> RuleMaven.Repo.update!()
   end
 
   feature "login page renders form", %{session: session} do
@@ -120,7 +128,16 @@ defmodule RuleMavenWeb.Feature.FlowTest do
     |> click(css("button", text: "Suggested questions"))
     |> assert_has(css("button[aria-label='Close']"))
     |> assert_has(css("button", text: "How many cards each?", minimum: 1))
-    |> click(css("button[aria-label='Close']"))
+    # Close via the ✕. ChromeDriver's native click on this button is silently
+    # swallowed in headless runs (Escape, JS clicks, and real browsers all
+    # close fine), so dispatch the click from JS to keep the button's
+    # phx-click covered.
+    |> then(fn sess ->
+      Wallaby.Browser.execute_script(
+        sess,
+        "document.querySelector(\"button[aria-label='Close']\").click()"
+      )
+    end)
     |> refute_has(css("button[aria-label='Close']"))
   end
 
