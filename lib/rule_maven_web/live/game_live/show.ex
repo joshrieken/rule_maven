@@ -276,6 +276,10 @@ defmodule RuleMavenWeb.GameLive.Show do
         fp_selectors: load_first_player(game),
         fp_pick: nil,
         common_mistakes: load_common_mistakes(game),
+        quiz: load_quiz(game),
+        quiz_idx: 0,
+        quiz_choice: nil,
+        quiz_score: {0, 0},
         house_rules: load_own_house_rules(game, socket.assigns.current_user),
         community_house_rules:
           RuleMaven.HouseRules.community_for_game(game.id, socket.assigns.current_user.id)
@@ -617,6 +621,36 @@ defmodule RuleMavenWeb.GameLive.Show do
       end
 
     {:noreply, assign(socket, fp_pick: pick)}
+  end
+
+  # First tap on a choice locks it in and scores it; later taps are ignored.
+  def handle_event("quiz_answer", %{"choice" => choice_str}, socket) do
+    with nil <- socket.assigns.quiz_choice,
+         {choice, ""} <- Integer.parse(choice_str),
+         %{"answer" => answer, "choices" => choices} <-
+           Enum.at(socket.assigns.quiz, socket.assigns.quiz_idx),
+         true <- choice >= 0 and choice < length(choices) do
+      {right, asked} = socket.assigns.quiz_score
+      right = if choice == answer, do: right + 1, else: right
+
+      {:noreply, assign(socket, quiz_choice: choice, quiz_score: {right, asked + 1})}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("quiz_next", _params, socket) do
+    {:noreply, assign(socket, quiz_idx: socket.assigns.quiz_idx + 1, quiz_choice: nil)}
+  end
+
+  def handle_event("quiz_restart", _params, socket) do
+    {:noreply,
+     assign(socket,
+       quiz: Enum.shuffle(socket.assigns.quiz),
+       quiz_idx: 0,
+       quiz_choice: nil,
+       quiz_score: {0, 0}
+     )}
   end
 
   def handle_event("toggle_step", %{"key" => key}, socket) do
@@ -2996,6 +3030,80 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </details>
               <% end %>
 
+              <%= if @quiz != [] do %>
+                <%!-- Party trivia from the rulebook (generated at finalize).
+                    One question at a time; first tap locks the answer. --%>
+                <details style="margin:1.25rem auto 0;max-width:30rem;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
+                  <summary style="cursor:pointer;font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
+                    🎓 Rules quiz ({length(@quiz)} questions)
+                  </summary>
+                  <% cur = Enum.at(@quiz, @quiz_idx) %>
+                  <%= if cur do %>
+                    <div style="margin-top:0.6rem">
+                      <div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--text-muted);font-weight:600;margin-bottom:0.4rem">
+                        <span>Question {@quiz_idx + 1} of {length(@quiz)}</span>
+                        <span>Score {elem(@quiz_score, 0)}/{elem(@quiz_score, 1)}</span>
+                      </div>
+                      <p style="font-size:0.85rem;font-weight:600;color:var(--text);margin:0 0 0.5rem;line-height:1.5">
+                        {cur["q"]}
+                      </p>
+                      <div style="display:flex;flex-direction:column;gap:0.35rem">
+                        <%= for {choice, i} <- Enum.with_index(cur["choices"]) do %>
+                          <button
+                            type="button"
+                            phx-click="quiz_answer"
+                            phx-value-choice={i}
+                            disabled={@quiz_choice != nil}
+                            style={"text-align:left;border-radius:0.4rem;padding:0.45rem 0.7rem;font-size:0.8rem;cursor:#{if @quiz_choice, do: "default", else: "pointer"};white-space:normal;word-break:break-word;line-height:1.45;border:1px solid #{cond do
+                              @quiz_choice != nil and i == cur["answer"] -> "var(--green)"
+                              @quiz_choice == i -> "var(--red,#c0392b)"
+                              true -> "var(--border)"
+                            end};background:#{cond do
+                              @quiz_choice != nil and i == cur["answer"] -> "color-mix(in srgb, var(--green) 14%, var(--bg-surface))"
+                              @quiz_choice == i -> "color-mix(in srgb, var(--red,#c0392b) 12%, var(--bg-surface))"
+                              true -> "var(--bg-subtle)"
+                            end};color:var(--text);opacity:1"}
+                          >
+                            {choice}
+                            <%= if @quiz_choice != nil and i == cur["answer"] do %>
+                              <span aria-hidden="true"> ✅</span>
+                            <% end %>
+                            <%= if @quiz_choice == i and i != cur["answer"] do %>
+                              <span aria-hidden="true"> ❌</span>
+                            <% end %>
+                          </button>
+                        <% end %>
+                      </div>
+                      <%= if @quiz_choice != nil do %>
+                        <p style="font-size:0.75rem;color:var(--text-secondary);margin:0.5rem 0 0;line-height:1.5">
+                          💡 {cur["why"]}
+                        </p>
+                        <button
+                          type="button"
+                          phx-click="quiz_next"
+                          style="margin-top:0.6rem;background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 0.9rem;border-radius:2rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                        >
+                          {if @quiz_idx + 1 < length(@quiz), do: "Next question →", else: "Finish"}
+                        </button>
+                      <% end %>
+                    </div>
+                  <% else %>
+                    <div style="margin-top:0.6rem;text-align:center">
+                      <p style="font-size:0.9rem;font-weight:700;color:var(--text);margin:0">
+                        🏁 {elem(@quiz_score, 0)}/{elem(@quiz_score, 1)} correct
+                      </p>
+                      <button
+                        type="button"
+                        phx-click="quiz_restart"
+                        style="margin-top:0.5rem;background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 0.9rem;border-radius:2rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                      >
+                        🔀 Play again
+                      </button>
+                    </div>
+                  <% end %>
+                </details>
+              <% end %>
+
               <%= if @setup_checklist && (@setup_checklist["components"] != [] || @setup_checklist["setup"] != []) do %>
                 <div style="margin:1.25rem auto 0;max-width:30rem;text-align:left">
                   <% delta_total =
@@ -4819,6 +4927,15 @@ defmodule RuleMavenWeb.GameLive.Show do
   # Cached fact-checked common-mistakes entries (generated at finalize).
   defp load_common_mistakes(game) do
     case RuleMaven.Settings.get("common_mistakes_#{game.id}") do
+      nil -> []
+      json -> Jason.decode!(json)
+    end
+  end
+
+  # Cached quiz questions (generated at finalize). Loaded in stored order so
+  # the static and connected mounts agree; "Play again" shuffles.
+  defp load_quiz(game) do
+    case RuleMaven.Settings.get("quiz_#{game.id}") do
       nil -> []
       json -> Jason.decode!(json)
     end

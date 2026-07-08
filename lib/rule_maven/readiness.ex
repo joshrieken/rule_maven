@@ -439,6 +439,9 @@ defmodule RuleMaven.Readiness do
     if RuleMaven.Settings.get("common_mistakes_#{game.id}") == nil,
       do: RuleMaven.Workers.CommonMistakesWorker.enqueue(game.id)
 
+    if RuleMaven.Settings.get("quiz_#{game.id}") == nil,
+      do: RuleMaven.Workers.QuizWorker.enqueue(game.id)
+
     unless step_complete?(:setup, game, []),
       do: safe(fn -> RuleMaven.Setup.generate_async(game) end)
 

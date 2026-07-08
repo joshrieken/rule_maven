@@ -569,6 +569,39 @@ defmodule RuleMaven.Prompts do
   {{facts}}
   """
 
+  # Vars: game_name, rulebook
+  @quiz_generate """
+  From the rulebook text below for "{{game_name}}", write up to 20
+  multiple-choice quiz questions a table of players could enjoy between turns.
+
+  The text below is SAMPLED from across the rulebook, so you are NOT seeing
+  every rule. Treat it as partial.
+
+  Rules:
+  - Every question's CORRECT answer must be explicitly and positively stated in
+    the text below — never inferred from absence, never invented. If the text
+    is thin, write fewer questions rather than guessing.
+  - The wrong choices must be plausible but clearly wrong per the text (not
+    trick wordings that are arguably also right).
+  - Questions must be self-contained — answerable without seeing the rulebook,
+    no "according to page 4", no "see above".
+  - Mix difficulties: some easy, some obscure. Plain, friendly language.
+  - "why" is one short sentence explaining the correct answer, drawn from the
+    text.
+
+  Return ONLY a JSON array — no prose, no code fences — of objects with this
+  exact shape ("answer" is the 0-based index of the correct choice):
+
+  [
+    { "q": string, "choices": [string, string, string], "answer": integer, "why": string }
+  ]
+
+  Use exactly 3 choices per question.
+
+  RULEBOOK (sampled across the whole book):
+  {{rulebook}}
+  """
+
   # Vars: game_name. Paired with the cover image as a vision message.
   @theme_palette """
   You are a color designer. Look at the cover art for the board game "{{game_name}}" and design a UI color theme that evokes the game's mood and art.
@@ -617,6 +650,7 @@ defmodule RuleMaven.Prompts do
   @did_you_know_system "You surface interesting, accurate board game rule facts. Never invent rules; only use the provided text. #{@english_output}"
   @first_player_system "You invent playful, inclusive table rituals for choosing a first player, themed to a board game's world. Flavor only — never state game rules. #{@english_output}"
   @common_mistakes_system "You surface board game rules that tables commonly misplay, with the accurate correction. Never invent rules; corrections come only from the provided text. #{@english_output}"
+  @quiz_generate_system "You write fun, accurate multiple-choice quizzes about board game rules. Correct answers come only from the provided text; never invent rules. Output only the requested JSON. #{@english_output}"
   @did_you_know_verify_system "You are a strict board-game rulebook fact-checker. Pass only fully, accurately supported facts; reject anything misleading or unconfirmed. Output only the numbers in the requested format — never prose in any language."
   @categories_system "You generate topic categories for board game rulebooks. Be concise and specific. #{@english_output}"
 
@@ -1170,6 +1204,22 @@ defmodule RuleMaven.Prompts do
       description: "System prompt for the common-mistakes generator.",
       vars: [],
       default: @common_mistakes_system
+    },
+    %{
+      key: "quiz_generate",
+      group: "Content generation",
+      label: "Rules quiz",
+      description: "Generates the multiple-choice rules quiz for a game.",
+      vars: ~w(game_name rulebook),
+      default: @quiz_generate
+    },
+    %{
+      key: "quiz_generate_system",
+      group: "Content generation",
+      label: "Rules quiz — system",
+      description: "System prompt for the quiz generator.",
+      vars: [],
+      default: @quiz_generate_system
     },
     %{
       key: "did_you_know_verify",

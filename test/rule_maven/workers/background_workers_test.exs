@@ -96,6 +96,26 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
     end
   end
 
+  describe "QuizWorker" do
+    test "persists parsed quiz questions and broadcasts to the game topic" do
+      mock_llm(~s([
+        {"q": "When do you refill your hand?", "choices": ["Immediately", "End of your turn", "Never"], "answer": 1, "why": "The rules refill hands at end of turn."},
+        {"q": "Malformed", "choices": ["only one"], "answer": 5, "why": "dropped"}
+      ]))
+
+      game = game_with_rulebook()
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.Workers.QuizWorker.topic(game.id))
+
+      assert :ok =
+               RuleMaven.Workers.QuizWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
+
+      assert_received {:quiz_ready, [entry]}
+      assert entry["q"] == "When do you refill your hand?"
+      assert entry["answer"] == 1
+      assert Settings.get("quiz_#{game.id}") =~ "refill your hand"
+    end
+  end
+
   describe "CategoriesWorker" do
     setup do
       # Stub embeddings so replace_game_categories doesn't hit the network; it

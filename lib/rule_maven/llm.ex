@@ -2954,6 +2954,67 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
+  Generates the multiple-choice rules quiz for a game: up to 20
+  `%{"q", "choices", "answer", "why"}` entries with a 0-based correct index.
+  Returns `{:ok, entries}` (possibly empty on unparseable output) or
+  `{:error, reason}`.
+  """
+  def generate_quiz(game_name, rulebook_text, game_id \\ nil) do
+    prompt =
+      RuleMaven.Prompts.render("quiz_generate", %{
+        game_name: game_name,
+        rulebook: sample_across(rulebook_text, 16000, 2000)
+      })
+
+    case chat(prompt, "quiz_generate",
+           model: model(:cheap),
+           operation: "quiz_generate",
+           game_id: game_id,
+           system: RuleMaven.Prompts.template("quiz_generate_system"),
+           # 20 questions with choices + explanations is a lot of JSON; too low
+           # truncates mid-array and the parse returns [].
+           max_tokens: 8000
+         ) do
+      {:ok, text} ->
+        {:ok, parse_quiz(text)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp parse_quiz(text) do
+    json =
+      case Regex.run(~r/\[.*\]/s, text || "") do
+        [match] -> match
+        _ -> text || ""
+      end
+
+    case Jason.decode(json) do
+      {:ok, list} when is_list(list) ->
+        list
+        |> Enum.filter(fn
+          %{"q" => q, "choices" => choices, "answer" => a, "why" => why} ->
+            is_binary(q) and is_binary(why) and is_list(choices) and length(choices) >= 2 and
+              Enum.all?(choices, &is_binary/1) and is_integer(a) and a >= 0 and
+              a < length(choices)
+
+          _ ->
+            false
+        end)
+        |> Enum.uniq_by(& &1["q"])
+        |> Enum.take(20)
+
+      _ ->
+        []
+    end
+  end
+
+  @doc false
+  # Test seam for parse_quiz/1.
+  def __parse_quiz__(text), do: parse_quiz(text)
+
+  @doc """
   Generates a set of in-character persona voices themed to a specific game from
   its rulebook text. Each voice is a tone instruction (never a rule source) the
   restyler later uses to re-voice canonical answers. Returns
