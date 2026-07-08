@@ -107,7 +107,7 @@ defmodule RuleMavenWeb.Feature.FlowTest do
     |> login(user.username)
     |> visit("/games/#{RuleMaven.Hashid.encode(game.id)}")
     |> assert_has(css("span", text: "Answer persona"))
-    |> assert_has(css("details.card-menu summary", minimum: 1))
+    |> assert_has(css("button[phx-value-target='default']"))
   end
 
   feature "suggested questions open in a modal", %{session: session} do
