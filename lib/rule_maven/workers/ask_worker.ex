@@ -29,6 +29,7 @@ defmodule RuleMaven.Workers.AskWorker do
     user_id = args["user_id"]
     skip_pool = args["skip_pool"] || false
     never_pool = args["never_pool"] || false
+    skip_normalize = args["skip_normalize"] || false
     voice = args["voice"] || "neutral"
 
     # Tags every llm_logs row written from this process (the whole ask
@@ -112,6 +113,7 @@ defmodule RuleMaven.Workers.AskWorker do
                RuleMaven.LLM.ask(game, question, expansion_ids, recent_context,
                  user_id: user_id,
                  skip_pool: skip_pool,
+                 skip_normalize: skip_normalize,
                  voice: voice
                )
              end) do

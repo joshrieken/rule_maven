@@ -11,7 +11,22 @@ no way to force the answer to run on the literal words the asker typed.
 
 A single button, **"Ask exactly this"**, that re-asks the asker's verbatim
 original wording (no normalization, no cache) and silently records a
-normalization-mismatch signal for admins.
+mismatch signal for admins.
+
+## Relationship to the existing "Not my question" button (MERGED)
+
+The codebase already had **"🙋 Not my question — ask fresh"** (`not_my_question`)
+on pool-hit answers: it bumped `mismatch_count` and re-asked with `skip_pool`
+but **still re-normalized**. That button and this feature overlap — both are
+"the served answer didn't fit what I meant." Per the decision during
+brainstorming, they are **merged into this one button**:
+
+- The old `not_my_question` event handler and its pool-only button are removed.
+- "Ask exactly this" now renders whenever the served answer might not match the
+  literal question: the row is a **pool hit OR was normalized**.
+- It always re-asks verbatim (`skip_pool` + `skip_normalize`), which also solves
+  the pool-mismatch case (bypassing the pool prevents re-matching the same
+  wrong neighbor).
 
 ## Visibility / gating
 
@@ -64,9 +79,10 @@ Flash after click:
 
 ## Data / migrations
 
-None. Reuses `question_logs.mismatch_count` and the `audit_logs` table. Add the
-`"question.ask_verbatim"` action to `Audit.actions/0` so the `/admin/audit`
-filter dropdown lists it.
+None. Reuses `question_logs.mismatch_count` and the `audit_logs` table.
+`Audit.actions/0` derives the filter list from distinct DB values, so the new
+`"question.ask_verbatim"` action appears automatically once logged — no code
+change there.
 
 ## Docs
 
