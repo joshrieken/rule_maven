@@ -709,6 +709,38 @@ Hooks.VoiceDefault = {
   }
 };
 
+// Filters persona cards in the picker modal by label/description text. Purely
+// client-side so typing never round-trips; the input is phx-update="ignore".
+Hooks.PersonaFilter = {
+  mounted() {
+    const input = this.el.querySelector("[data-persona-filter-input]");
+    if (!input) return;
+    const apply = () => {
+      const q = input.value.trim().toLowerCase();
+      this.el.querySelectorAll(".persona-card").forEach((card) => {
+        const hit = !q || (card.dataset.search || "").includes(q);
+        card.style.display = hit ? "" : "none";
+      });
+      // Hide a section heading when every card under it (up to the next
+      // heading) is filtered out.
+      this.el.querySelectorAll(".persona-modal__section").forEach((sec) => {
+        let anyVisible = false;
+        let n = sec.nextElementSibling;
+        while (n && !n.classList.contains("persona-modal__section")) {
+          if (n.classList.contains("persona-card") && n.style.display !== "none") {
+            anyVisible = true;
+          }
+          n = n.nextElementSibling;
+        }
+        sec.style.display = anyVisible ? "" : "none";
+      });
+    };
+    input.addEventListener("input", apply);
+    // Don't autofocus on touch — it pops the keyboard (see mobile conventions).
+    if (!window.matchMedia("(pointer: coarse)").matches) input.focus();
+  }
+};
+
 Hooks.TurnTimer = {
   // Fully client-side turn timer: no server roundtrips, survives LiveView
   // patches because all state lives on the hook. data-seconds holds the
