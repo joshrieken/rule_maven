@@ -821,9 +821,13 @@ Hooks.FloatingPanel = {
         self.el.style.right = "auto";
         self.el.style.bottom = "auto";
       }
-      function up() {
+      function cleanup() {
         document.removeEventListener("mousemove", move);
         document.removeEventListener("mouseup", up);
+        self._activeDragCleanup = null;
+      }
+      function up() {
+        cleanup();
         var r = self.el.getBoundingClientRect();
         try {
           localStorage.setItem(self.posKey(), JSON.stringify({ x: r.left, y: r.top }));
@@ -831,6 +835,7 @@ Hooks.FloatingPanel = {
       }
       document.addEventListener("mousemove", move);
       document.addEventListener("mouseup", up);
+      self._activeDragCleanup = cleanup;
       e.preventDefault();
     };
     handle.addEventListener("mousedown", this._down);
@@ -838,6 +843,7 @@ Hooks.FloatingPanel = {
   },
   destroyed() {
     if (this._handle && this._down) this._handle.removeEventListener("mousedown", this._down);
+    if (this._activeDragCleanup) this._activeDragCleanup();
   }
 };
 

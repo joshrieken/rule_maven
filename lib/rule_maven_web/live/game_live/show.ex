@@ -2674,7 +2674,6 @@ defmodule RuleMavenWeb.GameLive.Show do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
-        current_user={@current_user}
       />
 
       <div style="display:flex;flex:1;min-height:0">

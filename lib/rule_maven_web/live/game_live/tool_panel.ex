@@ -501,8 +501,13 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
   defp render_tool(%{tool: :house_rules} = assigns) do
     ~H"""
     <div data-tour="house-rules" style="text-align:left">
-      <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:0.3rem 0 0.3rem">
-        Your house rules
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:0.3rem 0 0.3rem">
+        <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--text-muted)">
+          Your house rules
+        </div>
+        <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">
+          {length(@house_rules) + length(@community_house_rules)} rules
+        </span>
       </div>
 
       <%= for hr <- @house_rules do %>

@@ -7,13 +7,13 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   short pills fit 390px.
   """
   use RuleMavenWeb, :html
+  alias RuleMaven.CheatSheet
   alias RuleMavenWeb.GameLive.ToolRegistry
 
   attr :game, :map, required: true
   attr :sources, :list, default: []
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
-  attr :current_user, :map, required: true
 
   def sub_bar(assigns) do
     ~H"""
@@ -29,7 +29,6 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
-        current_user={@current_user}
       />
     </div>
     """
@@ -70,7 +69,6 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, required: true
   attr :community_count, :integer, required: true
   attr :is_admin, :boolean, required: true
-  attr :current_user, :map, required: true
 
   defp more_menu(assigns) do
     ~H"""
@@ -90,6 +88,11 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           navigate={~p"/games/#{@game}/community"}
           class="card-menu__item"
         >💬 Community Q&amp;A ({@community_count})</.link>
+        <%= if Enum.any?(@sources, &(CheatSheet.active_version(&1.id) != nil)) do %>
+          <.link href={~p"/games/#{@game}/cheatsheet"} target="_blank" class="card-menu__item">
+            📋 Cheat Sheet
+          </.link>
+        <% end %>
         <%= if @sources != [] do %>
           <div class="card-menu__divider"></div>
           <div class="card-menu__label">📖 Rulebooks</div>
