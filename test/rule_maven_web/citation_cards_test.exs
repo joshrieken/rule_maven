@@ -82,6 +82,16 @@ defmodule RuleMavenWeb.CitationCardsTest do
     assert length(String.split(html, "<blockquote")) == 3
   end
 
+  test "strips decorative extraction-artifact glyphs from the quote" do
+    html =
+      render_cards(%{
+        citations: [%{"quote" => "c) City ● Requires: 3 Ore & 2 Grain", "page" => 5, "source" => "Catan Base"}]
+      })
+
+    refute html =~ "●"
+    assert html =~ "c) City Requires: 3 Ore &amp; 2 Grain"
+  end
+
   test "falls back to legacy cited_passage fields" do
     html =
       render_cards(%{cited_passage: "Legacy passage text.", cited_page: 9, cited_source: "Old Book"})

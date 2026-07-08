@@ -630,6 +630,7 @@ defmodule RuleMavenWeb.CoreComponents do
   defp split_quote(quote) when is_binary(quote) do
     cleaned =
       quote
+      |> RuleMaven.Text.scrub_decorative()
       |> String.replace(~r/\n[ \t]*\n[ \t\n]*/, "\n")
       |> String.trim()
 

@@ -3076,7 +3076,8 @@ defmodule RuleMaven.Games do
   maps (a missing `:cleaned` key is treated as nil).
   """
   def effective_page_text(p) do
-    if is_binary(Map.get(p, :cleaned)), do: p.cleaned, else: p.text || ""
+    raw = if is_binary(Map.get(p, :cleaned)), do: p.cleaned, else: p.text || ""
+    RuleMaven.Text.scrub_decorative(raw)
   end
 
   @doc """
