@@ -775,6 +775,72 @@ Hooks.ChecklistStore = {
   }
 };
 
+// Floating table-tool panel. Fine-pointer (desktop): a draggable card, no
+// backdrop, chat stays interactive; drag by [data-drag-handle], position saved
+// to localStorage per tool. Coarse-pointer (mobile): a bottom sheet, no drag.
+// Minimize/close/expand are server events (phx-click in the markup); this hook
+// only owns positioning.
+Hooks.FloatingPanel = {
+  isCoarse() {
+    return window.matchMedia && window.matchMedia("(pointer:coarse)").matches;
+  },
+  posKey() {
+    return "rm:toolpos:" + this.el.dataset.tool;
+  },
+  applySaved() {
+    if (this.isCoarse()) return; // sheet mode ignores saved x/y
+    try {
+      var p = JSON.parse(localStorage.getItem(this.posKey()) || "null");
+      if (p && typeof p.x === "number" && typeof p.y === "number") {
+        this.el.style.left = p.x + "px";
+        this.el.style.top = p.y + "px";
+        this.el.style.right = "auto";
+        this.el.style.bottom = "auto";
+      }
+    } catch (_e) {}
+  },
+  mounted() {
+    var self = this;
+    this.el.classList.toggle("tool-panel--sheet", this.isCoarse());
+    this.applySaved();
+    if (this.isCoarse()) return;
+
+    var handle = this.el.querySelector("[data-drag-handle]");
+    if (!handle) return;
+    this._down = function(e) {
+      // ignore drags that start on a control button
+      if (e.target.closest("button")) return;
+      var rect = self.el.getBoundingClientRect();
+      var offX = e.clientX - rect.left;
+      var offY = e.clientY - rect.top;
+      function move(ev) {
+        var x = Math.max(0, Math.min(window.innerWidth - 40, ev.clientX - offX));
+        var y = Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - offY));
+        self.el.style.left = x + "px";
+        self.el.style.top = y + "px";
+        self.el.style.right = "auto";
+        self.el.style.bottom = "auto";
+      }
+      function up() {
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", up);
+        var r = self.el.getBoundingClientRect();
+        try {
+          localStorage.setItem(self.posKey(), JSON.stringify({ x: r.left, y: r.top }));
+        } catch (_e) {}
+      }
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", up);
+      e.preventDefault();
+    };
+    handle.addEventListener("mousedown", this._down);
+    this._handle = handle;
+  },
+  destroyed() {
+    if (this._handle && this._down) this._handle.removeEventListener("mousedown", this._down);
+  }
+};
+
 // Overview nudge: one-click opt-in to the game's own palette. Applies the
 // light/dark game variant matching the viewer's CURRENT look (sampled from the
 // live background luminance, so it fits whatever base theme is active), exactly
