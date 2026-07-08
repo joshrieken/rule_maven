@@ -30,10 +30,18 @@ defmodule RuleMavenWeb.GameLive.GameTheme do
   def style_block(%RuleMaven.Games.Game{} = game) do
     case RuleMaven.Games.effective_theme_palette(game) do
       %{"light" => light, "dark" => dark} when is_map(light) and is_map(dark) ->
-        # Palettes persisted before the text-contrast floors were raised get
-        # lifted here at render time — no data backfill needed.
-        light = RuleMaven.ThemePalette.fix_text_contrast(light)
-        dark = RuleMaven.ThemePalette.fix_text_contrast(dark)
+        # Palettes persisted before the text-contrast floors were raised (or
+        # before --accent-text escalated on mid-luminance accents) get lifted
+        # here at render time — no data backfill needed.
+        light =
+          light
+          |> RuleMaven.ThemePalette.fix_text_contrast()
+          |> RuleMaven.ThemePalette.fix_accent_text()
+
+        dark =
+          dark
+          |> RuleMaven.ThemePalette.fix_text_contrast()
+          |> RuleMaven.ThemePalette.fix_accent_text()
 
         css =
           ~s|[data-theme="game-light"]{#{RuleMaven.ThemePalette.to_css(light)}}| <>

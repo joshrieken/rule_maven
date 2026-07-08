@@ -160,12 +160,23 @@ defmodule RuleMaven.ThemePalette do
   defp scheme_key(:dark), do: "dark"
 
   # Pick black or white text for use ON `color`, whichever has better contrast.
-  # Uses a slightly-off near-black/near-white so it never looks harsher than the
-  # rest of the UI. Compares against pure tones to decide the direction.
+  # Prefers a slightly-off near-black so it never looks harsher than the rest
+  # of the UI — but a mid-luminance accent (e.g. a mustard gold) gives the soft
+  # tone only ~4.7:1, so when it can't clear 6:1 we escalate to the pure
+  # extreme with the better ratio instead of shipping a muddy button label.
   defp readable_on(color) do
-    dark = {26, 26, 26}
-    light = {255, 255, 255}
-    if contrast(dark, color) >= contrast(light, color), do: dark, else: light
+    soft_dark = {26, 26, 26}
+
+    cond do
+      contrast(soft_dark, color) >= 6.0 ->
+        soft_dark
+
+      contrast({0, 0, 0}, color) >= contrast({255, 255, 255}, color) ->
+        {0, 0, 0}
+
+      true ->
+        {255, 255, 255}
+    end
   end
 
   # Nudge `color` toward black (on a light bg) or white (on a dark bg) until it
@@ -304,6 +315,24 @@ defmodule RuleMaven.ThemePalette do
   end
 
   def fix_text_contrast(vars), do: vars
+
+  @doc """
+  Recompute `--accent-text` from the variant's own `--accent` at render time.
+  Fixes palettes persisted before `readable_on/1` escalated to pure extremes on
+  mid-luminance accents (a muddy `#1A1A1A` on mustard gold), and palettes from
+  before the key existed at all (which fell back to `#fff` via
+  `var(--accent-text, #fff)` — worse). Idempotent: freshly derived palettes
+  pass through unchanged. Returns the map untouched when `--accent` is missing
+  or unparseable.
+  """
+  def fix_accent_text(%{"--accent" => accent} = vars) do
+    case parse(accent) do
+      {:ok, rgb} -> Map.put(vars, "--accent-text", hex(readable_on(rgb)))
+      :error -> vars
+    end
+  end
+
+  def fix_accent_text(vars), do: vars
 
   @doc """
   Backfill `--selection-bg` / `--selection-text` onto an already-derived

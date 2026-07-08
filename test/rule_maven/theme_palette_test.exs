@@ -84,4 +84,53 @@ defmodule RuleMaven.ThemePaletteTest do
     partial = %{"--bg" => "#201010", "--bg-surface" => "not-a-color"}
     assert ThemePalette.fix_text_contrast(partial) == partial
   end
+
+  # Mid-luminance accent (the Ethnos gold): near-black #1A1A1A only reaches
+  # ~4.7:1 and white ~3.7:1 — button labels read muddy. The text color must
+  # escalate to a pure extreme when the soft near-black can't clear 6:1.
+  @mid_gold "#9E823B"
+
+  test "accent-text on a mid-luminance accent clears 5.5:1" do
+    {:ok, %{"dark" => dark}} =
+      ThemePalette.build(%{
+        "light" => @light_anchors,
+        "dark" => Map.put(@dark_anchors, "accent", @mid_gold)
+      })
+
+    assert contrast(dark["--accent-text"], dark["--accent"]) >= 5.5
+  end
+
+  test "accent-text keeps the soft near-black on bright accents" do
+    {:ok, %{"dark" => dark}} =
+      ThemePalette.build(%{
+        "light" => @light_anchors,
+        "dark" => Map.put(@dark_anchors, "accent", "#E8C552")
+      })
+
+    assert dark["--accent-text"] == "#1A1A1A"
+  end
+
+  test "fix_accent_text lifts a legacy palette with a muddy accent-text" do
+    legacy = %{"--accent" => @mid_gold, "--accent-text" => "#1A1A1A"}
+    fixed = ThemePalette.fix_accent_text(legacy)
+    assert contrast(fixed["--accent-text"], @mid_gold) >= 5.5
+  end
+
+  test "fix_accent_text adds accent-text to palettes persisted before the key existed" do
+    fixed = ThemePalette.fix_accent_text(%{"--accent" => @mid_gold})
+    assert contrast(fixed["--accent-text"], @mid_gold) >= 5.5
+  end
+
+  test "fix_accent_text is idempotent on freshly derived palettes" do
+    {:ok, %{"dark" => dark}} =
+      ThemePalette.build(%{"light" => @light_anchors, "dark" => @dark_anchors})
+
+    assert ThemePalette.fix_accent_text(dark) == dark
+  end
+
+  test "fix_accent_text passes malformed maps through unchanged" do
+    assert ThemePalette.fix_accent_text(%{}) == %{}
+    bad = %{"--accent" => "not-a-color", "--accent-text" => "#1A1A1A"}
+    assert ThemePalette.fix_accent_text(bad) == bad
+  end
 end
