@@ -2463,6 +2463,36 @@ textarea {
   color: var(--accent-text, #fff);
   align-self: center;
 }
+
+/* "Ask exactly this" escape hatch, rendered on the accent user bubble under the
+   original-question disclosure. On-accent variant of a small outline button:
+   derives border/text from accent-text so it reads in every theme, fills a
+   touch more on hover. Right-aligned to match the bubble. */
+.ask-redo {
+  align-self: flex-end;
+  margin-top: 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--accent-text, #fff) 45%, transparent);
+  background: color-mix(in srgb, var(--accent-text, #fff) 12%, transparent);
+  color: var(--accent-text, #fff);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.ask-redo:hover,
+.ask-redo:focus-visible {
+  background: color-mix(in srgb, var(--accent-text, #fff) 24%, transparent);
+}
+.ask-redo:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 /* The user bubble is right-aligned, so left-anchoring spills the popover off
    the right edge — anchor it to the right instead. It must open DOWNWARD
    (default direction): #chat-messages is an `overflow-y:auto` scroller whose
