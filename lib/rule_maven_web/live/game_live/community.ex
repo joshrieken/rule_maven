@@ -411,7 +411,7 @@ defmodule RuleMavenWeb.GameLive.Community do
             :if={@search_query != ""}
             type="button"
             phx-click="clear_search"
-            style="font-size:0.7rem;padding:0.35rem 0.6rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-subtle);color:var(--text-muted);cursor:pointer"
+            class="btn-xs"
           >
             Clear ✕
           </button>
@@ -914,7 +914,7 @@ defmodule RuleMavenWeb.GameLive.Community do
             <button
               phx-click="reject"
               phx-value-id={@q.id}
-              style="color:var(--text-muted);background:var(--bg-subtle);border:1px solid var(--border);font-size:0.65rem;cursor:pointer;padding:0.1rem 0.35rem;border-radius:0.25rem"
+              class="btn-icon btn-xs"
               title="Remove from community"
             >✕</button>
           <% end %>

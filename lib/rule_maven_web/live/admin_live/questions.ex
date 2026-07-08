@@ -291,7 +291,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
               <button
                 type="button"
                 phx-click="clear_game_filter"
-                style="font-size:0.75rem;color:var(--red);background:none;border:none;cursor:pointer;font-weight:600"
+                class="btn-icon btn-xs"
               >✕</button>
             </div>
           <% else %>
@@ -356,7 +356,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
           <button
             type="button"
             phx-click="clear_search"
-            style="background:none;border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.75rem;color:var(--text-muted);cursor:pointer"
+            class="btn-xs"
           >✕ Clear</button>
         <% end %>
       </form>
@@ -412,7 +412,8 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                   phx-click="clear_flag"
                   phx-value-id={q.id}
                   title="Re-approve this answer: clears the stale flag so it can serve from the cache again."
-                  style="background:#d4a017;border:none;color:#fff;font-size:0.7rem;font-weight:600;padding:0.15rem 0.5rem;border-radius:0.25rem;cursor:pointer"
+                  class="btn-xs"
+                  style="background:#d4a017;border-color:#d4a017;color:#fff"
                 >Re-approve</button>
                 <select
                   phx-change="set_visibility"
@@ -429,12 +430,12 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                     type="button"
                     phx-click="confirm_delete"
                     phx-value-id={q.id}
-                    style="background:none;border:none;color:var(--red);font-size:0.7rem;font-weight:700;cursor:pointer"
+                    class="btn-danger-outline btn-xs"
                   >Yes</button>
                   <button
                     type="button"
                     phx-click="cancel_delete"
-                    style="background:none;border:none;color:var(--text-muted);font-size:0.7rem;cursor:pointer"
+                    class="btn-xs"
                   >No</button>
                 <% else %>
                   <button
@@ -442,7 +443,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                     phx-click="delete_question"
                     phx-value-id={q.id}
                     data-confirm="Delete this question? This can't be undone."
-                    style="background:none;border:none;color:var(--text-muted);font-size:0.7rem;cursor:pointer"
+                    class="btn-icon btn-xs"
                     title="Delete"
                   >✕</button>
                 <% end %>
@@ -518,12 +519,12 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                     <div style="display:flex;gap:0.4rem">
                       <button
                         type="submit"
-                        style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.9rem;border-radius:0.3rem;font-size:0.72rem;font-weight:600;cursor:pointer"
+                        class="btn-primary btn-xs"
                       >Save</button>
                       <button
                         type="button"
                         phx-click="cancel_canonical"
-                        style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.3rem 0.9rem;border-radius:0.3rem;font-size:0.72rem;cursor:pointer"
+                        class="btn-xs"
                       >Cancel</button>
                     </div>
                   </form>
@@ -532,7 +533,8 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                     type="button"
                     phx-click="edit_canonical"
                     phx-value-id={q.id}
-                    style="margin-top:0.5rem;background:none;border:1px solid var(--border);color:var(--text-secondary);padding:0.2rem 0.6rem;border-radius:0.3rem;font-size:0.7rem;font-weight:600;cursor:pointer"
+                    class="btn-xs"
+                    style="margin-top:0.5rem"
                   >{if q.canonical_question, do: "✎ Edit curated FAQ text", else: "✎ Curate FAQ text"}</button>
                 <% end %>
               </div>

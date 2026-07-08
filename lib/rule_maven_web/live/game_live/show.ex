@@ -2373,14 +2373,14 @@ defmodule RuleMavenWeb.GameLive.Show do
           <div style="display:flex;gap:0.4rem">
             <button
               type="submit"
-              style="background:var(--accent);color:var(--accent-text,#fff);border:none;border-radius:0.3rem;font-size:0.74rem;font-weight:700;padding:0.25rem 0.6rem;cursor:pointer"
+              class="btn-primary btn-xs"
             >
               Save
             </button>
             <button
               type="button"
               phx-click="cancel_edit_house_rule"
-              style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.74rem;padding:0.25rem 0.6rem;cursor:pointer;color:var(--text-muted)"
+              class="btn-xs"
             >
               Cancel
             </button>
@@ -2451,20 +2451,20 @@ defmodule RuleMavenWeb.GameLive.Show do
                     do: "Community — click to make private",
                     else: "Private — click to share"
                 }
-                style="background:none;border:none;cursor:pointer;font-size:0.85rem;padding:0.1rem"
+                class="btn-icon btn-xs"
               >{if @hr.visibility == "community", do: "🌐", else: "🔒"}</button>
               <button
                 type="button"
                 phx-click="start_edit_house_rule"
                 phx-value-id={@hr.id}
-                style="background:none;border:none;cursor:pointer;font-size:0.75rem;padding:0.1rem;color:var(--text-muted)"
+                class="btn-icon btn-xs"
               >✏️</button>
               <button
                 type="button"
                 phx-click="delete_house_rule"
                 phx-value-id={@hr.id}
                 data-confirm="Delete this house rule?"
-                style="background:none;border:none;cursor:pointer;font-size:0.75rem;padding:0.1rem;color:var(--text-muted)"
+                class="btn-icon btn-xs"
               >🗑️</button>
             <% end %>
             <%= if @is_admin and not @owner? do %>
@@ -2475,7 +2475,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 title={
                   if @hr.blocked, do: "Blocked — click to unblock", else: "Block this house rule"
                 }
-                style="background:none;border:none;cursor:pointer;font-size:0.75rem;padding:0.1rem;color:var(--text-muted)"
+                class="btn-icon btn-xs"
               >{if @hr.blocked, do: "🚫", else: "🛑"}</button>
             <% end %>
           </div>
@@ -2577,8 +2577,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             <button
               type="button"
               phx-click="toggle_sidebar"
-              class="sidebar-toggle"
-              style="background:none;border:1px solid var(--border);border-radius:0.3rem;padding:0.15rem 0.4rem;font-size:0.8rem;cursor:pointer;color:var(--text)"
+              class="sidebar-toggle btn-icon btn-sm"
             >☰</button>
             <%!-- Rulebook sources dropdown --%>
             <details
@@ -2614,7 +2613,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         phx-click="regenerate_html"
                         phx-value-id={src.id}
                         title="Re-render the HTML view from the current text"
-                        style="display:inline-flex;align-items:center;gap:0.2rem;color:var(--text-secondary);font-size:0.7rem;font-weight:600;padding:0.15rem 0.4rem;border:1px solid var(--border);border-radius:0.25rem;background:none;cursor:pointer"
+                        class="btn-xs"
                       >↻ Regen</button>
                     </div>
                   </div>
@@ -2625,7 +2624,8 @@ defmodule RuleMavenWeb.GameLive.Show do
             <%= if @community_count > 0 do %>
               <.link
                 navigate={~p"/games/#{@game}/community"}
-                style="display:inline-flex;align-items:center;gap:0.25rem;background:var(--accent);color:var(--accent-text,#fff);border:1px solid var(--accent);text-decoration:none;font-size:0.72rem;font-weight:700;padding:0.25rem 0.6rem;border-radius:0.35rem;flex-shrink:0;box-shadow:0 1px 4px color-mix(in srgb,var(--accent) 40%,transparent)"
+                class="btn btn-primary btn-xs"
+                style="flex-shrink:0"
               >
                 <span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})
               </.link>
@@ -2635,7 +2635,8 @@ defmodule RuleMavenWeb.GameLive.Show do
               <.link
                 href={~p"/games/#{@game}/cheatsheet"}
                 target="_blank"
-                style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.4rem;border-radius:0.3rem;flex-shrink:0"
+                class="btn btn-xs"
+                style="flex-shrink:0"
               >
                 Cheat Sheet
               </.link>
@@ -2700,8 +2701,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             <button
               type="button"
               phx-click="toggle_sidebar"
-              class="sidebar-close-btn"
-              style="background:none;border:none;font-size:1rem;cursor:pointer;color:var(--text);padding:0;line-height:1"
+              class="sidebar-close-btn btn-icon"
             >✕</button>
           </div>
 
@@ -2880,7 +2880,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               <.link
                 :if={RuleMaven.Users.can?(@current_user, :admin)}
                 navigate={~p"/games/#{@game}/edit"}
-                style="background:var(--accent);color:var(--accent-text,#fff);text-decoration:none;font-size:0.8rem;font-weight:600;padding:0.3rem 0.75rem;border-radius:0.3rem"
+                class="btn btn-primary btn-sm"
               >
                 Add rulebook text or PDF
               </.link>
@@ -3147,7 +3147,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% end %>
                   </div>
                   <div style="margin-top:0.4rem;font-size:0.62rem;color:var(--text-muted)">
-                    Suggested for this game's weight: {div(suggested, 60)}:{String.pad_leading(to_string(rem(suggested, 60)), 2, "0")} per turn
+                    Suggested for this game's weight: {div(suggested, 60)}:{String.pad_leading(
+                      to_string(rem(suggested, 60)),
+                      2,
+                      "0"
+                    )} per turn
                   </div>
                 </div>
               </details>
@@ -3179,7 +3183,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         <button
                           type="button"
                           phx-click="reset_checklist"
-                          style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted);font-weight:600"
+                          class="btn-xs"
                         >🗑️ Clear</button>
                       </div>
                     </div>
@@ -3241,7 +3245,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <button
                       type="button"
                       phx-click="reset_checklist"
-                      style="margin-top:0.6rem;background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted);font-weight:600"
+                      class="btn-xs"
+                      style="margin-top:0.6rem"
                     >🗑️ Clear</button>
                   </div>
                 </div>
@@ -3315,14 +3320,14 @@ defmodule RuleMavenWeb.GameLive.Show do
                         <div style="display:flex;gap:0.4rem">
                           <button
                             type="submit"
-                            style="background:var(--accent);color:var(--accent-text,#fff);border:none;border-radius:0.3rem;font-size:0.76rem;font-weight:700;padding:0.35rem 0.75rem;cursor:pointer"
+                            class="btn-primary btn-xs"
                           >
                             Add house rule
                           </button>
                           <button
                             type="button"
                             phx-click="toggle_house_rule_form"
-                            style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.76rem;padding:0.35rem 0.75rem;cursor:pointer;color:var(--text-muted)"
+                            class="btn-xs"
                           >
                             Cancel
                           </button>
@@ -3332,7 +3337,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <button
                         type="button"
                         phx-click="toggle_house_rule_form"
-                        style="margin-top:0.3rem;background:none;border:1px dashed var(--border);border-radius:0.3rem;font-size:0.76rem;padding:0.3rem 0.6rem;cursor:pointer;color:var(--text-muted);font-weight:600"
+                        class="btn-xs"
+                        style="margin-top:0.3rem;border-style:dashed"
                       >
                         + Add a house rule
                       </button>
@@ -3367,7 +3373,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                           phx-click="ask_suggestion"
                           phx-value-q={q}
                           disabled={@pending_count >= @max_concurrent}
-                          style="display:block;width:100%;text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.3rem 0.6rem;margin-bottom:0.2rem;font-size:0.82rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word;line-height:1.45"
+                          class="btn-sm"
+                          style="display:block;width:100%;text-align:left;margin-bottom:0.2rem;white-space:normal;word-break:break-word;line-height:1.45"
                         >{q}</button>
                       <% end %>
                     </div>
@@ -3670,7 +3677,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                             phx-click="ask_suggestion"
                             phx-value-q={q}
                             disabled={@pending_count >= @max_concurrent}
-                            style="display:block;width:100%;box-sizing:border-box;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.35rem;padding:0.3rem 0.5rem;font-size:0.8rem;color:var(--text);cursor:pointer;line-height:1.35;white-space:normal;overflow-wrap:anywhere"
+                            class="btn-sm"
+                            style="display:block;width:100%;box-sizing:border-box;text-align:left;line-height:1.35;white-space:normal;overflow-wrap:anywhere"
                           >{q}</button>
                         <% end %>
                         <%= if has_also do %>
@@ -3680,7 +3688,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                             phx-click="quick_ask"
                             phx-value-question={q}
                             disabled={@pending_count >= @max_concurrent}
-                            style="display:block;width:100%;box-sizing:border-box;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.35rem;padding:0.3rem 0.5rem;font-size:0.8rem;color:var(--text);cursor:pointer;line-height:1.35;white-space:normal;overflow-wrap:anywhere"
+                            class="btn-sm"
+                            style="display:block;width:100%;box-sizing:border-box;text-align:left;line-height:1.35;white-space:normal;overflow-wrap:anywhere"
                           >{q}</button>
                         <% end %>
                       </div>
@@ -3697,28 +3706,28 @@ defmodule RuleMavenWeb.GameLive.Show do
                           phx-click="ask_suggestion"
                           phx-value-q="What is the setup?"
                           disabled={@pending_count >= @max_concurrent}
-                          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.25rem;padding:0.15rem 0.4rem;font-size:0.65rem;color:var(--text);cursor:pointer"
+                          class="btn-xs"
                         >Setup</button>
                         <button
                           type="button"
                           phx-click="ask_suggestion"
                           phx-value-q="How do turns work?"
                           disabled={@pending_count >= @max_concurrent}
-                          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.25rem;padding:0.15rem 0.4rem;font-size:0.65rem;color:var(--text);cursor:pointer"
+                          class="btn-xs"
                         >Turn order</button>
                         <button
                           type="button"
                           phx-click="ask_suggestion"
                           phx-value-q="How does scoring work?"
                           disabled={@pending_count >= @max_concurrent}
-                          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.25rem;padding:0.15rem 0.4rem;font-size:0.65rem;color:var(--text);cursor:pointer"
+                          class="btn-xs"
                         >Scoring</button>
                         <button
                           type="button"
                           phx-click="ask_suggestion"
                           phx-value-q="What are the win conditions?"
                           disabled={@pending_count >= @max_concurrent}
-                          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.25rem;padding:0.15rem 0.4rem;font-size:0.65rem;color:var(--text);cursor:pointer"
+                          class="btn-xs"
                         >Win conditions</button>
                       </div>
                     </div>
@@ -3737,7 +3746,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                           phx-click="regenerate_answer"
                           phx-value-id={msg.id}
                           data-confirm="Regenerate a fresh answer for this wrongly refused question?"
-                          style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted)"
+                          class="btn-xs"
                           title="Wrongly marked 'not covered' — fetch a fresh answer"
                         >↻ Regenerate — wrongly refused</button>
                       <% else %>
@@ -3751,7 +3760,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                             phx-click="flag_question"
                             phx-value-id={msg.id}
                             data-confirm="Report this as wrongly marked 'not covered'? A moderator will review it, and we'll fetch you a fresh answer."
-                            style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted)"
+                            class="btn-xs"
                             title="This should be covered by the rulebook"
                           >🚩 Report as miscategorized</button>
                         <% end %>
@@ -3783,7 +3792,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       phx-click="not_my_question"
                       phx-value-id={msg.id}
                       data-confirm="This answer matched a similar question, not yours? We'll fetch a fresh answer for exactly what you asked."
-                      style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.65rem;cursor:pointer;padding:0.15rem 0.5rem;color:var(--text-muted)"
+                      class="btn-xs"
                       title="This matched a different question — get a fresh answer to yours"
                     >🙋 Not my question — ask fresh</button>
                   </div>
@@ -3816,7 +3825,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                           phx-click="retry_question"
                           phx-value-id={msg.id}
                           disabled={@pending_count >= @max_concurrent}
-                          style="background:none;border:1px solid var(--border);border-radius:0.3rem;font-size:0.7rem;cursor:pointer;padding:0.15rem 0.55rem;color:var(--text)"
+                          class="btn-xs"
                           title="Try this question again"
                         >↻ Retry</button>
                         <span
@@ -4396,7 +4405,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               type="button"
               phx-click="close_suggestions"
               aria-label="Close"
-              style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--text-muted);line-height:1"
+              class="btn-icon"
             >✕</button>
           </div>
           <div style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:1rem">
@@ -4412,7 +4421,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                       phx-click="ask_suggestion"
                       phx-value-q={q}
                       disabled={@pending_count >= @max_concurrent}
-                      style="text-align:left;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.7rem;font-size:0.82rem;color:var(--text);cursor:pointer;white-space:normal;word-break:break-word;line-height:1.45"
+                      class="btn-sm"
+                      style="text-align:left;white-space:normal;word-break:break-word;line-height:1.45"
                     >{q}</button>
                   <% end %>
                 </div>
@@ -4435,15 +4445,20 @@ defmodule RuleMavenWeb.GameLive.Show do
           style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:32rem;width:100%;box-shadow:0 10px 40px rgba(0,0,0,0.3)"
         >
           <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border)">
-            <div style="font-size:0.95rem;font-weight:700;color:var(--text)">⚖️ Settle an argument</div>
+            <div style="font-size:0.95rem;font-weight:700;color:var(--text)">
+              ⚖️ Settle an argument
+            </div>
             <button
               type="button"
               phx-click="close_settle"
               aria-label="Close"
-              style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--text-muted);line-height:1"
+              class="btn-icon"
             >✕</button>
           </div>
-          <form phx-submit="submit_settle" style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:0.7rem">
+          <form
+            phx-submit="submit_settle"
+            style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:0.7rem"
+          >
             <p style="font-size:0.75rem;color:var(--text-muted);margin:0;line-height:1.45">
               Each side states their reading of the rule — the answer opens with a verdict on who's right, citing the rulebook.
             </p>

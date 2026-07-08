@@ -482,7 +482,7 @@ defmodule RuleMavenWeb.SettingsLive do
                 phx-click="update_profile"
                 phx-value-username={@profile_username}
                 phx-value-email={@profile_email}
-                style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.78rem;font-weight:600;cursor:pointer"
+                class="btn-primary btn-sm"
               >Save Profile</button>
               <%= if @profile_msg do %>
                 <span style="font-size:0.75rem;color:var(--green)">{@profile_msg}</span>
@@ -520,7 +520,7 @@ defmodule RuleMavenWeb.SettingsLive do
                 <div style="display:flex;gap:0.5rem;align-items:center">
                   <button
                     type="submit"
-                    style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.78rem;font-weight:600;cursor:pointer"
+                    class="btn-sm"
                   >Change Password</button>
                   <%= if @password_msg do %>
                     <span style="font-size:0.75rem;color:var(--green)">{@password_msg}</span>
@@ -1149,7 +1149,7 @@ defmodule RuleMavenWeb.SettingsLive do
                         type="button"
                         phx-click="reset_prompt"
                         phx-value-key={key}
-                        style="background:none;border:1px solid var(--border-strong);color:var(--text-muted);padding:0.2rem 0.6rem;border-radius:0.375rem;font-size:0.72rem;font-weight:600;cursor:pointer"
+                        class="btn-xs"
                       >
                         Reset to default
                       </button>
@@ -1179,7 +1179,8 @@ defmodule RuleMavenWeb.SettingsLive do
 
             <button
               type="submit"
-              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.65rem 2rem;border-radius:0.5rem;font-weight:600;font-size:0.9rem;cursor:pointer;align-self:flex-start"
+              class="btn-primary"
+              style="align-self:flex-start"
             >
               Save Settings
             </button>

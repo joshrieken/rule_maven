@@ -106,7 +106,7 @@ defmodule RuleMavenWeb.AdminLive.Audit do
           <button
             type="button"
             phx-click="load_more"
-            style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.78rem;font-weight:600;cursor:pointer"
+            class="btn-sm"
           >
             Load older
           </button>

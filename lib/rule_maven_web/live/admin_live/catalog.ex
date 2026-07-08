@@ -128,7 +128,8 @@ defmodule RuleMavenWeb.AdminLive.Catalog do
           <button
             type="submit"
             disabled={@importing}
-            style={"background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.5rem 1rem;border-radius:0.375rem;font-weight:600;font-size:0.85rem;cursor:#{if @importing, do: "default", else: "pointer"};opacity:#{if @importing, do: "0.6", else: "1"}"}
+            class="btn-primary"
+            style={"cursor:#{if @importing, do: "default", else: "pointer"};opacity:#{if @importing, do: "0.6", else: "1"}"}
           >
             {if @importing, do: "Importing… (this can take a minute)", else: "Import Full Catalog"}
           </button>
@@ -169,7 +170,7 @@ defmodule RuleMavenWeb.AdminLive.Catalog do
             <button
               type="button"
               phx-click="confirm_clear"
-              style="background:var(--red);color:white;border:none;padding:0.375rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.8rem;cursor:pointer"
+              class="btn-danger btn-sm"
             >
               Clear All Games
             </button>
@@ -188,14 +189,14 @@ defmodule RuleMavenWeb.AdminLive.Catalog do
               type="button"
               phx-click="clear_all_games"
               disabled={@confirm_text != "DELETE"}
-              style="background:var(--red);color:white;border:none;padding:0.375rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.8rem;cursor:pointer"
+              class="btn-danger btn-sm"
             >
               Delete All
             </button>
             <button
               type="button"
               phx-click="confirm_cancel"
-              style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.375rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.8rem;cursor:pointer"
+              class="btn-sm"
             >
               Cancel
             </button>
