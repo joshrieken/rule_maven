@@ -2470,15 +2470,15 @@ textarea {
    touch more on hover. Right-aligned to match the bubble. */
 .ask-redo {
   align-self: flex-end;
-  margin-top: 0.45rem;
+  margin-top: 0.4rem;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.22rem 0.6rem;
-  font-size: 0.72rem;
+  gap: 0.25rem;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.62rem;
   font-weight: 600;
   line-height: 1.2;
-  border-radius: 0.4rem;
+  border-radius: 0.35rem;
   border: 1px solid color-mix(in srgb, var(--accent-text, #fff) 45%, transparent);
   background: color-mix(in srgb, var(--accent-text, #fff) 12%, transparent);
   color: var(--accent-text, #fff);
