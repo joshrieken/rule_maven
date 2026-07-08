@@ -2870,7 +2870,7 @@ body:has([data-phx-main].phx-connected)::after {
 }
 .persona-modal__head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border);
+  padding: 0.6rem 0.75rem 0.6rem 1rem; border-bottom: 1px solid var(--border);
 }
 .persona-modal__title { font-weight: 700; font-size: 0.9rem; }
 .persona-modal__search {
