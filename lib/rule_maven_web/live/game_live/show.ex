@@ -4498,7 +4498,12 @@ defmodule RuleMavenWeb.GameLive.Show do
       </div>
 
       <!-- Input -->
+      <%!-- id keys this node for the patcher: without it, a modal appearing
+            as the previous sibling gets morphed INTO this div (ids on the
+            modals alone don't help), recreating the input area and replaying
+            its qa-rise-in entrance animation. --%>
       <div
+        id="chat-input-panel"
         class="chat-input"
         style="flex-shrink:0;padding:0.35rem 1rem 0.5rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface);position:relative;z-index:1"
       >
