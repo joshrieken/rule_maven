@@ -2567,7 +2567,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
                 target="_blank"
                 rel="noopener"
-                class="pill-link"
+                class="pill-link hide-mobile"
               >View on BGG</.link>
             <% end %>
           </div>
@@ -2891,7 +2891,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                empty-state card is gone, so keep a slim sticky version pinned
                above the answers (a fast reply otherwise steals the fact). -->
           <%= if @rule_card && @conversation != [] do %>
-            <div style="position:sticky;top:-1rem;z-index:5;margin:-1rem -1rem 1rem;padding:0.4rem 2rem 0.4rem 0.75rem;background:var(--bg-surface);border-bottom:1px solid var(--border);box-shadow:0 3px 8px rgba(0,0,0,0.07);font-size:0.72rem;line-height:1.35;color:var(--text)">
+            <div style="position:sticky;top:-1rem;z-index:5;margin:-1rem -1rem 1rem;padding:0.4rem 2.9rem 0.4rem 0.75rem;background:var(--bg-surface);border-bottom:1px solid var(--border);box-shadow:0 3px 8px rgba(0,0,0,0.07);font-size:0.72rem;line-height:1.35;color:var(--text)">
               <button
                 type="button"
                 phx-click="shuffle_rule"
@@ -4524,7 +4524,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 and pick the default answer voice (right). The voice applies to
                 every answer and persists in localStorage via VoiceDefault. --%>
           <% cur_default = Enum.find(@voices, &(&1.id == @default_voice)) || hd(@voices) %>
-          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem">
+          <div style="display:flex;align-items:center;flex-wrap:wrap;gap:0.25rem 0.5rem;margin-bottom:0.35rem">
             <button
               :if={@suggestions != []}
               type="button"
