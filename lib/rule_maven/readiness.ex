@@ -431,10 +431,13 @@ defmodule RuleMaven.Readiness do
     unless step_complete?(:voices, game, []),
       do: RuleMaven.Workers.VoiceSuggestionsWorker.enqueue(game.id)
 
-    # Not a readiness step (never gates Ready) — backfill for games finalized
-    # before the first-player picker existed.
+    # Not readiness steps (never gate Ready) — backfill for games finalized
+    # before these generators existed.
     if RuleMaven.Settings.get("first_player_#{game.id}") == nil,
       do: RuleMaven.Workers.FirstPlayerWorker.enqueue(game.id)
+
+    if RuleMaven.Settings.get("common_mistakes_#{game.id}") == nil,
+      do: RuleMaven.Workers.CommonMistakesWorker.enqueue(game.id)
 
     unless step_complete?(:setup, game, []),
       do: safe(fn -> RuleMaven.Setup.generate_async(game) end)

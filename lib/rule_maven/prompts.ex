@@ -498,6 +498,37 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
+  # Vars: game_name, rulebook, questions
+  @common_mistakes """
+  From the rulebook text below for "{{game_name}}", list up to 8 rules that
+  tables commonly get wrong — easy-to-misplay details, steps people skip, or
+  intuitive-but-wrong assumptions the rulebook explicitly corrects.
+
+  The text below is SAMPLED from across the rulebook, so you are NOT seeing
+  every rule. Treat it as partial.
+
+  Rules:
+  - Each entry has two parts separated by " || ": first the common misplay
+    (how tables get it wrong), then the correct rule.
+  - The CORRECT part must be explicitly and positively supported by the text
+    below — never inferred from absence, never invented. If the text is thin,
+    write fewer entries rather than guessing.
+  - The MISTAKE part describes the plausible misplay plainly ("Players often
+    refill their hand immediately…"). Don't cite page numbers or sections.
+  - Each part is one self-contained sentence, readable out of context. Plain,
+    friendly language. No markdown, no numbering.
+
+  Questions real players have asked about this game (signals of confusion —
+  prefer mistakes related to these when supported by the text):
+  {{questions}}
+
+  Return each entry on its own line starting with "- ", the two parts
+  separated by " || ".
+
+  RULEBOOK (sampled across the whole book):
+  {{rulebook}}
+  """
+
   # Vars: game_name, rulebook, items
   @setup_verify """
   You are a strict fact-checker for a board-game SETUP checklist for "{{game_name}}". Check each numbered item (components to gather and setup steps) against the rulebook text.
@@ -584,6 +615,7 @@ defmodule RuleMaven.Prompts do
   @suggest_questions_system "You generate categorized board game rules questions. Group by topic. Be specific. #{@english_output}"
   @did_you_know_system "You surface interesting, accurate board game rule facts. Never invent rules; only use the provided text. #{@english_output}"
   @first_player_system "You invent playful, inclusive table rituals for choosing a first player, themed to a board game's world. Flavor only — never state game rules. #{@english_output}"
+  @common_mistakes_system "You surface board game rules that tables commonly misplay, with the accurate correction. Never invent rules; corrections come only from the provided text. #{@english_output}"
   @did_you_know_verify_system "You are a strict board-game rulebook fact-checker. Pass only fully, accurately supported facts; reject anything misleading or unconfirmed. Output only the numbers in the requested format — never prose in any language."
   @categories_system "You generate topic categories for board game rulebooks. Be concise and specific. #{@english_output}"
 
@@ -1121,6 +1153,22 @@ defmodule RuleMaven.Prompts do
       description: "System prompt for the first-player selector generator.",
       vars: [],
       default: @first_player_system
+    },
+    %{
+      key: "common_mistakes",
+      group: "Content generation",
+      label: "Common mistakes",
+      description: "Generates the 'rules most tables get wrong' list for a game.",
+      vars: ~w(game_name rulebook questions),
+      default: @common_mistakes
+    },
+    %{
+      key: "common_mistakes_system",
+      group: "Content generation",
+      label: "Common mistakes — system",
+      description: "System prompt for the common-mistakes generator.",
+      vars: [],
+      default: @common_mistakes_system
     },
     %{
       key: "did_you_know_verify",

@@ -274,6 +274,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         setup_checklist: setup_checklist,
         fp_selectors: load_first_player(game),
         fp_pick: nil,
+        common_mistakes: load_common_mistakes(game),
         house_rules: load_own_house_rules(game, socket.assigns.current_user),
         community_house_rules:
           RuleMaven.HouseRules.community_for_game(game.id, socket.assigns.current_user.id)
@@ -2950,6 +2951,26 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </div>
               <% end %>
 
+              <%= if @common_mistakes != [] do %>
+                <%!-- Fact-checked misplay list generated at finalize; collapsed
+                    by default so the landing page stays light. --%>
+                <details style="margin:1.25rem auto 0;max-width:30rem;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
+                  <summary style="cursor:pointer;font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
+                    ⚠️ Rules most tables get wrong ({length(@common_mistakes)})
+                  </summary>
+                  <ul style="list-style:none;margin:0.6rem 0 0;padding:0;display:flex;flex-direction:column;gap:0.7rem">
+                    <li :for={m <- @common_mistakes} style="font-size:0.8rem;line-height:1.5">
+                      <div style="color:var(--text-muted)">
+                        <span aria-hidden="true">❌</span> {m["wrong"]}
+                      </div>
+                      <div style="color:var(--text);margin-top:0.15rem">
+                        <span aria-hidden="true">✅</span> {m["right"]}
+                      </div>
+                    </li>
+                  </ul>
+                </details>
+              <% end %>
+
               <%= if @setup_checklist && (@setup_checklist["components"] != [] || @setup_checklist["setup"] != []) do %>
                 <div style="margin:1.25rem auto 0;max-width:30rem;text-align:left">
                   <% delta_total =
@@ -4697,6 +4718,14 @@ defmodule RuleMavenWeb.GameLive.Show do
   # worker has run — the picker card is simply hidden.
   defp load_first_player(game) do
     case RuleMaven.Settings.get("first_player_#{game.id}") do
+      nil -> []
+      json -> Jason.decode!(json)
+    end
+  end
+
+  # Cached fact-checked common-mistakes entries (generated at finalize).
+  defp load_common_mistakes(game) do
+    case RuleMaven.Settings.get("common_mistakes_#{game.id}") do
       nil -> []
       json -> Jason.decode!(json)
     end

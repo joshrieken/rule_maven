@@ -2860,6 +2860,65 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
+  Generates the "rules most tables get wrong" list for a game: up to 8
+  `%{"wrong" => misplay, "right" => correction}` entries. Corrections are
+  fact-checked with the did_you_know_verify pass (fail-open); entries whose
+  correction doesn't survive are dropped.
+  """
+  def generate_common_mistakes(game_name, rulebook_text, questions, game_id \\ nil) do
+    prompt =
+      RuleMaven.Prompts.render("common_mistakes", %{
+        game_name: game_name,
+        rulebook: sample_across(rulebook_text, 16000, 2000),
+        questions:
+          case questions do
+            [] -> "(none yet)"
+            qs -> qs |> Enum.take(15) |> Enum.map_join("\n", &"- #{&1}")
+          end
+      })
+
+    case chat(prompt, "common_mistakes",
+           model: model(:cheap),
+           operation: "common_mistakes",
+           game_id: game_id,
+           system: RuleMaven.Prompts.template("common_mistakes_system"),
+           max_tokens: 4000
+         ) do
+      {:ok, text} ->
+        entries =
+          text
+          |> bullet_lines()
+          |> Enum.flat_map(fn line ->
+            case String.split(line, "||", parts: 2) do
+              [wrong, right] ->
+                wrong = String.trim(wrong)
+                right = String.trim(right)
+
+                if String.length(wrong) >= 12 and String.length(right) >= 12,
+                  do: [%{"wrong" => wrong, "right" => right}],
+                  else: []
+
+              _ ->
+                []
+            end
+          end)
+          |> Enum.uniq_by(& &1["right"])
+          |> Enum.take(8)
+
+        kept =
+          entries
+          |> Enum.map(& &1["right"])
+          |> then(&verify_did_you_know(game_name, rulebook_text, &1, game_id))
+          |> MapSet.new()
+
+        {:ok, Enum.filter(entries, &MapSet.member?(kept, &1["right"]))}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
   Generates themed "who goes first" table rituals for a game — flavor drawn
   from the rulebook's world, never rules. Returns `{:ok, [selector]}` or
   `{:error, reason}`.

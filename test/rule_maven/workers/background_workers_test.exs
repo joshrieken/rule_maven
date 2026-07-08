@@ -69,6 +69,33 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
     end
   end
 
+  describe "CommonMistakesWorker" do
+    test "persists fact-checked entries and broadcasts to the game topic" do
+      # The same mock answers both the generation and the verify call; it has
+      # no digits, so parse_keep_indices returns :all and every entry is kept.
+      mock_llm(
+        "- Players refill their hand right away || You refill your hand at the end of your turn."
+      )
+
+      game = game_with_rulebook()
+
+      Phoenix.PubSub.subscribe(
+        RuleMaven.PubSub,
+        RuleMaven.Workers.CommonMistakesWorker.topic(game.id)
+      )
+
+      assert :ok =
+               RuleMaven.Workers.CommonMistakesWorker.perform(%Oban.Job{
+                 args: %{"game_id" => game.id}
+               })
+
+      assert_received {:common_mistakes_ready, [entry]}
+      assert entry["wrong"] =~ "refill their hand right away"
+      assert entry["right"] =~ "end of your turn"
+      assert Settings.get("common_mistakes_#{game.id}") =~ "end of your turn"
+    end
+  end
+
   describe "CategoriesWorker" do
     setup do
       # Stub embeddings so replace_game_categories doesn't hit the network; it
