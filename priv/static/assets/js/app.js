@@ -1159,7 +1159,13 @@ Hooks.Tour = {
     const hasNext = this.steps.slice(this.idx + 1).some((st) => this.present(st));
     this.ui.querySelector(".tour-back").style.visibility = hasPrev ? "visible" : "hidden";
     this.ui.querySelector(".tour-next").textContent = hasNext ? "Next" : "Done";
-    if (this.target) this.target.scrollIntoView({block: "center"});
+    if (this.target) {
+      // Targets taller than the viewport (e.g. the setup checklist) center on
+      // their middle when block:"center", hiding their header — align tall
+      // targets to the top instead.
+      const tall = this.target.getBoundingClientRect().height > window.innerHeight * 0.7;
+      this.target.scrollIntoView({block: tall ? "start" : "center"});
+    }
     this.position();
   },
   position() {
@@ -1168,16 +1174,26 @@ Hooks.Tour = {
     const card = this.ui.querySelector(".tour-card");
     const pad = 6;
     if (this.target && document.contains(this.target)) {
-      const r = this.target.getBoundingClientRect();
+      const raw = this.target.getBoundingClientRect();
+      const cw = Math.min(340, window.innerWidth - 24);
+      card.style.width = cw + "px";
+      card.style.transform = "none";
+      const ch = card.offsetHeight || 160;
+      // Clamp the spotlight to the viewport: targets taller than the screen
+      // (e.g. the setup checklist) would spill the highlight off both edges
+      // and leave the card nowhere to go. When clamping the bottom, also
+      // reserve room under the spot so the card fits below it.
+      const rTop = Math.max(raw.top, 12);
+      let rBottom = Math.min(raw.bottom, window.innerHeight - 12);
+      if (raw.bottom > window.innerHeight - 12) {
+        rBottom = Math.max(rTop + 60, window.innerHeight - ch - 36);
+      }
+      const r = {top: rTop, bottom: rBottom, left: raw.left, width: raw.width, height: rBottom - rTop};
       spot.style.top = r.top - pad + "px";
       spot.style.left = r.left - pad + "px";
       spot.style.width = r.width + pad * 2 + "px";
       spot.style.height = r.height + pad * 2 + "px";
-      const cw = Math.min(340, window.innerWidth - 24);
-      card.style.width = cw + "px";
-      card.style.transform = "none";
       // Below the target if it fits, else above; clamped into the viewport.
-      const ch = card.offsetHeight || 160;
       let top = r.bottom + pad + 12;
       if (top + ch > window.innerHeight - 12) top = Math.max(12, r.top - pad - 12 - ch);
       card.style.top = top + "px";
