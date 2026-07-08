@@ -238,6 +238,70 @@ defmodule RuleMaven.Games.Curation do
     end
   end
 
+  # Asker achievements: computed on the fly from question_logs, like the
+  # curator badges. `stat` names the asker_stats key the threshold reads.
+  @asker_achievements [
+    %{key: :first_ask, label: "First Question", emoji: "🐣", need: 1, stat: :asked},
+    %{key: :curious_mind, label: "Curious Mind", emoji: "🔍", need: 25, stat: :asked},
+    %{key: :rules_scholar, label: "Rules Scholar", emoji: "🧠", need: 100, stat: :asked},
+    %{key: :trailblazer, label: "Trailblazer", emoji: "🧭", need: 10, stat: :fresh},
+    %{key: :on_a_roll, label: "On a Roll", emoji: "🔥", need: 3, stat: :streak}
+  ]
+
+  @doc """
+  Asker stats + achievements for the standing page: questions asked, fresh
+  first-asks (answered by the LLM rather than served from the answer pool),
+  and the current consecutive-day ask streak. Achievements carry have/need so
+  the page can show progress on locked ones.
+  """
+  def asker_stats(user_id) do
+    asked =
+      Repo.aggregate(from(q in QuestionLog, where: q.user_id == ^user_id), :count)
+
+    fresh =
+      Repo.aggregate(
+        from(q in QuestionLog, where: q.user_id == ^user_id and is_nil(q.pool_source_id)),
+        :count
+      )
+
+    stats = %{asked: asked, fresh: fresh, streak: ask_day_streak(user_id)}
+
+    achievements =
+      Enum.map(@asker_achievements, fn a ->
+        have = Map.fetch!(stats, a.stat)
+        Map.merge(a, %{have: min(have, a.need), earned: have >= a.need})
+      end)
+
+    Map.put(stats, :achievements, achievements)
+  end
+
+  # Consecutive-day streak of asking, counted only while it's alive: it must
+  # include today or yesterday (a lapsed streak reads 0, not its old length).
+  defp ask_day_streak(user_id) do
+    days =
+      Repo.all(
+        from q in QuestionLog,
+          where: q.user_id == ^user_id,
+          distinct: true,
+          select: fragment("date(?)", q.inserted_at),
+          order_by: [desc: fragment("date(?)", q.inserted_at)]
+      )
+
+    case days do
+      [latest | _] = all ->
+        if Date.diff(Date.utc_today(), latest) > 1, do: 0, else: streak_run(all)
+
+      [] ->
+        0
+    end
+  end
+
+  defp streak_run([a, b | rest]) do
+    if Date.diff(a, b) == 1, do: 1 + streak_run([b | rest]), else: 1
+  end
+
+  defp streak_run([_]), do: 1
+
   @doc """
   Contribution stats for the standing page: reputation (see
   `RuleMaven.Games.Trust.recompute_reputation/1`) plus how many answers the

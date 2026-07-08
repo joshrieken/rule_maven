@@ -26,6 +26,7 @@ defmodule RuleMavenWeb.StandingLive do
        page_title: "Community standing",
        stats: Curation.curator_stats(user.id),
        contributor: Curation.contributor_stats(user.id),
+       asker: Curation.asker_stats(user.id),
        bonus_cap: Curation.bonus_cap(),
        next_badge: Curation.next_badge(user.id),
        history: Curation.settled_history(user.id)
@@ -95,6 +96,44 @@ defmodule RuleMavenWeb.StandingLive do
         <p :if={is_nil(@next_badge)} style="font-size:0.8rem;color:var(--text-muted);margin:0">
           All badges earned. 🎉
         </p>
+      </section>
+
+      <h2 style="font-size:1rem;font-weight:700;margin:0 0 0.25rem 0">Asker</h2>
+      <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 0.75rem 0">
+        Achievements for asking: every question counts, first-asks (fresh answers
+        rather than pool hits) count double-ish, and asking on consecutive days
+        keeps a streak alive.
+      </p>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:0.75rem;margin-bottom:1.25rem">
+        <div style="border:1px solid var(--border);border-radius:0.75rem;padding:0.9rem 1rem;background:var(--bg-surface)">
+          <div style="font-size:1.4rem;font-weight:800">{@asker.asked}</div>
+          <div style="font-size:0.75rem;color:var(--text-muted)">questions asked</div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:0.75rem;padding:0.9rem 1rem;background:var(--bg-surface)">
+          <div style="font-size:1.4rem;font-weight:800">{@asker.fresh}</div>
+          <div style="font-size:0.75rem;color:var(--text-muted)">first-asks (nobody asked before)</div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:0.75rem;padding:0.9rem 1rem;background:var(--bg-surface)">
+          <div style="font-size:1.4rem;font-weight:800">{@asker.streak}</div>
+          <div style="font-size:0.75rem;color:var(--text-muted)">day ask streak</div>
+        </div>
+      </div>
+
+      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:1.25rem">
+        <h3 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">Achievements</h3>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <span
+            :for={a <- @asker.achievements}
+            title={if a.earned, do: "Earned!", else: "#{a.have} / #{a.need}"}
+            style={"font-size:0.78rem;font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.2rem 0.7rem;background:var(--bg-subtle);#{unless a.earned, do: "opacity:0.45"}"}
+          >
+            {a.emoji} {a.label}
+            <span :if={!a.earned} style="color:var(--text-muted);font-weight:500">
+              {a.have}/{a.need}
+            </span>
+          </span>
+        </div>
       </section>
 
       <h2 style="font-size:1rem;font-weight:700;margin:0 0 0.25rem 0">Contributor</h2>

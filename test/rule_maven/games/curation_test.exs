@@ -119,6 +119,43 @@ defmodule RuleMaven.Games.CurationTest do
     end
   end
 
+  describe "asker_stats/1" do
+    test "counts asks, fresh first-asks, streak, and achievement progress", ctx do
+      # Two fresh asks today + one pool hit (pool_source_id set).
+      fresh = log(ctx.game, ctx.author, %{question: "Fresh 1?"})
+      log(ctx.game, ctx.author, %{question: "Fresh 2?"})
+      log(ctx.game, ctx.author, %{question: "Pool hit?", pool_source_id: fresh.id})
+
+      stats = Curation.asker_stats(ctx.author.id)
+      assert stats.asked == 3
+      assert stats.fresh == 2
+      assert stats.streak == 1
+
+      by_key = Map.new(stats.achievements, &{&1.key, &1})
+      assert by_key.first_ask.earned
+      refute by_key.curious_mind.earned
+      assert by_key.curious_mind.have == 3
+      assert by_key.trailblazer.have == 2
+      refute by_key.on_a_roll.earned
+    end
+
+    test "streak is 0 with no asks and lapses when the last ask is old", ctx do
+      assert Curation.asker_stats(ctx.author.id).streak == 0
+
+      old = log(ctx.game, ctx.author, %{question: "Old?"})
+
+      old_ts = DateTime.utc_now() |> DateTime.add(-5, :day) |> DateTime.truncate(:second)
+
+      {1, _} =
+        RuleMaven.Repo.update_all(
+          from(q in RuleMaven.Games.QuestionLog, where: q.id == ^old.id),
+          set: [inserted_at: old_ts]
+        )
+
+      assert Curation.asker_stats(ctx.author.id).streak == 0
+    end
+  end
+
   describe "stats and notices" do
     test "curator_stats counts settles, caps monthly bonus, awards badges", ctx do
       # 11 correct settles → Curator badge (10) but not Sharp Eye (25).
