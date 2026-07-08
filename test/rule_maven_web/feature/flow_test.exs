@@ -125,6 +125,8 @@ defmodule RuleMavenWeb.Feature.FlowTest do
     # Modal starts closed (its Close button is absent), opens on the trigger
     # showing the question, and closes again.
     |> refute_has(css("button[aria-label='Close']"))
+    # The trigger lives inside the 💡 Ideas disclosure menu — open that first.
+    |> click(css("details[data-tour='suggestions'] > summary"))
     |> click(css("button", text: "Suggested questions"))
     |> assert_has(css("button[aria-label='Close']"))
     |> assert_has(css("button", text: "How many cards each?", minimum: 1))

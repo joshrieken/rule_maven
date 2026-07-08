@@ -4529,31 +4529,44 @@ defmodule RuleMavenWeb.GameLive.Show do
           >
             🧪 Not yet marked Ready — you're testing as admin.
           </div>
-          <%!-- Above-the-box controls: open the suggested-questions modal (left)
-                and pick the default answer voice (right). The voice applies to
-                every answer and persists in localStorage via VoiceDefault. --%>
+          <%!-- Above-the-box controls, one row: question-idea menu (left) and
+                the default answer voice (right). Suggested questions + Settle
+                an argument fold into a card-menu disclosure so the row stays a
+                single line on mobile. The voice applies to every answer and
+                persists in localStorage via VoiceDefault. --%>
           <% cur_default = Enum.find(@voices, &(&1.id == @default_voice)) || hd(@voices) %>
           <div style="display:flex;align-items:center;flex-wrap:wrap;gap:0.25rem 0.5rem;margin-bottom:0.35rem">
-            <button
-              :if={@suggestions != []}
-              type="button"
-              phx-click="open_suggestions"
-              data-tour="suggestions"
-              style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:0"
-            >
-              <span aria-hidden="true">💡</span> Suggested questions
-            </button>
-            <button
-              type="button"
-              phx-click="open_settle"
-              disabled={
-                @pending_count >= @max_concurrent || @source_count == 0 ||
-                  (not @game.playable and not @is_admin)
-              }
-              style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:0"
-            >
-              <span aria-hidden="true">⚖️</span> Settle an argument
-            </button>
+            <details class="card-menu" data-tour="suggestions" style="flex-shrink:0">
+              <summary style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;font-weight:600;color:var(--accent);cursor:pointer;list-style:none">
+                <span aria-hidden="true">💡</span> Ideas <span style="opacity:0.6">▾</span>
+              </summary>
+              <%!-- Opens upward — the ask box sits at the bottom of the
+                    viewport. Items close the menu themselves: they open modals
+                    in the same LiveView, so no navigation closes it for us. --%>
+              <div class="card-menu__pop card-menu__pop--up">
+                <button
+                  :if={@suggestions != []}
+                  type="button"
+                  phx-click="open_suggestions"
+                  onclick="this.closest('details').open = false"
+                  class="card-menu__item"
+                >
+                  <span aria-hidden="true">💡</span> Suggested questions
+                </button>
+                <button
+                  type="button"
+                  phx-click="open_settle"
+                  onclick="this.closest('details').open = false"
+                  disabled={
+                    @pending_count >= @max_concurrent || @source_count == 0 ||
+                      (not @game.playable and not @is_admin)
+                  }
+                  class="card-menu__item"
+                >
+                  <span aria-hidden="true">⚖️</span> Settle an argument
+                </button>
+              </div>
+            </details>
             <div
               data-tour="voices"
               style="display:flex;align-items:center;gap:0.4rem;margin-left:auto"
