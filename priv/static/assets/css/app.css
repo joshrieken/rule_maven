@@ -2480,6 +2480,19 @@ textarea {
   bottom: auto;
   z-index: 60;
 }
+/* The downward popover overlaps the answer bubble below it. Both bubbles are
+   direct children of #chat-messages with no z-index (steady state), so they
+   paint in DOM order — the later answer bubble on top — and the popover's own
+   z-index only orders it WITHIN its user bubble, never against a sibling
+   bubble. Lift the whole user bubble into a raised stacking context while the
+   tooltip is open so the popover rises with it above the answer. Scoped to
+   :hover/:focus-within so it's momentary and can't bury the answer-card menus
+   the way an always-on z-index would (see the msg-in transform note). */
+.chat-msg-user:has(.ask-orig .conf-help:hover),
+.chat-msg-user:has(.ask-orig .conf-help:focus-within) {
+  position: relative;
+  z-index: 70;
+}
 
 /* ===== Collapsible menus on answer cards ===== */
 .card-menu {
