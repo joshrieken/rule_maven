@@ -1681,6 +1681,18 @@ defmodule RuleMaven.LLM do
     Req.post(url, json: body, headers: headers, receive_timeout: 120_000)
   end
 
+  # Wall-clock ceiling on a single streaming answer call. Req's `receive_timeout`
+  # is an IDLE timeout — it only fires when NO bytes arrive for the window. A
+  # response that keeps trickling SSE chunks (a reasoning model emitting endless
+  # thinking tokens, keepalives, or the proxy replaying a long/looping cached
+  # stream) never goes idle, so `into:` would loop forever and the whole ask
+  # pipeline hangs with no log row and no error — the question stays stuck on
+  # "Thinking…". This deadline aborts such a stream and surfaces it as a normal
+  # timeout the caller can retry. A healthy answer streams in ~16s and never
+  # legitimately runs past a minute, so 60s is the ceiling — a stream still
+  # going then is stuck, and the reader is better served by a fast retry.
+  @ask_stream_deadline_ms 60_000
+
   defp post_chat(url, body, headers, stream_to) do
     body =
       body
@@ -1695,29 +1707,78 @@ defmodule RuleMaven.LLM do
     # concurrent request to collide with; delete-on-exit keeps Oban's process
     # reuse clean.
     Process.put(:llm_sse_state, new_sse_state())
+    deadline = System.monotonic_time(:millisecond) + @ask_stream_deadline_ms
 
-    into = fn {:data, chunk}, {req, resp} ->
-      if resp.status == 200 do
-        Process.put(:llm_sse_state, ingest_sse(Process.get(:llm_sse_state), chunk, stream_to))
-        {:cont, {req, resp}}
-      else
-        # Error responses arrive through the same fun — keep the raw body so
-        # the caller's error branch can report it.
-        {:cont, {req, %{resp | body: (if is_binary(resp.body), do: resp.body, else: "") <> chunk}}}
-      end
-    end
+    into = fn {:data, chunk}, acc -> sse_into_step(deadline, acc, chunk, stream_to) end
 
     try do
       case Req.post(url, json: body, headers: headers, receive_timeout: 120_000, into: into) do
         {:ok, %{status: 200} = resp} ->
-          {:ok, %{resp | body: finalize_sse(Process.get(:llm_sse_state))}}
+          if Process.get(:llm_sse_abort) do
+            # Stream was cut mid-flight — the wall-clock deadline, a runaway
+            # answer, or a reasoning stall (see sse_into_step). Surface it as a
+            # transport error so do_request_real logs the failure and the caller
+            # retries instead of returning a truncated/garbage partial as final.
+            {:error, %{reason: Process.get(:llm_sse_abort)}}
+          else
+            {:ok, %{resp | body: finalize_sse(Process.get(:llm_sse_state))}}
+          end
 
         other ->
           other
       end
     after
       Process.delete(:llm_sse_state)
+      Process.delete(:llm_sse_abort)
     end
+  end
+
+  # Hard ceiling on visible answer text. The answer object is a few hundred to a
+  # couple thousand chars; blowing past this means the model is looping or
+  # rambling, so cut it off rather than stream garbage.
+  @answer_content_cap 6_000
+
+  # A model that keeps emitting (reasoning tokens, keepalives) this many bytes
+  # without the "answer" field ever opening is stuck thinking and never
+  # committing — bail early instead of waiting out the full deadline.
+  @answer_reasoning_stall_bytes 16_000
+
+  # One transport chunk of a streaming response. Returns Req's `{:cont | :halt,
+  # acc}`. Halts (flagging :llm_sse_abort with the reason) on three progress
+  # failures so a nonsense/endless stream can't pin the ask pipeline: the
+  # wall-clock deadline, a runaway answer, or a reasoning stall that never opens
+  # the answer field.
+  defp sse_into_step(deadline, {req, resp}, chunk, stream_to) do
+    cond do
+      System.monotonic_time(:millisecond) > deadline ->
+        abort_stream(:timeout, {req, resp})
+
+      resp.status != 200 ->
+        # Error responses arrive through the same fun — keep the raw body so
+        # the caller's error branch can report it.
+        {:cont, {req, %{resp | body: (if is_binary(resp.body), do: resp.body, else: "") <> chunk}}}
+
+      true ->
+        state = ingest_sse(Process.get(:llm_sse_state), chunk, stream_to)
+        Process.put(:llm_sse_state, state)
+
+        cond do
+          String.length(state.content) > @answer_content_cap ->
+            abort_stream(:runaway_answer, {req, resp})
+
+          byte_size(state.raw) > @answer_reasoning_stall_bytes and
+              partial_answer(state.content) == nil ->
+            abort_stream(:reasoning_stall, {req, resp})
+
+          true ->
+            {:cont, {req, resp}}
+        end
+    end
+  end
+
+  defp abort_stream(reason, acc) do
+    Process.put(:llm_sse_abort, reason)
+    {:halt, acc}
   end
 
   defp new_sse_state do
@@ -1838,6 +1899,16 @@ defmodule RuleMaven.LLM do
 
   @doc false
   def __partial_verdict__(content), do: partial_verdict(content)
+
+  @doc false
+  def __new_sse_state__, do: new_sse_state()
+
+  @doc false
+  # Drives one streaming chunk through the deadline guard. Public so the
+  # wall-clock abort can be tested without a live HTTP stream. Reads/writes the
+  # same process-dict keys the real path uses; callers clean them up.
+  def __sse_into_step__(deadline, acc, chunk, stream_to),
+    do: sse_into_step(deadline, acc, chunk, stream_to)
 
   @doc false
   def __partial_display_answer__(content),
