@@ -2463,12 +2463,16 @@ textarea {
   color: var(--accent-text, #fff);
   align-self: center;
 }
-/* The user bubble is right-aligned, so the ? sits near the right edge —
-   anchor the popover to the right so it opens leftward instead of spilling
-   off-screen. */
+/* The user bubble is right-aligned and the disclosure sits at its bottom, so
+   the shared popover would spill off the right edge (opening rightward) or drop
+   down over the answer bubble below. Anchor it to the right and open UPWARD,
+   into the bubble's own space, and lift it above neighbouring bubbles. */
 .ask-orig .conf-help__pop {
   left: auto;
   right: 0;
+  top: auto;
+  bottom: calc(100% + 6px);
+  z-index: 60;
 }
 
 /* ===== Collapsible menus on answer cards ===== */
