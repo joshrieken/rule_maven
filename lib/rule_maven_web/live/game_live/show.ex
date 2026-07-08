@@ -33,6 +33,7 @@ defmodule RuleMavenWeb.GameLive.Show do
        suggestions: [],
        suggestions_open: true,
        suggestions_modal: false,
+       settle_modal: false,
        sidebar_open: false,
        show_refused: false,
        community_vote_counts: %{},
@@ -1225,6 +1226,30 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def handle_event("close_suggestions", _params, socket),
     do: {:noreply, assign(socket, suggestions_modal: false)}
+
+  def handle_event("open_settle", _params, socket),
+    do: {:noreply, assign(socket, settle_modal: true)}
+
+  def handle_event("close_settle", _params, socket),
+    do: {:noreply, assign(socket, settle_modal: false)}
+
+  # Compose the two opposing readings into a normal ask — the answer prompt's
+  # ARGUMENT SETTLING rule opens the reply with a ⚖️ verdict line.
+  def handle_event("submit_settle", %{"a" => a, "b" => b}, socket) do
+    a = String.trim(a)
+    b = String.trim(b)
+
+    if a == "" or b == "" do
+      {:noreply, put_flash(socket, :error, "Enter both sides of the argument.")}
+    else
+      q =
+        "Settle an argument — Player A says: \"#{a}\" Player B says: \"#{b}\" " <>
+          "Which is right under the rules?"
+
+      socket = assign(socket, settle_modal: false)
+      handle_event("ask", %{"question" => q}, socket)
+    end
+  end
 
   @impl true
   def handle_event("favorite_question", %{"id" => id_str}, socket) do
@@ -4241,6 +4266,63 @@ defmodule RuleMavenWeb.GameLive.Show do
         </div>
       </div>
 
+      <%!-- Argument-settler modal: two opposing readings → one composed ask
+            whose answer opens with a ⚖️ verdict line. --%>
+      <div
+        :if={@settle_modal}
+        style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:60;background:rgba(0,0,0,0.45);display:flex;align-items:flex-end;justify-content:center;padding:1rem"
+      >
+        <div
+          phx-click-away="close_settle"
+          phx-window-keydown="close_settle"
+          phx-key="Escape"
+          style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:32rem;width:100%;box-shadow:0 10px 40px rgba(0,0,0,0.3)"
+        >
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border)">
+            <div style="font-size:0.95rem;font-weight:700;color:var(--text)">⚖️ Settle an argument</div>
+            <button
+              type="button"
+              phx-click="close_settle"
+              aria-label="Close"
+              style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--text-muted);line-height:1"
+            >✕</button>
+          </div>
+          <form phx-submit="submit_settle" style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:0.7rem">
+            <p style="font-size:0.75rem;color:var(--text-muted);margin:0;line-height:1.45">
+              Each side states their reading of the rule — the answer opens with a verdict on who's right, citing the rulebook.
+            </p>
+            <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary)">
+              Player A says…
+              <input
+                type="text"
+                name="a"
+                maxlength={220}
+                placeholder="You draw your new card immediately."
+                autocomplete="off"
+                style="display:block;width:100%;margin-top:0.25rem;background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:0.4rem;padding:0.45rem 0.6rem;font-size:0.82rem"
+              />
+            </label>
+            <label style="font-size:0.72rem;font-weight:600;color:var(--text-secondary)">
+              Player B says…
+              <input
+                type="text"
+                name="b"
+                maxlength={220}
+                placeholder="No — you wait until the end of the turn."
+                autocomplete="off"
+                style="display:block;width:100%;margin-top:0.25rem;background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:0.4rem;padding:0.45rem 0.6rem;font-size:0.82rem"
+              />
+            </label>
+            <button
+              type="submit"
+              style="align-self:flex-end;background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.45rem 1.1rem;border-radius:2rem;font-weight:600;font-size:0.82rem;cursor:pointer"
+            >
+              ⚖️ Settle it
+            </button>
+          </form>
+        </div>
+      </div>
+
       <!-- Input -->
       <div
         class="chat-input"
@@ -4295,6 +4377,17 @@ defmodule RuleMavenWeb.GameLive.Show do
               style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:0"
             >
               <span aria-hidden="true">💡</span> Suggested questions
+            </button>
+            <button
+              type="button"
+              phx-click="open_settle"
+              disabled={
+                @pending_count >= @max_concurrent || @source_count == 0 ||
+                  (not @game.playable and not @is_admin)
+              }
+              style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:0"
+            >
+              <span aria-hidden="true">⚖️</span> Settle an argument
             </button>
             <div
               data-tour="voices"
