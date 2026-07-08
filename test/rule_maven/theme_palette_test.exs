@@ -86,18 +86,32 @@ defmodule RuleMaven.ThemePaletteTest do
   end
 
   # Mid-luminance accent (the Ethnos gold): near-black #1A1A1A only reaches
-  # ~4.7:1 and white ~3.7:1 — button labels read muddy. The text color must
-  # escalate to a pure extreme when the soft near-black can't clear 6:1.
+  # ~4.7:1 and white ~3.7:1, and even pure black tops out at ~5.8:1 — muddy
+  # either way. Text alone can't fix a mid-tone fill, so the accent itself
+  # must be lifted (toward the extreme opposite the text) until the button
+  # label clears 7:1.
   @mid_gold "#9E823B"
 
-  test "accent-text on a mid-luminance accent clears 5.5:1" do
+  test "mid-luminance accents are lifted until the label clears 7:1" do
     {:ok, %{"dark" => dark}} =
       ThemePalette.build(%{
         "light" => @light_anchors,
         "dark" => Map.put(@dark_anchors, "accent", @mid_gold)
       })
 
-    assert contrast(dark["--accent-text"], dark["--accent"]) >= 5.5
+    assert contrast(dark["--accent-text"], dark["--accent"]) >= 7.0
+    # The lift brightens the gold, it must not swap it for white/grey: the
+    # accent keeps a warm hue (red channel stays ahead of blue).
+    {:ok, {r, _g, b}} = ThemePalette.parse(dark["--accent"])
+    assert r > b
+  end
+
+  test "high-contrast accents pass through the fill lift unchanged" do
+    {:ok, %{"dark" => dark}} =
+      ThemePalette.build(%{"light" => @light_anchors, "dark" => @dark_anchors})
+
+    # #8A2020 already clears 7:1 under white text — no lift.
+    assert dark["--accent"] == "#8A2020"
   end
 
   test "accent-text keeps the soft near-black on bright accents" do
@@ -110,15 +124,15 @@ defmodule RuleMaven.ThemePaletteTest do
     assert dark["--accent-text"] == "#1A1A1A"
   end
 
-  test "fix_accent_text lifts a legacy palette with a muddy accent-text" do
+  test "fix_accent_text lifts a legacy palette with a muddy accent fill" do
     legacy = %{"--accent" => @mid_gold, "--accent-text" => "#1A1A1A"}
     fixed = ThemePalette.fix_accent_text(legacy)
-    assert contrast(fixed["--accent-text"], @mid_gold) >= 5.5
+    assert contrast(fixed["--accent-text"], fixed["--accent"]) >= 7.0
   end
 
   test "fix_accent_text adds accent-text to palettes persisted before the key existed" do
     fixed = ThemePalette.fix_accent_text(%{"--accent" => @mid_gold})
-    assert contrast(fixed["--accent-text"], @mid_gold) >= 5.5
+    assert contrast(fixed["--accent-text"], fixed["--accent"]) >= 7.0
   end
 
   test "fix_accent_text is idempotent on freshly derived palettes" do

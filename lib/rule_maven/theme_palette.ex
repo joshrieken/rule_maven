@@ -89,7 +89,18 @@ defmodule RuleMaven.ThemePalette do
   @secondary_ratio 6.0
   @muted_ratio 4.5
 
+  # Button labels sit ON the accent; AA-large isn't enough for the small bold
+  # labels this app uses, and a mid-tone accent caps out well below it anyway.
+  @fill_ratio 7.0
+
   defp derive(accent, bg, surface, text, scheme) do
+    # A mid-luminance accent (mustard gold, dusty teal) can't be fixed by text
+    # choice alone — pure black tops out around 5.8:1 on it. Lift the fill
+    # itself toward the extreme opposite its text until the label clears
+    # @fill_ratio, then derive every accent shade from the lifted color so the
+    # theme stays coherent.
+    {accent, accent_text} = readable_fill(accent)
+
     # On dark schemes "toward background" means lighter borders / muted text;
     # the math is the same (mix text into bg) because text already contrasts bg.
     text = ensure_contrast(text, bg, 7.0)
@@ -122,7 +133,7 @@ defmodule RuleMaven.ThemePalette do
       # (e.g. yellow) keeps its color as a link on the page but flips to dark
       # text when used as a fill. Defaults to #fff in static themes via
       # `var(--accent-text, #fff)`, so only generated themes need this.
-      "--accent-text" => hex(readable_on(accent)),
+      "--accent-text" => hex(accent_text),
       # Accent used AS text/icons on the page background (labels, links, the
       # "Overview" pill). A vivid light accent (yellow) is illegible as text on a
       # light surface, so darken/lighten it until it reads. Defaults to --accent
@@ -176,6 +187,23 @@ defmodule RuleMaven.ThemePalette do
 
       true ->
         {255, 255, 255}
+    end
+  end
+
+  # Pick the label color for an accent fill, then — when even that pairing
+  # can't clear @fill_ratio — lift the fill itself toward the extreme opposite
+  # the label (a muddy mustard brightens, a washed-out mid-grey-blue darkens or
+  # brightens per its label). Mixing toward an extreme preserves the hue's
+  # direction, so an Ethnos gold stays gold, just vivid enough to carry text.
+  # Returns `{fill, label}`.
+  defp readable_fill(accent) do
+    label = readable_on(accent)
+
+    if contrast(label, accent) >= @fill_ratio do
+      {accent, label}
+    else
+      away = if luminance(label) < 0.5, do: {255, 255, 255}, else: {0, 0, 0}
+      {step_toward(accent, label, away, @fill_ratio, 0), label}
     end
   end
 
@@ -317,18 +345,21 @@ defmodule RuleMaven.ThemePalette do
   def fix_text_contrast(vars), do: vars
 
   @doc """
-  Recompute `--accent-text` from the variant's own `--accent` at render time.
-  Fixes palettes persisted before `readable_on/1` escalated to pure extremes on
-  mid-luminance accents (a muddy `#1A1A1A` on mustard gold), and palettes from
-  before the key existed at all (which fell back to `#fff` via
-  `var(--accent-text, #fff)` — worse). Idempotent: freshly derived palettes
-  pass through unchanged. Returns the map untouched when `--accent` is missing
-  or unparseable.
+  Recompute the `--accent` / `--accent-text` fill pairing at render time.
+  Fixes palettes persisted before the fill lift existed (a muddy mid-tone
+  accent under near-black text), and palettes from before `--accent-text`
+  existed at all (which fell back to `#fff` via `var(--accent-text, #fff)` —
+  worse). Idempotent: freshly derived palettes pass through unchanged.
+  Returns the map untouched when `--accent` is missing or unparseable.
   """
   def fix_accent_text(%{"--accent" => accent} = vars) do
     case parse(accent) do
-      {:ok, rgb} -> Map.put(vars, "--accent-text", hex(readable_on(rgb)))
-      :error -> vars
+      {:ok, rgb} ->
+        {fill, label} = readable_fill(rgb)
+        Map.merge(vars, %{"--accent" => hex(fill), "--accent-text" => hex(label)})
+
+      :error ->
+        vars
     end
   end
 
