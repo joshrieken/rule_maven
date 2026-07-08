@@ -2463,6 +2463,13 @@ textarea {
   color: var(--accent-text, #fff);
   align-self: center;
 }
+/* The user bubble is right-aligned, so the ? sits near the right edge —
+   anchor the popover to the right so it opens leftward instead of spilling
+   off-screen. */
+.ask-orig .conf-help__pop {
+  left: auto;
+  right: 0;
+}
 
 /* ===== Collapsible menus on answer cards ===== */
 .card-menu {
