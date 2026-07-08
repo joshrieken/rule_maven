@@ -57,6 +57,20 @@ defmodule RuleMavenWeb.GameLive.GameTheme do
   def style_block(_), do: Phoenix.HTML.raw("")
 
   @doc """
+  True when a game has a generated light+dark palette, i.e. the Game Light /
+  Game Dark themes are offered for it. Mirrors the guard in `style_block/1`;
+  use it to gate UI that nudges players toward the game themes.
+  """
+  def has_palette?(%RuleMaven.Games.Game{} = game) do
+    case RuleMaven.Games.effective_theme_palette(game) do
+      %{"light" => light, "dark" => dark} when is_map(light) and is_map(dark) -> true
+      _ -> false
+    end
+  end
+
+  def has_palette?(_), do: false
+
+  @doc """
   A faint, blurred cover-art backdrop fixed behind the page content. Blurs a
   quarter-size surface scaled 4× so the filter runs over ~1/16 the pixels.
   Renders nothing without a cover image.

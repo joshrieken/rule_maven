@@ -366,15 +366,24 @@
             return;
           }
           localStorage.setItem('theme', this.value);
-          // Only opt out of the game variant when we're actually on a game
-          // page (deliberate off-switch). Picking a main theme elsewhere must
-          // NOT clear a standing game selection — game-light/dark always takes
-          // precedence when you return to a game page.
-          if (gameThemeAvailable()) {
+          // A standing game variant (game-light/dark) always takes precedence.
+          // Opt out of it only via the merged MOBILE picker, where choosing a
+          // non-game option is the explicit off-switch. On desktop the separate
+          // #game-theme-select control is the only off-switch, so the picked
+          // theme just becomes the stored base and the game palette stays
+          // applied. Off a game page the selection is preserved either way and
+          // wins on return.
+          var gameActive = gameThemeAvailable() &&
+            isGameTheme(localStorage.getItem('themeGameMatch'));
+          if (gameActive && mobileMq.matches) {
             localStorage.setItem('themeGameMatch', '0');
             gameSelect.value = '0';
           }
-          html.setAttribute('data-theme', this.value);
+          if (gameActive && !mobileMq.matches) {
+            // Desktop: game variant still wins — leave data-theme on it.
+          } else {
+            html.setAttribute('data-theme', this.value);
+          }
           track(this.value);
         });
 

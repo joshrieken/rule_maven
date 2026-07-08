@@ -3009,6 +3009,20 @@ defmodule RuleMavenWeb.GameLive.Show do
                 <% end %>
               </p>
 
+              <%!-- One-click opt-in to this game's own colors. Only shown when
+                   a palette exists; the hook self-hides it once a game variant
+                   is already active. --%>
+              <button
+                :if={RuleMavenWeb.GameLive.GameTheme.has_palette?(@game)}
+                type="button"
+                id="game-theme-hint"
+                phx-hook="GameThemeHint"
+                data-tour="game-theme-hint"
+                style="margin:1.1rem auto 0;display:inline-flex;align-items:center;gap:0.4rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.75rem;font-weight:700;color:var(--accent-ink,var(--accent));cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
+              >
+                🖌️ Dress this page in {@game.name}'s colors
+              </button>
+
               <%= if @rule_card do %>
                 <div
                   data-tour="dyk"
