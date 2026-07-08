@@ -47,6 +47,15 @@ defmodule RuleMaven.LLM do
     cleaned = normalize_question(game, question, recent_context, user_id: opts[:user_id])
     match_text = if cleaned == "", do: question, else: cleaned
 
+    # Settle the asker's question bubble NOW — the normalized form + "You asked"
+    # disclosure are known here, long before the answer streams. Pushing them to
+    # the LiveView up front means the bubble reaches its final height before any
+    # answer text lands underneath, so the streaming answer never reflows the
+    # page out from under the reader. Fires only when normalization actually
+    # rewrote the text; otherwise the bubble is already correct.
+    if cleaned != "" and cleaned != question,
+      do: broadcast_ask_normalized(game.id, question, cleaned)
+
     # Embed the cleaned question (used for pool check + stored on the logged row,
     # so a future paraphrase normalizes to the same form and matches it).
     question_embedding =
@@ -445,6 +454,22 @@ defmodule RuleMaven.LLM do
         RuleMaven.PubSub,
         "game:#{game_id}",
         {:ask_stage, %{question_log_id: ql_id, stage: stage}}
+      )
+    end
+  end
+
+  # Pushes the normalized question to the asker's LiveView as soon as it's known
+  # (right after the normalize step, before retrieval/answer). Lets the question
+  # bubble render its final form — cleaned text + "You asked" disclosure — up
+  # front so the streaming answer below it never reflows. Same gating as
+  # broadcast_ask_stage/2: only fires for a logged question (AskWorker metadata).
+  defp broadcast_ask_normalized(game_id, original, cleaned) do
+    if ql_id = current_question_log_id() do
+      Phoenix.PubSub.broadcast(
+        RuleMaven.PubSub,
+        "game:#{game_id}",
+        {:ask_normalized,
+         %{question_log_id: ql_id, original: original, cleaned: cleaned}}
       )
     end
   end
