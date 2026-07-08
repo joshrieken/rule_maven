@@ -1211,7 +1211,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
                 {v.style}
               </div>
               <%= if present_preview?(v[:loading_phrases]) do %>
-                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-top:0.35rem">
+                <div style="font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-top:0.35rem">
+                  Loading phrases
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-top:0.2rem">
                   <span
                     :for={p <- v.loading_phrases}
                     style="background:var(--bg-surface);border:1px solid var(--border);border-radius:1rem;padding:0.05rem 0.45rem;font-size:0.68rem;color:var(--text-secondary)"
@@ -1222,6 +1225,23 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               <% else %>
                 <div style="font-size:0.68rem;color:var(--text-muted);font-style:italic;margin-top:0.3rem">
                   No themed loading phrases yet — uses the generic pool. Re-run to generate.
+                </div>
+              <% end %>
+              <%= if present_preview?(v[:thanks_phrases]) do %>
+                <div style="font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-top:0.35rem">
+                  👍 Thank-yous
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-top:0.2rem">
+                  <span
+                    :for={p <- v.thanks_phrases}
+                    style="background:var(--bg-surface);border:1px solid var(--border);border-radius:1rem;padding:0.05rem 0.45rem;font-size:0.68rem;color:var(--text-secondary)"
+                  >
+                    {p}
+                  </span>
+                </div>
+              <% else %>
+                <div style="font-size:0.68rem;color:var(--text-muted);font-style:italic;margin-top:0.3rem">
+                  No themed 👍 thank-yous yet — uses the generic pool. Re-run to generate.
                 </div>
               <% end %>
             </div>
