@@ -41,6 +41,54 @@ defmodule RuleMavenWeb.PrepareRenderTest do
     assert has_element?(view, "button[phx-click=\"extract\"]", "Extract")
   end
 
+  test "first-player, common-mistakes, and quiz steps render with their stored data",
+       %{conn: conn} do
+    admin = admin!("prep_fun_admin")
+    game = game_fixture(%{name: "Fun Steps Game", bgg_id: 7789, bgg_data: "<items/>"})
+
+    RuleMaven.Settings.put(
+      "first_player_#{game.id}",
+      Jason.encode!(["Whoever last visited a castle goes first"])
+    )
+
+    RuleMaven.Settings.put(
+      "common_mistakes_#{game.id}",
+      Jason.encode!([
+        %{
+          "wrong" => "Players draw two cards every turn",
+          "right" => "Players draw exactly one card per turn"
+        }
+      ])
+    )
+
+    RuleMaven.Settings.put(
+      "quiz_#{game.id}",
+      Jason.encode!([
+        %{
+          "q" => "How many cards start in hand?",
+          "choices" => ["Three", "Five"],
+          "answer" => 1,
+          "why" => "The setup section deals five cards to each player."
+        }
+      ])
+    )
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, _view, html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    # Step rows present, marked Done, previewing every stored field.
+    assert html =~ "First-player picker"
+    assert html =~ "Whoever last visited a castle goes first"
+    assert html =~ "Common mistakes"
+    assert html =~ "Players draw two cards every turn"
+    assert html =~ "Players draw exactly one card per turn"
+    assert html =~ "Rules quiz"
+    assert html =~ "How many cards start in hand?"
+    assert html =~ "Three"
+    assert html =~ "✓ Five"
+    assert html =~ "The setup section deals five cards to each player."
+  end
+
   test "header shows the game image when the game has one", %{conn: conn} do
     admin = admin!("prep_img_admin")
 

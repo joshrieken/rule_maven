@@ -32,13 +32,16 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     setup: ["setup"],
     did_you_know: ["did_you_know"],
     voices: ["voice"],
-    theme: ["theme_palette"]
+    theme: ["theme_palette"],
+    first_player: ["first_player_picks"],
+    common_mistakes: ["common_mistakes"],
+    quiz: ["quiz_generate"]
   }
 
   # Enrichment steps that can be re-run in place from this page (each maps to a
   # durable Oban worker), and the subset whose cached output can be cleared.
-  @regen_steps ~w(suggestions categories cheat_sheet setup did_you_know voices theme bgg)a
-  @clear_steps ~w(suggestions cheat_sheet setup did_you_know theme)a
+  @regen_steps ~w(suggestions categories cheat_sheet setup did_you_know voices theme bgg first_player common_mistakes quiz)a
+  @clear_steps ~w(suggestions cheat_sheet setup did_you_know theme first_player common_mistakes quiz)a
 
   # JobRun.kind → step id, so a game-scoped running run lights up its step's
   # "Running…" indicator while the worker is in flight.
@@ -51,7 +54,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     "did_you_know" => :did_you_know,
     "voices" => :voices,
     "theme_palette" => :theme,
-    "bgg_enrich" => :bgg
+    "bgg_enrich" => :bgg,
+    "first_player" => :first_player,
+    "common_mistakes" => :common_mistakes,
+    "quiz" => :quiz
   }
 
   # JobRun.kind → step id for the inline per-step job log. Superset of
@@ -70,7 +76,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     "setup_checklist" => :setup,
     "did_you_know" => :did_you_know,
     "voices" => :voices,
-    "theme_palette" => :theme
+    "theme_palette" => :theme,
+    "first_player" => :first_player,
+    "common_mistakes" => :common_mistakes,
+    "quiz" => :quiz
   }
 
   @impl true
@@ -520,6 +529,9 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   end
 
   defp regen_step(:voices, g), do: Workers.VoiceSuggestionsWorker.enqueue(g.id)
+  defp regen_step(:first_player, g), do: Workers.FirstPlayerWorker.enqueue(g.id)
+  defp regen_step(:common_mistakes, g), do: Workers.CommonMistakesWorker.enqueue(g.id)
+  defp regen_step(:quiz, g), do: Workers.QuizWorker.enqueue(g.id)
   defp regen_step(:theme, g), do: Workers.ThemePaletteWorker.enqueue(g)
   defp regen_step(:bgg, g), do: %{game_id: g.id} |> Workers.BggEnrichWorker.new() |> Oban.insert()
   defp regen_step(_, _), do: :ok
@@ -529,6 +541,9 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   defp clear_step(:setup, g), do: Setup.clear(g.id)
   defp clear_step(:did_you_know, g), do: Settings.delete("did_you_know_#{g.id}")
   defp clear_step(:theme, g), do: Games.update_game(g, %{theme_palette: nil})
+  defp clear_step(:first_player, g), do: Settings.delete("first_player_#{g.id}")
+  defp clear_step(:common_mistakes, g), do: Settings.delete("common_mistakes_#{g.id}")
+  defp clear_step(:quiz, g), do: Settings.delete("quiz_#{g.id}")
   defp clear_step(_, _), do: :ok
 
   # True when any of the game's sources has a cleanup job queued/running. Cleanup
@@ -911,7 +926,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       did_you_know: load_did_you_know(game.id),
       voices: Voices.game_voice_defs(game.id),
       theme: game.theme_palette,
-      bgg: game.bgg_data
+      bgg: game.bgg_data,
+      first_player: load_json_list("first_player_#{game.id}"),
+      common_mistakes: load_json_list("common_mistakes_#{game.id}"),
+      quiz: load_json_list("quiz_#{game.id}")
     }
   end
 
@@ -976,8 +994,12 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     end
   end
 
-  defp load_did_you_know(game_id) do
-    case Settings.get("did_you_know_#{game_id}") do
+  defp load_did_you_know(game_id), do: load_json_list("did_you_know_#{game_id}")
+
+  # Generic loader for game artifacts stored as a JSON list in Settings
+  # (did-you-know facts, first-player selectors, common mistakes, quiz).
+  defp load_json_list(key) do
+    case Settings.get(key) do
       nil ->
         []
 
@@ -1132,6 +1154,47 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           <ul style="margin:0;padding-left:1.1rem">
             <li :for={f <- @preview} style="margin-bottom:0.25rem">{to_string(f)}</li>
           </ul>
+        <% :first_player -> %>
+          <ul style="margin:0;padding-left:1.1rem">
+            <li :for={s <- @preview} style="margin-bottom:0.25rem">{to_string(s)}</li>
+          </ul>
+        <% :common_mistakes -> %>
+          <div style="display:flex;flex-direction:column;gap:0.5rem">
+            <div
+              :for={m <- @preview}
+              style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.55rem"
+            >
+              <div style="display:flex;gap:0.4rem">
+                <span style="color:var(--red);font-weight:700;flex-shrink:0">✗</span>
+                <span>{m["wrong"]}</span>
+              </div>
+              <div style="display:flex;gap:0.4rem;margin-top:0.2rem">
+                <span style="color:var(--green);font-weight:700;flex-shrink:0">✓</span>
+                <span>{m["right"]}</span>
+              </div>
+            </div>
+          </div>
+        <% :quiz -> %>
+          <ol style="margin:0;padding-left:1.1rem">
+            <li :for={q <- @preview} style="margin-bottom:0.55rem">
+              <span style="font-weight:600">{q["q"]}</span>
+              <ul style="margin:0.15rem 0 0;padding-left:1.1rem;list-style:none">
+                <li :for={{choice, i} <- Enum.with_index(q["choices"] || [])}>
+                  <%= if i == q["answer"] do %>
+                    <span style="color:var(--green);font-weight:700">✓ {choice}</span>
+                  <% else %>
+                    <span style="color:var(--text-muted)">{choice}</span>
+                  <% end %>
+                </li>
+              </ul>
+              <span
+                :if={is_binary(q["why"]) and q["why"] != ""}
+                style="display:block;font-size:0.74rem;color:var(--text-muted);margin-top:0.15rem"
+              >
+                {q["why"]}
+              </span>
+            </li>
+          </ol>
         <% :voices -> %>
           <div style="display:flex;flex-direction:column;gap:0.6rem">
             <div
@@ -1407,8 +1470,18 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # required ladder is managed on the edit page.
   defp step_link(:cheat_sheet, game), do: %{href: ~p"/games/#{game}/cheatsheet", label: "View"}
 
-  defp step_link(id, game) when id in [:suggestions, :setup, :did_you_know, :voices, :theme],
-    do: %{href: ~p"/games/#{game}", label: "View on game page"}
+  defp step_link(id, game)
+       when id in [
+              :suggestions,
+              :setup,
+              :did_you_know,
+              :voices,
+              :theme,
+              :first_player,
+              :common_mistakes,
+              :quiz
+            ],
+       do: %{href: ~p"/games/#{game}", label: "View on game page"}
 
   # Categories are managed in place on this page now — no edit-page round-trip.
   defp step_link(:categories, _game), do: nil

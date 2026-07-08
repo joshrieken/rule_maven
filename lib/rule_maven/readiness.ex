@@ -31,10 +31,10 @@ defmodule RuleMaven.Readiness do
   alias RuleMaven.Games.{Game, Document, Chunk}
 
   @required ~w(bgg source extract review cleanup embed)a
-  @enrichment ~w(theme suggestions categories cheat_sheet setup did_you_know voices)a
+  @enrichment ~w(theme suggestions categories cheat_sheet setup did_you_know voices first_player common_mistakes quiz)a
 
   # Steps that spend LLM/embedding budget — the ones we estimate + total cost for.
-  @llm_steps ~w(extract cleanup embed suggestions categories cheat_sheet setup did_you_know voices theme)a
+  @llm_steps ~w(extract cleanup embed suggestions categories cheat_sheet setup did_you_know voices theme first_player common_mistakes quiz)a
 
   @doc "Ordered required steps (the ones that gate `playable`)."
   def required_steps, do: @required
@@ -69,6 +69,9 @@ defmodule RuleMaven.Readiness do
   def label(:voices), do: "Personas"
   def label(:theme), do: "Theme palette"
   def label(:bgg), do: "BoardGameGeek data"
+  def label(:first_player), do: "First-player picker"
+  def label(:common_mistakes), do: "Common mistakes"
+  def label(:quiz), do: "Rules quiz"
 
   ## State -------------------------------------------------------------------
 
@@ -196,6 +199,12 @@ defmodule RuleMaven.Readiness do
     do: Settings.get("setup_status_#{id}") == "done"
 
   def step_complete?(:did_you_know, %Game{id: id}, _docs), do: present?("did_you_know_#{id}")
+  def step_complete?(:first_player, %Game{id: id}, _docs), do: present?("first_player_#{id}")
+
+  def step_complete?(:common_mistakes, %Game{id: id}, _docs),
+    do: present?("common_mistakes_#{id}")
+
+  def step_complete?(:quiz, %Game{id: id}, _docs), do: present?("quiz_#{id}")
   def step_complete?(:voices, %Game{id: id}, _docs), do: Voices.game_voice_defs(id) != []
   # Expansions never generate their own palette — they inherit the base game's
   # (see `Games.effective_theme_palette/1`), so there's nothing for this game's
@@ -431,15 +440,13 @@ defmodule RuleMaven.Readiness do
     unless step_complete?(:voices, game, []),
       do: RuleMaven.Workers.VoiceSuggestionsWorker.enqueue(game.id)
 
-    # Not readiness steps (never gate Ready) — backfill for games finalized
-    # before these generators existed.
-    if RuleMaven.Settings.get("first_player_#{game.id}") == nil,
+    unless step_complete?(:first_player, game, []),
       do: RuleMaven.Workers.FirstPlayerWorker.enqueue(game.id)
 
-    if RuleMaven.Settings.get("common_mistakes_#{game.id}") == nil,
+    unless step_complete?(:common_mistakes, game, []),
       do: RuleMaven.Workers.CommonMistakesWorker.enqueue(game.id)
 
-    if RuleMaven.Settings.get("quiz_#{game.id}") == nil,
+    unless step_complete?(:quiz, game, []),
       do: RuleMaven.Workers.QuizWorker.enqueue(game.id)
 
     unless step_complete?(:setup, game, []),

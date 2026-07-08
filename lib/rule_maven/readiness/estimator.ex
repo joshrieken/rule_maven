@@ -44,6 +44,12 @@ defmodule RuleMaven.Readiness.Estimator do
   @voice_out 700
   @theme_io {1200, 1500}
 
+  # Sampled-rulebook enrichments (LLM.sample_across caps the input) on the
+  # cheap model: {sample chars, max output tokens}, matching the callers.
+  @first_player_io {12_000, 4000}
+  @common_mistakes_io {16_000, 4000}
+  @quiz_io {16_000, 8000}
+
   @doc """
   Estimated USD for a single step against a game's current inputs. Returns 0.0
   for non-LLM steps and for steps already complete.
@@ -128,7 +134,21 @@ defmodule RuleMaven.Readiness.Estimator do
     price(LLM.model(), in_t, out_t)
   end
 
+  defp do_step_cost(:first_player, _game, docs), do: sampled_chat_cost(docs, @first_player_io)
+
+  defp do_step_cost(:common_mistakes, _game, docs),
+    do: sampled_chat_cost(docs, @common_mistakes_io)
+
+  defp do_step_cost(:quiz, _game, docs), do: sampled_chat_cost(docs, @quiz_io)
+
   defp do_step_cost(_step, _game, _docs), do: 0.0
+
+  # A sampled-rulebook chat call on the cheap model: capped text in + a fixed
+  # output budget.
+  defp sampled_chat_cost(docs, {sample_chars, out_tokens}) do
+    in_toks = div(min(chars(docs), sample_chars), @chars_per_token) + @system_overhead
+    price(LLM.model(:cheap), in_toks, out_tokens)
+  end
 
   # A whole-rulebook chat call: full text in + a fixed output budget.
   defp chat_cost(docs, out_tokens) do
