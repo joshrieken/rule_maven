@@ -569,11 +569,6 @@ Hooks.VoiceDictation = {
       return;
     }
 
-    // TEMP DIAGNOSTIC: confirms this build is live and surfaces the real
-    // SpeechRecognition error/lifecycle. Remove once the mic bug is root-caused.
-    const log = (...a) => console.log("[voiceask]", ...a);
-    log("mounted build=diag-1", { SR: SR.name, lang: navigator.language, secure: window.isSecureContext });
-
     const targetId = this.el.getAttribute("data-target");
     const autoSubmit = this.el.getAttribute("data-autosubmit") === "true";
     const idleHTML = this.el.innerHTML;
@@ -606,6 +601,36 @@ Hooks.VoiceDictation = {
       this.el.style.color = "var(--text-muted)";
     };
 
+    // Surface an unrecoverable failure (blocked mic, blocked speech backend).
+    // Web Speech streams audio to a cloud service, so an ad/privacy blocker or
+    // offline state fails with `network` and there's nothing to retry. Flash a
+    // reason the user can actually see on mobile (no hover): ⚠️ on the button
+    // plus a temporary placeholder in the ask box.
+    const showError = (msg) => {
+      this.wantListen = false;
+      this.listening = false;
+      this.el.innerHTML = "⚠️";
+      this.el.style.color = "var(--danger, #c00)";
+      this.el.title = msg;
+      this.el.setAttribute("aria-label", msg);
+      const el = input();
+      if (el) {
+        if (this._savedPlaceholder == null) this._savedPlaceholder = el.getAttribute("placeholder") || "";
+        el.setAttribute("placeholder", msg);
+      }
+      clearTimeout(this._errTimer);
+      this._errTimer = setTimeout(() => {
+        showIdle();
+        this.el.title = "Ask by voice";
+        this.el.removeAttribute("aria-label");
+        const e2 = input();
+        if (e2 && this._savedPlaceholder != null) {
+          e2.setAttribute("placeholder", this._savedPlaceholder);
+          this._savedPlaceholder = null;
+        }
+      }, 4500);
+    };
+
     // Chrome aborts the recognition that triggered the mic-permission prompt,
     // firing onerror("aborted")/onend before it ever really starts — the button
     // flashes 🎙️ then snaps back to 🎤. When the user still wants to listen,
@@ -613,17 +638,15 @@ Hooks.VoiceDictation = {
     const maybeRetry = () => {
       if (this.wantListen && !this.listening && !this.retried) {
         this.retried = true;
-        log("maybeRetry -> restart");
         try {
           this.rec.start();
           return true;
-        } catch (e) { log("retry start threw", e && e.message); }
+        } catch (_e) {}
       }
       return false;
     };
 
     this.rec.onstart = () => {
-      log("onstart");
       this.retried = false;
       showListening();
     };
@@ -647,28 +670,48 @@ Hooks.VoiceDictation = {
 
     this.rec.onerror = (e) => {
       const err = e && e.error;
-      log("onerror", err, "wantListen=" + this.wantListen, "listening=" + this.listening, "retried=" + this.retried);
-      if (err === "not-allowed" || err === "service-not-allowed") {
-        // Permission is genuinely blocked — don't loop, tell the user why.
-        this.wantListen = false;
-        this.el.title = "Microphone blocked — allow mic access for this site, then tap again";
-        showIdle();
+      if (err === "not-allowed") {
+        showError("Microphone blocked — allow mic access for this site, then tap 🎤 again");
         return;
       }
+      if (err === "service-not-allowed" || err === "network") {
+        // Web Speech relies on a cloud backend; an ad/privacy blocker (uBlock,
+        // Brave, etc.) or being offline blocks that request → `network`.
+        showError("Voice needs to reach the speech service — a browser or ad/privacy blocker may be blocking it");
+        return;
+      }
+      if (err === "audio-capture") {
+        showError("No microphone found");
+        return;
+      }
+      // `aborted`/`no-speech` before we ever started = the permission-prompt
+      // race; retry once. Otherwise just fall back to idle silently.
       if (maybeRetry()) return;
       this.wantListen = false;
       showIdle();
     };
 
     this.rec.onend = () => {
-      log("onend", "wantListen=" + this.wantListen, "listening=" + this.listening, "retried=" + this.retried);
       if (maybeRetry()) return;
       this.wantListen = false;
       showIdle();
     };
 
     this._click = () => {
-      log("click", "wantListen=" + this.wantListen);
+      // If an error notice is showing, clear it and restore the ask box before
+      // acting, so the tap starts a clean attempt.
+      if (this._errTimer) {
+        clearTimeout(this._errTimer);
+        this._errTimer = null;
+        this.el.title = "Ask by voice";
+        this.el.removeAttribute("aria-label");
+        const errEl = input();
+        if (errEl && this._savedPlaceholder != null) {
+          errEl.setAttribute("placeholder", this._savedPlaceholder);
+          this._savedPlaceholder = null;
+        }
+        showIdle();
+      }
       if (this.wantListen) {
         this.wantListen = false;
         try { this.rec.stop(); } catch (_e) {}
@@ -695,6 +738,7 @@ Hooks.VoiceDictation = {
   },
   destroyed() {
     this.wantListen = false;
+    if (this._errTimer) { clearTimeout(this._errTimer); this._errTimer = null; }
     if (this.rec) {
       try { this.rec.abort(); } catch (_e) {}
     }
