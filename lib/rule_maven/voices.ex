@@ -679,6 +679,17 @@ defmodule RuleMaven.Voices do
     |> Repo.delete_all()
   end
 
+  @doc """
+  Deletes ALL of a game's generated persona voices (`game_voices` rows) along
+  with every cached restyle for the game. Used by the prepare-pipeline reset —
+  the personas are derived from the rulebook text, so they go with it.
+  """
+  def clear_generated_for_game(game_id) do
+    clear_for_game(game_id)
+    Repo.delete_all(from gv in GameVoice, where: gv.game_id == ^game_id)
+    :ok
+  end
+
   @doc "Drops cached restyles of one voice across a game's answers."
   def clear_for_voice(game_id, voice) do
     from(v in AnswerVoice,

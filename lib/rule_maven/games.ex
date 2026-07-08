@@ -1038,7 +1038,9 @@ defmodule RuleMaven.Games do
   Reset a game's whole prepare pipeline back to its blank, pre-prepare state:
   delete every rulebook source (files, chunks, extracted/cleaned pages) and clear
   every generated artifact (suggestions, categories, cheat sheet, setup, did-you-
-  know, voices, theme palette). The game row and its `bgg_data` are kept.
+  know, persona voices + cached restyles, first-player picker, common mistakes,
+  quiz, expansion delta). The game row, its `bgg_data` and its `theme_palette`
+  are kept.
 
   Refuses with `{:error, :has_questions}` if any question has been logged for the
   game — a destructive wipe shouldn't be possible once players have engaged. The
@@ -1056,20 +1058,18 @@ defmodule RuleMaven.Games do
 
       RuleMaven.CheatSheet.clear(game.id)
       RuleMaven.Setup.clear(game.id)
-      RuleMaven.Voices.clear_for_game(game.id)
+      RuleMaven.Voices.clear_generated_for_game(game.id)
+      RuleMaven.ExpansionDelta.clear(game.id)
       Repo.delete_all(from c in GameCategory, where: c.game_id == ^game.id)
 
       Enum.each(
-        ~w(suggestions categories did_you_know),
+        ~w(suggestions categories did_you_know first_player common_mistakes quiz),
         &RuleMaven.Settings.delete("#{&1}_#{game.id}")
       )
 
       # Belt-and-suspenders: covers the no-documents case where delete_document's
       # last-source hook never fired.
       clear_game_generation_state(game.id)
-      # update_all rather than update_game/2 so a stale in-memory `game` (theme set
-      # after it was loaded) can't make the change look like a no-op.
-      Repo.update_all(from(g in Game, where: g.id == ^game.id), set: [theme_palette: nil])
 
       # Stamp the reset time so the Prepare page can scope its "actual cost"
       # readout to post-reset spend. The llm_logs rows themselves are kept —

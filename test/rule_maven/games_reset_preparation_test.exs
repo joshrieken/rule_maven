@@ -5,6 +5,7 @@ defmodule RuleMaven.GamesResetPreparationTest do
 
   alias RuleMaven.{Games, Settings, Repo}
   alias RuleMaven.Games.{Document, Chunk, GameCategory}
+  alias RuleMaven.Voices.GameVoice
 
   defp game, do: elem(Games.create_game(%{name: "Reset #{System.unique_integer([:positive])}"}), 1)
 
@@ -31,12 +32,25 @@ defmodule RuleMaven.GamesResetPreparationTest do
     Settings.put("did_you_know_#{game.id}", "[]")
     Settings.put("cheat_content_#{game.id}", "stale")
     Settings.put("setup_content_#{game.id}", "stale")
+    Settings.put("first_player_#{game.id}", "[]")
+    Settings.put("common_mistakes_#{game.id}", "[]")
+    Settings.put("quiz_#{game.id}", "[]")
+    Settings.put("delta_content_#{game.id}", "stale")
 
     Repo.insert!(%GameCategory{game_id: game.id, name: "Combat", description: "fights"})
+
+    Repo.insert!(%GameVoice{
+      game_id: game.id,
+      slug: "gruff-captain",
+      label: "Gruff Captain",
+      emoji: "🏴‍☠️",
+      style: "barks orders"
+    })
+
     {:ok, _} = Games.update_game(game, %{theme_palette: %{"light" => %{"--accent" => "#fff"}}})
   end
 
-  test "wipes all documents, chunks, files and enrichments, keeps the game" do
+  test "wipes documents, enrichments and personas — keeps game, bgg_data, theme palette" do
     game = game()
     {doc, full} = doc_with_file(game)
     seed_enrichments(game)
@@ -52,7 +66,15 @@ defmodule RuleMaven.GamesResetPreparationTest do
     assert Settings.get("did_you_know_#{game.id}") == nil
     assert Settings.get("cheat_content_#{game.id}") == nil
     assert Settings.get("setup_content_#{game.id}") == nil
-    assert Repo.get(RuleMaven.Games.Game, game.id).theme_palette == nil
+    assert Settings.get("first_player_#{game.id}") == nil
+    assert Settings.get("common_mistakes_#{game.id}") == nil
+    assert Settings.get("quiz_#{game.id}") == nil
+    assert Settings.get("delta_content_#{game.id}") == nil
+    assert Repo.aggregate(from(gv in GameVoice, where: gv.game_id == ^game.id), :count) == 0
+
+    assert Repo.get(RuleMaven.Games.Game, game.id).theme_palette == %{
+             "light" => %{"--accent" => "#fff"}
+           }
   end
 
   test "is a no-op-safe :ok when there is nothing to reset" do
@@ -81,5 +103,6 @@ defmodule RuleMaven.GamesResetPreparationTest do
     assert File.exists?(full)
     assert Repo.aggregate(from(d in Document, where: d.game_id == ^game.id), :count) == 1
     assert Settings.get("cheat_content_#{game.id}") == "stale"
+    assert Repo.aggregate(from(gv in GameVoice, where: gv.game_id == ^game.id), :count) == 1
   end
 end
