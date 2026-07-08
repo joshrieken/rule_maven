@@ -539,6 +539,34 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
+  # Vars: game_name, rulebook
+  @teach_pitch """
+  From the rulebook text below for "{{game_name}}", write a punchy
+  "teach it in 60 seconds" summary — the four things a brand-new player needs to
+  start playing right now, in plain words you'd say out loud to the table.
+
+  The text below is SAMPLED from across the rulebook, so you are NOT seeing every
+  rule. Treat it as partial. Only state things supported by the text; if the text
+  is too thin to fill a line honestly, write "none" for that line rather than
+  guessing or inventing.
+
+  Write EXACTLY four lines, each starting with "- " then a KEY, the key and the
+  text separated by " || ":
+  - GOAL || what you're trying to do and what ends the game (one sentence).
+  - LOOP || what you actually do on your turn — the core repeated action (one sentence).
+  - WIN || how the winner is decided (one sentence).
+  - TRAP || the single rule new players most often get wrong, stated as the correct rule (one sentence).
+
+  Rules:
+  - Plain, friendly, spoken-aloud language. No markdown, no page numbers, no
+    preamble, no numbering beyond the "- KEY ||" prefix.
+  - Each line is one self-contained sentence. Never invent rules or numbers that
+    aren't in the text.
+
+  RULEBOOK (sampled across the whole book):
+  {{rulebook}}
+  """
+
   # Vars: game_name, rulebook, items
   @setup_verify """
   You are a strict fact-checker for a board-game SETUP checklist for "{{game_name}}". Check each numbered item (components to gather and setup steps) against the rulebook text.
@@ -659,6 +687,7 @@ defmodule RuleMaven.Prompts do
   @did_you_know_system "You surface interesting, accurate board game rule facts. Never invent rules; only use the provided text. #{@english_output}"
   @first_player_system "You invent simple, playful, inclusive ways for a table to pick who goes first, lightly themed to a board game's world. Every pick has an obvious winner that anyone can settle in one breath — no judging, timing, or contests. Flavor only — never state game rules. #{@english_output}"
   @common_mistakes_system "You surface board game rules that tables commonly misplay, with the accurate correction. Never invent rules; corrections come only from the provided text. #{@english_output}"
+  @teach_pitch_system "You give fast, accurate 'how to play' summaries of board games for brand-new players. Never invent rules; only use the provided text. #{@english_output}"
   @quiz_generate_system "You write fun, accurate multiple-choice quizzes about board game rules. Correct answers come only from the provided text; never invent rules. Output only the requested JSON. #{@english_output}"
   @did_you_know_verify_system "You are a strict board-game rulebook fact-checker. Pass only fully, accurately supported facts; reject anything misleading or unconfirmed. Output only the numbers in the requested format — never prose in any language."
   @categories_system "You generate topic categories for board game rulebooks. Be concise and specific. #{@english_output}"
@@ -1224,6 +1253,22 @@ defmodule RuleMaven.Prompts do
       description: "System prompt for the common-mistakes generator.",
       vars: [],
       default: @common_mistakes_system
+    },
+    %{
+      key: "teach_pitch",
+      group: "Content generation",
+      label: "60-second teach",
+      description: "Generates the quick goal/loop/win/trap 'teach it in 60 seconds' summary.",
+      vars: ~w(game_name rulebook),
+      default: @teach_pitch
+    },
+    %{
+      key: "teach_pitch_system",
+      group: "Content generation",
+      label: "60-second teach — system",
+      description: "System primer paired with the 60-second teach prompt.",
+      vars: [],
+      default: @teach_pitch_system
     },
     %{
       key: "quiz_generate",

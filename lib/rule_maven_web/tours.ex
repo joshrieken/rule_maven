@@ -93,6 +93,12 @@ defmodule RuleMavenWeb.Tours do
           "Tick off components and setup steps as you lay out the game — expansion extras included."
       },
       %{
+        sel: "[data-tour='teach']",
+        title: "Teach it in 60 seconds",
+        body:
+          "New to this game? Goal, your turn, how to win, and the rule people always miss — just enough to start playing right now. Read it aloud to the table."
+      },
+      %{
         sel: "[data-tour='dyk']",
         title: "Did you know?",
         body:

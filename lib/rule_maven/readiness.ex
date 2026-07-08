@@ -31,10 +31,10 @@ defmodule RuleMaven.Readiness do
   alias RuleMaven.Games.{Game, Document, Chunk}
 
   @required ~w(bgg source extract review cleanup embed)a
-  @enrichment ~w(theme suggestions categories cheat_sheet setup did_you_know voices first_player common_mistakes quiz)a
+  @enrichment ~w(theme suggestions categories cheat_sheet setup did_you_know voices first_player common_mistakes quiz teach)a
 
   # Steps that spend LLM/embedding budget — the ones we estimate + total cost for.
-  @llm_steps ~w(extract cleanup embed suggestions categories cheat_sheet setup did_you_know voices theme first_player common_mistakes quiz)a
+  @llm_steps ~w(extract cleanup embed suggestions categories cheat_sheet setup did_you_know voices theme first_player common_mistakes quiz teach)a
 
   @doc "Ordered required steps (the ones that gate `playable`)."
   def required_steps, do: @required
@@ -72,6 +72,7 @@ defmodule RuleMaven.Readiness do
   def label(:first_player), do: "First-player picker"
   def label(:common_mistakes), do: "Common mistakes"
   def label(:quiz), do: "Rules quiz"
+  def label(:teach), do: "60-second teach"
 
   ## State -------------------------------------------------------------------
 
@@ -205,6 +206,7 @@ defmodule RuleMaven.Readiness do
     do: present?("common_mistakes_#{id}")
 
   def step_complete?(:quiz, %Game{id: id}, _docs), do: present?("quiz_#{id}")
+  def step_complete?(:teach, %Game{id: id}, _docs), do: present?("teach_pitch_#{id}")
   def step_complete?(:voices, %Game{id: id}, _docs), do: Voices.game_voice_defs(id) != []
   # Expansions never generate their own palette — they inherit the base game's
   # (see `Games.effective_theme_palette/1`), so there's nothing for this game's
@@ -448,6 +450,9 @@ defmodule RuleMaven.Readiness do
 
     unless step_complete?(:quiz, game, []),
       do: RuleMaven.Workers.QuizWorker.enqueue(game.id)
+
+    unless step_complete?(:teach, game, []),
+      do: RuleMaven.Workers.TeachPitchWorker.enqueue(game.id)
 
     unless step_complete?(:setup, game, []),
       do: safe(fn -> RuleMaven.Setup.generate_async(game) end)

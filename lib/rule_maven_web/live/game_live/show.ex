@@ -282,6 +282,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         fp_selectors: load_first_player(game),
         fp_pick: nil,
         common_mistakes: load_common_mistakes(game),
+        teach_pitch: load_teach_pitch(game),
         quiz: load_quiz(game),
         quiz_idx: 0,
         quiz_choice: nil,
@@ -3120,6 +3121,30 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </div>
               <% end %>
 
+              <%= if @teach_pitch != %{} do %>
+                <%!-- "Teach it in 60 seconds" summary generated at finalize —
+                    the fast way to bring a new player up to speed. Read aloud. --%>
+                <details data-tour="teach" style="margin:1.25rem auto 0;max-width:30rem;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
+                  <summary style="cursor:pointer;font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
+                    ⚡ Teach it in 60 seconds
+                  </summary>
+                  <dl style="margin:0.6rem 0 0;display:flex;flex-direction:column;gap:0.5rem">
+                    <div
+                      :for={{k, emoji, label} <- [{"goal", "🎯", "Goal"}, {"loop", "🔁", "On your turn"}, {"win", "🏆", "Winning"}, {"trap", "⚠️", "Don't forget"}]}
+                      :if={@teach_pitch[k]}
+                      style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.55rem"
+                    >
+                      <dt style="font-size:0.62rem;font-weight:800;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-muted)">
+                        <span aria-hidden="true">{emoji}</span> {label}
+                      </dt>
+                      <dd style="margin:0.12rem 0 0;font-size:0.82rem;line-height:1.5;color:var(--text)">
+                        {@teach_pitch[k]}
+                      </dd>
+                    </div>
+                  </dl>
+                </details>
+              <% end %>
+
               <%= if @common_mistakes != [] do %>
                 <%!-- Fact-checked misplay list generated at finalize; collapsed
                     by default so the landing page stays light. --%>
@@ -5205,6 +5230,16 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp load_common_mistakes(game) do
     case RuleMaven.Settings.get("common_mistakes_#{game.id}") do
       nil -> []
+      json -> Jason.decode!(json)
+    end
+  end
+
+  # Cached "teach it in 60 seconds" summary (generated at finalize): a map of
+  # any of goal/loop/win/trap the rulebook supported. Empty until the worker runs
+  # — the card is simply hidden.
+  defp load_teach_pitch(game) do
+    case RuleMaven.Settings.get("teach_pitch_#{game.id}") do
+      nil -> %{}
       json -> Jason.decode!(json)
     end
   end

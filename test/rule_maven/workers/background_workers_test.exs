@@ -96,6 +96,37 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
     end
   end
 
+  describe "TeachPitchWorker" do
+    test "persists the parsed teach map and broadcasts to the game topic" do
+      mock_llm(
+        "- GOAL || Build the longest road across the island.\n" <>
+          "- LOOP || On your turn you roll, trade, then build.\n" <>
+          "- WIN || The first player to reach ten points wins.\n" <>
+          "- TRAP || You collect resources on everyone's roll, not just your own.\n" <>
+          "- BOGUS || this key is ignored"
+      )
+
+      game = game_with_rulebook()
+
+      Phoenix.PubSub.subscribe(
+        RuleMaven.PubSub,
+        RuleMaven.Workers.TeachPitchWorker.topic(game.id)
+      )
+
+      assert :ok =
+               RuleMaven.Workers.TeachPitchWorker.perform(%Oban.Job{
+                 args: %{"game_id" => game.id}
+               })
+
+      assert_received {:teach_pitch_ready, pitch}
+      assert map_size(pitch) == 4
+      assert pitch["goal"] =~ "longest road"
+      assert pitch["trap"] =~ "everyone's roll"
+      refute Map.has_key?(pitch, "bogus")
+      assert Settings.get("teach_pitch_#{game.id}") =~ "ten points"
+    end
+  end
+
   describe "QuizWorker" do
     test "persists parsed quiz questions and broadcasts to the game topic" do
       mock_llm(~s([

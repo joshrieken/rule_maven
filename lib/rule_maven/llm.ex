@@ -2919,6 +2919,53 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
+  Generates the "teach it in 60 seconds" summary for a game: a map with any of
+  the `goal`, `loop`, `win`, `trap` keys the rulebook supports (lines the model
+  marks "none" are dropped). Returns `{:ok, map}` (possibly empty when the
+  rulebook is too thin) or `{:error, reason}`.
+  """
+  def generate_teach_pitch(game_name, rulebook_text, game_id \\ nil) do
+    prompt =
+      RuleMaven.Prompts.render("teach_pitch", %{
+        game_name: game_name,
+        rulebook: sample_across(rulebook_text, 14000, 2000)
+      })
+
+    case chat(prompt, "teach_pitch",
+           model: model(:cheap),
+           operation: "teach_pitch",
+           game_id: game_id,
+           system: RuleMaven.Prompts.template("teach_pitch_system"),
+           max_tokens: 2000
+         ) do
+      {:ok, text} ->
+        pitch =
+          text
+          |> bullet_lines()
+          |> Enum.reduce(%{}, fn line, acc ->
+            case String.split(line, "||", parts: 2) do
+              [key, val] ->
+                k = key |> String.trim() |> String.downcase()
+                v = String.trim(val)
+
+                if k in ~w(goal loop win trap) and String.length(v) >= 8 and
+                     String.downcase(v) != "none",
+                   do: Map.put(acc, k, v),
+                   else: acc
+
+              _ ->
+                acc
+            end
+          end)
+
+        {:ok, pitch}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
   Generates themed "who goes first" table rituals for a game — flavor drawn
   from the rulebook's world, never rules. Returns `{:ok, [selector]}` or
   `{:error, reason}`.

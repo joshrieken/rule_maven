@@ -965,6 +965,7 @@ defmodule RuleMaven.Games do
     RuleMaven.Workers.FirstPlayerWorker.enqueue(game_id)
     RuleMaven.Workers.CommonMistakesWorker.enqueue(game_id)
     RuleMaven.Workers.QuizWorker.enqueue(game_id)
+    RuleMaven.Workers.TeachPitchWorker.enqueue(game_id)
 
     case Repo.get(Game, game_id) do
       %Game{} = game -> RuleMaven.Setup.generate_async(game)
