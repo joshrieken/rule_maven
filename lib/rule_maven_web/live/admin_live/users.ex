@@ -65,7 +65,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
 
   def handle_event(
         "create_user",
-        %{"username" => username, "email" => email, "role" => role},
+        %{"new_username" => username, "new_email" => email, "new_role" => role},
         socket
       ) do
     case Users.create_user_with_temp_password(%{
@@ -180,7 +180,12 @@ defmodule RuleMavenWeb.AdminLive.Users do
           <h2 style="font-size:0.85rem;font-weight:600;color:var(--text);margin:0 0 0.5rem">
             Create New User
           </h2>
-          <div phx-change="form_change" style="display:flex;gap:0.5rem;align-items:end;flex-wrap:wrap">
+          <form
+            id="create-user-form"
+            phx-change="form_change"
+            phx-submit="create_user"
+            style="display:flex;gap:0.5rem;align-items:end;flex-wrap:wrap"
+          >
             <div>
               <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-muted);margin-bottom:0.15rem">Username</label>
               <input
@@ -213,15 +218,11 @@ defmodule RuleMavenWeb.AdminLive.Users do
               </select>
             </div>
             <button
-              type="button"
-              phx-click="create_user"
-              phx-value-username={@new_username}
-              phx-value-email={@new_email}
-              phx-value-role={@new_role}
+              type="submit"
               disabled={@new_username == "" || @new_email == ""}
               style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer;align-self:end"
             >Create &amp; Generate Password</button>
-          </div>
+          </form>
         </div>
       <% end %>
 
