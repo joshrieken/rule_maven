@@ -2463,15 +2463,21 @@ textarea {
   color: var(--accent-text, #fff);
   align-self: center;
 }
-/* The user bubble is right-aligned and the disclosure sits at its bottom, so
-   the shared popover would spill off the right edge (opening rightward) or drop
-   down over the answer bubble below. Anchor it to the right and open UPWARD,
-   into the bubble's own space, and lift it above neighbouring bubbles. */
+/* The user bubble is right-aligned, so left-anchoring spills the popover off
+   the right edge — anchor it to the right instead. It must open DOWNWARD
+   (default direction): #chat-messages is an `overflow-y:auto` scroller whose
+   top edge sits just under the chat-header, and answers scroll to that top, so
+   an upward popover pokes past the scroller's top edge and gets clipped away
+   (looking "hidden behind the top bar"). Clipping is z-index-independent, and
+   the popover is trapped in the chat-messages (z:1) / chat-layout (z:10)
+   stacking contexts anyway, so no z-index can lift an upward popover out. Down
+   is the only direction with open room; it floats over the answer below, which
+   is fine for a transient hover tooltip. */
 .ask-orig .conf-help__pop {
   left: auto;
   right: 0;
-  top: auto;
-  bottom: calc(100% + 6px);
+  top: calc(100% + 6px);
+  bottom: auto;
   z-index: 60;
 }
 
