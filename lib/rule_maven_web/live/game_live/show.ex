@@ -3104,6 +3104,54 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </details>
               <% end %>
 
+              <%!-- Turn timer: fully client-side (Hooks.TurnTimer), so
+                    phx-update="ignore" keeps LiveView patches from clobbering
+                    the countdown. Suggested pace scales with game weight. --%>
+              <% suggested = suggested_turn_seconds(@game) %>
+              <details style="margin:1.25rem auto 0;max-width:30rem;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
+                <summary style="cursor:pointer;font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
+                  ⏱️ Turn timer
+                </summary>
+                <div
+                  id="turn-timer"
+                  phx-hook="TurnTimer"
+                  phx-update="ignore"
+                  data-seconds={suggested}
+                  style="margin-top:0.6rem;text-align:center"
+                >
+                  <div
+                    data-timer-display
+                    style="font-size:2.2rem;font-weight:800;font-variant-numeric:tabular-nums;color:var(--text);line-height:1"
+                  >
+                  </div>
+                  <div style="display:flex;justify-content:center;gap:0.4rem;margin-top:0.6rem">
+                    <button
+                      type="button"
+                      data-timer-action="startpause"
+                      style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 0.9rem;border-radius:2rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                    >▶ Start</button>
+                    <button
+                      type="button"
+                      data-timer-action="reset"
+                      style="background:none;border:1px solid var(--border);border-radius:2rem;padding:0.35rem 0.9rem;font-weight:600;font-size:0.75rem;color:var(--text-muted);cursor:pointer"
+                    >↺ Reset</button>
+                  </div>
+                  <div style="display:flex;justify-content:center;gap:0.3rem;margin-top:0.5rem;flex-wrap:wrap">
+                    <%= for secs <- [30, 60, 90, 120] do %>
+                      <button
+                        type="button"
+                        data-timer-action="preset"
+                        data-seconds={secs}
+                        style={"background:none;border:1px solid #{if secs == suggested, do: "var(--accent)", else: "var(--border)"};border-radius:999px;padding:0.12rem 0.5rem;font-size:0.65rem;font-weight:600;color:#{if secs == suggested, do: "var(--accent)", else: "var(--text-muted)"};cursor:pointer"}
+                      >{div(secs, 60)}:{String.pad_leading(to_string(rem(secs, 60)), 2, "0")}</button>
+                    <% end %>
+                  </div>
+                  <div style="margin-top:0.4rem;font-size:0.62rem;color:var(--text-muted)">
+                    Suggested for this game's weight: {div(suggested, 60)}:{String.pad_leading(to_string(rem(suggested, 60)), 2, "0")} per turn
+                  </div>
+                </div>
+              </details>
+
               <%= if @setup_checklist && (@setup_checklist["components"] != [] || @setup_checklist["setup"] != []) do %>
                 <div style="margin:1.25rem auto 0;max-width:30rem;text-align:left">
                   <% delta_total =
@@ -4931,6 +4979,19 @@ defmodule RuleMavenWeb.GameLive.Show do
       json -> Jason.decode!(json)
     end
   end
+
+  # Heavier games get a longer suggested turn clock. Weight is BGG's 1–5
+  # complexity rating; games without one get the 60s default.
+  defp suggested_turn_seconds(%{weight: w}) when is_float(w) do
+    cond do
+      w >= 3.5 -> 120
+      w >= 2.5 -> 90
+      w >= 1.8 -> 60
+      true -> 45
+    end
+  end
+
+  defp suggested_turn_seconds(_game), do: 60
 
   # Cached quiz questions (generated at finalize). Loaded in stored order so
   # the static and connected mounts agree; "Play again" shuffles.

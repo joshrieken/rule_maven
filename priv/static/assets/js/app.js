@@ -600,6 +600,89 @@ Hooks.VoiceDefault = {
   }
 };
 
+Hooks.TurnTimer = {
+  // Fully client-side turn timer: no server roundtrips, survives LiveView
+  // patches because all state lives on the hook. data-seconds holds the
+  // per-game suggested pace; preset buttons swap the duration.
+  mounted() {
+    this.duration = parseInt(this.el.dataset.seconds || "60", 10);
+    this.remaining = this.duration;
+    this.interval = null;
+    this.display = this.el.querySelector("[data-timer-display]");
+    this.render();
+
+    this.el.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-timer-action]");
+      if (!btn) return;
+      const action = btn.dataset.timerAction;
+      if (action === "startpause") this.startPause(btn);
+      if (action === "reset") this.reset();
+      if (action === "preset") {
+        this.duration = parseInt(btn.dataset.seconds, 10);
+        this.reset();
+        this.el.querySelectorAll("[data-timer-action='preset']").forEach((b) => {
+          b.style.borderColor = b === btn ? "var(--accent)" : "var(--border)";
+          b.style.color = b === btn ? "var(--accent)" : "var(--text-muted)";
+        });
+      }
+    });
+  },
+  destroyed() {
+    if (this.interval) clearInterval(this.interval);
+  },
+  startPause(btn) {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
+      btn.textContent = "▶ Start";
+      return;
+    }
+    if (this.remaining <= 0) this.remaining = this.duration;
+    btn.textContent = "⏸ Pause";
+    this.interval = setInterval(() => {
+      this.remaining -= 1;
+      this.render();
+      if (this.remaining <= 0) {
+        clearInterval(this.interval);
+        this.interval = null;
+        btn.textContent = "▶ Start";
+        this.beep();
+      }
+    }, 1000);
+  },
+  reset() {
+    if (this.interval) clearInterval(this.interval);
+    this.interval = null;
+    this.remaining = this.duration;
+    const btn = this.el.querySelector("[data-timer-action='startpause']");
+    if (btn) btn.textContent = "▶ Start";
+    this.render();
+  },
+  render() {
+    if (!this.display) return;
+    const m = Math.floor(Math.max(this.remaining, 0) / 60);
+    const s = Math.max(this.remaining, 0) % 60;
+    this.display.textContent = `${m}:${String(s).padStart(2, "0")}`;
+    this.display.style.color = this.remaining <= 10 ? "var(--red, #c0392b)" : "var(--text)";
+  },
+  beep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.6);
+    } catch (_e) {
+      // No audio available — the red 0:00 is signal enough.
+    }
+  }
+};
+
 Hooks.VoiceLoader = {
   // Real pipeline stages (broadcast by the server as the ask progresses) map
   // to progress bands. Within a band the bar eases asymptotically toward the
