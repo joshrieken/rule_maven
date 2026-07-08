@@ -49,11 +49,12 @@ defmodule RuleMavenWeb.AdminLive.Requests do
                 href={"https://boardgamegeek.com/boardgame/#{r.game.bgg_id}"}
                 target="_blank"
                 rel="noopener"
-                style="background:var(--bg-subtle);color:#ea580c;text-decoration:none;font-size:0.72rem;font-weight:600;padding:0.2rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border)"
+                class="btn btn-xs"
+                style="color:#ea580c"
               >BGG</.link>
               <.link
                 navigate={~p"/games/#{r.game}/edit"}
-                style="background:var(--accent);color:var(--accent-text,#fff);text-decoration:none;font-size:0.72rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem"
+                class="btn btn-primary btn-xs"
               >Add support</.link>
             </div>
           <% end %>

@@ -82,7 +82,7 @@ defmodule RuleMavenWeb.AdminLive.Invites do
         <button
           type="submit"
           form="invite-form"
-          style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
+          class="btn-primary btn-xs"
         >Generate</button>
         <form id="invite-form" phx-submit="create_invite" style="display:none"></form>
       </div>
@@ -131,13 +131,15 @@ defmodule RuleMavenWeb.AdminLive.Invites do
                       <button
                         type="button"
                         onclick={"navigator.clipboard.writeText(window.location.origin + '/register?code=#{code.code}').then(() => { this.textContent = 'Copied!'; setTimeout(() => this.textContent = 'Copy link', 1500) })"}
-                        style="background:none;border:1px solid var(--border);color:var(--accent);padding:0.15rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;font-weight:600;cursor:pointer;white-space:nowrap"
+                        class="btn-outline btn-xs"
+                        style="white-space:nowrap"
                       >Copy link</button>
                       <button
                         type="button"
                         phx-click="deactivate_invite"
                         phx-value-id={code.id}
-                        style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;font-weight:600;cursor:pointer;white-space:nowrap"
+                        class="btn-xs"
+                        style="white-space:nowrap"
                       >Deactivate</button>
                     <% end %>
                   </div>

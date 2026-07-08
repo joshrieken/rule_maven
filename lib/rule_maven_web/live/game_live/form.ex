@@ -1236,7 +1236,9 @@ defmodule RuleMavenWeb.GameLive.Form do
           (source_id != nil or
              Enum.any?(pages, &(String.trim(Games.effective_page_text(&1)) != "")))
       end)
-      |> Enum.map(fn {l, source_id, attrs} -> Map.merge(attrs, %{label: l, source_id: source_id}) end)
+      |> Enum.map(fn {l, source_id, attrs} ->
+        Map.merge(attrs, %{label: l, source_id: source_id})
+      end)
 
     # Copy any pending PDF uploads into place now (consume_uploaded_entries deletes
     # the temp file once the callback returns). The source rows are created below,
@@ -2300,7 +2302,8 @@ defmodule RuleMavenWeb.GameLive.Form do
           phx-value-id={@id}
           disabled={@page_one in [nil, ""]}
           title="Number every page from this sheet, then Save to apply."
-          style="height:1.6rem;display:inline-flex;align-items:center;font-size:0.68rem;padding:0 0.55rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+          class="btn-xs"
+          style="height:1.6rem"
         >Number pages</button>
       </span>
     </div>
@@ -2385,7 +2388,7 @@ defmodule RuleMavenWeb.GameLive.Form do
           phx-value-page={@cur}
           data-confirm="Re-extract this page with the stronger model? It overwrites the current page text and uses extra LLM credits."
           disabled={@busy}
-          style="font-size:0.68rem;padding:0.1rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer"
+          class="btn-xs"
         >{if @busy, do: "Re-extracting…", else: "Re-extract (stronger model)"}</button>
       </div>
       <span
@@ -2402,7 +2405,7 @@ defmodule RuleMavenWeb.GameLive.Form do
           phx-value-id={@id}
           data-confirm={"Re-extract all #{@flagged} flagged page#{if @flagged == 1, do: "", else: "s"} with the stronger model? This overwrites their text and uses extra LLM credits."}
           disabled={@busy}
-          style="font-size:0.68rem;padding:0.15rem 0.55rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+          class="btn-xs"
         >{if @busy,
           do: "Re-extracting…",
           else: "⟳ Re-extract all #{@flagged} flagged (stronger model)"}</button>
@@ -2556,14 +2559,14 @@ defmodule RuleMavenWeb.GameLive.Form do
             <button
               type="button"
               phx-click="dismiss_expansion_prompt"
-              style="background:none;border:1px solid var(--border);color:var(--text);padding:0.4rem 0.9rem;border-radius:0.375rem;font-size:0.8rem;font-weight:600;cursor:pointer"
+              class="btn-sm"
             >
               Later
             </button>
             <button
               type="button"
               phx-click="pull_expansions"
-              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.4rem 0.9rem;border-radius:0.375rem;font-size:0.8rem;font-weight:600;cursor:pointer"
+              class="btn-primary btn-sm"
             >
               Pull expansions now
             </button>
@@ -2602,7 +2605,8 @@ defmodule RuleMavenWeb.GameLive.Form do
             type="button"
             phx-click="refresh_bgg"
             disabled={@generating}
-            style={"background:var(--accent);color:var(--accent-text,#fff);border:none;font-size:0.75rem;font-weight:600;margin-left:0.5rem;padding:0.35rem 0.85rem;border-radius:0.375rem;vertical-align:middle;cursor:#{if @generating, do: "default", else: "pointer"};opacity:#{if @generating, do: "0.6", else: "1"}"}
+            class="btn-primary btn-xs"
+            style={"margin-left:0.5rem;vertical-align:middle;cursor:#{if @generating, do: "default", else: "pointer"};opacity:#{if @generating, do: "0.6", else: "1"}"}
           >
             {if @generating, do: "⟳ Pulling…", else: "Pull from BGG"}
           </button>
@@ -2642,7 +2646,7 @@ defmodule RuleMavenWeb.GameLive.Form do
               <button
                 type="submit"
                 disabled={@bgg_searching}
-                style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer;white-space:nowrap"
+                class="btn-primary btn-xs"
               >Search</button>
             </form>
             <%= if @bgg_searching do %>
@@ -2739,7 +2743,8 @@ defmodule RuleMavenWeb.GameLive.Form do
             type="button"
             phx-click="refresh_bgg"
             disabled={@generating}
-            style={"background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.6rem 1.5rem;border-radius:0.5rem;font-weight:700;font-size:0.9rem;cursor:#{if @generating, do: "default", else: "pointer"};opacity:#{if @generating, do: "0.6", else: "1"}"}
+            class="btn-primary"
+            style={"cursor:#{if @generating, do: "default", else: "pointer"};opacity:#{if @generating, do: "0.6", else: "1"}"}
           >
             {if @generating, do: "⟳ Pulling from BGG…", else: "Pull from BGG"}
           </button>
@@ -2858,14 +2863,14 @@ defmodule RuleMavenWeb.GameLive.Form do
               type="button"
               phx-click="find_download"
               disabled={@downloading}
-              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+              class="btn-primary btn-xs"
             >Find &amp; Download</button>
             <%= if @game.bgg_id do %>
               <button
                 type="button"
                 phx-click="search_bgg"
                 disabled={@searching}
-                style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                class="btn-primary btn-xs"
               >{if @searching, do: "Searching BGG...", else: "Find on BGG"}</button>
             <% end %>
           </div>
@@ -2917,7 +2922,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             <button
               type="submit"
               disabled={@downloading}
-              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.4rem 0.875rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer"
+              class="btn-primary"
             >{if @downloading, do: "Downloading...", else: "Download"}</button>
           </form>
           <%= if @downloading do %>
@@ -2927,7 +2932,8 @@ defmodule RuleMavenWeb.GameLive.Form do
               <button
                 type="button"
                 phx-click="cancel_download"
-                style="margin-left:auto;font-size:0.72rem;padding:0.15rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                class="btn-xs"
+                style="margin-left:auto"
               >Cancel</button>
             </div>
             <style>
@@ -3054,7 +3060,8 @@ defmodule RuleMavenWeb.GameLive.Form do
                   type="button"
                   phx-click="pull_expansions"
                   disabled={@exp_syncing}
-                  style={"background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-size:0.72rem;font-weight:600;white-space:nowrap;cursor:#{if @exp_syncing, do: "default", else: "pointer"};opacity:#{if @exp_syncing, do: "0.6", else: "1"}"}
+                  class="btn-primary btn-xs"
+                  style={"cursor:#{if @exp_syncing, do: "default", else: "pointer"};opacity:#{if @exp_syncing, do: "0.6", else: "1"}"}
                 >
                   {if @exp_syncing, do: "⟳ Pulling…", else: "Pull expansions from BGG"}
                 </button>
@@ -3128,7 +3135,8 @@ defmodule RuleMavenWeb.GameLive.Form do
                 type="button"
                 phx-click="process_uploads"
                 disabled={pdf_btn_disabled}
-                style={"margin-top:0.5rem;background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.4rem 0.875rem;border-radius:0.375rem;font-weight:600;font-size:0.875rem;cursor:pointer;opacity:#{if pdf_btn_disabled, do: 0.5, else: 1}"}
+                class="btn-primary"
+                style={"margin-top:0.5rem;opacity:#{if pdf_btn_disabled, do: 0.5, else: 1}"}
               >{if @uploading_pdfs, do: "Processing…", else: "Upload"}</button>
             </div>
           </div>
@@ -3150,7 +3158,8 @@ defmodule RuleMavenWeb.GameLive.Form do
                 <button
                   type="button"
                   phx-click="cancel_download"
-                  style="margin-left:auto;font-size:0.72rem;padding:0.15rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                  class="btn-xs"
+                  style="margin-left:auto"
                 >Cancel</button>
               </div>
               <style>
@@ -3258,7 +3267,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                           type="button"
                           phx-click="confirm_delete_source"
                           phx-value-source_id={entry.source_id}
-                          style="color:#fff;background:var(--red);border:none;font-size:0.6rem;cursor:pointer;padding:0.1rem 0.3rem;border-radius:0.2rem"
+                          class="btn-danger btn-xs"
                         >Yes</button>
                         <button
                           type="button"
@@ -3324,7 +3333,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                       phx-value-id={entry.id}
                       disabled={String.trim(entry.text || "") == ""}
                       title="Open the full-screen reader (press f to toggle; f again or Esc closes it)"
-                      style="display:flex;align-items:center;justify-content:center;width:1.8rem;height:1.8rem;font-size:1rem;line-height:1;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                      class="btn-icon"
                     >⛶</button>
                   </div>
                   <%!-- Edits feed socket state via edit_page (layer encoded in the
@@ -3368,7 +3377,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                         cleaning? || cur_page == nil ||
                           String.trim(cur_page[:text] || "") == ""
                       }
-                      style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                      class="btn-xs"
                     >
                       <%= case @cleaning[entry.source_id] do %>
                         <% nil -> %>
@@ -3396,7 +3405,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                           else: "Clean up the whole rulebook's extracted text."
                       }
                       disabled={cleaning? || String.trim(entry.text || "") == ""}
-                      style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                      class="btn-xs"
                     >
                       {if has_cleaned, do: "✨ Wipe & clean all", else: "✨ Clean all"}
                     </button>
@@ -3408,7 +3417,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                       data-confirm="Run another cleanup pass over the cleaned text? This rewrites it and can't be undone."
                       title="Run another cleanup pass over the already-cleaned text to catch leftover junk."
                       disabled={cleaning? || String.trim(entry.text || "") == ""}
-                      style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                      class="btn-xs"
                     >↻ Clean again</button>
                     <%!-- PDF + HTML are admin-view only: rulebooks may be
                           copyrighted, so nothing here is reachable by regular
@@ -3431,7 +3440,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                         phx-click="regenerate_html"
                         phx-value-id={entry.source_id}
                         title="Re-render the HTML view from the current text"
-                        style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:0.3rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer"
+                        class="btn-xs"
                       >↻ Regen HTML</button>
                       <%= case @regen_html_status[entry.source_id] do %>
                         <% :ok -> %>
@@ -3447,7 +3456,6 @@ defmodule RuleMavenWeb.GameLive.Form do
               <% end %>
               <button type="button" phx-click="add_source" class="btn-add-source">+ Add manual rules entry</button>
             </div>
-
           </div>
 
           <%!-- Danger tab --%>
@@ -3468,7 +3476,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                     <button
                       type="button"
                       phx-click="confirm_clear"
-                      style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                      class="btn-danger btn-xs"
                     >Clear All Questions</button>
                   <% else %>
                     <p class="text-xs font-medium mb-2" style="color:var(--red)">
@@ -3478,12 +3486,12 @@ defmodule RuleMavenWeb.GameLive.Form do
                       <button
                         type="button"
                         phx-click="clear_questions"
-                        style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                        class="btn-danger btn-xs"
                       >Yes, clear all</button>
                       <button
                         type="button"
                         phx-click="cancel_clear"
-                        style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                        class="btn-xs"
                       >Cancel</button>
                     </div>
                   <% end %>
@@ -3500,7 +3508,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                     <button
                       type="button"
                       phx-click="confirm_clear_sources"
-                      style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                      class="btn-danger btn-xs"
                     >Clear All Rulebook Sources</button>
                   <% else %>
                     <p class="text-xs font-medium mb-2" style="color:var(--red)">
@@ -3510,12 +3518,12 @@ defmodule RuleMavenWeb.GameLive.Form do
                       <button
                         type="button"
                         phx-click="clear_sources"
-                        style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                        class="btn-danger btn-xs"
                       >Yes, clear all</button>
                       <button
                         type="button"
                         phx-click="cancel_clear_sources"
-                        style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                        class="btn-xs"
                       >Cancel</button>
                     </div>
                   <% end %>
@@ -3531,7 +3539,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                   <button
                     type="button"
                     phx-click="confirm_delete_game"
-                    style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                    class="btn-danger btn-xs"
                   >Delete Game</button>
                 <% else %>
                   <p class="text-xs font-medium mb-2" style="color:var(--red)">
@@ -3542,12 +3550,12 @@ defmodule RuleMavenWeb.GameLive.Form do
                     <button
                       type="button"
                       phx-click="delete_game"
-                      style="background:var(--red);color:white;border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                      class="btn-danger btn-xs"
                     >Yes, delete forever</button>
                     <button
                       type="button"
                       phx-click="cancel_delete_game"
-                      style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.3rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                      class="btn-xs"
                     >Cancel</button>
                   </div>
                 <% end %>
@@ -3622,14 +3630,14 @@ defmodule RuleMavenWeb.GameLive.Form do
                 <div class="flex gap-2 mb-3">
                   <button
                     type="submit"
-                    style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                    class="btn-primary btn-xs"
                   >
                     Save Cheat Sheet
                   </button>
                   <button
                     type="button"
                     phx-click="cancel_cheat_content"
-                    style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.25rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                    class="btn-xs"
                   >
                     Cancel
                   </button>
@@ -3683,7 +3691,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                     <button
                       type="submit"
                       disabled={@cheat_status != nil}
-                      style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.4rem 0.75rem;border-radius:0.375rem;font-weight:600;font-size:0.75rem;cursor:pointer"
+                      class="btn-primary btn-xs"
                     >
                       Generate
                     </button>
@@ -3871,7 +3879,10 @@ defmodule RuleMavenWeb.GameLive.Form do
               <button
                 type="button"
                 phx-click="close_source"
-                style={"font-size:1.1rem;line-height:1;background:none;border:none;cursor:pointer;color:var(--text-muted)#{if @reader_mode == "paginated", do: ";margin-left:0.5rem", else: ";margin-left:auto"}"}
+                class="btn-icon"
+                style={
+                  if @reader_mode == "paginated", do: "margin-left:0.5rem", else: "margin-left:auto"
+                }
               >✕</button>
             </div>
 

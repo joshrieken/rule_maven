@@ -17,15 +17,15 @@ defmodule RuleMavenWeb.GameLive.Review do
         {:ok, push_navigate(socket, to: ~p"/games/#{id}/community")}
 
       true ->
-      {:ok,
-       assign(socket,
-         game: game,
-         is_admin: is_admin,
-         documents: Games.list_documents(game),
-         community_questions: Games.faq_questions(game, 100),
-         categories: Games.list_game_categories(game),
-         page_title: "Review — #{game.name}"
-       )}
+        {:ok,
+         assign(socket,
+           game: game,
+           is_admin: is_admin,
+           documents: Games.list_documents(game),
+           community_questions: Games.faq_questions(game, 100),
+           categories: Games.list_game_categories(game),
+           page_title: "Review — #{game.name}"
+         )}
     end
   end
 
@@ -88,13 +88,13 @@ defmodule RuleMavenWeb.GameLive.Review do
                     :if={doc.status != "published"}
                     phx-click="approve_doc"
                     phx-value-id={doc.id}
-                    style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.25rem 0.75rem;border-radius:0.25rem;font-size:0.8rem;cursor:pointer"
+                    class="btn-primary btn-sm"
                   >Approve</button>
                   <button
                     :if={doc.status != "rejected"}
                     phx-click="reject_doc"
                     phx-value-id={doc.id}
-                    style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);padding:0.25rem 0.75rem;border-radius:0.25rem;font-size:0.8rem;cursor:pointer"
+                    class="btn-sm"
                   >Reject</button>
                 </div>
               </div>
@@ -130,7 +130,8 @@ defmodule RuleMavenWeb.GameLive.Review do
                 <button
                   phx-click="reject"
                   phx-value-id={q.id}
-                  style="color:var(--text-muted);background:var(--bg-subtle);border:1px solid var(--border);font-size:0.7rem;cursor:pointer;padding:0.15rem 0.4rem;border-radius:0.3rem;flex-shrink:0"
+                  class="btn-icon btn-xs"
+                  style="flex-shrink:0"
                   title="Remove from community"
                 >✕</button>
               <% end %>

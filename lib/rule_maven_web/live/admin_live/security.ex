@@ -258,7 +258,8 @@ defmodule RuleMavenWeb.AdminLive.Security do
                           type="button"
                           phx-click="unblock"
                           phx-value-id={q.id}
-                          style="background:none;border:1px solid var(--green);color:var(--green);padding:0.15rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;font-weight:600;cursor:pointer;white-space:nowrap"
+                          class="btn-xs"
+                          style="border:1px solid var(--green);color:var(--green);background:none;white-space:nowrap"
                           title="Unblock and re-queue"
                         >↻ Unblock</button>
                         <button
@@ -266,7 +267,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
                           phx-click="delete_blocked"
                           phx-value-id={q.id}
                           data-confirm="Delete this blocked entry?"
-                          style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.4rem;border-radius:0.25rem;font-size:0.7rem;cursor:pointer"
+                          class="btn-icon btn-xs"
                         >✕</button>
                       </div>
                     </td>
@@ -324,7 +325,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
           <div style="display:flex;align-items:center;gap:0.75rem">
             <button
               type="submit"
-              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.8rem;font-weight:600;cursor:pointer"
+              class="btn-primary btn-sm"
             >+ Add pattern</button>
             <%= if @add_error do %>
               <span style="font-size:0.75rem;color:var(--red)">{@add_error}</span>
@@ -383,13 +384,14 @@ defmodule RuleMavenWeb.AdminLive.Security do
                         type="button"
                         phx-click="toggle_pattern"
                         phx-value-id={p.id}
-                        style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.4rem;border-radius:0.25rem;font-size:0.7rem;cursor:pointer;white-space:nowrap"
+                        class="btn-xs"
+                        style="white-space:nowrap"
                       >{if p.enabled, do: "Disable", else: "Enable"}</button>
                       <button
                         type="button"
                         phx-click="delete_pattern"
                         phx-value-id={p.id}
-                        style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.4rem;border-radius:0.25rem;font-size:0.7rem;cursor:pointer"
+                        class="btn-icon btn-xs"
                         data-confirm="Delete this pattern?"
                       >✕</button>
                     </div>

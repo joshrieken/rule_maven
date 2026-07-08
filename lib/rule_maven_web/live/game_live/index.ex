@@ -861,7 +861,8 @@ defmodule RuleMavenWeb.GameLive.Index do
                     phx-value-id={game.id}
                     disabled={exp_syncing}
                     title="Pull BGG data for expansions missing it"
-                    style={"background:var(--bg-subtle);color:var(--accent);border:1px solid var(--accent);font-size:0.7rem;font-weight:600;padding:0.1rem 0.4rem;border-radius:0.3rem;line-height:1.2;cursor:#{if exp_syncing, do: "default", else: "pointer"};opacity:#{if exp_syncing, do: "0.6", else: "1"}"}
+                    class="btn-outline btn-xs"
+                    style={"cursor:#{if exp_syncing, do: "default", else: "pointer"};opacity:#{if exp_syncing, do: "0.6", else: "1"}"}
                   >{if exp_syncing, do: "⟳ Syncing…", else: "⬇ Exp (#{exp_to_pull})"}</button>
                 </div>
               </div>
@@ -872,7 +873,8 @@ defmodule RuleMavenWeb.GameLive.Index do
                   phx-click="pull_bgg"
                   phx-value-id={game.id}
                   disabled={MapSet.member?(@bgg_pulling, game.id)}
-                  style={"background:var(--accent);color:var(--accent-text,#fff);border:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2;cursor:#{if MapSet.member?(@bgg_pulling, game.id), do: "default", else: "pointer"};opacity:#{if MapSet.member?(@bgg_pulling, game.id), do: "0.6", else: "1"}"}
+                  class="btn-primary btn-xs"
+                  style={"cursor:#{if MapSet.member?(@bgg_pulling, game.id), do: "default", else: "pointer"};opacity:#{if MapSet.member?(@bgg_pulling, game.id), do: "0.6", else: "1"}"}
                 >{if MapSet.member?(@bgg_pulling, game.id), do: "⟳ Pulling…", else: "⬇ Pull BGG"}</button>
                 <%= if unsupported do %>
                   <% requested = MapSet.member?(@requested_ids, game.id) %>
@@ -883,7 +885,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                       type="button"
                       phx-click="request_support"
                       phx-value-id={game.id}
-                      style="background:var(--bg-subtle);color:var(--accent);border:1px solid var(--accent);font-size:0.75rem;font-weight:600;cursor:pointer;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2"
+                      class="btn-outline btn-xs"
                     >Request</button>
                   <% end %>
                 <% else %>
@@ -893,7 +895,8 @@ defmodule RuleMavenWeb.GameLive.Index do
                     phx-click="pull_bgg"
                     phx-value-id={game.id}
                     disabled={MapSet.member?(@bgg_pulling, game.id)}
-                    style={"background:var(--accent);color:var(--accent-text,#fff);border:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2;cursor:#{if MapSet.member?(@bgg_pulling, game.id), do: "default", else: "pointer"};opacity:#{if MapSet.member?(@bgg_pulling, game.id), do: "0.6", else: "1"}"}
+                    class="btn-primary btn-xs"
+                    style={"cursor:#{if MapSet.member?(@bgg_pulling, game.id), do: "default", else: "pointer"};opacity:#{if MapSet.member?(@bgg_pulling, game.id), do: "0.6", else: "1"}"}
                   >{if MapSet.member?(@bgg_pulling, game.id), do: "⟳ Pulling…", else: "⬇ Pull BGG"}</button>
                   <a
                     :if={game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(game.category)}
@@ -902,7 +905,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                     target="_blank"
                     rel="noopener"
                     phx-hook="ExternalLink"
-                    style="background:var(--bg-subtle);color:#ea580c;text-decoration:none;font-size:0.75rem;font-weight:600;cursor:pointer;padding:0.2rem 0.5rem;border-radius:0.3rem;border:1px solid var(--border);line-height:1.2"
+                    class="btn btn-xs"
                   >BGG</a>
                   <% askable =
                     Map.get(@source_counts, game.id, 0) > 0 and
@@ -910,7 +913,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                   <.link
                     :if={askable}
                     navigate={~p"/games/#{game}"}
-                    style="background:var(--accent);color:var(--accent-text,#fff);text-decoration:none;font-size:0.75rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2"
+                    class="btn btn-primary btn-xs"
                   >Ask</.link>
                   <span
                     :if={not askable}
@@ -927,14 +930,16 @@ defmodule RuleMavenWeb.GameLive.Index do
                         do: "In your collection — click to remove",
                         else: "Add to your collection (games you own)"
                     }
-                    style={"background:#{if in_collection, do: "color-mix(in srgb,var(--accent) 14%,transparent)", else: "var(--bg-subtle)"};color:#{if in_collection, do: "var(--accent)", else: "var(--text-muted)"};border:1px solid #{if in_collection, do: "var(--accent)", else: "var(--border)"};font-size:0.75rem;font-weight:600;cursor:pointer;padding:0.2rem 0.55rem;border-radius:0.3rem;line-height:1.2;white-space:nowrap"}
+                    class="btn-xs"
+                    style={"background:#{if in_collection, do: "color-mix(in srgb,var(--accent) 14%,transparent)", else: "var(--bg-subtle)"};color:#{if in_collection, do: "var(--accent)", else: "var(--text-muted)"};border-color:#{if in_collection, do: "var(--accent)", else: "var(--border-strong)"};white-space:nowrap"}
                   >{if in_collection, do: "✓ Collection", else: "+ Collection"}</button>
                   <button
                     type="button"
                     phx-click="toggle_favorite"
                     phx-value-id={game.id}
                     title={if favorited, do: "Remove from favorites", else: "Add to favorites"}
-                    style={"background:#{if favorited, do: "color-mix(in srgb,var(--red) 14%,transparent)", else: "var(--bg-subtle)"};color:#{if favorited, do: "var(--red)", else: "var(--text-muted)"};border:1px solid var(--border);font-size:0.75rem;font-weight:600;cursor:pointer;padding:0.2rem 0.45rem;border-radius:0.3rem;line-height:1.2"}
+                    class="btn-icon btn-xs"
+                    style={"background:#{if favorited, do: "color-mix(in srgb,var(--red) 14%,transparent)", else: "var(--bg-subtle)"};color:#{if favorited, do: "var(--red)", else: "var(--text-muted)"}"}
                   >{if favorited, do: "♥", else: "♡"}</button>
                   <.link
                     :if={RuleMaven.Users.can?(@current_user, :admin)}
@@ -948,19 +953,19 @@ defmodule RuleMavenWeb.GameLive.Index do
                         type="button"
                         phx-click="confirm_delete"
                         phx-value-id={game.id}
-                        style="background:var(--red-bg);color:var(--red);border:1px solid var(--red);font-size:0.7rem;font-weight:600;cursor:pointer;padding:0.2rem 0.4rem;border-radius:0.3rem"
+                        class="btn-danger-outline btn-xs"
                       >Yes</button>
                       <button
                         type="button"
                         phx-click="cancel_delete"
-                        style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);font-size:0.7rem;cursor:pointer;padding:0.2rem 0.4rem;border-radius:0.3rem"
+                        class="btn-xs"
                       >No</button>
                     <% else %>
                       <button
                         type="button"
                         phx-click="delete_game"
                         phx-value-id={game.id}
-                        style="color:var(--text-muted);background:var(--bg-subtle);border:1px solid var(--border);font-size:0.7rem;cursor:pointer;padding:0.2rem 0.45rem;border-radius:0.3rem"
+                        class="btn-icon btn-xs"
                         title="Delete game"
                       >✕</button>
                     <% end %>
@@ -976,99 +981,99 @@ defmodule RuleMavenWeb.GameLive.Index do
                   else: Games.expansions_with_documents(game) %>
               <% sync = Map.get(@expansion_sync, game.id) %>
               <div class="exp-reveal">
-              <div
-                :if={sync}
-                style="margin-left:2rem;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;color:var(--accent);font-weight:600"
-              >
-                <% {done, total} = sync %>
-                <span class="animate-pulse">⟳ Syncing expansions {done}/{total}…</span>
-              </div>
-              <%= for exp <- expansions do %>
                 <div
-                  id={"exp-card-#{game.id}-#{exp.id}"}
-                  class="border rounded-lg p-4 flex items-center gap-4 game-card"
-                  phx-click="go_to_game"
-                  phx-value-id={exp.id}
-                  style={"cursor:pointer;margin-left:2rem;border-left:3px solid var(--accent);#{if @selected_idx == idx, do: "background:var(--bg-subtle)", else: ""}"}
+                  :if={sync}
+                  style="margin-left:2rem;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;color:var(--accent);font-weight:600"
                 >
-                  <%= if exp.image_url do %>
-                    <img
-                      src={exp.image_url}
-                      alt={exp.name}
-                      style="width:40px;height:40px;object-fit:cover;border-radius:0.25rem;flex-shrink:0;pointer-events:none"
-                    />
-                  <% end %>
-                  <div class="flex-1 min-w-0" style="pointer-events:none">
-                    <h2 class="text-base font-semibold">
-                      {exp.name}
-                      <span
-                        :if={sync && exp.bgg_data}
-                        style="color:var(--green);font-size:0.7rem;font-weight:600"
-                      >✓</span>
-                      <span
-                        :if={sync && is_nil(exp.bgg_data)}
-                        class="animate-pulse"
-                        style="color:var(--text-muted);font-size:0.7rem;font-weight:600"
-                      >⏳</span>
-                    </h2>
-                    <p class="text-xs text-gray-500">
-                      Expansion
-                      <%= if exp.year_published do %>
-                        &middot; {exp.year_published}
-                      <% end %>
-                    </p>
-                  </div>
-                  <div class="flex gap-1.5 flex-shrink-0 game-actions items-center">
-                    <a
-                      :if={exp.bgg_id && RuleMaven.Games.Category.bgg_relevant?(exp.category)}
-                      id={"bgg-link-exp-#{exp.id}"}
-                      href={"https://boardgamegeek.com/boardgame/#{exp.bgg_id}"}
-                      target="_blank"
-                      rel="noopener"
-                      phx-hook="ExternalLink"
-                      style="background:var(--bg-subtle);color:#ea580c;text-decoration:none;font-size:0.7rem;font-weight:600;cursor:pointer;padding:0.15rem 0.4rem;border-radius:0.3rem;border:1px solid var(--border);line-height:1.2"
-                    >BGG</a>
-                    <.link
-                      :if={Map.get(@source_counts, exp.id, 0) > 0}
-                      navigate={~p"/games/#{exp}"}
-                      style="background:var(--accent);color:var(--accent-text,#fff);text-decoration:none;font-size:0.7rem;font-weight:600;padding:0.15rem 0.45rem;border-radius:0.3rem;line-height:1.2"
-                    >Ask</.link>
-                    <span
-                      :if={Map.get(@source_counts, exp.id, 0) == 0}
-                      style="display:inline-block;visibility:hidden;font-size:0.7rem;font-weight:600;padding:0.15rem 0.45rem;line-height:1.2"
-                    >Ask</span>
-                    <.link
-                      :if={RuleMaven.Users.can?(@current_user, :admin)}
-                      navigate={~p"/games/#{exp}/edit"}
-                      class="action-link"
-                    >Edit</.link>
-                    <%= if RuleMaven.Users.can?(@current_user, :admin) do %>
-                      <%= if @delete_id == exp.id do %>
-                        <span class="text-xs" style="color:var(--red);padding:0.2rem 0">Delete?</span>
-                        <button
-                          type="button"
-                          phx-click="confirm_delete"
-                          phx-value-id={exp.id}
-                          style="background:var(--red-bg);color:var(--red);border:1px solid var(--red);font-size:0.7rem;font-weight:600;cursor:pointer;padding:0.15rem 0.35rem;border-radius:0.3rem"
-                        >Yes</button>
-                        <button
-                          type="button"
-                          phx-click="cancel_delete"
-                          style="background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);font-size:0.7rem;cursor:pointer;padding:0.15rem 0.35rem;border-radius:0.3rem"
-                        >No</button>
-                      <% else %>
-                        <button
-                          type="button"
-                          phx-click="delete_game"
-                          phx-value-id={exp.id}
-                          style="color:var(--text-muted);background:var(--bg-subtle);border:1px solid var(--border);font-size:0.7rem;cursor:pointer;padding:0.15rem 0.4rem;border-radius:0.3rem"
-                          title="Delete expansion"
-                        >✕</button>
-                      <% end %>
-                    <% end %>
-                  </div>
+                  <% {done, total} = sync %>
+                  <span class="animate-pulse">⟳ Syncing expansions {done}/{total}…</span>
                 </div>
-              <% end %>
+                <%= for exp <- expansions do %>
+                  <div
+                    id={"exp-card-#{game.id}-#{exp.id}"}
+                    class="border rounded-lg p-4 flex items-center gap-4 game-card"
+                    phx-click="go_to_game"
+                    phx-value-id={exp.id}
+                    style={"cursor:pointer;margin-left:2rem;border-left:3px solid var(--accent);#{if @selected_idx == idx, do: "background:var(--bg-subtle)", else: ""}"}
+                  >
+                    <%= if exp.image_url do %>
+                      <img
+                        src={exp.image_url}
+                        alt={exp.name}
+                        style="width:40px;height:40px;object-fit:cover;border-radius:0.25rem;flex-shrink:0;pointer-events:none"
+                      />
+                    <% end %>
+                    <div class="flex-1 min-w-0" style="pointer-events:none">
+                      <h2 class="text-base font-semibold">
+                        {exp.name}
+                        <span
+                          :if={sync && exp.bgg_data}
+                          style="color:var(--green);font-size:0.7rem;font-weight:600"
+                        >✓</span>
+                        <span
+                          :if={sync && is_nil(exp.bgg_data)}
+                          class="animate-pulse"
+                          style="color:var(--text-muted);font-size:0.7rem;font-weight:600"
+                        >⏳</span>
+                      </h2>
+                      <p class="text-xs text-gray-500">
+                        Expansion
+                        <%= if exp.year_published do %>
+                          &middot; {exp.year_published}
+                        <% end %>
+                      </p>
+                    </div>
+                    <div class="flex gap-1.5 flex-shrink-0 game-actions items-center">
+                      <a
+                        :if={exp.bgg_id && RuleMaven.Games.Category.bgg_relevant?(exp.category)}
+                        id={"bgg-link-exp-#{exp.id}"}
+                        href={"https://boardgamegeek.com/boardgame/#{exp.bgg_id}"}
+                        target="_blank"
+                        rel="noopener"
+                        phx-hook="ExternalLink"
+                        class="btn btn-xs"
+                      >BGG</a>
+                      <.link
+                        :if={Map.get(@source_counts, exp.id, 0) > 0}
+                        navigate={~p"/games/#{exp}"}
+                        class="btn btn-primary btn-xs"
+                      >Ask</.link>
+                      <span
+                        :if={Map.get(@source_counts, exp.id, 0) == 0}
+                        style="display:inline-block;visibility:hidden;font-size:0.7rem;font-weight:600;padding:0.15rem 0.45rem;line-height:1.2"
+                      >Ask</span>
+                      <.link
+                        :if={RuleMaven.Users.can?(@current_user, :admin)}
+                        navigate={~p"/games/#{exp}/edit"}
+                        class="action-link"
+                      >Edit</.link>
+                      <%= if RuleMaven.Users.can?(@current_user, :admin) do %>
+                        <%= if @delete_id == exp.id do %>
+                          <span class="text-xs" style="color:var(--red);padding:0.2rem 0">Delete?</span>
+                          <button
+                            type="button"
+                            phx-click="confirm_delete"
+                            phx-value-id={exp.id}
+                            class="btn-danger-outline btn-xs"
+                          >Yes</button>
+                          <button
+                            type="button"
+                            phx-click="cancel_delete"
+                            class="btn-xs"
+                          >No</button>
+                        <% else %>
+                          <button
+                            type="button"
+                            phx-click="delete_game"
+                            phx-value-id={exp.id}
+                            class="btn-icon btn-xs"
+                            title="Delete expansion"
+                          >✕</button>
+                        <% end %>
+                      <% end %>
+                    </div>
+                  </div>
+                <% end %>
               </div>
             <% end %>
           <% end %>
@@ -1103,7 +1108,7 @@ defmodule RuleMavenWeb.GameLive.Index do
             <.link
               :if={@view in ~w(mine playable all)}
               navigate={~p"/games/import"}
-              style="background:var(--accent);color:var(--accent-text,#fff);text-decoration:none;font-size:0.8rem;font-weight:600;padding:0.4rem 1rem;border-radius:0.4rem"
+              class="btn btn-primary btn-sm"
             >🔍 Sync Your BGG Collection</.link>
           </div>
         <% end %>

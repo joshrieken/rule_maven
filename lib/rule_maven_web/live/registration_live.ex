@@ -183,7 +183,8 @@ defmodule RuleMavenWeb.RegistrationLive do
         <button
           type="submit"
           disabled={@submitted}
-          style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.55rem;border-radius:0.375rem;font-size:0.85rem;font-weight:600;cursor:pointer;margin-top:0.25rem"
+          class="btn-primary"
+          style="margin-top:0.25rem"
         >
           Create Account
         </button>

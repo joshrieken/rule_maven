@@ -267,7 +267,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                         step="50"
                         style="width:4.5rem;font-size:0.72rem;padding:0.1rem 0.25rem;border:1px solid var(--border);border-radius:0.25rem;background:var(--bg-surface);color:var(--text)"
                       />
-                      <button type="submit" style={btn("var(--accent)")} title="Save quota">Set</button>
+                      <button type="submit" class="btn-outline btn-xs" title="Save quota">Set</button>
                     </form>
                   <% end %>
                 </td>
@@ -280,7 +280,8 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                         type="button"
                         phx-click="unsuspend_user"
                         phx-value-id={s.user_id}
-                        style={btn("var(--green)")}
+                        class="btn-xs"
+                        style="border:1px solid var(--green);color:var(--green);background:none"
                       >Unsuspend</button>
                     <% else %>
                       <button
@@ -289,7 +290,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                         phx-click="suspend_user"
                         phx-value-id={s.user_id}
                         data-confirm={"Suspend #{s.username}? They'll be logged out and can't sign in."}
-                        style={btn("var(--danger,#c0392b)")}
+                        class="btn-danger-outline btn-xs"
                       >Suspend</button>
                     <% end %>
                     <button
@@ -297,14 +298,14 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                       phx-click="demote_answers"
                       phx-value-id={s.user_id}
                       data-confirm={"Pull all of #{s.username}'s answers from the pool? They become private."}
-                      style={btn("var(--text-muted)")}
+                      class="btn-xs"
                     >Pull answers</button>
                     <button
                       type="button"
                       phx-click="force_logout"
                       phx-value-id={s.user_id}
                       data-confirm={"Force log out #{s.username}? Revokes all their active sessions without suspending the account."}
-                      style={btn("var(--text-muted)")}
+                      class="btn-xs"
                       title="Revoke all active sessions"
                     >Force logout</button>
                     <button
@@ -312,7 +313,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                       phx-click="reset_reputation"
                       phx-value-id={s.user_id}
                       data-confirm={"Reset #{s.username}'s reputation to 0?"}
-                      style={btn("var(--text-muted)")}
+                      class="btn-xs"
                     >Reset rep</button>
                   </div>
                 </td>
@@ -358,14 +359,15 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                   type="button"
                   phx-click="resolve_flags"
                   phx-value-id={f.question_log_id}
-                  style={btn("var(--green)")}
+                  class="btn-xs"
+                  style="border:1px solid var(--green);color:var(--green);background:none"
                 >Resolve</button>
                 <button
                   type="button"
                   phx-click="delete_flagged"
                   phx-value-id={f.question_log_id}
                   data-confirm="Delete this answer? This can't be undone."
-                  style={btn("var(--danger,#c0392b)")}
+                  class="btn-danger-outline btn-xs"
                 >Delete answer</button>
               </div>
             </div>
@@ -405,14 +407,15 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                   type="button"
                   phx-click="reapprove_answer"
                   phx-value-id={q.id}
-                  style={btn("var(--green)")}
+                  class="btn-xs"
+                  style="border:1px solid var(--green);color:var(--green);background:none"
                 >Re-approve</button>
                 <button
                   type="button"
                   phx-click="delete_flagged"
                   phx-value-id={q.id}
                   data-confirm="Delete this answer? This can't be undone."
-                  style={btn("var(--danger,#c0392b)")}
+                  class="btn-danger-outline btn-xs"
                 >Delete answer</button>
               </div>
             </div>
@@ -461,10 +464,6 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
 
   defp num(0), do: td()
   defp num(_), do: td() <> ";font-weight:700;color:var(--danger,#c0392b)"
-
-  defp btn(color),
-    do:
-      "background:none;border:1px solid #{color};color:#{color};padding:0.15rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;font-weight:600;cursor:pointer"
 
   defp pill(color),
     do:

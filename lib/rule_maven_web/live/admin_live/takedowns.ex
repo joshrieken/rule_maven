@@ -116,7 +116,7 @@ defmodule RuleMavenWeb.AdminLive.Takedowns do
         <div style="display:flex;align-items:center;gap:0.75rem">
           <button
             type="submit"
-            style="background:var(--danger,#c0392b);color:#fff;border:none;padding:0.4rem 1rem;border-radius:0.375rem;font-size:0.8rem;font-weight:600;cursor:pointer"
+            class="btn-danger btn-sm"
           >Take down</button>
           <span :if={@error} style="font-size:0.75rem;color:var(--red)">{@error}</span>
         </div>
@@ -144,7 +144,8 @@ defmodule RuleMavenWeb.AdminLive.Takedowns do
                   phx-click="restore"
                   phx-value-id={g.id}
                   data-confirm={"Restore “#{g.name}”? It becomes visible and askable again."}
-                  style="background:none;border:1px solid var(--green);color:var(--green);padding:0.15rem 0.6rem;border-radius:0.25rem;font-size:0.72rem;font-weight:600;cursor:pointer"
+                  class="btn-xs"
+                  style="border:1px solid var(--green);color:var(--green);background:none"
                 >Restore</button>
               </div>
               <p style="font-size:0.78rem;color:var(--text-muted);margin:0.3rem 0 0">

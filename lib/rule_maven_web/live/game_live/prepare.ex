@@ -667,7 +667,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           </span>
           <button
             phx-click="stop"
-            style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.4rem 1rem;border-radius:0.375rem;font-size:0.82rem;font-weight:600;cursor:pointer"
+            class="btn-sm"
           >
             Pause
           </button>
@@ -678,13 +678,13 @@ defmodule RuleMavenWeb.GameLive.Prepare do
                   direct way to continue once they've cleared the blocker. --%>
             <button
               phx-click="resume"
-              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;cursor:pointer"
+              class="btn-primary"
             >
               ▶ Run remaining
             </button>
             <button
               phx-click="stop"
-              style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.4rem 1rem;border-radius:0.375rem;font-size:0.82rem;font-weight:600;cursor:pointer"
+              class="btn-sm"
             >
               Stop
             </button>
@@ -700,13 +700,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
                 @all_done? &&
                   "This game is already fully prepared. Re-run the pipeline (regenerates enrichments and spends)?"
               }
-              style={
-                if @all_done?,
-                  do:
-                    "background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border);padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.82rem;font-weight:600;cursor:pointer",
-                  else:
-                    "background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;cursor:pointer"
-              }
+              class={if @all_done?, do: "btn-sm", else: "btn-primary"}
             >
               {if @all_done?, do: "Re-run prepare", else: "Prepare game"} · est. ${fmt_cost(
                 if @all_done?, do: @rerun_cost, else: @remaining_cost
@@ -721,7 +715,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         <button
           :if={@required_complete? && !@playable?}
           phx-click="approve_publish"
-          style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;cursor:pointer"
+          class="btn-primary"
         >
           ✓ Mark Ready
         </button>
@@ -729,7 +723,6 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           :if={!@required_complete? && !@playable?}
           disabled
           title={"Remaining before publish: #{remaining_required_labels(@steps)}"}
-          style="background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border);padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:700;cursor:not-allowed"
         >
           ✓ Mark Ready
         </button>
@@ -737,7 +730,6 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           :if={@playable?}
           phx-click="revoke_publish"
           data-confirm="Unpublish this game? Users won't be able to ask questions until you re-publish."
-          style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.85rem;font-weight:600;cursor:pointer"
         >
           Unpublish
         </button>
@@ -749,7 +741,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           <button
             phx-click="reset_all"
             data-confirm={"Delete every rulebook and all generated content for “#{@game.name}”? This can’t be undone."}
-            style="margin-left:auto;background:var(--bg-subtle);color:var(--red);border:1px solid color-mix(in srgb,var(--red) 40%,var(--border));padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.82rem;font-weight:600;cursor:pointer"
+            class="btn-danger-outline btn-sm"
+            style="margin-left:auto"
           >
             Reset all
           </button>
@@ -760,7 +753,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           >
             <button
               disabled
-              style="background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border);padding:0.45rem 1.1rem;border-radius:0.375rem;font-size:0.82rem;font-weight:600;cursor:not-allowed;opacity:0.7"
+              class="btn-sm"
             >
               Reset all
             </button>
@@ -1032,14 +1025,14 @@ defmodule RuleMavenWeb.GameLive.Prepare do
                   />
                   <button
                     type="submit"
-                    style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.2rem 0.55rem;border-radius:0.3rem;font-size:0.72rem;font-weight:600;cursor:pointer"
+                    class="btn-primary btn-xs"
                   >
                     Save
                   </button>
                   <button
                     type="button"
                     phx-click="cancel_rename"
-                    style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.2rem 0.55rem;border-radius:0.3rem;font-size:0.72rem;font-weight:600;cursor:pointer"
+                    class="btn-xs"
                   >
                     Cancel
                   </button>
@@ -1051,7 +1044,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
                   phx-click="start_rename"
                   phx-value-id={d.id}
                   title="Rename rulebook"
-                  style="background:none;border:none;color:var(--text-muted);font-size:0.75rem;cursor:pointer;padding:0 0.1rem"
+                  class="btn-icon btn-xs"
                 >
                   ✎
                 </button>
@@ -1250,7 +1243,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         type="button"
         phx-click="extract"
         data-confirm="Extract the rulebook text now? This spends LLM budget."
-        style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+        class="btn-primary btn-xs"
       >
         Extract
       </button>
@@ -1259,7 +1252,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         type="button"
         phx-click="clean_all"
         data-confirm="Clean up the extracted rulebook text now? This spends LLM budget."
-        style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+        class="btn-primary btn-xs"
       >
         Clean up
       </button>
@@ -1275,7 +1268,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         type="button"
         phx-click="embed"
         data-confirm="Chunk and embed the cleaned rulebook text now? This spends embedding budget."
-        style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+        class="btn-primary btn-xs"
       >
         Chunk &amp; embed
       </button>
@@ -1300,7 +1293,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         type="button"
         phx-click="retag_categories"
         data-confirm="Re-tag every existing question against the current categories?"
-        style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+        class="btn-xs"
       >
         Re-tag all
       </button>
@@ -1317,7 +1310,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         phx-click="regen_step"
         phx-value-step={@step.id}
         data-confirm={regen_confirm(@step.id, @done?)}
-        style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+        class="btn-primary btn-xs"
       >
         {if @done?, do: "Regenerate", else: "Generate"}
       </button>
@@ -1327,7 +1320,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         phx-click="clear_step"
         phx-value-step={@step.id}
         data-confirm="Clear this result? It will need to be regenerated."
-        style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.3rem 0.7rem;border-radius:0.3rem;font-size:0.74rem;font-weight:600;cursor:pointer"
+        class="btn-xs"
       >
         Clear
       </button>

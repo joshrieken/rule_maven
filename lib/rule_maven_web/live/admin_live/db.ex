@@ -406,7 +406,8 @@ defmodule RuleMavenWeb.AdminLive.Db do
             <button
               type="button"
               phx-click="toggle_view"
-              style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.3rem 0.65rem;border-radius:0.375rem;font-size:0.7rem;font-weight:600;cursor:pointer;white-space:nowrap"
+              class="btn-xs"
+              style="white-space:nowrap"
             >
               {if @view_mode == :table, do: "☰ Extended", else: "⊞ Table"}
             </button>
@@ -419,7 +420,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
               :if={writable?(@table_name)}
               type="button"
               phx-click="new_row"
-              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 0.75rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
+              class="btn-primary btn-xs"
             >
               + New
             </button>
@@ -476,12 +477,12 @@ defmodule RuleMavenWeb.AdminLive.Db do
               <button
                 type="button"
                 phx-click="save"
-                style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
+                class="btn-primary btn-xs"
               >Save</button>
               <button
                 type="button"
                 phx-click="cancel_form"
-                style="background:var(--bg-subtle);color:var(--text);border:1px solid var(--border);padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;cursor:pointer"
+                class="btn-xs"
               >Cancel</button>
             </div>
           </div>
@@ -528,7 +529,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
                           type="button"
                           phx-click="edit_row"
                           phx-value-id={row_id}
-                          style="color:var(--text-secondary);background:none;border:none;font-size:0.72rem;cursor:pointer"
+                          class="btn-xs"
                         >Edit</button>
                         <%= if @delete_id == row_id do %>
                           <span style="color:var(--red);font-size:0.72rem">Delete?</span>
@@ -536,19 +537,19 @@ defmodule RuleMavenWeb.AdminLive.Db do
                             type="button"
                             phx-click="delete_row"
                             phx-value-id={row_id}
-                            style="color:var(--red);background:none;border:none;font-size:0.72rem;font-weight:600;cursor:pointer"
+                            class="btn-danger-outline btn-xs"
                           >Yes</button>
                           <button
                             type="button"
                             phx-click="cancel_delete"
-                            style="color:var(--text-muted);background:none;border:none;font-size:0.72rem;cursor:pointer"
+                            class="btn-xs"
                           >No</button>
                         <% else %>
                           <button
                             type="button"
                             phx-click="confirm_delete"
                             phx-value-id={row_id}
-                            style="color:var(--text-muted);background:none;border:none;font-size:0.72rem;cursor:pointer"
+                            class="btn-icon btn-xs"
                             title="Delete"
                           >✕</button>
                         <% end %>
@@ -589,7 +590,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
                     type="button"
                     phx-click="edit_row"
                     phx-value-id={row_id}
-                    style="color:var(--blue);background:none;border:none;font-size:0.75rem;cursor:pointer;font-weight:600"
+                    class="btn-xs"
                   >Edit</button>
                   <%= if @delete_id == row_id do %>
                     <span style="color:var(--red);font-size:0.75rem">Delete?</span>
@@ -597,19 +598,19 @@ defmodule RuleMavenWeb.AdminLive.Db do
                       type="button"
                       phx-click="delete_row"
                       phx-value-id={row_id}
-                      style="color:var(--red);background:none;border:none;font-size:0.75rem;font-weight:600;cursor:pointer"
+                      class="btn-danger-outline btn-xs"
                     >Yes</button>
                     <button
                       type="button"
                       phx-click="cancel_delete"
-                      style="color:var(--text-muted);background:none;border:none;font-size:0.75rem;cursor:pointer"
+                      class="btn-xs"
                     >No</button>
                   <% else %>
                     <button
                       type="button"
                       phx-click="confirm_delete"
                       phx-value-id={row_id}
-                      style="color:var(--text-muted);background:none;border:none;font-size:0.75rem;cursor:pointer"
+                      class="btn-icon btn-xs"
                     >✕</button>
                   <% end %>
                 </div>

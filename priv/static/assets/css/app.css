@@ -1874,6 +1874,53 @@ button:disabled, .btn:disabled, [type="button"]:disabled, [type="submit"]:disabl
   font-size: 0.8rem;
 }
 
+/* Tiny row-action size (game list rows, table actions). */
+.btn-xs {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+/* Accent-outlined secondary action (Edit, Promote). Generic button:hover
+   outranks a single class, so hover/active re-assert the transparent fill. */
+.btn-outline {
+  background: transparent;
+  color: var(--accent-ink, var(--accent));
+  border-color: var(--accent);
+}
+
+.btn-outline:hover {
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+  color: var(--accent-ink, var(--accent));
+}
+
+.btn-outline:active {
+  background: var(--accent-subtle);
+}
+
+/* Square icon-only button (dismiss ×, heart). Inherits the neutral fill. */
+.btn-icon {
+  padding: 0.2rem 0.45rem;
+  min-width: 1.8rem;
+}
+
+/* Danger-outlined (destructive but not the row's loudest element). */
+.btn-danger-outline {
+  background: transparent;
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.btn-danger-outline:hover {
+  background: var(--bg-danger);
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.btn-danger-outline:active {
+  background: var(--bg-danger);
+}
+
 /* ===== Link as button ===== */
 a.bg-blue-600,
 a[href*="new"] {

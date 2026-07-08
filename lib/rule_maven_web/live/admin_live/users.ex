@@ -163,13 +163,13 @@ defmodule RuleMavenWeb.AdminLive.Users do
               id="copy-temp-password"
               phx-hook="ClipboardCopy"
               data-clipboard-text={@temp_password}
-              style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.3rem;padding:0.35rem 0.6rem;font-size:0.7rem;cursor:pointer;color:var(--text);font-weight:600"
+              class="btn-xs"
             >📋 Copy</button>
           </div>
           <button
             type="button"
             phx-click="dismiss_temp_password"
-            style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.3rem 1.5rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer"
+            class="btn-primary btn-xs"
           >Done</button>
         </div>
       <% end %>
@@ -220,7 +220,8 @@ defmodule RuleMavenWeb.AdminLive.Users do
             <button
               type="submit"
               disabled={@new_username == "" || @new_email == ""}
-              style="background:var(--accent);color:var(--accent-text,#fff);border:none;padding:0.35rem 1rem;border-radius:0.375rem;font-size:0.75rem;font-weight:600;cursor:pointer;align-self:end"
+              class="btn-primary btn-xs"
+              style="align-self:end"
             >Create &amp; Generate Password</button>
           </form>
         </div>
@@ -274,7 +275,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
                         type="button"
                         phx-click="promote_user"
                         phx-value-id={user.id}
-                        style="background:none;border:1px solid var(--accent);color:var(--accent);padding:0.15rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;font-weight:600;cursor:pointer"
+                        class="btn-outline btn-xs"
                       >Promote</button>
                     <% else %>
                       <button
@@ -282,7 +283,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
                         phx-click="demote_user"
                         phx-value-id={user.id}
                         data-confirm={"Remove admin access from #{user.username}?"}
-                        style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:0.15rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;font-weight:600;cursor:pointer"
+                        class="btn-xs"
                       >Demote</button>
                     <% end %>
                   </div>

@@ -61,7 +61,8 @@ defmodule RuleMavenWeb.AdminLive.Index do
           data-confirm={
             if !@asks_disabled, do: "Pause all new question answering for users?", else: false
           }
-          style={"flex-shrink:0;border:1px solid #{if @asks_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};color:#{if @asks_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};background:none;padding:0.35rem 0.9rem;border-radius:0.375rem;font-size:0.78rem;font-weight:700;cursor:pointer"}
+          class="btn-sm"
+          style={"flex-shrink:0;border:1px solid #{if @asks_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};color:#{if @asks_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};background:none"}
         >
           {if @asks_disabled, do: "Resume asks", else: "Pause asks"}
         </button>
