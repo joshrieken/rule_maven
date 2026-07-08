@@ -447,7 +447,9 @@ defmodule RuleMavenWeb.GameLive.Community do
         </div>
       <% else %>
         <%!-- Tab strip --%>
-        <div style="display:flex;gap:0.35rem;margin-bottom:1rem;border-bottom:1px solid var(--border)">
+        <%!-- overflow-x: three labeled tabs outgrow a phone screen; the strip
+              scrolls sideways instead of clipping the last tab. --%>
+        <div style="display:flex;gap:0.35rem;margin-bottom:1rem;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none">
           <.tab_button
             tab="verified"
             active={@tab == "verified"}
@@ -660,7 +662,7 @@ defmodule RuleMavenWeb.GameLive.Community do
       type="button"
       phx-click="switch_tab"
       phx-value-tab={@tab}
-      style={"font-size:0.72rem;font-weight:#{if @active, do: "700", else: "500"};padding:0.4rem 0.7rem;border:none;border-bottom:2px solid #{if @active, do: "var(--accent)", else: "transparent"};background:none;color:#{if @active, do: "var(--text)", else: "var(--text-secondary)"};cursor:pointer;white-space:nowrap"}
+      style={"font-size:0.72rem;font-weight:#{if @active, do: "700", else: "500"};padding:0.4rem 0.7rem;border:none;border-bottom:2px solid #{if @active, do: "var(--accent)", else: "transparent"};background:none;color:#{if @active, do: "var(--text)", else: "var(--text-secondary)"};cursor:pointer;white-space:nowrap;flex-shrink:0"}
     >
       {@label}
     </button>
