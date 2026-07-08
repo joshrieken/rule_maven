@@ -3663,12 +3663,12 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <%!-- Everything else right-aligns in one group: category pills,
                         then the overflow menu. --%>
                     <span style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-left:auto">
-                      <!-- Category pills. Categories live in the (community) FAQ, so
-                       only show on community questions — except admins, who see
-                       them on any answer to audit tagging before it goes
-                       community. -->
+                      <!-- Category pills. Shown under any answered question now
+                       that unverified answers are browsable by category on the
+                       community Q&A page — each pill deep-links into that page
+                       filtered to the category. -->
                       <% msg_cats =
-                        if (is_community_msg || @is_admin) && msg.role == :assistant && msg[:id],
+                        if msg.role == :assistant && msg[:id],
                           do: Map.get(@question_categories, msg[:id], []),
                           else: [] %>
                       <span
