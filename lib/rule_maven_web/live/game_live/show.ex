@@ -3856,13 +3856,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                           <span>Gathering rulebook citations…</span>
                         </div>
                       <% thinking? || voicing? -> %>
-                        <% v_def = v_sel != "neutral" && Enum.find(@voices, &(&1.id == v_sel)) %>
                         <div class="answer-in">
                           <%!-- Voice in the id so switching persona mid-wait replaces
                                 the ignored element — remounting the hook with the new
                                 persona's phrases and label. The id is shared across
                                 the thinking → voicing stages so the loader (and its
                                 phrase cycle) persists seamlessly between them. --%>
+                          <%!-- No persona name/emoji row here: the persona button
+                                directly above already shows "<name> speaking", so
+                                repeating "<name> ANSWERING…" in the loader was
+                                redundant. --%>
                           <div
                             class="voice-loader"
                             id={"voice-loader-#{msg[:id]}-#{v_sel}"}
@@ -3878,15 +3881,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                               )
                             }
                           >
-                            <div :if={v_def} class="voice-loader__persona">
-                              <span
-                                :if={String.starts_with?(v_sel, "g:")}
-                                aria-hidden="true"
-                                class="voice-loader__persona-star"
-                              >✦</span>
-                              <span aria-hidden="true">{v_def.emoji}</span>
-                              <span>{v_def.label} ANSWERING…</span>
-                            </div>
                             <div class="voice-loader__row">
                               <span class="voice-loader__spinner" aria-hidden="true"></span>
                               <span class="voice-loader__phrase">Reticulating splines…</span>
