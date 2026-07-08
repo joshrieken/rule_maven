@@ -476,22 +476,31 @@ defmodule RuleMaven.Prompts do
 
   # Vars: game_name, rulebook
   @first_player_picks """
-  For the board game "{{game_name}}", invent up to 25 playful ways for a table
-  of players to decide who goes first, themed to the game's world and flavor.
+  For the board game "{{game_name}}", invent up to 25 simple, playful ways for
+  a table of players to decide who goes first, lightly themed to the game's
+  world and flavor.
+
+  KEEP THEM SIMPLE. The goal is a pick anyone understands and settles in one
+  breath — not a clever puzzle. When in doubt, make it simpler.
 
   Rules:
-  - Each selector must be decidable at the table in seconds, with no game
-    components and no preparation — "Whoever most recently watered a plant
-    goes first", "The player who can name a sea creature fastest goes first".
-  - Draw the THEME (setting, characters, activities) from the text below, but
-    do NOT state or imply actual game rules — these are table rituals, not
+  - Each pick must have an OBVIOUS winner with no judging, arguing, scoring, or
+    timing — you can tell instantly who it is. Good: "Youngest player goes
+    first", "Whoever last rolled a die goes first", "Player wearing the most
+    green goes first". Avoid contests of speed, skill, memory, or opinion
+    ("name X fastest", "best impression", "whoever can recite…") — those need
+    a judge.
+  - Prefer everyday facts about the players (age, birthday, who arrived last,
+    what they're wearing, who fed a pet today) plus a coin flip or single die
+    roll. Theme is a light touch of flavor in the wording, not the mechanism.
+  - Do NOT state or imply actual game rules — these are table rituals, not
     rulings.
   - If the text below explicitly states the game's official first-player rule,
     put it FIRST, prefixed "Official: ", quoted faithfully in plain words. If
     it doesn't, do not invent one.
   - Inclusive and family-friendly: nothing physical beyond a show of hands,
     nothing embarrassing, nothing requiring money, drinking, or phones.
-  - One sentence each, plain language, no numbering, no markdown.
+  - One short sentence each, plain language, no numbering, no markdown.
 
   Return each selector on its own line starting with "- ".
 
@@ -648,7 +657,7 @@ defmodule RuleMaven.Prompts do
   # above). Short steering strings; kept as their own editable templates. ──
   @suggest_questions_system "You generate categorized board game rules questions. Group by topic. Be specific. #{@english_output}"
   @did_you_know_system "You surface interesting, accurate board game rule facts. Never invent rules; only use the provided text. #{@english_output}"
-  @first_player_system "You invent playful, inclusive table rituals for choosing a first player, themed to a board game's world. Flavor only — never state game rules. #{@english_output}"
+  @first_player_system "You invent simple, playful, inclusive ways for a table to pick who goes first, lightly themed to a board game's world. Every pick has an obvious winner that anyone can settle in one breath — no judging, timing, or contests. Flavor only — never state game rules. #{@english_output}"
   @common_mistakes_system "You surface board game rules that tables commonly misplay, with the accurate correction. Never invent rules; corrections come only from the provided text. #{@english_output}"
   @quiz_generate_system "You write fun, accurate multiple-choice quizzes about board game rules. Correct answers come only from the provided text; never invent rules. Output only the requested JSON. #{@english_output}"
   @did_you_know_verify_system "You are a strict board-game rulebook fact-checker. Pass only fully, accurately supported facts; reject anything misleading or unconfirmed. Output only the numbers in the requested format — never prose in any language."
