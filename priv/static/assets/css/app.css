@@ -3023,8 +3023,9 @@ body:has([data-phx-main].phx-connected)::after {
   .header-inner { gap: 0.35rem; flex-wrap: nowrap; padding: 0.5rem 0; }
   .header-title { font-size: 0.95rem; }
   .header { padding: 0 0.75rem; }
-  /* The standalone game-theme control can't fit on the single-row header;
-     its options fold into #theme-select instead (see root layout script). */
+  /* #game-theme-select is a hidden option-source only (always `hidden`); its
+     options fold into the single #theme-select picker on game pages. Belt-and-
+     suspenders hide in case anything unsets the attribute. */
   #game-theme-select { display: none !important; }
   .theme-select { max-width: 6.5rem; }
 }

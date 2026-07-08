@@ -604,18 +604,25 @@ Hooks.ChecklistStore = {
 // Overview nudge: one-click opt-in to the game's own palette. Applies the
 // light/dark game variant matching the viewer's CURRENT look (sampled from the
 // live background luminance, so it fits whatever base theme is active), exactly
-// like the header game-theme control (localStorage themeGameMatch + data-theme).
-// Self-hides once a game variant is already active so it never nags returning
-// users, and after a click.
+// like the header theme picker (localStorage themeGameMatch + data-theme).
+// Shows only while no game variant is active — it hides when one is applied and
+// reappears if the picker is switched back to Off, driven by the shared
+// `rm:gametheme` event the root layout dispatches.
 Hooks.GameThemeHint = {
+  isGame(v) {
+    return v === "game-light" || v === "game-dark";
+  },
+  sync(match) {
+    this.el.hidden = this.isGame(match);
+  },
   mounted() {
-    var cur = localStorage.getItem("themeGameMatch");
-    if (cur === "game-light" || cur === "game-dark") {
-      this.el.hidden = true;
-      return;
-    }
-    var el = this.el;
-    el.addEventListener("click", function() {
+    var self = this;
+    this.sync(localStorage.getItem("themeGameMatch"));
+    this._onMatch = function(e) {
+      self.sync(e && e.detail ? e.detail.match : localStorage.getItem("themeGameMatch"));
+    };
+    window.addEventListener("rm:gametheme", this._onMatch);
+    this.el.addEventListener("click", function() {
       var variant = "game-light";
       try {
         var bg = getComputedStyle(document.body).backgroundColor;
@@ -627,10 +634,13 @@ Hooks.GameThemeHint = {
       } catch (_e) {}
       localStorage.setItem("themeGameMatch", variant);
       document.documentElement.setAttribute("data-theme", variant);
-      var sel = document.getElementById("game-theme-select");
+      var sel = document.getElementById("theme-select");
       if (sel) sel.value = variant;
-      el.hidden = true;
+      window.dispatchEvent(new CustomEvent("rm:gametheme", { detail: { match: variant } }));
     });
+  },
+  destroyed() {
+    if (this._onMatch) window.removeEventListener("rm:gametheme", this._onMatch);
   }
 };
 
