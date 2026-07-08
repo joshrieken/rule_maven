@@ -847,6 +847,163 @@ Hooks.PersonaFilter = {
   }
 };
 
+// Score pad: a fully client-side end-game tally (categories generated from the
+// rulebook at finalize). Add players, punch in points per category, reveal the
+// winner with a little ceremony. State persists per game in localStorage — no
+// server round-trip, no accounts. Mobile-first: player cards stack vertically.
+Hooks.ScorePad = {
+  mounted() {
+    this.cats = [];
+    try {
+      this.cats = JSON.parse(this.el.getAttribute("data-categories") || "[]");
+    } catch (e) {
+      this.cats = [];
+    }
+    this.key = "scorepad:" + (this.el.getAttribute("data-game") || "game");
+    this.state = this.load();
+    if (!this.state.players.length) this.addPlayer();
+    this.render();
+
+    this.el.addEventListener("input", (e) => {
+      const t = e.target;
+      if (t.dataset.role === "name") {
+        this.state.players[+t.dataset.p].name = t.value;
+        this.save();
+      } else if (t.dataset.role === "score") {
+        const v = parseFloat(t.value);
+        this.state.players[+t.dataset.p].scores[+t.dataset.c] = isNaN(v) ? 0 : v;
+        this.save();
+        this.refreshTotals();
+      }
+    });
+
+    this.el.addEventListener("click", (e) => {
+      const act = e.target.dataset.action;
+      if (!act) return;
+      e.preventDefault();
+      if (act === "add") {
+        this.addPlayer();
+        this.save();
+        this.render();
+      } else if (act === "remove") {
+        this.state.players.splice(+e.target.dataset.p, 1);
+        if (!this.state.players.length) this.addPlayer();
+        this.save();
+        this.render();
+      } else if (act === "reveal") {
+        this.state.revealed = true;
+        this.save();
+        this.render();
+      } else if (act === "reveal-back") {
+        this.state.revealed = false;
+        this.save();
+        this.render();
+      } else if (act === "reset") {
+        this.state = { players: [], revealed: false };
+        this.addPlayer();
+        this.save();
+        this.render();
+      }
+    });
+  },
+
+  load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(this.key));
+      if (s && Array.isArray(s.players)) return s;
+    } catch (e) {
+      /* fall through to empty */
+    }
+    return { players: [], revealed: false };
+  },
+  save() {
+    try {
+      localStorage.setItem(this.key, JSON.stringify(this.state));
+    } catch (e) {
+      /* storage unavailable — widget still works for the session */
+    }
+  },
+  addPlayer() {
+    this.state.players.push({ name: "", scores: this.cats.map(() => 0) });
+  },
+  total(p) {
+    return (p.scores || []).reduce((a, b) => a + (Number(b) || 0), 0);
+  },
+  esc(s) {
+    return (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  },
+
+  render() {
+    if (this.state.revealed) {
+      this.el.innerHTML = this.ceremonyHTML();
+      return;
+    }
+    let h = "";
+    this.state.players.forEach((p, pi) => {
+      h +=
+        `<div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.5rem;padding:0.55rem 0.6rem;margin-bottom:0.5rem">` +
+        `<div style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.35rem">` +
+        `<input data-role="name" data-p="${pi}" value="${this.esc(p.name)}" placeholder="Player ${pi + 1}" style="flex:1;min-width:0;padding:0.3rem 0.45rem;font-size:0.85rem;font-weight:600;border:1px solid var(--border);border-radius:0.35rem;background:var(--bg-surface);color:var(--text)" />` +
+        `<span data-total="${pi}" style="font-weight:800;font-size:0.95rem;color:var(--accent-ink,var(--accent));min-width:2ch;text-align:right">${this.total(p)}</span>` +
+        `<button type="button" data-action="remove" data-p="${pi}" title="Remove player" style="padding:0.2rem 0.45rem;font-size:0.8rem;line-height:1">✕</button>` +
+        `</div>`;
+      this.cats.forEach((c, ci) => {
+        h +=
+          `<div style="display:flex;align-items:center;gap:0.5rem;margin:0.12rem 0">` +
+          `<span style="flex:1;font-size:0.8rem;color:var(--text)" title="${this.esc(c.hint)}">${this.esc(c.label)}</span>` +
+          `<input data-role="score" data-p="${pi}" data-c="${ci}" type="number" inputmode="numeric" value="${p.scores[ci] || ""}" style="width:3.6rem;padding:0.25rem 0.35rem;font-size:0.8rem;text-align:right;border:1px solid var(--border);border-radius:0.35rem;background:var(--bg-surface);color:var(--text)" />` +
+          `</div>`;
+      });
+      h += `</div>`;
+    });
+    h +=
+      `<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">` +
+      `<button type="button" data-action="add" class="btn-outline btn-xs">+ Add player</button>` +
+      `<button type="button" data-action="reveal" class="btn-xs" style="background:var(--accent);color:var(--accent-text,#fff);border-color:var(--accent)">🏆 Reveal winner</button>` +
+      `</div>`;
+    this.el.innerHTML = h;
+  },
+
+  ceremonyHTML() {
+    const ranked = this.state.players
+      .map((p, i) => ({ name: p.name || `Player ${i + 1}`, total: this.total(p) }))
+      .sort((a, b) => b.total - a.total);
+    const win = ranked[0] || { name: "—", total: 0 };
+    const runner = ranked[1];
+    const tie = runner && runner.total === win.total;
+    const margin = runner ? win.total - runner.total : null;
+    let sub;
+    if (tie) sub = `It's a tie at ${win.total}!`;
+    else if (margin != null) sub = `by ${margin} point${margin === 1 ? "" : "s"} — ${win.total} total`;
+    else sub = `${win.total} points`;
+    const medals = ["🥇", "🥈", "🥉"];
+    const rows = ranked
+      .map(
+        (r, i) =>
+          `<div style="display:flex;justify-content:space-between;font-size:0.82rem;padding:0.15rem 0;color:${i === 0 ? "var(--text)" : "var(--text-muted)"}"><span>${medals[i] || "▫️"} ${this.esc(r.name)}</span><span style="font-weight:700">${r.total}</span></div>`
+      )
+      .join("");
+    return (
+      `<div style="text-align:center;padding:0.4rem 0">` +
+      `<div style="font-size:1.6rem">🎉</div>` +
+      `<div style="font-size:1.05rem;font-weight:800;color:var(--text);margin:0.1rem 0">${tie ? "Tie game!" : this.esc(win.name) + " wins!"}</div>` +
+      `<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.6rem">${sub}</div>` +
+      `<div style="text-align:left;max-width:16rem;margin:0 auto 0.7rem">${rows}</div>` +
+      `<div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap">` +
+      `<button type="button" data-action="reveal-back" class="btn-outline btn-xs">← Back to scores</button>` +
+      `<button type="button" data-action="reset" class="btn-xs" style="background:var(--accent);color:var(--accent-text,#fff);border-color:var(--accent)">🔄 New game</button>` +
+      `</div></div>`
+    );
+  },
+
+  refreshTotals() {
+    this.state.players.forEach((p, pi) => {
+      const el = this.el.querySelector(`[data-total="${pi}"]`);
+      if (el) el.textContent = this.total(p);
+    });
+  }
+};
+
 Hooks.TurnTimer = {
   // Fully client-side turn timer: no server roundtrips, survives LiveView
   // patches because all state lives on the hook. data-seconds holds the

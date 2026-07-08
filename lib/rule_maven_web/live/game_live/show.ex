@@ -283,6 +283,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         fp_pick: nil,
         common_mistakes: load_common_mistakes(game),
         teach_pitch: load_teach_pitch(game),
+        score_categories: load_score_categories(game),
         quiz: load_quiz(game),
         quiz_idx: 0,
         quiz_choice: nil,
@@ -3254,6 +3255,26 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </details>
               <% end %>
 
+              <%= if @score_categories != [] do %>
+                <%!-- Score pad: fully client-side (Hooks.ScorePad, localStorage
+                    per game). phx-update="ignore" keeps LiveView patches from
+                    clobbering the tally the hook renders. Categories come from
+                    the rulebook at finalize; the ceremony reveals the winner. --%>
+                <details data-tour="scorepad" style="margin:1.25rem auto 0;max-width:30rem;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
+                  <summary style="cursor:pointer;font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
+                    🏆 Score pad ({length(@score_categories)} categories)
+                  </summary>
+                  <div
+                    id="score-pad"
+                    phx-hook="ScorePad"
+                    phx-update="ignore"
+                    data-game={@game.id}
+                    data-categories={Jason.encode!(@score_categories)}
+                    style="margin-top:0.6rem"
+                  ></div>
+                </details>
+              <% end %>
+
               <%!-- Turn timer: fully client-side (Hooks.TurnTimer), so
                     phx-update="ignore" keeps LiveView patches from clobbering
                     the countdown. Suggested pace scales with game weight. --%>
@@ -5259,6 +5280,15 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp load_teach_pitch(game) do
     case RuleMaven.Settings.get("teach_pitch_#{game.id}") do
       nil -> %{}
+      json -> Jason.decode!(json)
+    end
+  end
+
+  # Cached end-game scoring categories (generated at finalize). Empty for
+  # non-points games — the score-pad card is simply hidden.
+  defp load_score_categories(game) do
+    case RuleMaven.Settings.get("score_categories_#{game.id}") do
+      nil -> []
       json -> Jason.decode!(json)
     end
   end

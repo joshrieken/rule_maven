@@ -2966,6 +2966,66 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
+  Generates the end-game scoring categories for a game's score pad: a list of
+  `%{"label" => label, "hint" => hint}`. Returns `{:ok, []}` when the game isn't
+  decided by adding up points (the model replies "none") or the rulebook is too
+  thin, or `{:error, reason}`.
+  """
+  def generate_score_categories(game_name, rulebook_text, game_id \\ nil) do
+    prompt =
+      RuleMaven.Prompts.render("score_categories", %{
+        game_name: game_name,
+        rulebook: sample_across(rulebook_text, 14000, 2000)
+      })
+
+    case chat(prompt, "score_categories",
+           model: model(:cheap),
+           operation: "score_categories",
+           game_id: game_id,
+           system: RuleMaven.Prompts.template("score_categories_system"),
+           max_tokens: 2000
+         ) do
+      {:ok, text} ->
+        if String.downcase(String.trim(text)) == "none" do
+          {:ok, []}
+        else
+          cats =
+            text
+            |> bullet_lines()
+            |> Enum.flat_map(fn line ->
+              case String.split(line, "||", parts: 2) do
+                [label, hint] ->
+                  label = label |> String.trim() |> String.replace(~r/^none$/i, "")
+                  hint = String.trim(hint)
+
+                  if label != "" and String.length(label) <= 40,
+                    do: [%{"label" => label, "hint" => hint}],
+                    else: []
+
+                [label] ->
+                  label = String.trim(label)
+
+                  if label != "" and String.downcase(label) != "none" and
+                       String.length(label) <= 40,
+                     do: [%{"label" => label, "hint" => ""}],
+                     else: []
+
+                _ ->
+                  []
+              end
+            end)
+            |> Enum.uniq_by(& &1["label"])
+            |> Enum.take(12)
+
+          {:ok, cats}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
   Generates themed "who goes first" table rituals for a game — flavor drawn
   from the rulebook's world, never rules. Returns `{:ok, [selector]}` or
   `{:error, reason}`.

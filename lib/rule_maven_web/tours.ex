@@ -105,6 +105,12 @@ defmodule RuleMavenWeb.Tours do
           "A random rule straight from the rulebook. Shuffle for another — great for the rules everyone forgets."
       },
       %{
+        sel: "[data-tour='scorepad']",
+        title: "Score pad",
+        body:
+          "At game end, tally each player against the game's real scoring categories and reveal the winner with a little ceremony. It saves on your device between rounds."
+      },
+      %{
         sel: "[data-tour='house-rules']",
         title: "House rules",
         body:

@@ -567,6 +567,29 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
+  # Vars: game_name, rulebook
+  @score_categories """
+  From the rulebook text below for "{{game_name}}", list the scoring categories a
+  table tallies at the END of the game to work out the winner — the separate
+  buckets of points players add up.
+
+  If this game is NOT decided by adding up points (for example it's cooperative,
+  or the winner is whoever reaches a goal first, or the last player standing),
+  output exactly "none" on a single line and nothing else.
+
+  Otherwise return each scoring category on its own line starting with "- ", the
+  label and a short hint separated by " || ":
+  - LABEL || a few words on what earns these points.
+
+  Rules:
+  - Labels are short (1–4 words). Only include categories the text supports —
+    never invent one. Order them the way players would total them at game end.
+  - Plain language. No markdown, no page numbers, no preamble.
+
+  RULEBOOK (sampled across the whole book):
+  {{rulebook}}
+  """
+
   # Vars: game_name, rulebook, items
   @setup_verify """
   You are a strict fact-checker for a board-game SETUP checklist for "{{game_name}}". Check each numbered item (components to gather and setup steps) against the rulebook text.
@@ -688,6 +711,7 @@ defmodule RuleMaven.Prompts do
   @first_player_system "You invent simple, playful, inclusive ways for a table to pick who goes first, lightly themed to a board game's world. Every pick has an obvious winner that anyone can settle in one breath — no judging, timing, or contests. Flavor only — never state game rules. #{@english_output}"
   @common_mistakes_system "You surface board game rules that tables commonly misplay, with the accurate correction. Never invent rules; corrections come only from the provided text. #{@english_output}"
   @teach_pitch_system "You give fast, accurate 'how to play' summaries of board games for brand-new players. Never invent rules; only use the provided text. #{@english_output}"
+  @score_categories_system "You identify the end-game scoring categories a table adds up to find the winner. Never invent categories; only use the provided text. Say 'none' when the game isn't decided by totting up points. #{@english_output}"
   @quiz_generate_system "You write fun, accurate multiple-choice quizzes about board game rules. Correct answers come only from the provided text; never invent rules. Output only the requested JSON. #{@english_output}"
   @did_you_know_verify_system "You are a strict board-game rulebook fact-checker. Pass only fully, accurately supported facts; reject anything misleading or unconfirmed. Output only the numbers in the requested format — never prose in any language."
   @categories_system "You generate topic categories for board game rulebooks. Be concise and specific. #{@english_output}"
@@ -1269,6 +1293,22 @@ defmodule RuleMaven.Prompts do
       description: "System primer paired with the 60-second teach prompt.",
       vars: [],
       default: @teach_pitch_system
+    },
+    %{
+      key: "score_categories",
+      group: "Content generation",
+      label: "Score pad categories",
+      description: "Generates the end-game scoring categories for the score pad (or 'none').",
+      vars: ~w(game_name rulebook),
+      default: @score_categories
+    },
+    %{
+      key: "score_categories_system",
+      group: "Content generation",
+      label: "Score pad categories — system",
+      description: "System primer paired with the score-pad categories prompt.",
+      vars: [],
+      default: @score_categories_system
     },
     %{
       key: "quiz_generate",

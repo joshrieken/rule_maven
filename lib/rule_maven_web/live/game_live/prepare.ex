@@ -36,13 +36,14 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     first_player: ["first_player_picks"],
     common_mistakes: ["common_mistakes"],
     quiz: ["quiz_generate"],
-    teach: ["teach_pitch"]
+    teach: ["teach_pitch"],
+    score: ["score_categories"]
   }
 
   # Enrichment steps that can be re-run in place from this page (each maps to a
   # durable Oban worker), and the subset whose cached output can be cleared.
-  @regen_steps ~w(suggestions categories cheat_sheet setup did_you_know voices theme bgg first_player common_mistakes quiz teach)a
-  @clear_steps ~w(suggestions cheat_sheet setup did_you_know theme first_player common_mistakes quiz teach)a
+  @regen_steps ~w(suggestions categories cheat_sheet setup did_you_know voices theme bgg first_player common_mistakes quiz teach score)a
+  @clear_steps ~w(suggestions cheat_sheet setup did_you_know theme first_player common_mistakes quiz teach score)a
 
   # JobRun.kind → step id, so a game-scoped running run lights up its step's
   # "Running…" indicator while the worker is in flight.
@@ -59,7 +60,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     "first_player" => :first_player,
     "common_mistakes" => :common_mistakes,
     "quiz" => :quiz,
-    "teach_pitch" => :teach
+    "teach_pitch" => :teach,
+    "score_categories" => :score
   }
 
   # JobRun.kind → step id for the inline per-step job log. Superset of
@@ -82,7 +84,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     "first_player" => :first_player,
     "common_mistakes" => :common_mistakes,
     "quiz" => :quiz,
-    "teach_pitch" => :teach
+    "teach_pitch" => :teach,
+    "score_categories" => :score
   }
 
   @impl true
@@ -541,6 +544,11 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     Settings.delete("teach_pitch_#{g.id}")
     Workers.TeachPitchWorker.enqueue(g.id)
   end
+
+  defp regen_step(:score, g) do
+    Settings.delete("score_categories_#{g.id}")
+    Workers.ScoreCategoriesWorker.enqueue(g.id)
+  end
   defp regen_step(:theme, g), do: Workers.ThemePaletteWorker.enqueue(g)
   defp regen_step(:bgg, g), do: %{game_id: g.id} |> Workers.BggEnrichWorker.new() |> Oban.insert()
   defp regen_step(_, _), do: :ok
@@ -554,6 +562,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   defp clear_step(:common_mistakes, g), do: Settings.delete("common_mistakes_#{g.id}")
   defp clear_step(:quiz, g), do: Settings.delete("quiz_#{g.id}")
   defp clear_step(:teach, g), do: Settings.delete("teach_pitch_#{g.id}")
+  defp clear_step(:score, g), do: Settings.delete("score_categories_#{g.id}")
   defp clear_step(_, _), do: :ok
 
   # True when any of the game's sources has a cleanup job queued/running. Cleanup
@@ -940,7 +949,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       first_player: load_json_list("first_player_#{game.id}"),
       common_mistakes: load_json_list("common_mistakes_#{game.id}"),
       quiz: load_json_list("quiz_#{game.id}"),
-      teach: load_teach_pitch(game.id)
+      teach: load_teach_pitch(game.id),
+      score: load_json_list("score_categories_#{game.id}")
     }
   end
 
@@ -1224,6 +1234,13 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               </div>
             </div>
           </dl>
+        <% :score -> %>
+          <ul style="margin:0;padding-left:1.1rem">
+            <li :for={c <- @preview} style="margin-bottom:0.25rem">
+              <span style="font-weight:600">{c["label"]}</span>
+              <span :if={c["hint"] not in [nil, ""]} style="color:var(--text-muted)"> — {c["hint"]}</span>
+            </li>
+          </ul>
         <% :voices -> %>
           <div style="display:flex;flex-direction:column;gap:0.6rem">
             <div
@@ -1529,7 +1546,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               :first_player,
               :common_mistakes,
               :quiz,
-              :teach
+              :teach,
+              :score
             ],
        do: %{href: ~p"/games/#{game}", label: "View on game page"}
 

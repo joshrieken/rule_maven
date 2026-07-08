@@ -127,6 +127,45 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
     end
   end
 
+  describe "ScoreCategoriesWorker" do
+    test "persists parsed scoring categories and broadcasts to the game topic" do
+      mock_llm(
+        "- Victory Points || from completed objectives\n" <>
+          "- Longest Road || 2 points for the longest\n" <>
+          "- none"
+      )
+
+      game = game_with_rulebook()
+
+      Phoenix.PubSub.subscribe(
+        RuleMaven.PubSub,
+        RuleMaven.Workers.ScoreCategoriesWorker.topic(game.id)
+      )
+
+      assert :ok =
+               RuleMaven.Workers.ScoreCategoriesWorker.perform(%Oban.Job{
+                 args: %{"game_id" => game.id}
+               })
+
+      assert_received {:score_categories_ready, cats}
+      assert length(cats) == 2
+      assert Enum.map(cats, & &1["label"]) == ["Victory Points", "Longest Road"]
+      assert Settings.get("score_categories_#{game.id}") =~ "Longest Road"
+    end
+
+    test "stores nothing when the game isn't decided by points" do
+      mock_llm("none")
+      game = game_with_rulebook()
+
+      assert :ok =
+               RuleMaven.Workers.ScoreCategoriesWorker.perform(%Oban.Job{
+                 args: %{"game_id" => game.id}
+               })
+
+      assert Settings.get("score_categories_#{game.id}") == nil
+    end
+  end
+
   describe "QuizWorker" do
     test "persists parsed quiz questions and broadcasts to the game topic" do
       mock_llm(~s([
