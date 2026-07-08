@@ -1127,8 +1127,13 @@ Hooks.Tour = {
     window.addEventListener("scroll", this._onMove, true);
   },
   // Present on this page = highlightable now (or a centered sel:null card).
+  // Requires a rendered box, not just a DOM match — controls hidden by
+  // responsive CSS (e.g. #game-theme-select on mobile) must skip, or the
+  // spotlight lands on nothing.
   present(step) {
-    return !step.sel || !!document.querySelector(step.sel);
+    if (!step.sel) return true;
+    const el = document.querySelector(step.sel);
+    return !!el && el.getClientRects().length > 0;
   },
   // Advance `dir` steps, skipping steps whose target isn't on the page.
   move(dir) {

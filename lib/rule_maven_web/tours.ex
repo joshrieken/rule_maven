@@ -70,9 +70,10 @@ defmodule RuleMavenWeb.Tours do
       },
       %{
         # :not([hidden]) — the picker is server-rendered hidden and unhidden by
-        # the root-layout script only when the page has a game palette; the Tour
-        # hook's present() is a bare querySelector, so without the guard this
-        # step would spotlight an invisible element on palette-less games.
+        # the root-layout script only when the page has a game palette, so this
+        # step must not match on palette-less games. On mobile the control is
+        # display:none (options fold into #theme-select) and present()'s
+        # rendered-box check skips the step.
         sel: "#game-theme-select:not([hidden])",
         title: "Dress for the game",
         body:
