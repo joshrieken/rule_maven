@@ -284,6 +284,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         common_mistakes: load_common_mistakes(game),
         teach_pitch: load_teach_pitch(game),
         score_categories: load_score_categories(game),
+        turn_flow: load_turn_flow(game),
+        turn_phase: 0,
         quiz: load_quiz(game),
         quiz_idx: 0,
         quiz_choice: nil,
@@ -659,6 +661,21 @@ defmodule RuleMavenWeb.GameLive.Show do
        quiz_choice: nil,
        quiz_score: {0, 0}
      )}
+  end
+
+  # Turn wizard: step through the cached turn phases (pure client-agnostic
+  # navigation over already-loaded data — no LLM at play time). Clamp to bounds.
+  def handle_event("turn_next", _params, socket) do
+    last = max(length(socket.assigns.turn_flow) - 1, 0)
+    {:noreply, assign(socket, turn_phase: min(socket.assigns.turn_phase + 1, last))}
+  end
+
+  def handle_event("turn_prev", _params, socket) do
+    {:noreply, assign(socket, turn_phase: max(socket.assigns.turn_phase - 1, 0))}
+  end
+
+  def handle_event("turn_restart", _params, socket) do
+    {:noreply, assign(socket, turn_phase: 0)}
   end
 
   def handle_event("toggle_step", %{"key" => key}, socket) do
@@ -3122,6 +3139,65 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </div>
               <% end %>
 
+              <%= if @turn_flow != [] do %>
+                <%!-- Turn wizard: "what can I do now?" Steps through the cached
+                    turn phases (generated at finalize); pure server-side nav,
+                    no LLM at play time. Mobile-first single column. --%>
+                <% phase = Enum.at(@turn_flow, @turn_phase) %>
+                <% phase_count = length(@turn_flow) %>
+                <details data-tour="turnwizard" style="margin:1.25rem auto 0;max-width:30rem;text-align:left;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.1rem">
+                  <summary style="cursor:pointer;font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
+                    🕹️ What can I do now?
+                  </summary>
+                  <%= if phase do %>
+                    <div style="margin-top:0.6rem">
+                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.65rem;color:var(--text-muted);font-weight:600;margin-bottom:0.4rem">
+                        <span>{if phase_count > 1, do: "Phase #{@turn_phase + 1} of #{phase_count}", else: "Your turn"}</span>
+                        <button
+                          :if={@turn_phase > 0}
+                          type="button"
+                          phx-click="turn_restart"
+                          style="background:none;border:none;color:var(--text-muted);font-size:0.65rem;cursor:pointer;padding:0;text-decoration:underline"
+                        >↺ Restart turn</button>
+                      </div>
+                      <p style="font-size:0.9rem;font-weight:700;color:var(--text);margin:0 0 0.15rem">
+                        {phase["name"]}
+                      </p>
+                      <p :if={phase["note"] not in [nil, ""]} style="font-size:0.75rem;color:var(--text-secondary);margin:0 0 0.5rem;line-height:1.45">
+                        {phase["note"]}
+                      </p>
+                      <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.5rem">
+                        <div
+                          :for={a <- phase["actions"] || []}
+                          style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.55rem"
+                        >
+                          <div style="font-size:0.82rem;font-weight:600;color:var(--text)">{a["label"]}</div>
+                          <div :if={a["rule"] not in [nil, ""]} style="font-size:0.76rem;color:var(--text-secondary);line-height:1.45;margin-top:0.1rem">
+                            {a["rule"]}
+                          </div>
+                        </div>
+                      </div>
+                      <div :if={phase_count > 1} style="display:flex;justify-content:space-between;gap:0.5rem;margin-top:0.7rem">
+                        <button
+                          type="button"
+                          phx-click="turn_prev"
+                          disabled={@turn_phase == 0}
+                          class="btn-outline btn-xs"
+                          style={"opacity:#{if @turn_phase == 0, do: "0.4", else: "1"}"}
+                        >← Back</button>
+                        <button
+                          type="button"
+                          phx-click="turn_next"
+                          disabled={@turn_phase >= phase_count - 1}
+                          class="btn-xs"
+                          style={"background:var(--accent);color:var(--accent-text,#fff);border-color:var(--accent);opacity:#{if @turn_phase >= phase_count - 1, do: "0.4", else: "1"}"}
+                        >Next phase →</button>
+                      </div>
+                    </div>
+                  <% end %>
+                </details>
+              <% end %>
+
               <%= if @teach_pitch != %{} do %>
                 <%!-- "Teach it in 60 seconds" summary generated at finalize —
                     the fast way to bring a new player up to speed. Read aloud. --%>
@@ -5288,6 +5364,15 @@ defmodule RuleMavenWeb.GameLive.Show do
   # non-points games — the score-pad card is simply hidden.
   defp load_score_categories(game) do
     case RuleMaven.Settings.get("score_categories_#{game.id}") do
+      nil -> []
+      json -> Jason.decode!(json)
+    end
+  end
+
+  # Cached turn-structure phases (generated at finalize) for the "what can I do
+  # now?" wizard. Empty until the worker runs — the wizard card is hidden.
+  defp load_turn_flow(game) do
+    case RuleMaven.Settings.get("turn_flow_#{game.id}") do
       nil -> []
       json -> Jason.decode!(json)
     end

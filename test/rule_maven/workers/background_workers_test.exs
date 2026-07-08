@@ -127,6 +127,38 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
     end
   end
 
+  describe "TurnFlowWorker" do
+    test "persists parsed turn phases and broadcasts to the game topic" do
+      mock_llm(~s([
+        {"name": "Upkeep", "note": "Start of turn", "actions": [{"label": "Collect income", "rule": "Take 2 coins from the bank."}]},
+        {"name": "Main", "note": "", "actions": [
+          {"label": "Build", "rule": "Pay the cost to place a piece."},
+          {"label": "Trade", "rule": "Swap resources with the bank."},
+          {"label": "Malformed"}
+        ]}
+      ]))
+
+      game = game_with_rulebook()
+
+      Phoenix.PubSub.subscribe(
+        RuleMaven.PubSub,
+        RuleMaven.Workers.TurnFlowWorker.topic(game.id)
+      )
+
+      assert :ok =
+               RuleMaven.Workers.TurnFlowWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
+
+      assert_received {:turn_flow_ready, phases}
+      assert length(phases) == 2
+      assert Enum.map(phases, & &1["name"]) == ["Upkeep", "Main"]
+      # "Malformed" (no label key? it has label but no rule) is kept with empty rule;
+      # an action missing "label" would be dropped.
+      main = Enum.at(phases, 1)
+      assert Enum.map(main["actions"], & &1["label"]) == ["Build", "Trade", "Malformed"]
+      assert Settings.get("turn_flow_#{game.id}") =~ "Collect income"
+    end
+  end
+
   describe "ScoreCategoriesWorker" do
     test "persists parsed scoring categories and broadcasts to the game topic" do
       mock_llm(

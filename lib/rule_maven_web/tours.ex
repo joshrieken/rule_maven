@@ -93,6 +93,12 @@ defmodule RuleMavenWeb.Tours do
           "Tick off components and setup steps as you lay out the game — expansion extras included."
       },
       %{
+        sel: "[data-tour='turnwizard']",
+        title: "What can I do now?",
+        body:
+          "Frozen mid-game? Step through each phase of a turn and see exactly which actions are on the table right now, with the rule behind each."
+      },
+      %{
         sel: "[data-tour='teach']",
         title: "Teach it in 60 seconds",
         body:

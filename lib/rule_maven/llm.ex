@@ -3026,6 +3026,87 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
+  Generates the turn structure for a game's "what can I do now?" wizard: an
+  ordered list of phases, each `%{"name", "note", "actions" => [%{"label",
+  "rule"}]}`. Freeform/simultaneous turns come back as a single "Your turn"
+  phase. Returns `{:ok, phases}` (possibly empty on a thin rulebook or
+  unparseable output) or `{:error, reason}`.
+  """
+  def generate_turn_flow(game_name, rulebook_text, game_id \\ nil) do
+    prompt =
+      RuleMaven.Prompts.render("turn_flow", %{
+        game_name: game_name,
+        rulebook: sample_across(rulebook_text, 16000, 2000)
+      })
+
+    case chat(prompt, "turn_flow",
+           model: model(:cheap),
+           operation: "turn_flow",
+           game_id: game_id,
+           system: RuleMaven.Prompts.template("turn_flow_system"),
+           # Ordered phases with several actions each is a fair bit of JSON; too
+           # low truncates mid-array and the parse returns [].
+           max_tokens: 6000
+         ) do
+      {:ok, text} ->
+        {:ok, parse_turn_flow(text)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp parse_turn_flow(text) do
+    json =
+      case Regex.run(~r/\[.*\]/s, text || "") do
+        [match] -> match
+        _ -> text || ""
+      end
+
+    case Jason.decode(json) do
+      {:ok, list} when is_list(list) ->
+        list
+        |> Enum.flat_map(fn
+          %{"name" => name, "actions" => actions} = phase
+          when is_binary(name) and is_list(actions) ->
+            clean =
+              actions
+              |> Enum.flat_map(fn
+                %{"label" => label} = a when is_binary(label) ->
+                  label = String.trim(label)
+
+                  if label == "",
+                    do: [],
+                    else: [%{"label" => label, "rule" => String.trim(to_string(a["rule"] || ""))}]
+
+                _ ->
+                  []
+              end)
+              |> Enum.take(12)
+
+            if clean == [] do
+              []
+            else
+              [
+                %{
+                  "name" => String.trim(name),
+                  "note" => String.trim(to_string(Map.get(phase, "note", ""))),
+                  "actions" => clean
+                }
+              ]
+            end
+
+          _ ->
+            []
+        end)
+        |> Enum.take(10)
+
+      _ ->
+        []
+    end
+  end
+
+  @doc """
   Generates themed "who goes first" table rituals for a game — flavor drawn
   from the rulebook's world, never rules. Returns `{:ok, [selector]}` or
   `{:error, reason}`.

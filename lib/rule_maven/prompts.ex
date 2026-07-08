@@ -590,6 +590,32 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
+  # Vars: game_name, rulebook
+  @turn_flow """
+  From the rulebook text below for "{{game_name}}", map out what a player does on
+  a single turn, so a new player can step through "what can I do now?".
+
+  Break a turn into its ordered PHASES (for example an upkeep step, a main action
+  step, a cleanup step). For each phase, list the actions a player may take, each
+  with a one-line plain explanation.
+
+  If a turn has NO fixed phase order — players act freely, or turns are
+  simultaneous — return a SINGLE phase named "Your turn" listing the available
+  actions.
+
+  The text below is SAMPLED from across the rulebook, so treat it as partial.
+  Only include phases and actions the text supports; never invent one. If the
+  text is too thin to describe a turn, return [].
+
+  Return ONLY a JSON array — no prose, no markdown fences. Each element:
+  {"name": "phase name", "note": "optional one-line note, or empty string", "actions": [{"label": "short action name", "rule": "one plain sentence explaining the action"}]}
+
+  Keep phase names and action labels short. Keep each "rule" to one sentence.
+
+  RULEBOOK (sampled across the whole book):
+  {{rulebook}}
+  """
+
   # Vars: game_name, rulebook, items
   @setup_verify """
   You are a strict fact-checker for a board-game SETUP checklist for "{{game_name}}". Check each numbered item (components to gather and setup steps) against the rulebook text.
@@ -712,6 +738,7 @@ defmodule RuleMaven.Prompts do
   @common_mistakes_system "You surface board game rules that tables commonly misplay, with the accurate correction. Never invent rules; corrections come only from the provided text. #{@english_output}"
   @teach_pitch_system "You give fast, accurate 'how to play' summaries of board games for brand-new players. Never invent rules; only use the provided text. #{@english_output}"
   @score_categories_system "You identify the end-game scoring categories a table adds up to find the winner. Never invent categories; only use the provided text. Say 'none' when the game isn't decided by totting up points. #{@english_output}"
+  @turn_flow_system "You map a board game's turn structure into ordered phases and the actions available in each, for a 'what can I do now?' helper. Never invent rules; only use the provided text. Output only JSON. #{@english_output}"
   @quiz_generate_system "You write fun, accurate multiple-choice quizzes about board game rules. Correct answers come only from the provided text; never invent rules. Output only the requested JSON. #{@english_output}"
   @did_you_know_verify_system "You are a strict board-game rulebook fact-checker. Pass only fully, accurately supported facts; reject anything misleading or unconfirmed. Output only the numbers in the requested format — never prose in any language."
   @categories_system "You generate topic categories for board game rulebooks. Be concise and specific. #{@english_output}"
@@ -1309,6 +1336,22 @@ defmodule RuleMaven.Prompts do
       description: "System primer paired with the score-pad categories prompt.",
       vars: [],
       default: @score_categories_system
+    },
+    %{
+      key: "turn_flow",
+      group: "Content generation",
+      label: "Turn wizard",
+      description: "Generates the ordered turn phases + available actions for the 'what can I do now?' wizard.",
+      vars: ~w(game_name rulebook),
+      default: @turn_flow
+    },
+    %{
+      key: "turn_flow_system",
+      group: "Content generation",
+      label: "Turn wizard — system",
+      description: "System primer paired with the turn-wizard prompt.",
+      vars: [],
+      default: @turn_flow_system
     },
     %{
       key: "quiz_generate",

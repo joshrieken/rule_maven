@@ -37,13 +37,14 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     common_mistakes: ["common_mistakes"],
     quiz: ["quiz_generate"],
     teach: ["teach_pitch"],
-    score: ["score_categories"]
+    score: ["score_categories"],
+    turn: ["turn_flow"]
   }
 
   # Enrichment steps that can be re-run in place from this page (each maps to a
   # durable Oban worker), and the subset whose cached output can be cleared.
-  @regen_steps ~w(suggestions categories cheat_sheet setup did_you_know voices theme bgg first_player common_mistakes quiz teach score)a
-  @clear_steps ~w(suggestions cheat_sheet setup did_you_know theme first_player common_mistakes quiz teach score)a
+  @regen_steps ~w(suggestions categories cheat_sheet setup did_you_know voices theme bgg first_player common_mistakes quiz teach score turn)a
+  @clear_steps ~w(suggestions cheat_sheet setup did_you_know theme first_player common_mistakes quiz teach score turn)a
 
   # JobRun.kind → step id, so a game-scoped running run lights up its step's
   # "Running…" indicator while the worker is in flight.
@@ -61,7 +62,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     "common_mistakes" => :common_mistakes,
     "quiz" => :quiz,
     "teach_pitch" => :teach,
-    "score_categories" => :score
+    "score_categories" => :score,
+    "turn_flow" => :turn
   }
 
   # JobRun.kind → step id for the inline per-step job log. Superset of
@@ -85,7 +87,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     "common_mistakes" => :common_mistakes,
     "quiz" => :quiz,
     "teach_pitch" => :teach,
-    "score_categories" => :score
+    "score_categories" => :score,
+    "turn_flow" => :turn
   }
 
   @impl true
@@ -549,6 +552,11 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     Settings.delete("score_categories_#{g.id}")
     Workers.ScoreCategoriesWorker.enqueue(g.id)
   end
+
+  defp regen_step(:turn, g) do
+    Settings.delete("turn_flow_#{g.id}")
+    Workers.TurnFlowWorker.enqueue(g.id)
+  end
   defp regen_step(:theme, g), do: Workers.ThemePaletteWorker.enqueue(g)
   defp regen_step(:bgg, g), do: %{game_id: g.id} |> Workers.BggEnrichWorker.new() |> Oban.insert()
   defp regen_step(_, _), do: :ok
@@ -563,6 +571,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   defp clear_step(:quiz, g), do: Settings.delete("quiz_#{g.id}")
   defp clear_step(:teach, g), do: Settings.delete("teach_pitch_#{g.id}")
   defp clear_step(:score, g), do: Settings.delete("score_categories_#{g.id}")
+  defp clear_step(:turn, g), do: Settings.delete("turn_flow_#{g.id}")
   defp clear_step(_, _), do: :ok
 
   # True when any of the game's sources has a cleanup job queued/running. Cleanup
@@ -950,7 +959,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       common_mistakes: load_json_list("common_mistakes_#{game.id}"),
       quiz: load_json_list("quiz_#{game.id}"),
       teach: load_teach_pitch(game.id),
-      score: load_json_list("score_categories_#{game.id}")
+      score: load_json_list("score_categories_#{game.id}"),
+      turn: load_json_list("turn_flow_#{game.id}")
     }
   end
 
@@ -1241,6 +1251,18 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               <span :if={c["hint"] not in [nil, ""]} style="color:var(--text-muted)"> — {c["hint"]}</span>
             </li>
           </ul>
+        <% :turn -> %>
+          <ol style="margin:0;padding-left:1.1rem">
+            <li :for={ph <- @preview} style="margin-bottom:0.4rem">
+              <span style="font-weight:700">{ph["name"]}</span>
+              <ul style="margin:0.15rem 0 0;padding-left:1rem">
+                <li :for={a <- ph["actions"] || []} style="font-size:0.82rem">
+                  <span style="font-weight:600">{a["label"]}</span>
+                  <span :if={a["rule"] not in [nil, ""]} style="color:var(--text-muted)"> — {a["rule"]}</span>
+                </li>
+              </ul>
+            </li>
+          </ol>
         <% :voices -> %>
           <div style="display:flex;flex-direction:column;gap:0.6rem">
             <div
@@ -1547,7 +1569,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               :common_mistakes,
               :quiz,
               :teach,
-              :score
+              :score,
+              :turn
             ],
        do: %{href: ~p"/games/#{game}", label: "View on game page"}
 
