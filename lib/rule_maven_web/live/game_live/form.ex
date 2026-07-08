@@ -1202,17 +1202,19 @@ defmodule RuleMavenWeb.GameLive.Form do
 
         # All three layers are kept current in socket state (edit_page + cleanup),
         # synced across the inline + expanded editors, so build straight from there.
+        # Carry every page field through (lane/confidence/gate decision log,
+        # cleanup_defects…) — the embed replace on save persists exactly this
+        # map, and dropping extraction metadata makes cleanup-skipped pages
+        # (confident vision lane, cleaned: nil) read as never cleaned, knocking
+        # the prepare pipeline back to Pending after a label-only save.
+        # :needs_review is a derived display flag, not a Page field.
         pages =
           entry.pages
           |> Enum.with_index()
           |> Enum.map(fn {p, i} ->
-            %{
-              index: i,
-              sheet: p.sheet,
-              printed: p.printed,
-              text: p.text || "",
-              cleaned: p[:cleaned]
-            }
+            p
+            |> Map.drop([:needs_review])
+            |> Map.merge(%{index: i, text: p.text || "", cleaned: p[:cleaned]})
           end)
 
         {label, entry[:source_id],
@@ -2035,7 +2037,8 @@ defmodule RuleMavenWeb.GameLive.Form do
             gate_coverage: Map.get(p, :gate_coverage),
             escalated: Map.get(p, :escalated),
             critic_rounds: Map.get(p, :critic_rounds),
-            residual_defects: Map.get(p, :residual_defects)
+            residual_defects: Map.get(p, :residual_defects),
+            cleanup_defects: Map.get(p, :cleanup_defects)
           }
         end)
 
