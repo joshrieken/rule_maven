@@ -903,6 +903,12 @@ defmodule RuleMavenWeb.GameLive.Index do
                     navigate={~p"/games/#{game}"}
                     class="btn btn-primary btn-xs"
                   >Ask</.link>
+                  <.link
+                    :if={askable}
+                    navigate={~p"/games/#{game}/community"}
+                    title="Browse community Q&A — questions other players already asked"
+                    class="btn btn-xs"
+                  >Q&A</.link>
                   <button
                     type="button"
                     phx-click="toggle_favorite"
