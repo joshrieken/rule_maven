@@ -3071,16 +3071,21 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <summary style="cursor:pointer;font-size:0.7rem;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">
                     ⚠️ Rules most tables get wrong ({length(@common_mistakes)})
                   </summary>
-                  <ul style="list-style:none;margin:0.6rem 0 0;padding:0;display:flex;flex-direction:column;gap:0.7rem">
-                    <li :for={m <- @common_mistakes} style="font-size:0.8rem;line-height:1.5">
-                      <div style="color:var(--text-muted)">
-                        <span aria-hidden="true">❌</span> {m["wrong"]}
+                  <div style="margin:0.6rem 0 0;display:flex;flex-direction:column;gap:0.5rem">
+                    <div
+                      :for={m <- @common_mistakes}
+                      style="font-size:0.8rem;line-height:1.5;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.55rem"
+                    >
+                      <div style="display:flex;gap:0.4rem;color:var(--text-muted)">
+                        <span style="color:var(--red);font-weight:700;flex-shrink:0" aria-hidden="true">✗</span>
+                        <span>{m["wrong"]}</span>
                       </div>
-                      <div style="color:var(--text);margin-top:0.15rem">
-                        <span aria-hidden="true">✅</span> {m["right"]}
+                      <div style="display:flex;gap:0.4rem;margin-top:0.2rem;color:var(--text)">
+                        <span style="color:var(--green);font-weight:700;flex-shrink:0" aria-hidden="true">✓</span>
+                        <span>{m["right"]}</span>
                       </div>
-                    </li>
-                  </ul>
+                    </div>
+                  </div>
                 </details>
               <% end %>
 
