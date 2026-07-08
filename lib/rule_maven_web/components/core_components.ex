@@ -566,18 +566,28 @@ defmodule RuleMavenWeb.CoreComponents do
     ~H"""
     <figure
       :for={c <- @citations}
-      style="margin:0.6rem 0 0;border-radius:0.5rem;overflow:hidden;border:1px solid var(--border);background:var(--bg-subtle)"
+      style="margin:0.7rem 0 0;border-radius:0.6rem;overflow:hidden;border:1px solid var(--border);background:var(--bg-subtle)"
     >
-      <figcaption
-        :if={c["page"]}
-        style="display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.6rem;font-size:0.66rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;border-bottom:1px solid var(--border-subtle);color:var(--text-muted)"
-      >
-        <span aria-hidden="true">&#128206;</span>
-        {c["source"] || "Rulebook"} &middot; p.{c["page"]}
+      <figcaption style="display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.7rem;font-size:0.72rem;border-bottom:1px solid var(--border-subtle);color:var(--text-secondary)">
+        <span aria-hidden="true" style="opacity:0.7">&#128214;</span>
+        <span style="font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          {c["source"] || "Rulebook"}
+        </span>
+        <span
+          :if={c["page"]}
+          style="margin-left:auto;flex-shrink:0;font-size:0.66rem;font-weight:600;padding:0.05rem 0.4rem;border-radius:0.6rem;background:var(--accent-soft,var(--bg));color:var(--accent-ink,var(--accent))"
+        >
+          p.{c["page"]}
+        </span>
       </figcaption>
-      <blockquote style="margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid var(--accent);font-style:italic;font-size:0.78rem;line-height:1.5;word-break:break-word;color:var(--text)">
-        {String.trim(c["quote"] || "")}
-      </blockquote>
+      <div style="padding:0.5rem 0.75rem 0.6rem 0.9rem;border-left:3px solid var(--accent)">
+        <blockquote
+          :for={{parts, i} <- Enum.with_index(c["quotes"] || [])}
+          style={"margin:0;#{if i > 0, do: "padding-top:0.5rem;margin-top:0.5rem;border-top:1px dashed var(--border-subtle);", else: ""}white-space:pre-line;font-size:0.82rem;line-height:1.6;word-break:break-word;color:var(--text)"}
+        >
+          <strong :if={parts.heading} style="display:block;font-size:0.85rem;margin-bottom:0.15rem;color:var(--text)">{parts.heading}</strong>{parts.body}
+        </blockquote>
+      </div>
     </figure>
     """
   end
@@ -602,9 +612,67 @@ defmodule RuleMavenWeb.CoreComponents do
     end
     |> Enum.group_by(&{&1["page"], &1["source"]})
     |> Enum.map(fn {{page, source}, group} ->
-      joined = group |> Enum.map(& &1["quote"]) |> Enum.join(" … ")
-      %{"page" => page, "source" => source, "quote" => joined}
+      quotes =
+        group
+        |> Enum.map(&split_quote(&1["quote"]))
+        |> Enum.reject(&(&1.heading == nil and &1.body == ""))
+
+      %{"page" => page, "source" => source, "quotes" => quotes}
     end)
     |> Enum.sort_by(fn %{"page" => page} -> {page == nil, page} end)
+  end
+
+  # Splits a cited passage into an optional leading heading and the body. Rulebook
+  # passages often carry a section heading on its own line ("Round Two",
+  # "1. Resource Production") that would otherwise smush into the paragraph once
+  # newlines collapse. Runs of blank lines are squeezed to a single break so the
+  # `pre-line` render stays tight.
+  defp split_quote(quote) when is_binary(quote) do
+    cleaned =
+      quote
+      |> String.replace(~r/\n[ \t]*\n[ \t\n]*/, "\n")
+      |> String.trim()
+
+    case String.split(cleaned, "\n", parts: 2) do
+      [first, rest] ->
+        if heading_line?(first),
+          do: %{heading: first, body: String.trim_leading(rest)},
+          else: split_inline_heading(cleaned)
+
+      _ ->
+        split_inline_heading(cleaned)
+    end
+  end
+
+  defp split_quote(_), do: %{heading: nil, body: ""}
+
+  # Many stored passages glue a section heading straight onto the body with no
+  # newline ("Round Two Once all players…"). Only pull off a leading run we're
+  # confident is a structural heading — a spelled-out round or a
+  # keyword+number head — so we never chop a real sentence in half.
+  @inline_heading ~r/^(Round (?:One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten)|(?:Phase|Step|Turn|Stage|Round) \d+)\b[ ]+(?=[A-Z])/
+
+  defp split_inline_heading(text) do
+    case Regex.run(@inline_heading, text, return: :index) do
+      [{0, len} | _] ->
+        heading = text |> binary_part(0, len) |> String.trim()
+        body = text |> binary_part(len, byte_size(text) - len) |> String.trim()
+        if body == "", do: %{heading: nil, body: text}, else: %{heading: heading, body: body}
+
+      _ ->
+        %{heading: nil, body: text}
+    end
+  end
+
+  # A short opening line with no sentence-ending punctuation reads as a heading:
+  # a section title ("Setup"), a numbered/lettered head ("1. Resource
+  # Production"), or a spelled-out round ("Round Two"). Guards against treating a
+  # normal wrapped sentence as a heading.
+  defp heading_line?(line) do
+    trimmed = String.trim(line)
+
+    String.length(trimmed) in 1..48 and
+      not String.match?(trimmed, ~r/[.!?:,;]$/) and
+      length(String.split(trimmed, " ")) <= 6
   end
 end
