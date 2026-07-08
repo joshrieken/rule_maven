@@ -284,6 +284,29 @@
           return v === 'game-light' || v === 'game-dark';
         }
 
+        // On narrow screens the standalone game control is hidden by CSS to
+        // keep the header on one row, so the game options fold into the main
+        // theme picker as an extra optgroup instead.
+        var mobileMq = window.matchMedia('(max-width: 768px)');
+
+        function syncMobileGameOptions(available) {
+          var group = document.getElementById('theme-select-game-group');
+          if (available && mobileMq.matches) {
+            if (!group) {
+              group = document.createElement('optgroup');
+              group.id = 'theme-select-game-group';
+              group.label = 'Match game';
+              Array.prototype.forEach.call(gameSelect.options, function(opt) {
+                if (opt.value === '0') return;
+                group.appendChild(opt.cloneNode(true));
+              });
+              select.appendChild(group);
+            }
+          } else if (group) {
+            group.remove();
+          }
+        }
+
         // Sync both controls and the active theme to the current page: the
         // chosen game variant wins on pages that offer one; otherwise the
         // static theme. Re-run after LiveView navigations because the
@@ -293,22 +316,28 @@
           localStorage.setItem('theme', base);
           var available = gameThemeAvailable();
           gameSelect.hidden = !available;
+          syncMobileGameOptions(available);
 
           var match = localStorage.getItem('themeGameMatch');
           if (available && isGameTheme(match)) {
             html.setAttribute('data-theme', match);
             gameSelect.value = match;
+            // The merged mobile picker shows the game variant directly.
+            select.value = mobileMq.matches ? match : base;
           } else {
             html.setAttribute('data-theme', base);
             if (available) gameSelect.value = '0';
+            select.value = base;
           }
-          select.value = base;
         }
 
         syncTheme();
         // LiveView swaps page content without a full reload; re-sync so leaving a
         // game page can't strand us on the now-undefined game theme.
         window.addEventListener('phx:page-loading-stop', syncTheme);
+        // Crossing the mobile breakpoint moves the game options between the
+        // standalone control and the merged picker.
+        if (mobileMq.addEventListener) mobileMq.addEventListener('change', syncTheme);
 
         function track(value) {
           var meta = document.querySelector('meta[name="csrf-token"]');
@@ -324,8 +353,16 @@
 
         // Static theme picker: picking a theme also switches the game control
         // to Off — the chosen theme takes effect immediately instead of being
-        // silently overridden by an active game variant.
+        // silently overridden by an active game variant. On mobile the picker
+        // also carries the game options, so those route to the game handler.
         select.addEventListener('change', function() {
+          if (isGameTheme(this.value)) {
+            localStorage.setItem('themeGameMatch', this.value);
+            gameSelect.value = this.value;
+            html.setAttribute('data-theme', this.value);
+            track(this.value);
+            return;
+          }
           localStorage.setItem('theme', this.value);
           localStorage.setItem('themeGameMatch', '0');
           if (gameThemeAvailable()) gameSelect.value = '0';

@@ -2918,8 +2918,8 @@ body:has([data-phx-main].phx-connected)::after {
   .header-inner { gap: 0.35rem; flex-wrap: nowrap; padding: 0.5rem 0; }
   .header-title { font-size: 0.95rem; }
   .header { padding: 0 0.75rem; }
-  /* Per-game theme matching is a desktop nicety; dropping it is what lets the
-     remaining controls fit on one row. */
+  /* The standalone game-theme control can't fit on the single-row header;
+     its options fold into #theme-select instead (see root layout script). */
   #game-theme-select { display: none !important; }
   .theme-select { max-width: 6.5rem; }
 }
