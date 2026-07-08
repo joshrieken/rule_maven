@@ -374,13 +374,7 @@ defmodule RuleMaven.LLM do
     # LLM proxy caches responses keyed by the messages array — an unchanged
     # request replays the prior answer verbatim. A per-request nonce makes the
     # messages unique so every cache tier is forced past.
-    messages =
-      if fresh do
-        nonce = "#{System.system_time(:millisecond)}-#{System.unique_integer([:positive])}"
-        messages ++ [%{role: "system", content: RuleMaven.Prompts.render("regenerate_nonce", %{nonce: nonce})}]
-      else
-        messages
-      end
+    messages = if fresh, do: append_cache_bust_nonce(messages), else: messages
 
     body = %{
       model: model_name,
@@ -404,7 +398,42 @@ defmodule RuleMaven.LLM do
 
     body
     |> do_request(1, opts)
+    |> maybe_retry_stalled_stream(body, opts)
     |> maybe_retry_bad_answer(body, game_id, opts)
+  end
+
+  # Appends a unique-nonce system message so the messages array is distinct —
+  # forcing the LLM proxy past every cache tier (it keys on messages only).
+  defp append_cache_bust_nonce(messages) do
+    nonce = "#{System.system_time(:millisecond)}-#{System.unique_integer([:positive])}"
+    messages ++ [%{role: "system", content: RuleMaven.Prompts.render("regenerate_nonce", %{nonce: nonce})}]
+  end
+
+  # Stream aborts that mean "the response we got is garbage, a fresh generation
+  # would likely be fine" — chiefly a poisoned proxy cache entry replaying a
+  # reasoning-only stream (content never opens) or a runaway loop. These fail
+  # fast (seconds), so one retry is cheap. NOT :timeout — a genuine 60s-slow
+  # call shouldn't be doubled.
+  defp stalled_stream_error?({:error, msg}) when is_binary(msg),
+    do: String.contains?(msg, [":reasoning_stall", ":runaway_answer"])
+
+  defp stalled_stream_error?(_), do: false
+
+  # A stalled/runaway answer stream is retried ONCE with a cache-busting nonce:
+  # the bare messages hit a poisoned proxy entry, but a nonce forces a cache
+  # miss and a genuine new generation (which streams a real answer). Self-heals
+  # the poisoned entry instead of surfacing an error to the asker.
+  defp maybe_retry_stalled_stream(result, body, opts) do
+    if stalled_stream_error?(result) and not Keyword.get(opts, :stream_retried, false) do
+      require Logger
+      Logger.warning("answer stream stalled (#{inspect(result)}) — retrying once with cache-busting nonce")
+
+      body
+      |> Map.update!(:messages, &append_cache_bust_nonce/1)
+      |> do_request(1, Keyword.put(opts, :stream_retried, true))
+    else
+      result
+    end
   end
 
   # Real pipeline progress for the asker's loader bar. Broadcast on the game
@@ -1707,21 +1736,26 @@ defmodule RuleMaven.LLM do
     # concurrent request to collide with; delete-on-exit keeps Oban's process
     # reuse clean.
     Process.put(:llm_sse_state, new_sse_state())
-    deadline = System.monotonic_time(:millisecond) + @ask_stream_deadline_ms
+    start_ms = System.monotonic_time(:millisecond)
+    deadline = start_ms + @ask_stream_deadline_ms
 
     into = fn {:data, chunk}, acc -> sse_into_step(deadline, acc, chunk, stream_to) end
 
     try do
       case Req.post(url, json: body, headers: headers, receive_timeout: 120_000, into: into) do
         {:ok, %{status: 200} = resp} ->
-          if Process.get(:llm_sse_abort) do
+          abort = Process.get(:llm_sse_abort)
+          state = Process.get(:llm_sse_state)
+          log_stream_diag(state, abort, System.monotonic_time(:millisecond) - start_ms, stream_to)
+
+          if abort do
             # Stream was cut mid-flight — the wall-clock deadline, a runaway
             # answer, or a reasoning stall (see sse_into_step). Surface it as a
             # transport error so do_request_real logs the failure and the caller
             # retries instead of returning a truncated/garbage partial as final.
-            {:error, %{reason: Process.get(:llm_sse_abort)}}
+            {:error, %{reason: abort}}
           else
-            {:ok, %{resp | body: finalize_sse(Process.get(:llm_sse_state))}}
+            {:ok, %{resp | body: finalize_sse(state)}}
           end
 
         other ->
@@ -1732,6 +1766,48 @@ defmodule RuleMaven.LLM do
       Process.delete(:llm_sse_abort)
     end
   end
+
+  # How long (ms) a completed answer stream may take before it's worth a diag
+  # line. Aborts always log; a healthy stream (~16s) stays quiet.
+  @stream_diag_slow_ms 20_000
+
+  # Structured post-mortem of one answer stream so a runaway prompt can be
+  # diagnosed from the logs alone: how much streamed, whether it was reasoning
+  # (answer field never opened) vs runaway answer text, the provider's
+  # finish_reason, and a head/tail sample of the raw SSE so the actual garbage
+  # is visible. Head+tail (not the whole body) keeps a multi-MB runaway out of
+  # the log.
+  defp log_stream_diag(state, abort, elapsed_ms, stream_to) when is_map(state) do
+    if abort || elapsed_ms >= @stream_diag_slow_ms do
+      require Logger
+
+      raw = state.raw
+      answer_opened = partial_answer(state.content) != nil
+
+      meta = [
+        ql: (stream_to && stream_to.question_log_id) || nil,
+        abort: abort || :none,
+        elapsed_ms: elapsed_ms,
+        chunks: state[:chunks] || 0,
+        raw_bytes: byte_size(raw),
+        content_len: String.length(state.content),
+        answer_opened: answer_opened,
+        finish_reason: state.finish_reason,
+        usage: state.usage
+      ]
+
+      level = if abort, do: :warning, else: :info
+
+      Logger.log(
+        level,
+        "answer stream diag #{inspect(meta)}\n" <>
+          "  head: #{inspect(String.slice(raw, 0, 500))}\n" <>
+          "  tail: #{inspect(String.slice(raw, max(byte_size(raw) - 500, 0), 500))}"
+      )
+    end
+  end
+
+  defp log_stream_diag(_state, _abort, _elapsed_ms, _stream_to), do: :ok
 
   # Hard ceiling on visible answer text. The answer object is a few hundred to a
   # couple thousand chars; blowing past this means the model is looping or
@@ -1759,7 +1835,11 @@ defmodule RuleMaven.LLM do
         {:cont, {req, %{resp | body: (if is_binary(resp.body), do: resp.body, else: "") <> chunk}}}
 
       true ->
-        state = ingest_sse(Process.get(:llm_sse_state), chunk, stream_to)
+        state =
+          Process.get(:llm_sse_state)
+          |> ingest_sse(chunk, stream_to)
+          |> Map.update(:chunks, 1, &(&1 + 1))
+
         Process.put(:llm_sse_state, state)
 
         cond do
@@ -1786,6 +1866,7 @@ defmodule RuleMaven.LLM do
       buffer: "",
       raw: "",
       content: "",
+      chunks: 0,
       finish_reason: nil,
       usage: nil,
       sent: %{text: "", styled: "", text_done: false, styled_done: false}
@@ -1902,6 +1983,13 @@ defmodule RuleMaven.LLM do
 
   @doc false
   def __new_sse_state__, do: new_sse_state()
+
+  @doc false
+  def __stalled_stream_error__(result), do: stalled_stream_error?(result)
+
+  @doc false
+  def __maybe_retry_stalled_stream__(result, body, opts),
+    do: maybe_retry_stalled_stream(result, body, opts)
 
   @doc false
   # Drives one streaming chunk through the deadline guard. Public so the
