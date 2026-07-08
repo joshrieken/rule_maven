@@ -27,10 +27,63 @@ defmodule RuleMaven.Voices do
   """
 
   import Ecto.Query
+  require Logger
   alias RuleMaven.{Repo, LLM}
-  alias RuleMaven.Voices.{AnswerVoice, GameVoice}
+  alias RuleMaven.Voices.{AnswerVoice, GameVoice, PersonaEvent}
 
   @game_prefix "g:"
+
+  @doc """
+  Records a persona (voice) selection for popularity + recently-used stats.
+  Best-effort: never raises, never blocks a selection. Returns :ok always.
+  """
+  def record_event(user_id, game_id, voice_id) do
+    %PersonaEvent{}
+    |> PersonaEvent.changeset(%{user_id: user_id, game_id: game_id, voice_id: voice_id})
+    |> Repo.insert()
+    |> case do
+      {:ok, _} ->
+        :ok
+
+      {:error, cs} ->
+        Logger.warning("persona_event insert failed: #{inspect(cs.errors)}")
+        :ok
+    end
+  rescue
+    e ->
+      Logger.warning("persona_event insert crashed: #{inspect(e)}")
+      :ok
+  end
+
+  @doc "MapSet of the top `limit` voice_ids by selection count for a game."
+  def popular_voice_ids(game_id, limit \\ 3) do
+    from(e in PersonaEvent,
+      where: e.game_id == ^game_id,
+      group_by: e.voice_id,
+      order_by: [desc: count(e.id)],
+      limit: ^limit,
+      select: e.voice_id
+    )
+    |> Repo.all()
+    |> MapSet.new()
+  end
+
+  @doc "Distinct recent voice_ids for a user on a game, most-recent-first."
+  def recent_voice_ids(user_id, game_id, limit \\ 4)
+  def recent_voice_ids(nil, _game_id, _limit), do: []
+
+  def recent_voice_ids(user_id, game_id, limit) do
+    from(e in PersonaEvent,
+      where: e.user_id == ^user_id and e.game_id == ^game_id,
+      group_by: e.voice_id,
+      # Order by max id (monotonic insertion order) — inserted_at is only
+      # second-granular, so it can't disambiguate rapid successive picks.
+      order_by: [desc: max(e.id)],
+      limit: ^limit,
+      select: e.voice_id
+    )
+    |> Repo.all()
+  end
 
   # Shared SimCity-style nonsense, blended into every voice's loading screen so the
   # panel never looks sparse. Flavor only — never rules or facts.
