@@ -163,7 +163,11 @@ defmodule RuleMaven.Workers.AskWorker do
                   RuleMaven.PubSub,
                   "game:#{game_id}",
                   {:ask_redirect,
-                   %{question_log_id: question_log_id, source_question_log_id: source_id}}
+                   %{
+                     question_log_id: question_log_id,
+                     source_question_log_id: source_id,
+                     asked_as: question
+                   }}
                 )
 
                 Jobs.finish_run(
@@ -179,7 +183,11 @@ defmodule RuleMaven.Workers.AskWorker do
                   RuleMaven.PubSub,
                   "game:#{game_id}",
                   {:ask_redirect,
-                   %{question_log_id: question_log_id, source_question_log_id: answer_dup.id}}
+                   %{
+                     question_log_id: question_log_id,
+                     source_question_log_id: answer_dup.id,
+                     asked_as: question
+                   }}
                 )
 
                 Jobs.finish_run(

@@ -22,6 +22,10 @@ defmodule RuleMavenWeb.GameLive.Show do
        game: nil,
        question: "",
        conversation: [],
+       # thread_id => the raw text the asker just typed on an ask that got
+       # deduped/redirected to that thread. Used only to disclose "You asked: …"
+       # against their latest wording (the provisional row is deleted on dedup).
+       reask_typed: %{},
        threads: [],
        active_thread_id: nil,
        pending_count: 0,
@@ -390,6 +394,15 @@ defmodule RuleMavenWeb.GameLive.Show do
        do: canon_compare(original) != canon_compare(displayed)
 
   defp normalization_changed?(_original, _displayed), do: false
+
+  # Remember the raw text the asker just typed against the thread their ask was
+  # deduped/redirected to, so the disclosure can show their latest wording even
+  # though the provisional row carrying it was deleted. Ignores blank text.
+  defp stash_reask(map, thread_id, asked_as)
+       when is_binary(asked_as) and asked_as != "",
+       do: Map.put(map, thread_id, asked_as)
+
+  defp stash_reask(map, _thread_id, _asked_as), do: map
 
   defp canon_compare(text) do
     text
@@ -1122,7 +1135,13 @@ defmodule RuleMavenWeb.GameLive.Show do
             if cross_thread_dup do
               {:noreply,
                socket
-               |> assign(question: "", active_thread_id: cross_thread_dup.id, sidebar_open: false)
+               |> assign(
+                 question: "",
+                 active_thread_id: cross_thread_dup.id,
+                 sidebar_open: false,
+                 reask_typed:
+                   stash_reask(socket.assigns.reask_typed, cross_thread_dup.id, question)
+               )
                |> put_flash(:info, "You already asked this — here's your answer.")
                |> push_patch(
                  to:
@@ -1917,7 +1936,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   # provisional id) redirects; other viewers on this game topic ignore it.
   @impl true
   def handle_info(
-        {:ask_redirect, %{question_log_id: prov_id, source_question_log_id: source_id}},
+        {:ask_redirect, %{question_log_id: prov_id, source_question_log_id: source_id} = payload},
         socket
       ) do
     if Enum.any?(socket.assigns.threads, &(&1.id == prov_id)) do
@@ -1925,6 +1944,7 @@ defmodule RuleMavenWeb.GameLive.Show do
        socket
        |> assign(
          active_thread_id: source_id,
+         reask_typed: stash_reask(socket.assigns.reask_typed, source_id, payload[:asked_as]),
          ask_partial: Map.delete(socket.assigns.ask_partial, prov_id),
          ask_stage: Map.delete(socket.assigns.ask_stage, prov_id)
        )
@@ -3888,11 +3908,12 @@ defmodule RuleMavenWeb.GameLive.Show do
                               a normalized form. Only the asker (own questions) and
                               admins reach this branch — the main-chat query scopes
                               non-admins to their own rows. --%>
+                        <% asked_as = Map.get(@reask_typed, msg[:id]) || msg[:original_question] %>
                         <%= if msg.role == :user &&
-                               normalization_changed?(msg[:original_question], msg.content) do %>
+                               normalization_changed?(asked_as, msg.content) do %>
                           <div class="ask-orig">
                             <span class="ask-orig__label">↳ You asked:</span>
-                            <span class="ask-orig__text">"{msg[:original_question]}"</span>
+                            <span class="ask-orig__text">"{asked_as}"</span>
                             <span class="conf-help">
                               <button
                                 type="button"

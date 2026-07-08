@@ -62,6 +62,55 @@ defmodule RuleMavenWeb.GameLiveNormalizationDisclosureTest do
     assert html =~ "how many cards do i draw"
   end
 
+  test "discloses the just-typed wording when a re-ask is redirected to an existing thread",
+       %{conn: conn} do
+    user = setup_user("norm_redir")
+    game = published_game_fixture(%{name: "Norm Redir Game"})
+
+    # The thread the paraphrased re-ask gets deduped onto. Its own stored raw
+    # equals its normalized form, so without the re-ask override no disclosure
+    # would show at all.
+    {:ok, source} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: user.id,
+        question: "How are walls placed?",
+        cleaned_question: "How are walls placed?",
+        answer: "Walls go between two spaces.",
+        visibility: "private"
+      })
+
+    # A second answered row so its id is present in the user's threads — the
+    # redirect handler only acts when the provisional id is one of theirs.
+    {:ok, prov} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: user.id,
+        question: "Unrelated placeholder question?",
+        answer: "Placeholder.",
+        visibility: "private"
+      })
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    send(
+      view.pid,
+      {:ask_redirect,
+       %{
+         question_log_id: prov.id,
+         source_question_log_id: source.id,
+         asked_as: "can walls block movement how do i place them"
+       }}
+    )
+
+    html = render(view)
+
+    assert html =~ "You asked:"
+    assert html =~ "can walls block movement how do i place them"
+    assert html =~ "How are walls placed?"
+  end
+
   test "hides the disclosure when raw and normalized match apart from case/space", %{conn: conn} do
     user = setup_user("norm_same")
     game = published_game_fixture(%{name: "Norm Same Game"})
