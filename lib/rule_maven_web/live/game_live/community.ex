@@ -474,28 +474,89 @@ defmodule RuleMavenWeb.GameLive.Community do
           />
         </div>
 
-        <%= if @tab == "unverified" do %>
-          <div
-            :if={@unverified_questions != []}
-            style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--orange,orange);border-radius:0.4rem"
-          >
-            <span style="font-size:1.1rem;line-height:1">🧪</span>
-            <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
-              Questions other players asked, <strong>not yet reviewed</strong>
-              by the community. Answers cite the rulebook but haven't been vetted — double-check before relying on one. Upvoting an answer counts toward community promotion and adds it to your own questions list.
-            </p>
-          </div>
+        <% questions = tab_questions(assigns) %>
+        <% status = @tab %>
 
-          <%= if @unverified_questions == [] do %>
-            <p style="font-size:0.8rem;color:var(--text-muted)">
-              Nothing waiting for review — every answered question has been promoted or verified.
-            </p>
+        <%!-- Intro banner — copy varies by tab; category pills + grouping below
+             are shared across all three tabs so unverified questions are just as
+             browsable-by-category as verified/community ones. --%>
+        <%= if questions != [] do %>
+          <%= if @tab == "unverified" do %>
+            <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--orange,orange);border-radius:0.4rem">
+              <span style="font-size:1.1rem;line-height:1">🧪</span>
+              <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
+                Questions other players asked, <strong>not yet reviewed</strong>
+                by the community. Answers cite the rulebook but haven't been vetted — double-check before relying on one. Upvoting an answer counts toward community promotion and adds it to your own questions list.
+              </p>
+            </div>
           <% else %>
+            <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0.4rem">
+              <span style="font-size:1.1rem;line-height:1">📖</span>
+              <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
+                These answers are <strong>drawn from the official rules</strong>
+                and surfaced by {if @tab == "verified", do: "admins", else: "the community"} as the most helpful. Always double-check the rulebook for anything that matters.
+              </p>
+            </div>
+          <% end %>
+        <% end %>
+
+        <%!-- Category filter pills --%>
+        <%= if @categories != [] do %>
+          <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:1.25rem">
+            <%= for cat <- @categories do %>
+              <button
+                type="button"
+                phx-click="filter_category"
+                phx-value-id={cat.id}
+                style={"font-size:0.65rem;padding:0.2rem 0.55rem;border-radius:1rem;border:1px solid #{if @filter_category == cat.id, do: "var(--accent)", else: "var(--border)"};background:#{if @filter_category == cat.id, do: "var(--accent)", else: "var(--bg-subtle)"};color:#{if @filter_category == cat.id, do: "var(--accent-text,#fff)", else: "var(--text-secondary)"};cursor:pointer"}
+              >
+                {cat.name}
+              </button>
+            <% end %>
+            <button
+              :if={@filter_category != nil}
+              type="button"
+              phx-click="filter_category"
+              phx-value-id={@filter_category}
+              style="font-size:0.65rem;padding:0.2rem 0.55rem;border-radius:1rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);cursor:pointer"
+            >
+              Clear ✕
+            </button>
+          </div>
+        <% end %>
+
+        <%= if questions == [] do %>
+          <p style="font-size:0.8rem;color:var(--text-muted)">
+            <%= case @tab do %>
+              <% "verified" -> %>
+                No admin-verified answers yet for this game.
+              <% "unverified" -> %>
+                Nothing waiting for review — every answered question has been promoted or verified.
+              <% _ -> %>
+                No community answers yet for this game.
+            <% end %>
+          </p>
+        <% else %>
+          <%= if @filter_category do %>
+            <%!-- Filtered view: single category --%>
+            <% filtered = questions_for_category(questions, @category_map, @filter_category) %>
+            <% current_cat = Enum.find(@categories, &(&1.id == @filter_category)) %>
+            <%= if current_cat do %>
+              <h2 style="font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-secondary);margin-bottom:0.6rem">
+                {current_cat.name}
+              </h2>
+              <p
+                :if={current_cat.description}
+                style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin-bottom:0.9rem;padding:0.6rem 0.75rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0.4rem"
+              >
+                {current_cat.description}
+              </p>
+            <% end %>
             <div style="display:flex;flex-direction:column;gap:0.6rem">
-              <%= for q <- @unverified_questions do %>
+              <%= for q <- filtered do %>
                 <.question_card
                   q={q}
-                  status="unverified"
+                  status={status}
                   show_status_badge={false}
                   is_admin={@is_admin}
                   game={@game}
@@ -508,135 +569,24 @@ defmodule RuleMavenWeb.GameLive.Community do
                   current_user_id={@current_user.id}
                 />
               <% end %>
+              <p :if={filtered == []} style="font-size:0.75rem;color:var(--text-muted)">
+                No questions in this category yet.
+              </p>
             </div>
-          <% end %>
-        <% else %>
-          <% questions = tab_questions(assigns) %>
-          <% status = @tab %>
-
-          <div
-            :if={questions != []}
-            style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0.4rem"
-          >
-            <span style="font-size:1.1rem;line-height:1">📖</span>
-            <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
-              These answers are <strong>drawn from the official rules</strong>
-              and surfaced by {if @tab == "verified", do: "admins", else: "the community"} as the most helpful. Always double-check the rulebook for anything that matters.
-            </p>
-          </div>
-
-          <%!-- Category filter pills --%>
-          <%= if @categories != [] do %>
-            <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:1.25rem">
-              <%= for cat <- @categories do %>
-                <button
-                  type="button"
-                  phx-click="filter_category"
-                  phx-value-id={cat.id}
-                  style={"font-size:0.65rem;padding:0.2rem 0.55rem;border-radius:1rem;border:1px solid #{if @filter_category == cat.id, do: "var(--accent)", else: "var(--border)"};background:#{if @filter_category == cat.id, do: "var(--accent)", else: "var(--bg-subtle)"};color:#{if @filter_category == cat.id, do: "var(--accent-text,#fff)", else: "var(--text-secondary)"};cursor:pointer"}
-                >
-                  {cat.name}
-                </button>
-              <% end %>
-              <button
-                :if={@filter_category != nil}
-                type="button"
-                phx-click="filter_category"
-                phx-value-id={@filter_category}
-                style="font-size:0.65rem;padding:0.2rem 0.55rem;border-radius:1rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);cursor:pointer"
-              >
-                Clear ✕
-              </button>
-            </div>
-          <% end %>
-
-          <%= if questions == [] do %>
-            <p style="font-size:0.8rem;color:var(--text-muted)">
-              <%= if @tab == "verified" do %>
-                No admin-verified answers yet for this game.
-              <% else %>
-                No community answers yet for this game.
-              <% end %>
-            </p>
           <% else %>
-            <%= if @filter_category do %>
-              <%!-- Filtered view: single category --%>
-              <% filtered = questions_for_category(questions, @category_map, @filter_category) %>
-              <% current_cat = Enum.find(@categories, &(&1.id == @filter_category)) %>
-              <%= if current_cat do %>
-                <h2 style="font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-secondary);margin-bottom:0.6rem">
-                  {current_cat.name}
-                </h2>
-                <p
-                  :if={current_cat.description}
-                  style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin-bottom:0.9rem;padding:0.6rem 0.75rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0.4rem"
-                >
-                  {current_cat.description}
-                </p>
-              <% end %>
-              <div style="display:flex;flex-direction:column;gap:0.6rem">
-                <%= for q <- filtered do %>
-                  <.question_card
-                    q={q}
-                    status={status}
-                    show_status_badge={false}
-                    is_admin={@is_admin}
-                    game={@game}
-                    favorited_ids={@favorited_ids}
-                    flagged_ids={@flagged_ids}
-                    vote_counts={@vote_counts}
-                    user_votes={@user_votes}
-                    asker_confirmed={@asker_confirmed}
-                    expanded={@expanded}
-                    current_user_id={@current_user.id}
-                  />
-                <% end %>
-                <p :if={filtered == []} style="font-size:0.75rem;color:var(--text-muted)">
-                  No questions in this category yet.
-                </p>
-              </div>
-            <% else %>
-              <%!-- All categories view --%>
-              <%= for cat <- @categories do %>
-                <% cat_qs = questions_for_category(questions, @category_map, cat.id) %>
-                <%= if cat_qs != [] do %>
-                  <div id={"category-#{cat.id}"} style="margin-bottom:1.75rem">
-                    <h2 style="font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-secondary);margin-bottom:0.5rem;display:flex;align-items:center;gap:0.4rem">
-                      {cat.name}
-                      <span style="font-size:0.65rem;font-weight:400;color:var(--text-muted)">({length(
-                        cat_qs
-                      )})</span>
-                    </h2>
-                    <div style="display:flex;flex-direction:column;gap:0.6rem">
-                      <%= for q <- cat_qs do %>
-                        <.question_card
-                          q={q}
-                          status={status}
-                          show_status_badge={false}
-                          is_admin={@is_admin}
-                          game={@game}
-                          favorited_ids={@favorited_ids}
-                          flagged_ids={@flagged_ids}
-                          vote_counts={@vote_counts}
-                          user_votes={@user_votes}
-                          asker_confirmed={@asker_confirmed}
-                          expanded={@expanded}
-                          current_user_id={@current_user.id}
-                        />
-                      <% end %>
-                    </div>
-                  </div>
-                <% end %>
-              <% end %>
-              <%!-- Untagged --%>
-              <% untagged = untagged_questions(questions, @category_map) %>
-              <%= if untagged != [] do %>
-                <div id="category-general" style="margin-bottom:1.75rem">
-                  <h2 style="font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-secondary);margin-bottom:0.5rem">
-                    General
+            <%!-- All categories view --%>
+            <%= for cat <- @categories do %>
+              <% cat_qs = questions_for_category(questions, @category_map, cat.id) %>
+              <%= if cat_qs != [] do %>
+                <div id={"category-#{cat.id}"} style="margin-bottom:1.75rem">
+                  <h2 style="font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-secondary);margin-bottom:0.5rem;display:flex;align-items:center;gap:0.4rem">
+                    {cat.name}
+                    <span style="font-size:0.65rem;font-weight:400;color:var(--text-muted)">({length(
+                      cat_qs
+                    )})</span>
                   </h2>
                   <div style="display:flex;flex-direction:column;gap:0.6rem">
-                    <%= for q <- untagged do %>
+                    <%= for q <- cat_qs do %>
                       <.question_card
                         q={q}
                         status={status}
@@ -655,6 +605,33 @@ defmodule RuleMavenWeb.GameLive.Community do
                   </div>
                 </div>
               <% end %>
+            <% end %>
+            <%!-- Untagged --%>
+            <% untagged = untagged_questions(questions, @category_map) %>
+            <%= if untagged != [] do %>
+              <div id="category-general" style="margin-bottom:1.75rem">
+                <h2 style="font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-secondary);margin-bottom:0.5rem">
+                  General
+                </h2>
+                <div style="display:flex;flex-direction:column;gap:0.6rem">
+                  <%= for q <- untagged do %>
+                    <.question_card
+                      q={q}
+                      status={status}
+                      show_status_badge={false}
+                      is_admin={@is_admin}
+                      game={@game}
+                      favorited_ids={@favorited_ids}
+                      flagged_ids={@flagged_ids}
+                      vote_counts={@vote_counts}
+                      user_votes={@user_votes}
+                      asker_confirmed={@asker_confirmed}
+                      expanded={@expanded}
+                      current_user_id={@current_user.id}
+                    />
+                  <% end %>
+                </div>
+              </div>
             <% end %>
           <% end %>
         <% end %>
