@@ -4,6 +4,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   alias RuleMaven.{Games, CheatSheet}
   alias RuleMaven.Games.QuestionLog
   alias RuleMavenWeb.ReportModal
+  alias RuleMavenWeb.GameLive.ToolRegistry
   alias Oban
 
   @max_concurrent 5
@@ -295,6 +296,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         quiz_idx: 0,
         quiz_choice: nil,
         quiz_score: {0, 0},
+        tool_states: %{},
         house_rules: load_own_house_rules(game, socket.assigns.current_user),
         community_house_rules:
           RuleMaven.HouseRules.community_for_game(game.id, socket.assigns.current_user.id)
@@ -692,6 +694,27 @@ defmodule RuleMavenWeb.GameLive.Show do
        quiz_choice: nil,
        quiz_score: {0, 0}
      )}
+  end
+
+  def handle_event("open_tool", %{"tool" => tool}, socket) do
+    {:noreply, update_tool_state(socket, tool, :expanded)}
+  end
+
+  def handle_event("expand_tool", %{"tool" => tool}, socket) do
+    {:noreply, update_tool_state(socket, tool, :expanded)}
+  end
+
+  def handle_event("minimize_tool", %{"tool" => tool}, socket) do
+    {:noreply, update_tool_state(socket, tool, :minimized)}
+  end
+
+  def handle_event("close_tool", %{"tool" => tool}, socket) do
+    id = safe_tool_id(tool)
+
+    states =
+      if id, do: Map.delete(socket.assigns.tool_states, id), else: socket.assigns.tool_states
+
+    {:noreply, assign(socket, :tool_states, states)}
   end
 
   # Turn wizard: step through the cached turn phases (pure client-agnostic
@@ -5470,6 +5493,37 @@ defmodule RuleMavenWeb.GameLive.Show do
       nil -> []
       json -> Jason.decode!(json)
     end
+  end
+
+  # Only accept ids the registry knows; ignore anything else (events are
+  # client-driven). Returns the atom id or nil.
+  defp safe_tool_id(tool) when is_binary(tool) do
+    id = String.to_existing_atom(tool)
+    if ToolRegistry.valid?(id), do: id, else: nil
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp safe_tool_id(_), do: nil
+
+  defp update_tool_state(socket, tool, state) do
+    case safe_tool_id(tool) do
+      nil -> socket
+      id -> assign(socket, :tool_states, set_tool_state(socket.assigns.tool_states, id, state))
+    end
+  end
+
+  # At most one tool may be :expanded. Demote whoever is currently expanded to
+  # :minimized, then set `id` to `state`. Invalid ids are ignored (defensive:
+  # events come from the client).
+  defp set_tool_state(states, id, state) do
+    states
+    |> Enum.map(fn
+      {k, :expanded} when k != id -> {k, :minimized}
+      other -> other
+    end)
+    |> Map.new()
+    |> Map.put(id, state)
   end
 
   # Deltas for the currently-included expansions that have one stored, in
