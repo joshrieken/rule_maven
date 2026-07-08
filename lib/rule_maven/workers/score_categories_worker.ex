@@ -3,8 +3,11 @@ defmodule RuleMaven.Workers.ScoreCategoriesWorker do
   Durable generation of the end-game scoring categories for a game's score pad.
   Persists the result to `score_categories_<game_id>` and broadcasts
   `{:score_categories_ready, categories}` on `topic/1`. An empty list (the game
-  isn't decided by adding up points) leaves nothing stored, so the score-pad
-  card stays hidden.
+  isn't decided by adding up points) is still persisted, as `[]`: the score-pad
+  card reads it as "nothing to total" and stays hidden, while readiness reads
+  the key's presence as a finished step. Storing nothing instead would leave
+  the Score pad step Pending forever on every co-op game, and re-run the
+  generation on each "Prepare game".
 
   Mirrors `CommonMistakesWorker`: `unique` per game, survives restarts, no-op in
   test where Oban isn't supervised.
@@ -56,6 +59,7 @@ defmodule RuleMaven.Workers.ScoreCategoriesWorker do
         :ok
 
       {:ok, []} ->
+        Settings.put("score_categories_#{game_id}", "[]")
         Jobs.finish_run(run, "done", "Not a points game — no score pad.")
         :ok
 
