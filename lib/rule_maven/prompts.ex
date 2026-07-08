@@ -737,7 +737,7 @@ defmodule RuleMaven.Prompts do
       "label": "Short Display Name",
       "emoji": "🙂",
       "style": "a one-sentence description of how this persona talks, in the same form as 'a swashbuckling pirate who uses nautical slang.'",
-      "description": "a short user-facing blurb (max ~12 words) saying who this persona is, e.g. 'The ship's weary quartermaster, buried in paperwork.'",
+      "description": "a short user-facing blurb (max ~12 words) saying who this persona is, e.g. 'Quartermaster Pemberly, weary keeper of the ship's ledgers.'",
       "loading_phrases": ["Hoisting the sails…", "Counting the doubloons…", "Sighing at landlubbers…", "Polishing the anchor…"],
       "thanks_phrases": ["Yer vote's in the ledger. Finally, some good news.", "Marked ye down for extra grog."],
       "popularity_rank": 1
@@ -778,6 +778,17 @@ defmodule RuleMaven.Prompts do
     not from the people who made it or play it.
   - Make them distinct from each other and from the generic globals (plain,
     rules lawyer, pirate, robot, hype coach). Lean into THIS game's flavor.
+  - Give MOST personas an invented proper name — "Quartermaster Pemberly, who
+    sighs at every ledger" lands harder than "The Quartermaster". A name turns a
+    costume into a character with a life: a job, a history, opinions. Names must
+    be pure invention that fits the game's world (never a real person's name,
+    per the rule above, and never a named character owned by another franchise
+    outside this game). If this game's own world has NAMED canonical characters,
+    you may use those; otherwise invent. Weave the name into the "label" and let
+    the "description" and phrases sound like that specific individual. One or
+    two unnamed archetypes (an anonymous narrator, a faceless bureaucracy) are
+    fine when anonymity IS the joke — but a roster of bare job titles is a
+    failure.
   - Aim for genuinely funny and specific, not cheesy — a persona that would make
     a fan of this game actually chuckle. Give each one a comic attitude or point
     of view (an obsession, a grudge, a delusion of grandeur, a petty rivalry) —
