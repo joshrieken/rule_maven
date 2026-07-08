@@ -2518,6 +2518,10 @@ textarea {
 .card-menu__item:hover {
   background: var(--bg-subtle);
 }
+.card-menu__item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .card-menu__item:active {
   background: color-mix(in srgb, var(--accent) 18%, var(--bg-subtle));
 }

@@ -60,7 +60,8 @@ defmodule RuleMavenWeb.Tours do
       %{
         sel: "[data-tour='suggestions']",
         title: "Need inspiration?",
-        body: "Browse ready-made questions players commonly ask about this game."
+        body:
+          "This menu holds ready-made questions players commonly ask about this game, plus a Settle-an-argument helper for when the table disagrees."
       },
       %{
         sel: "[data-tour='voices']",
