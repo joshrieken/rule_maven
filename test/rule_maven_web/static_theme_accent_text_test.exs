@@ -68,4 +68,31 @@ defmodule RuleMavenWeb.StaticThemeAccentTextTest do
                "is #{Float.round(contrast(accent, accent_text), 2)}:1 (< 4.5)"
     end
   end
+
+  # Same floors the generated palettes enforce (ThemePalette @secondary_ratio /
+  # @muted_ratio), applied to the hand-authored themes: every text tier must
+  # read on every background it can land on. Muted text is used for real
+  # content (timestamps, helper copy, disabled button labels), so it gets the
+  # full WCAG AA floor, not a decorative pass.
+  @text_floors [
+    {"--text", 7.0},
+    {"--text-secondary", 4.5},
+    {"--text-muted", 4.5}
+  ]
+  @backgrounds ["--bg", "--bg-surface", "--bg-subtle"]
+
+  test "every theme's text tiers clear their floors on every background" do
+    for {label, body} <- theme_blocks(),
+        {text_var, floor} <- @text_floors,
+        bg_var <- @backgrounds do
+      text = var(body, text_var)
+      bg = var(body, bg_var)
+
+      if text && bg do
+        assert contrast(text, bg) >= floor,
+               "theme #{label}: #{text_var} #{text} on #{bg_var} #{bg} " <>
+                 "is #{Float.round(contrast(text, bg), 2)}:1 (< #{floor})"
+      end
+    end
+  end
 end
