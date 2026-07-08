@@ -89,6 +89,32 @@ defmodule RuleMavenWeb.PrepareRenderTest do
     assert html =~ "The setup section deals five cards to each player."
   end
 
+  test "personas step preview shows loading phrases and thumbs-up thank-yous", %{conn: conn} do
+    admin = admin!("prep_voice_admin")
+    game = game_fixture(%{name: "Voice Prep Game", bgg_id: 7790, bgg_data: "<items/>"})
+
+    RuleMaven.Voices.replace_generated(game.id, [
+      %{
+        slug: "castle-herald",
+        label: "Castle Herald",
+        emoji: "📯",
+        style: "Announces every ruling like a royal proclamation.",
+        description: "A herald from the game's castle walls.",
+        loading_phrases: ["Unfurling the royal scroll…"],
+        thanks_phrases: ["The crown thanks thee for thy upvote!"]
+      }
+    ])
+
+    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
+    {:ok, _view, html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    assert html =~ "Castle Herald"
+    assert html =~ "Loading phrases"
+    assert html =~ "Unfurling the royal scroll…"
+    assert html =~ "👍 Thank-yous"
+    assert html =~ "The crown thanks thee for thy upvote!"
+  end
+
   test "header shows the game image when the game has one", %{conn: conn} do
     admin = admin!("prep_img_admin")
 
