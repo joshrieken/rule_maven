@@ -785,6 +785,21 @@ a { color: inherit; text-decoration: inherit; }
 [data-theme="honey"] ::selection {
   color: var(--text);
 }
+/* On accent-filled surfaces (user chat bubble, filled buttons/pills) the default
+   accent selection highlight matches the background and the text vanishes when
+   selected. Invert the highlight there so selected text stays readable in every
+   theme. Scoped to accent-bg surfaces; overrides the theme rules above too. */
+.chat-msg-user ::selection,
+.chat-msg-user::selection,
+.btn-primary ::selection,
+.btn-primary::selection,
+.bg-blue-600 ::selection,
+.bg-blue-600::selection,
+[data-on-accent] ::selection,
+[data-on-accent]::selection {
+  background: var(--accent-text, #fff);
+  color: var(--accent);
+}
 
 /* ===== Global UI Polish ===== */
 body {
