@@ -2615,8 +2615,13 @@ textarea {
   cursor: default;
 }
 /* The ? sits right after the "You asked:" label near the bubble's left edge,
-   so the popover anchors left and grows rightward into the bubble; a
-   right-anchored popover would grow leftward off the bubble. It must open
+   so the popover centers under the icon — a hard left anchor grows rightward
+   past narrow phone viewports, a right anchor grows leftward off the bubble;
+   centered splits the width both ways. The translateX(-50%) shares the
+   transform with the show animation's translateY, so the hover/focus state
+   below re-asserts both (the generic .conf-help:hover rule only sets
+   translateY and would lose the centering — same specificity, earlier in
+   file, so this later block must win with the full pair). It must open
    DOWNWARD (default direction): #chat-messages is an `overflow-y:auto`
    scroller whose
    top edge sits just under the chat-header, and answers scroll to that top, so
@@ -2627,11 +2632,16 @@ textarea {
    is the only direction with open room; it floats over the answer below, which
    is fine for a transient hover tooltip. */
 .ask-orig .conf-help__pop {
-  left: 0;
+  left: 50%;
   right: auto;
   top: calc(100% + 6px);
   bottom: auto;
   z-index: 60;
+  transform: translateX(-50%) translateY(-2px);
+}
+.ask-orig .conf-help:hover .conf-help__pop,
+.ask-orig .conf-help:focus-within .conf-help__pop {
+  transform: translateX(-50%) translateY(0);
 }
 /* The downward popover overlaps the answer bubble below it. Both bubbles are
    direct children of #chat-messages with no z-index (steady state), so they
