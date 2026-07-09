@@ -3245,6 +3245,17 @@ body:has([data-phx-main].phx-connected)::after {
 .sidebar-close-btn { display: none; }
 .sidebar-backdrop { display: none; }
 
+/* Title row + search stay pinned while the thread list scrolls under them. The
+   drawer's own background is translucent (color-mix + backdrop blur), so the
+   pinned block needs an opaque fill of its own or rows read through it. */
+.sidebar-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
 .sidebar-item:hover { background: var(--bg-subtle); }
 .sidebar-item-muted:hover { background: var(--bg-subtle); opacity: 0.9; }
 .sidebar-item-muted { opacity: 0.6; }
