@@ -2548,9 +2548,11 @@ defmodule RuleMavenWeb.GameLive.Show do
             <.link
               patch={~p"/games/#{@game}?start=1"}
               title="Game overview"
-              style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;text-decoration:none;color:inherit"
+              style="display:inline-flex;align-items:center;gap:0.25rem;flex-shrink:0;text-decoration:none;color:inherit"
             >
-              <h1 class="text-sm font-bold truncate" style="max-width:220px">{@game.name}</h1>
+              <h1 class="text-sm font-bold truncate" style="max-width:min(220px,45vw)">
+                {@game.name}
+              </h1>
             </.link>
             <SubBar.sub_bar
               game={@game}
