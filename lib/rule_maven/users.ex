@@ -116,7 +116,32 @@ defmodule RuleMaven.Users do
   end
 
   def delete_user(%User{} = user) do
-    unless_super_admin(user, &Repo.delete/1)
+    # `question_votes.user_id` is ON DELETE CASCADE, and `trust_score` is only
+    # ever recomputed inside the vote/verify paths — so deleting a user silently
+    # removes their vote weight while every row they voted on keeps the score
+    # those votes bought. Banning a sybil ring left its target answers sitting
+    # above `trusted_floor` (and above the raised report-pull quorum that the
+    # trusted tier grants) indefinitely. Capture the affected rows first, then
+    # recompute after the cascade.
+    voted_on =
+      Repo.all(
+        from v in RuleMaven.Games.QuestionVote,
+          where: v.user_id == ^user.id,
+          select: v.question_log_id
+      )
+
+    with {:ok, deleted} <- unless_super_admin(user, &Repo.delete/1) do
+      rows = Repo.all(from q in RuleMaven.Games.QuestionLog, where: q.id in ^voted_on)
+      Enum.each(rows, &RuleMaven.Games.Trust.recompute_trust/1)
+
+      rows
+      |> Enum.map(& &1.user_id)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.each(&RuleMaven.Games.Trust.recompute_reputation/1)
+
+      {:ok, deleted}
+    end
   end
 
   def delete_user(nil), do: {:error, :not_found}

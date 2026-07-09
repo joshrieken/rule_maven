@@ -58,7 +58,7 @@ defmodule Mix.Tasks.RuleMaven.VetGeneratedVoices do
               real_person_note(" WOULD delete", real_person_slugs)
           )
         else
-          Voices.mark_vetted(game_id, safe_slugs)
+          Voices.mark_vetted(game_id, safe_slugs, unvetted)
           Voices.drop_generated(game_id, real_person_slugs)
 
           Mix.shell().info(

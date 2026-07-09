@@ -72,7 +72,6 @@ defmodule RuleMavenWeb.GameLive.Show do
        asks_disabled: false,
        included_expansions: %{},
        expansions_seeded: false,
-       visibility: "private",
        search_query: "",
        community_questions: [],
        community_count: 0,
@@ -515,6 +514,10 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp vote_error_message(:self_vote), do: "You can't downvote your own answer."
   defp vote_error_message(:not_votable), do: "This answer isn't open for voting."
+
+  defp vote_error_message(:settled),
+    do: "This answer has been settled — its votes are final."
+
   defp vote_error_message(_), do: "Couldn't record your vote."
 
   # Source rows behind pool hits in the current thread — so their vote
@@ -535,6 +538,13 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp record_persona_pick(socket, voice) do
     uid = socket.assigns.current_user && socket.assigns.current_user.id
     RuleMaven.Voices.record_event(uid, socket.assigns.game.id, voice)
+  end
+
+  defp clear_failed_for_voice(failed, voice) do
+    Enum.reduce(failed, failed, fn
+      {_id, ^voice} = pair, acc -> MapSet.delete(acc, pair)
+      _pair, acc -> acc
+    end)
   end
 
   defp apply_default_voice(socket, voice) do
@@ -565,6 +575,14 @@ defmodule RuleMavenWeb.GameLive.Show do
             acc
 
           MapSet.member?(acc.assigns.voice_pending, {id, voice}) ->
+            acc
+
+          # A restyle that already failed must not be re-enqueued here.
+          # apply_default_voice runs on EVERY :ask_complete for the game —
+          # including other users' asks — so without this a single doomed
+          # {id, voice} pair re-paid an LLM restyle every time anyone on the
+          # game finished a question. Re-picking the voice clears the flag.
+          MapSet.member?(acc.assigns.voice_failed, {id, voice}) ->
             acc
 
           cached = RuleMaven.Voices.get(id, voice) ->
@@ -689,6 +707,9 @@ defmodule RuleMavenWeb.GameLive.Show do
       {:noreply,
        socket
        |> assign(voice_sel: %{}, persona_modal: nil)
+       # An explicit pick is the retry gesture for a failed restyle —
+       # apply_default_voice skips failed pairs, so clear them here.
+       |> assign(voice_failed: clear_failed_for_voice(socket.assigns.voice_failed, voice))
        |> apply_default_voice(voice)
        |> push_event("save_default_voice", %{voice: voice})}
     end
@@ -1565,14 +1586,10 @@ defmodule RuleMavenWeb.GameLive.Show do
         {:noreply, socket}
 
       true ->
-        # The answer is about to change — drop any cached persona restyles.
-        RuleMaven.Voices.clear_for_question(id)
-
         %{game: game, included_expansions: included} = socket.assigns
         expansion_ids = Map.keys(included)
 
         old_q = existing
-        was_pending = old_q && old_q.answer == "Thinking..."
 
         # Verbatim re-ask uses the raw text as stored, bypassing the cleaned
         # bubble content captured above.
@@ -1599,7 +1616,14 @@ defmodule RuleMavenWeb.GameLive.Show do
         protect_existing? =
           old_q && (Games.has_votes?(old_q.id) or old_q.visibility == "community")
 
-        if old_q && not protect_existing?, do: Games.delete_question(old_q)
+        # Drop cached persona restyles only when the row's answer is actually
+        # going away. A PROTECTED row keeps its answer (the regen goes to a
+        # fresh private copy), so clearing its restyles just made every other
+        # persona viewer re-pay an LLM call for identical text.
+        if old_q && not protect_existing? do
+          RuleMaven.Voices.clear_for_question(id)
+          Games.delete_question(old_q)
+        end
 
         visibility =
           cond do
@@ -1682,11 +1706,13 @@ defmodule RuleMavenWeb.GameLive.Show do
                threads: threads,
                active_thread_id: question_log.id,
                question: "",
-               pending_count:
-                 if(was_pending,
-                   do: socket.assigns.pending_count,
-                   else: socket.assigns.pending_count + 1
-                 ),
+               # Counted from the freshly-built list, as everywhere else.
+               # Arithmetic on the old counter drifted: `was_pending` reads the
+               # DB row ("Thinking..."), but :check_stale marks a stuck thread
+               # non-pending in ASSIGNS only — retrying it skipped the
+               # increment while inserting a pending thread, so @max_concurrent
+               # then admitted an extra in-flight ask.
+               pending_count: Enum.count(threads, & &1.pending),
                retry_cooldowns: Map.put(cooldowns, id, now),
                community_questions:
                  Games.community_questions(game, socket.assigns.current_user.id)
@@ -1926,8 +1952,13 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       # No scroll when the answer finishes — the reader is already at the top of
       # the answer (or wherever they scrolled to) and shouldn't be yanked down.
+      # The broadcast is game-wide, so `answer_ready?` is false in every OTHER
+      # viewer's session too: without the ownership check, anyone's completed
+      # ask scrolled every other reader on the game to the bottom.
+      own_thread? = Enum.any?(socket.assigns.threads, &(&1.id == question_log_id))
+
       {:noreply,
-       if(answer_ready?,
+       if(answer_ready? or not own_thread?,
          do: socket,
          else: push_event(socket, "scroll_bottom", %{})
        )}
@@ -2080,13 +2111,21 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_info({:voice_failed, ql_id, voice}, socket) do
-    pending = MapSet.delete(socket.assigns.voice_pending, {ql_id, voice})
-    failed = MapSet.put(socket.assigns.voice_failed, {ql_id, voice})
+    # VoiceWorker broadcasts to the game-wide topic, so this fires in every
+    # open session on the game. Only the session that actually requested this
+    # {id, voice} restyle should react — otherwise a stranger's failed persona
+    # pops an error toast over someone reading a different thread.
+    if MapSet.member?(socket.assigns.voice_pending, {ql_id, voice}) do
+      pending = MapSet.delete(socket.assigns.voice_pending, {ql_id, voice})
+      failed = MapSet.put(socket.assigns.voice_failed, {ql_id, voice})
 
-    {:noreply,
-     socket
-     |> assign(voice_pending: pending, voice_failed: failed)
-     |> put_flash(:error, "Couldn't apply that persona — showing the plain answer.")}
+      {:noreply,
+       socket
+       |> assign(voice_pending: pending, voice_failed: failed)
+       |> put_flash(:error, "Couldn't apply that persona — showing the plain answer.")}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:ask_error, data}, socket) do
@@ -3882,7 +3921,6 @@ defmodule RuleMavenWeb.GameLive.Show do
               id="ask-input"
               phx-hook="FocusInput"
             />
-            <input type="hidden" name="visibility" value={@visibility} />
             <button
               type="submit"
               disabled={

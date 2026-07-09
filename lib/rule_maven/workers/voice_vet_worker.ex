@@ -44,7 +44,7 @@ defmodule RuleMaven.Workers.VoiceVetWorker do
 
         case RuleMaven.LLM.vet_voice_styles(unvetted, game_id: game_id) do
           {:ok, %{safe: safe_slugs, real_person: real_person_slugs}} ->
-            Voices.mark_vetted(game_id, safe_slugs)
+            Voices.mark_vetted(game_id, safe_slugs, unvetted)
 
             # Real-person personas flagged on backfill are deleted outright,
             # and the show page's voice picker is refreshed live.

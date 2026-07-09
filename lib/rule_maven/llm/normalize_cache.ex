@@ -22,23 +22,35 @@ defmodule RuleMaven.LLM.NormalizeCache do
   @ttl_seconds 86_400
   @sweep_interval_ms 3_600_000
 
+  # Short TTL for a normalize FALLBACK (the raw question, kept because the call
+  # errored or the rewrite was rejected). Caching those for the full day pinned
+  # a bad canonical form for every user of the game; not caching them at all
+  # re-paid the call on every ask when the rejection was deterministic. A few
+  # minutes absorbs the repeat traffic without outliving a transient blip.
+  @fallback_ttl_seconds 600
+
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc "Returns `{:ok, cleaned}` on a live hit, `:miss` otherwise."
   def get(key) do
     case lookup(key) do
-      {cleaned, stored_at} ->
-        if now() - stored_at <= @ttl_seconds, do: {:ok, cleaned}, else: :miss
+      {cleaned, stored_at, ttl} ->
+        if now() - stored_at <= ttl, do: {:ok, cleaned}, else: :miss
 
       nil ->
         :miss
     end
   end
 
-  @doc "Stores `cleaned` for `key`. No-op until the table exists."
-  def put(key, cleaned) do
+  @doc "Stores `cleaned` for `key` under the full TTL. No-op until the table exists."
+  def put(key, cleaned), do: put(key, cleaned, @ttl_seconds)
+
+  @doc "Stores a normalize fallback under a short TTL."
+  def put_fallback(key, raw), do: put(key, raw, @fallback_ttl_seconds)
+
+  def put(key, cleaned, ttl) do
     if table_ready?() do
-      :ets.insert(@table, {key, {cleaned, now()}})
+      :ets.insert(@table, {key, {cleaned, now(), ttl}})
     end
 
     :ok
@@ -53,9 +65,12 @@ defmodule RuleMaven.LLM.NormalizeCache do
 
   @impl true
   def handle_info(:sweep, state) do
-    cutoff = now() - @ttl_seconds
-    # Match-delete every entry whose stored_at is older than the cutoff.
-    :ets.select_delete(@table, [{{:_, {:_, :"$1"}}, [{:<, :"$1", cutoff}], [true]}])
+    now = now()
+    # Match-delete every entry whose age has passed its own TTL.
+    :ets.select_delete(@table, [
+      {{:_, {:_, :"$1", :"$2"}}, [{:>, {:-, now, :"$1"}, :"$2"}], [true]}
+    ])
+
     schedule_sweep()
     {:noreply, state}
   end
