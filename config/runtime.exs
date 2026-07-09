@@ -61,35 +61,9 @@ if config_env() == :prod do
 
   config :rule_maven, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
-  # Mail adapter. Email confirmation gates vote eligibility, so without a real
-  # adapter no production user can confirm → no eligible voters → trust system
-  # is inert. Wire SendGrid (via Finch) when MAIL_API_KEY is set; otherwise fall
-  # back to the in-memory Local adapter and warn loudly so the gap is visible.
-  case System.get_env("MAIL_API_KEY") do
-    nil ->
-      if System.get_env("MAIL_ALLOW_LOCAL") != "true" do
-        raise """
-        environment variable MAIL_API_KEY is missing.
-        Email confirmation is required for vote eligibility in production.
-        Set MAIL_ALLOW_LOCAL=true to use the Local adapter (development only).
-        """
-      end
-
-      require Logger
-
-      Logger.warning(
-        "MAIL_API_KEY not set: using Local mail adapter. Production email " <>
-          "confirmation will not work, so no user can become a trusted voter."
-      )
-
-    api_key ->
-      config :rule_maven, RuleMaven.Mailer,
-        adapter: Swoosh.Adapters.Sendgrid,
-        api_key: api_key
-
-      config :swoosh, :api_client, Swoosh.ApiClient.Finch
-      config :swoosh, Swoosh.ApiClient.Finch, name: RuleMaven.Finch
-  end
+  # Mail: no boot-time adapter wiring. RuleMaven.Mailer.deliver_email/1 picks
+  # Resend per-send when RESEND_API_KEY is set, and skips (with a warning)
+  # when it isn't — email is best-effort and must never crash boot or callers.
 
   config :rule_maven, RuleMavenWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],

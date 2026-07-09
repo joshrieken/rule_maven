@@ -4,10 +4,10 @@ defmodule RuleMaven.Users.UserNotifier do
   import Swoosh.Email
   alias RuleMaven.Mailer
 
-  # Sender address. SendGrid rejects unverified senders, so prod overrides this
-  # via MAIL_FROM to match a verified sender identity.
+  # Sender address. Resend rejects senders from unverified domains, so prod
+  # sets the admin "mail from" setting to an address on the verified domain.
   defp from_address do
-    {"Rule Maven", System.get_env("MAIL_FROM") || "no-reply@rulemaven.app"}
+    {"Rule Maven", RuleMaven.Settings.mail_from()}
   end
 
   defp deliver(to, subject, body) do
@@ -18,7 +18,7 @@ defmodule RuleMaven.Users.UserNotifier do
       |> subject(subject)
       |> text_body(body)
 
-    with {:ok, _metadata} <- Mailer.deliver(email), do: {:ok, email}
+    with {:ok, _metadata} <- Mailer.deliver_email(email), do: {:ok, email}
   end
 
   @doc "Sends the email-confirmation link."

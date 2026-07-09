@@ -11,7 +11,12 @@ defmodule RuleMavenWeb.AdminLive.Index do
          page_title: "Admin",
          review_backlog: Games.needs_review_count(),
          flag_backlog: Games.count_pending_flags(),
-         asks_disabled: Settings.asks_disabled?()
+         asks_disabled: Settings.asks_disabled?(),
+         email_disabled: Settings.email_disabled?(),
+         mail_from: Settings.mail_from(),
+         mail_dev_live: Settings.mail_dev_live?(),
+         resend_key_set: System.get_env("RESEND_API_KEY") != nil,
+         dev_routes: Application.get_env(:rule_maven, :dev_routes, false)
        )}
     else
       {:ok, push_navigate(socket, to: ~p"/")}
@@ -33,6 +38,54 @@ defmodule RuleMavenWeb.AdminLive.Index do
        socket
        |> assign(asks_disabled: disable?)
        |> put_flash(:info, if(disable?, do: "Asks paused.", else: "Asks resumed."))}
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
+  @impl true
+  def handle_event("toggle_email", _params, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      disable? = not socket.assigns.email_disabled
+      Settings.set_email_disabled(disable?)
+
+      Audit.log(
+        socket.assigns.current_user,
+        if(disable?, do: "email.disable", else: "email.enable")
+      )
+
+      {:noreply,
+       socket
+       |> assign(email_disabled: disable?)
+       |> put_flash(:info, if(disable?, do: "Email paused.", else: "Email resumed."))}
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
+  @impl true
+  def handle_event("toggle_mail_dev_live", _params, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      live? = not socket.assigns.mail_dev_live
+      Settings.set_mail_dev_live(live?)
+      {:noreply, assign(socket, mail_dev_live: live?)}
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
+  @impl true
+  def handle_event("save_mail_from", %{"mail_from" => from}, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      from = String.trim(from)
+
+      if from =~ ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/ do
+        Settings.set_mail_from(from)
+        Audit.log(socket.assigns.current_user, "email.set_mail_from", metadata: %{mail_from: from})
+        {:noreply, socket |> assign(mail_from: from) |> put_flash(:info, "Sender saved.")}
+      else
+        {:noreply, put_flash(socket, :error, "Enter a valid email address.")}
+      end
     else
       {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
     end
@@ -66,6 +119,60 @@ defmodule RuleMavenWeb.AdminLive.Index do
         >
           {if @asks_disabled, do: "Resume asks", else: "Pause asks"}
         </button>
+      </div>
+
+      <div style={"padding:0.75rem 1rem;margin-bottom:1rem;border-radius:0.5rem;border:1px solid #{if @email_disabled, do: "var(--danger,#c0392b)", else: "var(--border)"};background:var(--bg-surface)"}>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+          <div style="min-width:0">
+            <div style="font-weight:700;font-size:0.85rem;color:var(--text)">
+              {if @email_disabled, do: "⏸️ Email is paused", else: "📧 Email is on"}
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-muted)">
+              Kill switch for outbound email (confirmation, password reset). Skipped sends are logged; callers still succeed.
+              <span :if={!@resend_key_set} style="color:var(--danger,#c0392b)">
+                RESEND_API_KEY not set — real sends are skipped.
+              </span>
+              <span :if={@resend_key_set}>Resend key: set.</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            phx-click="toggle_email"
+            data-confirm={
+              if !@email_disabled, do: "Pause all outbound email (confirmation, password reset)?", else: false
+            }
+            class="btn-sm"
+            style={"flex-shrink:0;border:1px solid #{if @email_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};color:#{if @email_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};background:none"}
+          >
+            {if @email_disabled, do: "Resume email", else: "Pause email"}
+          </button>
+        </div>
+
+        <form
+          id="mail-from-form"
+          phx-submit="save_mail_from"
+          style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.6rem"
+        >
+          <label for="mail_from" style="font-size:0.75rem;color:var(--text-muted);flex-shrink:0">
+            Sender address
+          </label>
+          <input
+            id="mail_from"
+            name="mail_from"
+            type="email"
+            value={@mail_from}
+            style="flex:1;min-width:12rem;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--bg);color:var(--text)"
+          />
+          <button type="submit" class="btn-sm btn-outline" style="flex-shrink:0">Save</button>
+        </form>
+
+        <label
+          :if={@dev_routes}
+          style="display:flex;align-items:center;gap:0.4rem;margin-top:0.6rem;font-size:0.75rem;color:var(--text-muted);cursor:pointer"
+        >
+          <input type="checkbox" checked={@mail_dev_live} phx-click="toggle_mail_dev_live" />
+          Send real email from dev via Resend (off = <code>/dev/mailbox</code> preview)
+        </label>
       </div>
 
       <.section title="Review">

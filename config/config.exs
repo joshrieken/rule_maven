@@ -32,13 +32,16 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
-# Mailer. Defaults to the Local (in-memory) adapter — overridden per-env:
-# dev keeps Local (preview at /dev/mailbox), test uses Test, prod must set a
-# real adapter (SES/SendGrid/SMTP) in runtime.exs.
+# Runtime env marker so Mailer can branch dev/test/prod without Mix.env().
+config :rule_maven, env: config_env()
+
+# Mailer. Default adapter is Local (preview at /dev/mailbox); test overrides
+# to Test. Real sends bypass this: Mailer.deliver_email/1 passes the Resend
+# adapter per-call when RESEND_API_KEY is set.
 config :rule_maven, RuleMaven.Mailer, adapter: Swoosh.Adapters.Local
 
-# Disable Swoosh's default API client (Local/Test adapters in dev/test; prod
-# wires Finch when a real API adapter is configured).
+# Disable Swoosh's default API client (Local/Test adapters don't need one;
+# the Resend adapter brings its own HTTP client).
 config :swoosh, :api_client, false
 
 # Configure Oban
