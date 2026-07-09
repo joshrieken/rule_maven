@@ -1,7 +1,7 @@
 # Table-context strip + expansions tool
 
 **Date:** 2026-07-09
-**Status:** Draft — pending review
+**Status:** Approved
 
 ## Goal
 
