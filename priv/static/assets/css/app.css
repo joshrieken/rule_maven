@@ -3395,6 +3395,29 @@ body:has([data-phx-main].phx-connected)::after {
   .persona-modal { max-width: none; max-height: 90vh; }
 }
 
+/* Games-list chrome on phones: compress the search/pill rows so the list
+   itself starts higher. Pills keep a 36px tap height (34px floor); the
+   !importants beat the pills' inline styles. */
+@media (max-width: 640px) {
+  .list-controls .mb-4 { margin-bottom: 0.4rem; }
+  .list-controls #view-tabs,
+  .list-controls .category-pills { gap: 0.3rem; }
+  .list-controls #view-tabs button,
+  .list-controls .category-pills button {
+    padding: 0.14rem 0.5rem !important;
+    font-size: 0.7rem !important;
+  }
+  .list-controls #view-tabs details > summary {
+    padding: 0.14rem 0.45rem !important;
+    font-size: 0.7rem !important;
+    min-height: 36px;
+  }
+}
+@media (max-width: 640px) and (pointer: coarse) {
+  .list-controls #view-tabs button,
+  .list-controls .category-pills button { min-height: 36px; }
+}
+
 /* The composer's Ideas menu + persona pill are form children. `flex-basis:100%`
    makes them claim their own wrapped row above the ask box (the form's 0.5rem
    row-gap separates them); on phones they collapse onto the ask row itself. */

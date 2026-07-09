@@ -742,6 +742,11 @@ defmodule RuleMavenWeb.GameLive.Index do
               style="cursor:pointer;list-style:none;user-select:none;display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.6rem;border-radius:9999px;font-size:0.78rem;font-weight:600;border:1.5px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary)"
             >⚙️ <span aria-hidden="true" style="font-size:0.6rem;opacity:0.6">▾</span></summary>
             <div class="card-menu__pop card-menu__pop--wide">
+              <.link
+                :if={RuleMaven.Users.can?(@current_user, :admin)}
+                navigate={~p"/games/new"}
+                class="card-menu__item"
+              >➕ Add Game</.link>
               <.link navigate={~p"/games/import"} class="card-menu__item">
                 🔄 Sync Your BGG Collection
               </.link>
@@ -764,7 +769,7 @@ defmodule RuleMavenWeb.GameLive.Index do
           |> Enum.sort() %>
 
         <%= if length(present_categories) > 1 do %>
-          <div class="mb-4 flex gap-2 flex-wrap">
+          <div class="mb-4 flex gap-2 flex-wrap category-pills">
             <button
               type="button"
               phx-click="set_category_filter"
@@ -782,21 +787,16 @@ defmodule RuleMavenWeb.GameLive.Index do
           </div>
         <% end %>
 
-        <div class="flex gap-2 flex-wrap">
+        <%!-- Desktop only: on mobile both actions live in the ⚙️ disclosure
+              menu at the head of the view pills (data-tour stays here; the
+              tour step is skipped on mobile where this row is hidden). --%>
+        <div class="flex gap-2 flex-wrap hide-mobile">
           <.button
             :if={RuleMaven.Users.can?(@current_user, :admin)}
             variant="primary"
             navigate={~p"/games/new"}
           >+ Add Game</.button>
-          <%!-- Desktop only: on mobile this lives in the ⚙️ disclosure menu
-                above the view pills (data-tour stays here; the tour step is
-                skipped on mobile where this button is hidden). --%>
-          <.button
-            variant="secondary"
-            navigate={~p"/games/import"}
-            class={["btn", "btn-secondary", "hide-mobile"]}
-            data-tour="bgg-sync"
-          >
+          <.button variant="secondary" navigate={~p"/games/import"} data-tour="bgg-sync">
             Sync Your BGG Collection
           </.button>
         </div>
