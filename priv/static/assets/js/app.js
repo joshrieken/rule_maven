@@ -50,6 +50,24 @@ window.addEventListener("phx:vote_thanks", showVoteThanks);
 (function () {
   let owner = null;
 
+  // The popup is absolutely positioned against its trigger, so a trigger near a
+  // screen edge (or a wide menu on a narrow phone) pushes it off-screen. Nudge
+  // it back in with a transform once it's open and measurable.
+  function clampIntoView(det) {
+    const pop = det.querySelector(".card-menu__pop");
+    if (!pop) return;
+    pop.style.transform = "";
+    const margin = 8;
+    const box = pop.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    let dx = 0;
+    if (box.right > vw - margin) dx = vw - margin - box.right;
+    if (box.left + dx < margin) dx = margin - box.left;
+    if (dx) pop.style.transform = `translateX(${Math.round(dx)}px)`;
+  }
+
+  window.addEventListener("resize", () => owner && clampIntoView(owner));
+
   function insideOpenMenu(target) {
     if (!owner) return false;
     const pop = owner.querySelector(".card-menu__pop");
@@ -86,8 +104,11 @@ window.addEventListener("phx:vote_thanks", showVoteThanks);
           if (d !== det) d.open = false;
         });
         owner = det;
+        clampIntoView(det);
       } else if (owner === det) {
         owner = null;
+        const pop = det.querySelector(".card-menu__pop");
+        if (pop) pop.style.transform = "";
       }
     },
     true
