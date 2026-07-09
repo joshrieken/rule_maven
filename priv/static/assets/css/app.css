@@ -2755,19 +2755,28 @@ textarea {
 .tool-subbar { scrollbar-width: none; }
 .tool-subbar::-webkit-scrollbar { display: none; }
 
-/* Desktop: floating card, no backdrop, chat stays live. */
+/* Desktop: floating, resizable card, no backdrop, chat stays live. `bottom`
+   clears the composer (--rm-tray-bottom) plus the minimized-tool tray
+   (--rm-tray-h, unset when nothing is minimized), so the panel never covers
+   its own dock. Both vars are written to <html> by the ToolTray/FloatingPanel
+   hooks; the fallbacks reproduce the pre-hook resting place. */
 .tool-panel {
   position: fixed;
   right: 1rem;
-  bottom: 5rem;
+  bottom: calc(var(--rm-tray-bottom, 5rem) + var(--rm-tray-h, 0px) + 0.5rem);
   width: min(30rem, calc(100vw - 2rem));
-  max-height: 70vh;
+  max-height: 80vh;
   overflow: auto;
   z-index: 60;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  /* Native corner grip. Turned off for the sheet below. */
+  resize: both;
+  min-width: 18rem;
+  min-height: 8rem;
+  max-width: calc(100vw - 2rem);
 }
 .tool-panel__bar {
   position: sticky;
@@ -2790,49 +2799,120 @@ textarea {
   color: var(--text);
 }
 .tool-panel__controls { display: flex; gap: 0.25rem; }
-.tool-panel__body { padding: 0.85rem 1rem 1.1rem; }
+/* Extra bottom padding keeps tool content clear of the native resize grip. */
+.tool-panel__body { padding: 0.85rem 1rem 1.6rem; }
 
-/* Mobile: bottom sheet, chat visible above. */
+/* Mobile: bottom sheet, chat visible above. Height is chosen from three snap
+   points rather than free resize — dragging to an arbitrary height is fiddly on
+   a phone. Tapping the handle cycles them (FloatingPanel hook). */
 .tool-panel--sheet {
   left: 0;
   right: 0;
   bottom: 0;
   top: auto;
   width: 100%;
-  max-height: 75vh;
+  max-width: 100%;
   border-radius: 0.9rem 0.9rem 0 0;
   cursor: default;
+  resize: none;
+  transition: height 0.18s ease;
 }
 .tool-panel--sheet .tool-panel__bar { cursor: default; }
+.tool-panel--sheet .tool-panel__bar::before {
+  content: "";
+  position: absolute;
+  top: 0.28rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2.2rem;
+  height: 0.2rem;
+  border-radius: 999px;
+  background: var(--border);
+}
+.tool-panel--sheet .tool-panel__bar { position: sticky; padding-top: 0.75rem; }
+.tool-panel--snap-0 { height: 35vh; max-height: 35vh; }
+.tool-panel--snap-1 { height: 55vh; max-height: 55vh; }
+.tool-panel--snap-2 { height: 85vh; max-height: 85vh; }
 
-/* Dock of minimized tools. */
+/* Tray of minimized tools: a bottom taskbar sitting directly above the chat
+   composer (--rm-tray-bottom), full-bleed so it reads as a strip rather than a
+   floating cluster. Pills are left-aligned in the content gutter and the strip
+   scrolls horizontally once tools outnumber the width. */
 .tool-dock {
   position: fixed;
-  right: 1rem;
-  bottom: 5rem;
+  left: 0;
+  right: 0;
+  bottom: var(--rm-tray-bottom, 5rem);
+  z-index: 55;
+  padding: 0.35rem 0;
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  backdrop-filter: blur(6px);
+  border-top: 1px solid var(--border);
+  pointer-events: none;
+}
+.tool-dock__inner {
   display: flex;
   gap: 0.4rem;
-  max-width: calc(100vw - 2rem);
+  align-items: center;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 0 1rem;
   overflow-x: auto;
-  z-index: 55;
+  scrollbar-width: none;
+  pointer-events: auto;
 }
+.tool-dock__inner::-webkit-scrollbar { display: none; }
 .tool-dock__pill {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.3rem 0.7rem;
+  max-height: 2.25rem;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--bg-surface);
   color: var(--text);
   font-size: 0.7rem;
   font-weight: 600;
-  cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.tool-dock__pill:hover,
+.tool-dock__pill:focus-within {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+.tool-dock__restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.7rem;
+  background: none;
+  border: none;
+  border-radius: 999px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+/* Dismiss without restoring. Fine pointers only — on touch the ✕ is too small a
+   target next to the restore action; close from the panel instead. */
+.tool-dock__close {
+  display: none;
+  padding: 0.35rem 0.55rem 0.35rem 0.1rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.tool-dock__close:hover { color: var(--text); }
+@media (pointer: fine) {
+  .tool-dock__pill:hover .tool-dock__close,
+  .tool-dock__pill:focus-within .tool-dock__close { display: inline-block; }
 }
 @media (max-width: 640px) {
-  .tool-dock { left: 0.5rem; right: 0.5rem; bottom: 4.5rem; }
+  .tool-dock__inner { padding: 0 0.5rem; }
+  .tool-dock__restore { padding: 0.3rem 0.6rem; }
 }
 
 /* ===== Up-vote thank-you toast ===== */

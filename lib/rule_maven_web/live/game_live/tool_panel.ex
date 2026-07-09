@@ -27,18 +27,33 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
       </.panel_frame>
     </div>
 
-    <div :if={@minimized != []} class="tool-dock" data-tool-dock>
-      <button
-        :for={id <- @minimized}
-        type="button"
-        data-dock-pill={id}
-        phx-click="expand_tool"
-        phx-value-tool={id}
-        class="tool-dock__pill"
-      >
-        <span aria-hidden="true">{ToolRegistry.tool(id).emoji}</span>
-        {ToolRegistry.tool(id).label}
-      </button>
+    <div :if={@minimized != []} id="tool-tray" phx-hook="ToolTray" class="tool-dock" data-tool-dock>
+      <div class="tool-dock__inner">
+        <span
+          :for={id <- @minimized}
+          class="tool-dock__pill"
+          data-dock-pill={id}
+        >
+          <button
+            type="button"
+            phx-click="expand_tool"
+            phx-value-tool={id}
+            class="tool-dock__restore"
+            title={"Restore #{ToolRegistry.tool(id).label}"}
+          >
+            <span aria-hidden="true">{ToolRegistry.tool(id).emoji}</span>
+            {ToolRegistry.tool(id).label}
+          </button>
+          <button
+            type="button"
+            phx-click="close_tool"
+            phx-value-tool={id}
+            class="tool-dock__close"
+            title={"Close #{ToolRegistry.tool(id).label}"}
+            aria-label={"Close #{ToolRegistry.tool(id).label}"}
+          >✕</button>
+        </span>
+      </div>
     </div>
     """
   end

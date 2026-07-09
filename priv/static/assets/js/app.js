@@ -811,36 +811,169 @@ Hooks.ChecklistStore = {
   }
 };
 
-// Floating table-tool panel. Fine-pointer (desktop): a draggable card, no
-// backdrop, chat stays interactive; drag by [data-drag-handle], position saved
-// to localStorage per tool. Coarse-pointer (mobile): a bottom sheet, no drag.
+// ── Table-tool layout vars ──────────────────────────────────────────────
+// `--rm-tray-bottom` is the y-offset of the minimized-tool tray: the height of
+// the chat composer, so the tray sits directly above it (1rem on pages with no
+// composer). `--rm-tray-h` is the tray's own height, so an expanded panel can
+// rest above the tray instead of on top of it. Both live on <html> and are kept
+// live by ResizeObservers — the composer's textarea grows as the user types.
+var ToolLayout = {
+  refs: 0,
+  syncBottom() {
+    var composer = document.querySelector(".chat-input");
+    var h = composer ? composer.getBoundingClientRect().height : 0;
+    var px = h > 0 ? h + 8 : 16;
+    document.documentElement.style.setProperty("--rm-tray-bottom", px + "px");
+  },
+  observeComposer() {
+    var composer = document.querySelector(".chat-input");
+    if (!composer || this._composerRO) return;
+    var self = this;
+    this._composerRO = new ResizeObserver(function() { self.syncBottom(); });
+    this._composerRO.observe(composer);
+  },
+  acquire() {
+    this.refs++;
+    this.syncBottom();
+    this.observeComposer();
+    if (!this._onResize) {
+      var self = this;
+      this._onResize = function() { self.syncBottom(); };
+      window.addEventListener("resize", this._onResize);
+    }
+  },
+  release() {
+    this.refs = Math.max(0, this.refs - 1);
+    if (this.refs > 0) return;
+    if (this._composerRO) { this._composerRO.disconnect(); this._composerRO = null; }
+    if (this._onResize) {
+      window.removeEventListener("resize", this._onResize);
+      this._onResize = null;
+    }
+  }
+};
+
+// Tray of minimized tools: a bottom taskbar above the composer. Owns the
+// `--rm-tray-h` var so the expanded panel knows how much room to leave. The
+// element only exists while at least one tool is minimized, so an absent tray
+// means the var is unset and the panel's calc() falls back to 0px.
+Hooks.ToolTray = {
+  mounted() {
+    var self = this;
+    ToolLayout.acquire();
+    this._ro = new ResizeObserver(function() {
+      var h = self.el.getBoundingClientRect().height;
+      document.documentElement.style.setProperty("--rm-tray-h", h + "px");
+    });
+    this._ro.observe(this.el);
+  },
+  destroyed() {
+    if (this._ro) this._ro.disconnect();
+    document.documentElement.style.removeProperty("--rm-tray-h");
+    ToolLayout.release();
+  }
+};
+
+// Floating table-tool panel. Fine-pointer (desktop): a draggable, resizable
+// card, no backdrop, chat stays interactive; drag by [data-drag-handle],
+// position and size saved to localStorage per tool. Coarse-pointer (mobile): a
+// bottom sheet with three snap heights, cycled by tapping the handle.
 // Minimize/close/expand are server events (phx-click in the markup); this hook
-// only owns positioning.
+// only owns geometry.
+var SNAP_COUNT = 3;
+
 Hooks.FloatingPanel = {
   isCoarse() {
     return window.matchMedia && window.matchMedia("(pointer:coarse)").matches;
   },
-  posKey() {
-    return "rm:toolpos:" + this.el.dataset.tool;
+  posKey() { return "rm:toolpos:" + this.el.dataset.tool; },
+  sizeKey() { return "rm:toolsize:" + this.el.dataset.tool; },
+  snapKey() { return "rm:toolsnap:" + this.el.dataset.tool; },
+  read(key) {
+    try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (_e) { return null; }
   },
-  applySaved() {
-    if (this.isCoarse()) return; // sheet mode ignores saved x/y
-    try {
-      var p = JSON.parse(localStorage.getItem(this.posKey()) || "null");
-      if (p && typeof p.x === "number" && typeof p.y === "number") {
-        this.el.style.left = p.x + "px";
-        this.el.style.top = p.y + "px";
-        this.el.style.right = "auto";
-        this.el.style.bottom = "auto";
-      }
-    } catch (_e) {}
+  write(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch (_e) {}
   },
-  mounted() {
-    var self = this;
-    this.el.classList.toggle("tool-panel--sheet", this.isCoarse());
-    this.applySaved();
-    if (this.isCoarse()) return;
 
+  // Snap heights for the mobile sheet, as viewport fractions.
+  applySnap(i) {
+    for (var n = 0; n < SNAP_COUNT; n++) {
+      this.el.classList.toggle("tool-panel--snap-" + n, n === i);
+    }
+    this._snap = i;
+    this.write(this.snapKey(), i);
+  },
+
+  // Restore saved size first (it changes the box), then position, clamping both
+  // to the current viewport: a panel sized on a wide monitor must not come back
+  // off-screen or wider than the window on a laptop.
+  applySaved() {
+    if (this.isCoarse()) {
+      var s = this.read(this.snapKey());
+      this.applySnap(typeof s === "number" && s >= 0 && s < SNAP_COUNT ? s : 1);
+      return;
+    }
+
+    var size = this.read(this.sizeKey());
+    if (size && typeof size.w === "number" && typeof size.h === "number") {
+      var maxW = window.innerWidth - 32;
+      var maxH = window.innerHeight * 0.8;
+      this.el.style.width = Math.max(288, Math.min(maxW, size.w)) + "px";
+      this.el.style.height = Math.max(128, Math.min(maxH, size.h)) + "px";
+      this.el.style.maxHeight = "none";
+    }
+
+    var p = this.read(this.posKey());
+    if (p && typeof p.x === "number" && typeof p.y === "number") {
+      var box = this.el.getBoundingClientRect();
+      // Keep the title bar reachable: at least 40px of the panel stays on-screen
+      // horizontally, and the bar itself never scrolls off the top or bottom.
+      var x = Math.max(40 - box.width, Math.min(window.innerWidth - 40, p.x));
+      var y = Math.max(0, Math.min(window.innerHeight - 40, p.y));
+      this.el.style.left = x + "px";
+      this.el.style.top = y + "px";
+      this.el.style.right = "auto";
+      this.el.style.bottom = "auto";
+    }
+  },
+
+  saveSize() {
+    var r = this.el.getBoundingClientRect();
+    this.write(this.sizeKey(), { w: r.width, h: r.height });
+  },
+
+  // Tap the handle to cycle sheet height; a vertical drag snaps to the nearest.
+  initSheet() {
+    var self = this;
+    var handle = this.el.querySelector("[data-drag-handle]");
+    if (!handle) return;
+    var startY = null;
+
+    this._touchStart = function(e) {
+      if (e.target.closest("button")) return;
+      startY = e.touches[0].clientY;
+    };
+    this._touchEnd = function(e) {
+      if (startY === null) return;
+      var endY = (e.changedTouches[0] || {}).clientY;
+      var dy = endY - startY;
+      startY = null;
+      if (Math.abs(dy) < 12) {
+        self.applySnap((self._snap + 1) % SNAP_COUNT); // tap
+      } else {
+        // Drag up grows the sheet, drag down shrinks it.
+        var step = dy < 0 ? 1 : -1;
+        self.applySnap(Math.max(0, Math.min(SNAP_COUNT - 1, self._snap + step)));
+      }
+    };
+    handle.addEventListener("touchstart", this._touchStart, { passive: true });
+    handle.addEventListener("touchend", this._touchEnd);
+    this._handle = handle;
+  },
+
+  initDrag() {
+    var self = this;
     var handle = this.el.querySelector("[data-drag-handle]");
     if (!handle) return;
     this._down = function(e) {
@@ -865,9 +998,7 @@ Hooks.FloatingPanel = {
       function up() {
         cleanup();
         var r = self.el.getBoundingClientRect();
-        try {
-          localStorage.setItem(self.posKey(), JSON.stringify({ x: r.left, y: r.top }));
-        } catch (_e) {}
+        self.write(self.posKey(), { x: r.left, y: r.top });
       }
       document.addEventListener("mousemove", move);
       document.addEventListener("mouseup", up);
@@ -877,9 +1008,43 @@ Hooks.FloatingPanel = {
     handle.addEventListener("mousedown", this._down);
     this._handle = handle;
   },
+
+  // The native `resize: both` grip emits no event; a ResizeObserver is the only
+  // way to see it. Debounced so a drag writes once, not once per frame.
+  initResizeWatch() {
+    var self = this;
+    var first = true;
+    this._ro = new ResizeObserver(function() {
+      if (first) { first = false; return; } // initial observation, not a user resize
+      clearTimeout(self._sizeT);
+      self._sizeT = setTimeout(function() { self.saveSize(); }, 250);
+    });
+    this._ro.observe(this.el);
+  },
+
+  mounted() {
+    var coarse = this.isCoarse();
+    this.el.classList.toggle("tool-panel--sheet", coarse);
+    ToolLayout.acquire();
+    this.applySaved();
+    if (coarse) {
+      this.initSheet();
+    } else {
+      this.initDrag();
+      this.initResizeWatch();
+    }
+  },
+
   destroyed() {
     if (this._handle && this._down) this._handle.removeEventListener("mousedown", this._down);
+    if (this._handle && this._touchStart) {
+      this._handle.removeEventListener("touchstart", this._touchStart);
+      this._handle.removeEventListener("touchend", this._touchEnd);
+    }
     if (this._activeDragCleanup) this._activeDragCleanup();
+    if (this._ro) this._ro.disconnect();
+    clearTimeout(this._sizeT);
+    ToolLayout.release();
   }
 };
 
