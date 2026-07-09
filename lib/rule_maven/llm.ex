@@ -1655,34 +1655,80 @@ defmodule RuleMaven.LLM do
   # blow through a daily cost cap in a single question.
   @max_llm_calls_per_ask 12
 
-  @doc """
-  Arms the per-ask LLM call budget for the calling process.
+  # The budget lives in an :atomics ref, not a plain integer, because extraction
+  # fans its pages out over Task.async_stream: a process-dictionary counter would
+  # be invisible to the children and every page would get its own fresh budget.
+  # Slot 1 is the remaining allowance, slot 2 counts refused calls so a caller
+  # can tell "spent exactly the budget" from "wanted more and was denied".
+  @slot_remaining 1
+  @slot_denied 2
 
-  Only `ask/5` arms it. Other callers (categories, suggestions, extraction)
-  run unbudgeted: `spend_call/0` treats an unarmed process as unlimited, so
-  nothing outside the ask path changes behavior.
+  @doc """
+  Arms an LLM call budget for the calling process and any process that adopts
+  its handle. `ask/5` arms it per question; extraction arms it per document.
+
+  Unarmed processes are unlimited: `spend_call/0` treats a missing budget as
+  no budget, so callers that never arm one (categories, suggestions) are
+  unaffected.
   """
   def start_call_budget(limit \\ @max_llm_calls_per_ask) do
-    Process.put(@call_budget_key, limit)
+    ref = :atomics.new(2, signed: true)
+    :atomics.put(ref, @slot_remaining, limit)
+    Process.put(@call_budget_key, ref)
     :ok
   end
 
+  @doc """
+  The current process's budget handle, or nil. Pass it to `adopt_call_budget/1`
+  inside a spawned task so the child spends from the same allowance.
+  """
+  def call_budget_handle, do: Process.get(@call_budget_key)
+
+  @doc "Joins a budget started elsewhere. A nil handle leaves the process unbudgeted."
+  def adopt_call_budget(nil), do: :ok
+
+  def adopt_call_budget(ref) do
+    Process.put(@call_budget_key, ref)
+    :ok
+  end
+
+  @doc """
+  True once the budget has refused at least one call. Distinct from "remaining
+  is 0", which is the benign case of a job that fit exactly.
+  """
+  def budget_exceeded?(ref \\ nil) do
+    case ref || Process.get(@call_budget_key) do
+      nil -> false
+      ref -> :atomics.get(ref, @slot_denied) > 0
+    end
+  end
+
   @doc false
-  def __calls_remaining__, do: Process.get(@call_budget_key)
+  def __calls_remaining__ do
+    case Process.get(@call_budget_key) do
+      nil -> nil
+      ref -> :atomics.get(ref, @slot_remaining)
+    end
+  end
 
   # Returns :ok and decrements, or {:error, reason} once the budget is spent.
-  # An unarmed process (nil) is unlimited.
+  # An unarmed process (nil) is unlimited. sub_get/3 is atomic, so concurrent
+  # page workers can't both take the last call.
   defp spend_call do
     case Process.get(@call_budget_key) do
       nil ->
         :ok
 
-      n when n > 0 ->
-        Process.put(@call_budget_key, n - 1)
-        :ok
-
-      _ ->
-        {:error, :call_budget_exhausted}
+      ref ->
+        if :atomics.sub_get(ref, @slot_remaining, 1) >= 0 do
+          :ok
+        else
+          # Put it back so `remaining` doesn't drift arbitrarily negative under
+          # a long fan-out; the denied counter is what callers read.
+          :atomics.add(ref, @slot_remaining, 1)
+          :atomics.add(ref, @slot_denied, 1)
+          {:error, :call_budget_exhausted}
+        end
     end
   end
 
@@ -1692,10 +1738,10 @@ defmodule RuleMaven.LLM do
         require Logger
 
         Logger.error(
-          "ask exhausted its LLM call budget (operation=#{opts[:operation]}, game_id=#{opts[:game_id]}) — refusing further calls"
+          "exhausted the LLM call budget (operation=#{opts[:operation]}, game_id=#{opts[:game_id]}) — refusing further calls"
         )
 
-        {:error, "ask exceeded its LLM call budget"}
+        {:error, "exceeded the LLM call budget"}
 
       :ok ->
         # Test-mode mock injection point. Set via Application.put_env(:rule_maven, :llm_mock, fn body -> ... end)

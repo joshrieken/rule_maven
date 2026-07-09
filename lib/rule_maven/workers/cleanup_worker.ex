@@ -27,6 +27,15 @@ defmodule RuleMaven.Workers.CleanupWorker do
   # funneled through Enum.each below, so they stay serialized (no embeds race).
   @max_concurrency 12
 
+  # Per-page LLM call allowance, pooled across the run. The auto path's worst
+  # case is four calls — clean, critic, re-clean at the adjusted level, critic
+  # again — so six leaves headroom for a page that needs it while still capping
+  # a book that escalates on every page. Overridable so tests can force an
+  # overrun without a pathological fixture.
+  @llm_calls_per_page 6
+  defp llm_calls_per_page,
+    do: Application.get_env(:rule_maven, :cleanup_llm_calls_per_page, @llm_calls_per_page)
+
   @valid_levels ~w(auto light standard aggressive)
 
   @impl Oban.Worker
@@ -71,6 +80,13 @@ defmodule RuleMaven.Workers.CleanupWorker do
 
     Jobs.event(run, "info", "Cleaning #{length(todo)} of #{total} pages (#{mode}, #{level})…")
 
+    # Bound the run's spend. A page costs one clean call, plus a review pass and
+    # at most one escalation; @llm_calls_per_page pools that across the run so a
+    # book of hard pages can't cascade without limit. Pages fan out into child
+    # processes, so they adopt the handle rather than each arming their own.
+    RuleMaven.LLM.start_call_budget(max(length(todo), 1) * llm_calls_per_page())
+    budget = RuleMaven.LLM.call_budget_handle()
+
     # Progress is funneled through this serial Enum.reduce (the async fan-out is
     # above), so the counter increments without races. Each step persists the
     # page, advances the durable counter, and broadcasts {done, total} — the
@@ -90,6 +106,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
       todo
       |> Task.async_stream(
         fn page ->
+          RuleMaven.LLM.adopt_call_budget(budget)
           {page.index, clean_one(page, level, mode, game_id, is_integer(page_index))}
         end,
         max_concurrency: @max_concurrency,
@@ -191,7 +208,28 @@ defmodule RuleMaven.Workers.CleanupWorker do
     # Clear the durable counter now the run is finished (idle = nil).
     Games.set_cleaning_done(doc_id, nil)
 
-    Jobs.finish_run(run, "done", finish_summary(stats, total, rechunked?))
+    if RuleMaven.LLM.budget_exceeded?() do
+      # Stop and mark for review, never silent truncation. Every page cleaned
+      # before the budget ran out is already persisted by set_page_cleaned/3;
+      # the rest keep their raw extraction. Finishing "failed" holds the
+      # readiness pipeline so half-cleaned text doesn't flow on to embedding.
+      Games.update_document(doc, %{status: "pending_review"}, chunk: false)
+
+      Jobs.event(
+        run,
+        "warn",
+        "Cleanup hit this run's LLM call budget — no further model calls were made."
+      )
+
+      Jobs.finish_run(
+        run,
+        "failed",
+        "Stopped over budget — #{stats.cleaned} page(s) cleaned and kept, held for review. Re-run Cleanup to continue."
+      )
+    else
+      Jobs.finish_run(run, "done", finish_summary(stats, total, rechunked?))
+    end
+
     Phoenix.PubSub.broadcast(RuleMaven.PubSub, topic, {:cleanup_done, doc_id})
     :ok
   end
