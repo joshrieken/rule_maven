@@ -8,32 +8,33 @@ defmodule RuleMaven.Metrics do
   alias RuleMaven.Repo
   alias RuleMaven.Metrics.ThemeEvent
 
-  # Slug -> human label, in the order shown in the theme picker. The slug is the
+  # Slug -> human label, alphabetical by label — the order shown in the theme
+  # picker, which has no meaningful grouping to preserve. The slug is the
   # `data-theme` value AND the kebab-case of the label — one canonical name per
   # theme, no drift. This list is the single source of truth: the picker, the
   # CSS `[data-theme="…"]` blocks, and the allowlist all derive from it.
   @themes [
-    {"abyss", "Abyss"},
-    {"arcade", "Arcade"},
-    {"brass", "Brass"},
-    {"canopy", "Canopy"},
-    {"cassette", "Cassette"},
-    {"coral", "Coral"},
-    {"crypt", "Crypt"},
-    {"dusk", "Dusk"},
-    {"ember", "Ember"},
-    {"frost", "Frost"},
-    {"golden-hour", "Golden Hour"},
-    {"honey", "Honey"},
-    {"lavender", "Lavender"},
-    {"marble", "Marble"},
-    {"meadow", "Meadow"},
-    {"midnight", "Midnight"},
-    {"nebula", "Nebula"},
-    {"neon", "Neon"},
-    {"parchment", "Parchment"},
-    {"twilight", "Twilight"},
-    {"void", "Void"}
+    {"black-hole", "Black Hole"},
+    {"campfire", "Campfire"},
+    {"cheat-code", "Cheat Code"},
+    {"chess-club", "Chess Club"},
+    {"deep-space", "Deep Space"},
+    {"dungeon-master", "Dungeon Master"},
+    {"flamingo", "Flamingo"},
+    {"fresh-deck", "Fresh Deck"},
+    {"grave-digger", "Grave Digger"},
+    {"honeycomb", "Honeycomb"},
+    {"insert-coin", "Insert Coin"},
+    {"kraken", "Kraken"},
+    {"last-turn", "Last Turn"},
+    {"lemonade", "Lemonade"},
+    {"mixtape", "Mixtape"},
+    {"moonrise", "Moonrise"},
+    {"night-owl", "Night Owl"},
+    {"overgrowth", "Overgrowth"},
+    {"picnic", "Picnic"},
+    {"snow-day", "Snow Day"},
+    {"steamworks", "Steamworks"}
   ]
 
   # The dynamic per-game themes. Not static `[data-theme]` blocks in app.css —
@@ -51,8 +52,8 @@ defmodule RuleMaven.Metrics do
   def game_themes, do: @game_themes
 
   @doc "Default theme slug for users who prefer light / dark color schemes."
-  def default_theme(:dark), do: "midnight"
-  def default_theme(_), do: "lavender"
+  def default_theme(:dark), do: "night-owl"
+  def default_theme(_), do: "fresh-deck"
 
   @doc "Ordered list of `{slug, label}` for every selectable theme."
   def themes, do: @themes
