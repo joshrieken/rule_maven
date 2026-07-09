@@ -3716,7 +3716,16 @@ body:has([data-phx-main].phx-connected)::after {
      options fold into the single #theme-select picker on game pages. Belt-and-
      suspenders hide in case anything unsets the attribute. */
   #game-theme-select { display: none !important; }
-  .theme-select { max-width: 6.5rem; }
+  /* Theme names are words now ("Dungeon Master"), not colors ("Dusk"), and a
+     <select> truncates its label hard — no ellipsis. Smaller type and tighter
+     padding fit the longest name in a cap the shrinking brand title can still
+     live beside at 320px. */
+  .theme-select {
+    max-width: 7.75rem;
+    font-size: 0.62rem;
+    padding: 0 1.05rem 0 0.4rem;
+    background-position: right 0.35rem center;
+  }
 }
 
 /* ── Admin background-job panel (DevTools-style docked) ───────────────────── */

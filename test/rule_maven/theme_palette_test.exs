@@ -189,7 +189,7 @@ defmodule RuleMaven.ThemePaletteTest do
       {:ok, %{"light" => light, "dark" => dark}} = ThemePalette.names(raw)
 
       assert light == "Harbor Daylight"
-      assert String.length(dark) <= 24
+      assert String.length(dark) <= 18
       # capped mid-word, but never left with a trailing space
       assert dark == String.trim(dark)
     end

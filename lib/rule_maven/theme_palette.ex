@@ -391,9 +391,9 @@ defmodule RuleMaven.ThemePalette do
     |> Enum.map_join(" ", fn {k, v} -> "#{k}: #{v};" end)
   end
 
-  # Long enough for "Longest Night" and friends; short enough that a runaway
-  # generation can't blow out the picker's width.
-  @max_name_length 24
+  # Long enough for "Harbor Daylight" and friends; short enough to still fit the
+  # mobile theme picker, which truncates its label with no ellipsis at ~8.5rem.
+  @max_name_length 18
 
   @doc """
   Pull the two player-facing variant names out of the raw model response.
