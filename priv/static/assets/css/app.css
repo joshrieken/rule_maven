@@ -3537,6 +3537,50 @@ body:has([data-phx-main].phx-connected)::after {
 .sidebar-close-btn { display: none; }
 .sidebar-backdrop { display: none; }
 
+/* Empty question list. Same entrance curve and stagger as `.sidebar-item`, so an
+   empty panel animates in like a populated one instead of snapping in as a wall
+   of text. The glyph then keeps a slow float (`icon-float`, shared with the
+   header icon) to signal "waiting for input", never a shimmer — a shimmer reads
+   as loading, and here there is genuinely nothing to load. */
+.sidebar-empty {
+  padding: 1.25rem 0.75rem;
+  text-align: center;
+}
+.sidebar-empty__glyph {
+  font-size: 1.6rem;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+  animation:
+    sidebar-item-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both,
+    icon-float 4s ease-in-out 0.3s infinite;
+}
+.sidebar-empty__title {
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin: 0;
+  animation: sidebar-item-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
+}
+.sidebar-empty__hint {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  margin: 0.25rem 0 0;
+  animation: sidebar-item-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
+}
+
+/* The float is the only looping animation here; the entrances are one-shot and
+   cheap, so reduced motion keeps them but stops the loop. `[data-motion="off"]`
+   is the in-app toggle, which kills everything. */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-empty__glyph { animation: sidebar-item-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
+}
+[data-motion="off"] .sidebar-empty__glyph,
+[data-motion="off"] .sidebar-empty__title,
+[data-motion="off"] .sidebar-empty__hint {
+  animation: none !important;
+}
+
 /* Title row + search stay pinned while the thread list scrolls under them. The
    drawer's own background is translucent (color-mix + backdrop blur), so the
    pinned block needs an opaque fill of its own or rows read through it. */

@@ -2539,11 +2539,15 @@ defmodule RuleMavenWeb.GameLive.Show do
               No matching questions
             </div>
           <% end %>
-          <div
-            :if={@threads == [] && @community_questions == []}
-            style="padding:0.5rem 0.75rem;color:var(--text);font-size:0.8rem"
-          >
-            No questions yet
+          <%!-- Empty state. The glyph floats and the copy rises in, matching the
+                staggered `sidebar-item-in` the populated list uses, so the panel
+                never reads as a dead box. Deliberately not a skeleton shimmer:
+                nothing is loading, and shimmer would promise rows that aren't
+                coming. --%>
+          <div :if={@threads == [] && @community_questions == []} class="sidebar-empty">
+            <div class="sidebar-empty__glyph" aria-hidden="true">💬</div>
+            <p class="sidebar-empty__title">No questions yet</p>
+            <p class="sidebar-empty__hint">Ask one below — it'll show up here.</p>
           </div>
         </div>
 
