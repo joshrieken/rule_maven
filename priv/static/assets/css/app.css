@@ -1167,6 +1167,20 @@ a:not([class]):hover {
   white-space: nowrap;
 }
 
+/* Take an element out of the layout but leave it in the accessibility tree.
+   `.sr-only` was already used in core_components but never defined here. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* "Maven" — static theme-accent gradient text. No motion: animating a
    clipped-text gradient repaints every frame and stutters. */
 .header-title-accent {
@@ -1526,6 +1540,32 @@ button.motion-toggle {
 button.motion-toggle:hover {
   background: rgba(255, 255, 255, 0.15);
 }
+/* The account-menu variant is a full-width menu row, not the square header
+   button. It keeps the .motion-toggle class so the sparkle/moon swap below
+   still applies, so it has to undo the square button's box here. */
+button.motion-toggle--menu {
+  width: 100%;
+  height: auto;
+  justify-content: flex-start;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+button.motion-toggle--menu:hover {
+  background: var(--bg-subtle);
+}
+
+/* The account icon only stands in for the username under 768px. */
+.header-user-icon {
+  display: none;
+  font-size: 1rem;
+  line-height: 1;
+}
+
 /* Show the sparkle when motion is on, the moon when off. */
 .motion-toggle .motion-toggle-off {
   display: none;
@@ -3710,21 +3750,47 @@ body:has([data-phx-main].phx-connected)::after {
      the header height, and the Q&A page sizes itself off --header-height, so
      every wasted pixel comes straight out of the chat area. */
   .header-inner { gap: 0.35rem; flex-wrap: nowrap; padding: 0.5rem 0; }
-  .header-title { font-size: 0.95rem; }
   .header { padding: 0 0.75rem; }
+  /* Stack "Rule" over "Maven": half the width of one line, and it costs no
+     header height — the control row is taller than the two lines. */
+  .header-title {
+    font-size: 0.72rem;
+    line-height: 1.05;
+    white-space: normal;
+  }
+  .header-title-accent { display: block; }
+  .header-brand { align-items: center; }
+  /* The username is replaced by an icon, so the summary is never empty. */
+  .header-user-icon { display: inline; }
   /* #game-theme-select is a hidden option-source only (always `hidden`); its
      options fold into the single #theme-select picker on game pages. Belt-and-
      suspenders hide in case anything unsets the attribute. */
   #game-theme-select { display: none !important; }
   /* Theme names are words now ("Dungeon Master"), not colors ("Dusk"), and a
-     <select> truncates its label hard — no ellipsis. Smaller type and tighter
-     padding fit the longest name in a cap the shrinking brand title can still
-     live beside at 320px. */
+     <select> truncates its label hard — no ellipsis. The stacked brand and the
+     relocated motion toggle free enough room for the longest name. */
   .theme-select {
-    max-width: 7.75rem;
-    font-size: 0.62rem;
-    padding: 0 1.05rem 0 0.4rem;
-    background-position: right 0.35rem center;
+    max-width: 10.5rem;
+    font-size: 0.66rem;
+    padding: 0 1.2rem 0 0.45rem;
+    background-position: right 0.4rem center;
+  }
+}
+
+/* Below 360px the wordmark loses: even stacked and shrunk it clips against the
+   picker once the account button is in the row. Drop to the dice mark alone —
+   the title stays in the accessibility tree, so the link still reads
+   "Rule Maven". */
+@media (max-width: 360px) {
+  .header-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
   }
 }
 

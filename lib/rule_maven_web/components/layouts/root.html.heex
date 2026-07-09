@@ -88,6 +88,8 @@
         <div class="header-inner">
           <a href={~p"/"} class="header-brand">
             <span class="header-icon">🎲</span>
+            <%!-- Mobile stacks "Rule" over "Maven" (see the 768px block) so the
+                  theme picker beside it can show a full theme name. --%>
             <span class="header-title">Rule <span class="header-title-accent">Maven</span></span>
           </a>
 
@@ -161,7 +163,12 @@
                   </option>
                 </optgroup>
               </select>
+              <%!-- Signed-in users get this inside the account menu instead —
+                    the mobile header has no room for it. Signed-out visitors
+                    have no menu, so it stays in the header for them. Exactly one
+                    #motion-toggle is ever rendered; the script binds by id. --%>
               <button
+                :if={!me}
                 type="button"
                 class="motion-toggle"
                 id="motion-toggle"
@@ -177,7 +184,11 @@
             <%= cond do %>
               <% me -> %>
                 <details class="user-dropdown">
-                  <summary class="user-dropdown-toggle">
+                  <summary class="user-dropdown-toggle" aria-label="Account menu">
+                    <%!-- .header-user is hidden under 768px, which used to leave
+                          this summary empty — an invisible control that was a
+                          signed-in visitor's only route to Settings/Log out. --%>
+                    <span class="header-user-icon" aria-hidden="true">👤</span>
                     <span class="header-user">
                       {me.username}
                       <span
@@ -187,6 +198,18 @@
                     </span>
                   </summary>
                   <div class="user-dropdown-menu">
+                    <div class="user-dropdown-section">Display</div>
+                    <button
+                      type="button"
+                      class="user-dropdown-link motion-toggle motion-toggle--menu"
+                      id="motion-toggle"
+                      aria-pressed="false"
+                      aria-label="Toggle ambient animations"
+                    >
+                      <span class="motion-toggle-on">✨ Animations on</span>
+                      <span class="motion-toggle-off">🌙 Animations off</span>
+                    </button>
+                    <div class="user-dropdown-section">Account</div>
                     <.link href={~p"/standing"} class="user-dropdown-link">Standing</.link>
                     <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>
                     <.link href={~p"/help"} class="user-dropdown-link">Help &amp; FAQ</.link>
