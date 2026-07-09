@@ -487,6 +487,38 @@ defmodule RuleMavenWeb.CoreComponents do
   end
 
   @doc """
+  Role badge: "A" for an admin, "SA" for a super admin. Renders nothing for an
+  ordinary user, so it can be dropped in anywhere a username appears.
+
+  The letters are deliberately terse — this sits inline beside a username in a
+  header that already stacks on mobile — so the full role name lives in `title`
+  and in the screen-reader label rather than in the visible glyphs.
+
+  Capability-driven, never a role-name comparison: see `Users.can?/2`.
+  """
+  attr :user, :any, required: true
+
+  def role_badge(assigns) do
+    ~H"""
+    <span
+      :if={RuleMaven.Users.can?(@user, :admin)}
+      class={[
+        "role-badge",
+        RuleMaven.Users.can?(@user, :superadmin) && "role-badge--super"
+      ]}
+      title={role_badge_label(@user)}
+      aria-label={role_badge_label(@user)}
+    >
+      {if RuleMaven.Users.can?(@user, :superadmin), do: "SA", else: "A"}
+    </span>
+    """
+  end
+
+  defp role_badge_label(user) do
+    if RuleMaven.Users.can?(user, :superadmin), do: "Super admin", else: "Admin"
+  end
+
+  @doc """
   Difficulty badge: BGG community complexity ("weight", 1.0-5.0) shown as a
   number plus bucket label, e.g. "2.3 · Medium-Light". Renders nothing when
   weight is nil (unrated / not yet backfilled) — no fallback text.
