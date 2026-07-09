@@ -55,6 +55,13 @@ defmodule RuleMaven.GamesErrorRetryTest do
              })
     end
 
+    test "a budget exhaustion is never player-retryable" do
+      # A retry re-arms a fresh per-ask LLM call budget, so retrying the exact
+      # question that already proved pathological would multiply its cost by
+      # the retry limit — turning a per-ask ceiling into a per-attempt one.
+      refute Games.error_retryable?(%QuestionLog{error_kind: "budget", error_retries: 0})
+    end
+
     test "non-retryable kinds and healthy rows are not retryable" do
       refute Games.error_retryable?(%QuestionLog{error_kind: "too_long", error_retries: 0})
       refute Games.error_retryable?(%QuestionLog{error_kind: "paused", error_retries: 0})

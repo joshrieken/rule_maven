@@ -493,6 +493,15 @@ defmodule RuleMaven.Workers.AskWorker do
                     {"⚠️ Question too long for the AI to process. Try a shorter question.",
                      "too_long"}
 
+                  # Deliberately NOT retryable. A retry re-arms a fresh call
+                  # budget, so classifying this as a generic transient error let
+                  # one degenerate question spend its ceiling once per allowed
+                  # retry — turning a per-ask cap into a per-attempt one. Fail
+                  # loudly instead; it also auto-flags for moderation.
+                  is_binary(reason) && String.contains?(reason, "call budget") ->
+                    {"⚠️ This question needed too many attempts to answer reliably. Try rephrasing it.",
+                     "budget"}
+
                   true ->
                     {"⚠️ Something went wrong. Please retry.", "unknown"}
                 end

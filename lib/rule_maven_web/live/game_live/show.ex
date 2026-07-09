@@ -772,6 +772,18 @@ defmodule RuleMavenWeb.GameLive.Show do
     # A fresh up-vote (not removing an existing one) earns a fun thank-you toast.
     new_upvote? = value == "up" && Map.get(socket.assigns.community_user_votes, id) != "up"
 
+    # Scope to this game so a forged id from another game can't be voted on from
+    # here — `set_community_vote/4` only checks that the row is votable, not
+    # which game it belongs to, and ids reach the client as raw phx-values.
+    # Same guard as open_report/flag_question below.
+    if find_question_log(socket.assigns.game, id) do
+      do_community_vote(socket, id, uid, value, new_upvote?)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  defp do_community_vote(socket, id, uid, value, new_upvote?) do
     case Games.set_community_vote(id, uid, value, socket.assigns.is_admin) do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, vote_error_message(reason))}
@@ -1548,11 +1560,24 @@ defmodule RuleMavenWeb.GameLive.Show do
         m -> m.content
       end
 
+    existing = find_question_log(socket.assigns.game, id)
+
+    # LiveView events are forgeable, and `grouped_questions/1` puts every
+    # community row into every viewer's conversation — so without this a user
+    # could regenerate, and below DELETE, someone else's promoted answer.
+    # Own rows only; admins keep the unrestricted re-ask.
+    foreign_row? =
+      (existing && existing.user_id != socket.assigns.current_user.id) and
+        not socket.assigns.is_admin
+
     cond do
       RuleMaven.Settings.asks_disabled?() and not socket.assigns.is_admin ->
         {:noreply, put_flash(socket, :error, RuleMaven.Settings.asks_disabled_message())}
 
       question == "" ->
+        {:noreply, socket}
+
+      foreign_row? ->
         {:noreply, socket}
 
       true ->
@@ -1562,7 +1587,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         %{game: game, included_expansions: included} = socket.assigns
         expansion_ids = Map.keys(included)
 
-        old_q = find_question_log(game, id)
+        old_q = existing
         was_pending = old_q && old_q.answer == "Thinking..."
 
         # Verbatim re-ask uses the raw text as stored, bypassing the cleaned
@@ -1583,7 +1608,12 @@ defmodule RuleMavenWeb.GameLive.Show do
         # shared answer every other user sees, with no review. Instead, spin
         # off a private, never-pooled copy for just this user and leave the
         # existing (voted-on) row untouched for everyone else.
-        protect_existing? = old_q && Games.has_votes?(old_q.id)
+        #
+        # A promoted (community) row gets the same protection even with zero
+        # votes yet: it is shared content the moment it is promoted, and its
+        # author regenerating must not delete it out from under other viewers.
+        protect_existing? =
+          old_q && (Games.has_votes?(old_q.id) or old_q.visibility == "community")
 
         if old_q && not protect_existing?, do: Games.delete_question(old_q)
 
