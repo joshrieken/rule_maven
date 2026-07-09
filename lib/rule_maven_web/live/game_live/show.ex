@@ -2848,9 +2848,18 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% voicing? =
                       msg.content != "Thinking..." && v_sel != "neutral" && is_nil(v_content) &&
                         not v_failed %>
+                    <%!-- Keying the text node by voice makes LiveView replace it
+                          rather than patch it whenever the persona changes, so
+                          the .answer-in rise animation replays instead of the
+                          restyled text popping in. The streaming branch reuses
+                          the same id: an unchanged voice means the node survives
+                          the stream → final swap and never re-animates over text
+                          the stream already revealed. Role is in the id because a
+                          question and its answer share a question_log id. --%>
+                    <% answer_dom_id = "ans-#{msg.role}-#{msg[:id]}-#{v_sel}" %>
                     <%= cond do %>
                       <% thinking? && stream_text -> %>
-                        <div class="answer-in">
+                        <div class="answer-in" id={answer_dom_id}>
                           {render_markdown(stream_text)}
                           <span :if={!stream_done} class="stream-cursor" aria-hidden="true"></span>
                         </div>
@@ -2902,7 +2911,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                           No answer received
                         </div>
                       <% true -> %>
-                        <div class="answer-in">
+                        <div class="answer-in" id={answer_dom_id}>
                           {render_markdown(v_content || msg.content)}
                         </div>
                         <%!-- Disclose that we rewrote the asker's raw question into
