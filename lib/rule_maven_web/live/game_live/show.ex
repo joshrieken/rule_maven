@@ -4248,19 +4248,6 @@ defmodule RuleMavenWeb.GameLive.Show do
       <%!-- Report-reason modal: pick why the answer is being reported. --%>
       <ReportModal.report_modal :if={@report_target} />
 
-      <%!-- Persona picker modal (shared by the composer default picker and each
-            answer's switcher). Centered, viewport-safe on mobile. --%>
-      <.persona_modal
-        :if={@persona_modal}
-        target={@persona_modal.target}
-        voices={@voices}
-        game={@game}
-        default_voice={@default_voice}
-        current={persona_modal_current(@persona_modal.target, @voice_sel, @default_voice)}
-        popular={@persona_popular}
-        recent={@persona_recent}
-      />
-
       <%!-- Suggested-questions modal. Backdrop closes via phx-click-away on the
             panel; picking a question asks it and closes (ask_suggestion). --%>
       <div
@@ -4379,6 +4366,23 @@ defmodule RuleMavenWeb.GameLive.Show do
           high its own z-index went, so a window dragged to the top of the screen
           slid under the header and lost its title bar. --%>
     <ToolPanel.tool_panel {assigns} />
+
+    <%!-- Persona picker modal (shared by the composer default picker and each
+          answer's switcher). Outside .chat-layout for the same stacking-context
+          reason as the tool panel: nested inside it, the backdrop's z-index:3000
+          still resolved below the site header (z:100), so on phones — where the
+          modal sits only 3vh from the top — the header painted over its title
+          row. position:fixed alone does not escape a stacking context. --%>
+    <.persona_modal
+      :if={@persona_modal}
+      target={@persona_modal.target}
+      voices={@voices}
+      game={@game}
+      default_voice={@default_voice}
+      current={persona_modal_current(@persona_modal.target, @voice_sel, @default_voice)}
+      popular={@persona_popular}
+      recent={@persona_recent}
+    />
     """
   end
 
