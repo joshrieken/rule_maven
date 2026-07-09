@@ -64,6 +64,7 @@ defmodule RuleMaven.MixProject do
       {:oban_web, "~> 2.11"},
       {:mdex, "~> 0.1"},
       {:swoosh, "~> 1.16"},
+      {:resend, "~> 0.4.5"},
       {:finch, "~> 0.18"},
       {:wallaby, "~> 0.30", only: :test, runtime: false}
     ]

@@ -65,4 +65,45 @@ defmodule RuleMaven.Settings do
   def set_asks_disabled(disabled?) when is_boolean(disabled?) do
     put("asks_disabled", to_string(disabled?))
   end
+
+  # --- Email -----------------------------------------------------------------
+
+  @default_mail_from "no-reply@rulemaven.app"
+
+  @doc """
+  Whether outbound email is disabled (kill switch). Deliveries are skipped but
+  callers still succeed — email is best-effort.
+  """
+  def email_disabled?, do: get("email_disabled") == "true"
+
+  @doc "Enables/disables outbound email."
+  def set_email_disabled(disabled?) when is_boolean(disabled?) do
+    put("email_disabled", to_string(disabled?))
+  end
+
+  @doc """
+  Sender address for outbound mail. Resend rejects senders from unverified
+  domains, so prod must set this to an address on the verified domain.
+  """
+  def mail_from do
+    case get("mail_from") do
+      nil -> @default_mail_from
+      "" -> @default_mail_from
+      from -> from
+    end
+  end
+
+  @doc "Sets the sender address for outbound mail."
+  def set_mail_from(from) when is_binary(from), do: put("mail_from", String.trim(from))
+
+  @doc """
+  Whether dev sends real mail through Resend instead of the Local adapter
+  (`/dev/mailbox`). Ignored outside dev.
+  """
+  def mail_dev_live?, do: get("mail_dev_live") == "true"
+
+  @doc "Enables/disables real Resend sends from dev."
+  def set_mail_dev_live(live?) when is_boolean(live?) do
+    put("mail_dev_live", to_string(live?))
+  end
 end
