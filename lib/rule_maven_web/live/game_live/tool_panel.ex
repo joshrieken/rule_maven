@@ -99,6 +99,13 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
       <div class="tool-panel__body">
         {render_slot(@inner_block)}
       </div>
+      <div
+        :for={dir <- ~w(n s e w ne nw se sw)}
+        class={"tool-panel__resize tool-panel__resize--#{dir}"}
+        data-resize={dir}
+        aria-hidden="true"
+      >
+      </div>
     </div>
     """
   end
