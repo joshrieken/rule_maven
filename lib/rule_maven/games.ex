@@ -1273,8 +1273,15 @@ defmodule RuleMaven.Games do
   def error_retryable?(%QuestionLog{} = q) do
     retryable_kind? =
       case q.error_kind do
-        nil -> legacy_error?(q)
-        kind -> kind in ["empty", "format", "timeout", "unknown", "rate_limited"]
+        nil ->
+          legacy_error?(q)
+
+        # "budget" is absent on purpose: a retry re-arms a fresh per-ask LLM
+        # call budget, so letting the player retry a budget exhaustion would
+        # multiply the cost of the exact question that already proved
+        # pathological. "paused" is likewise pointless to retry.
+        kind ->
+          kind in ["empty", "format", "timeout", "unknown", "rate_limited"]
       end
 
     retryable_kind? and q.error_retries < @error_retry_limit
