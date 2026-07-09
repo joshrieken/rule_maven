@@ -910,6 +910,16 @@ var ZStack = {
   }
 };
 
+// A LiveView patch rewrites the element's attributes from the template, which
+// drops any inline `style` the hook set — a dragged window would jump back to
+// its CSS corner the next time the server re-rendered anything inside it. So JS
+// keeps the authoritative geometry per tool and re-applies it on every update.
+var WinGeom = {
+  g: {}, // tool -> {x, y, w, h}
+  get(tool) { return this.g[tool] || (this.g[tool] = {}); },
+  drop(tool) { delete this.g[tool]; }
+};
+
 Hooks.FloatingPanel = {
   isCoarse() {
     return window.matchMedia && window.matchMedia("(pointer:coarse)").matches;
@@ -959,14 +969,30 @@ Hooks.FloatingPanel = {
   cascade() {
     var n = ZStack.count() - 1; // this panel is already in the DOM
     if (n <= 0) return;
-    var step = 26 * (n % 6);
+    var step = 26 * (((n - 1) % 6) + 1);
     var r = this.el.getBoundingClientRect();
-    var x = Math.max(8, Math.min(window.innerWidth - r.width - 8, r.left - step));
-    var y = Math.max(8, Math.min(window.innerHeight - 60, r.top + step));
-    this.el.style.left = x + "px";
-    this.el.style.top = y + "px";
-    this.el.style.right = "auto";
-    this.el.style.bottom = "auto";
+    var g = WinGeom.get(this.tool());
+    g.x = Math.max(8, Math.min(window.innerWidth - r.width - 8, r.left - step));
+    g.y = Math.max(8, Math.min(window.innerHeight - 60, r.top + step));
+  },
+
+  // Write the remembered geometry (and stack position) onto the element. Called
+  // on mount and after every LiveView patch, which would otherwise strip it.
+  applyGeom() {
+    var g = WinGeom.get(this.tool());
+    var el = this.el;
+    el.style.zIndex = ZStack.zFor(this.tool());
+    if (typeof g.w === "number") {
+      el.style.width = g.w + "px";
+      el.style.height = g.h + "px";
+      el.style.maxHeight = "none";
+    }
+    if (typeof g.x === "number") {
+      el.style.left = g.x + "px";
+      el.style.top = g.y + "px";
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+    }
   },
 
   // Restore saved size first (it changes the box), then position, clamping both
@@ -979,12 +1005,16 @@ Hooks.FloatingPanel = {
       return;
     }
 
+    var g = WinGeom.get(this.tool());
+
     var size = this.read(this.sizeKey());
     if (size && typeof size.w === "number" && typeof size.h === "number") {
       var maxW = window.innerWidth - 32;
       var maxH = window.innerHeight * 0.8;
-      this.el.style.width = Math.max(288, Math.min(maxW, size.w)) + "px";
-      this.el.style.height = Math.max(128, Math.min(maxH, size.h)) + "px";
+      g.w = Math.max(288, Math.min(maxW, size.w));
+      g.h = Math.max(128, Math.min(maxH, size.h));
+      this.el.style.width = g.w + "px";
+      this.el.style.height = g.h + "px";
       this.el.style.maxHeight = "none";
     }
 
@@ -993,12 +1023,8 @@ Hooks.FloatingPanel = {
       var box = this.el.getBoundingClientRect();
       // Keep the title bar reachable: at least 40px of the panel stays on-screen
       // horizontally, and the bar itself never scrolls off the top or bottom.
-      var x = Math.max(40 - box.width, Math.min(window.innerWidth - 40, p.x));
-      var y = Math.max(0, Math.min(window.innerHeight - 40, p.y));
-      this.el.style.left = x + "px";
-      this.el.style.top = y + "px";
-      this.el.style.right = "auto";
-      this.el.style.bottom = "auto";
+      g.x = Math.max(40 - box.width, Math.min(window.innerWidth - 40, p.x));
+      g.y = Math.max(0, Math.min(window.innerHeight - 40, p.y));
       return true;
     }
     return false;
@@ -1006,6 +1032,9 @@ Hooks.FloatingPanel = {
 
   saveSize() {
     var r = this.el.getBoundingClientRect();
+    var g = WinGeom.get(this.tool());
+    g.w = r.width;
+    g.h = r.height;
     this.write(this.sizeKey(), { w: r.width, h: r.height });
   },
 
@@ -1049,10 +1078,11 @@ Hooks.FloatingPanel = {
       var offX = e.clientX - rect.left;
       var offY = e.clientY - rect.top;
       function move(ev) {
-        var x = Math.max(0, Math.min(window.innerWidth - 40, ev.clientX - offX));
-        var y = Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - offY));
-        self.el.style.left = x + "px";
-        self.el.style.top = y + "px";
+        var g = WinGeom.get(self.tool());
+        g.x = Math.max(0, Math.min(window.innerWidth - 40, ev.clientX - offX));
+        g.y = Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - offY));
+        self.el.style.left = g.x + "px";
+        self.el.style.top = g.y + "px";
         self.el.style.right = "auto";
         self.el.style.bottom = "auto";
       }
@@ -1111,21 +1141,30 @@ Hooks.FloatingPanel = {
     }
     // Newest window on top. The server already renders the stack back-to-front,
     // so a fresh mount is by definition the newest.
-    this.el.style.zIndex = ZStack.raise(this.tool());
+    ZStack.raise(this.tool());
     if (!restored) this.cascade();
+    this.applyGeom();
     this.initFocus();
     this.initDrag();
     this.initResizeWatch();
   },
 
-  // LiveView may re-create the node on patch; re-assert this window's place in
-  // the stack rather than letting it fall back to the CSS base.
+  // A patch rewrites attributes from the template, dropping the inline style and
+  // the sheet class. Re-assert both, or a dragged window snaps back to the CSS
+  // corner and a sheet turns back into a desktop card.
   updated() {
-    if (!this.isCoarse()) this.el.style.zIndex = ZStack.zFor(this.tool());
+    var coarse = this.isCoarse();
+    this.el.classList.toggle("tool-panel--sheet", coarse);
+    if (coarse) {
+      this.applySnap(this._snap || 0);
+    } else {
+      this.applyGeom();
+    }
   },
 
   destroyed() {
     ZStack.drop(this.tool());
+    WinGeom.drop(this.tool());
     if (this._focus) this.el.removeEventListener("pointerdown", this._focus, true);
     if (this._handle && this._down) this._handle.removeEventListener("mousedown", this._down);
     if (this._handle && this._touchStart) {
