@@ -3845,7 +3845,8 @@ defmodule RuleMaven.LLM do
   Designs a per-game color theme from the game's cover art. Returns
   `{:ok, %{"light" => anchors, "dark" => anchors}}` where each anchors map has
   string keys `accent`/`bg`/`surface`/`text` (hex strings) — feed straight into
-  `RuleMaven.ThemePalette.build/1`. `{:error, reason}` on fetch/LLM/parse failure.
+  `RuleMaven.ThemePalette.build/1`. May also carry a `"names"` key for
+  `RuleMaven.ThemePalette.names/1`. `{:error, reason}` on fetch/LLM/parse failure.
   """
   def generate_theme_palette(game_name, image_url, game_id \\ nil)
 
@@ -3921,8 +3922,10 @@ defmodule RuleMaven.LLM do
       end
 
     case Jason.decode(json || "") do
-      {:ok, %{"light" => l, "dark" => d}} when is_map(l) and is_map(d) ->
-        {:ok, %{"light" => l, "dark" => d}}
+      {:ok, %{"light" => l, "dark" => d} = decoded} when is_map(l) and is_map(d) ->
+        # "names" rides along untouched (ThemePalette.names/1 validates it); a
+        # missing or malformed one must not fail an otherwise good palette.
+        {:ok, Map.take(decoded, ["light", "dark", "names"])}
 
       {:ok, _} ->
         {:error, :bad_palette_shape}

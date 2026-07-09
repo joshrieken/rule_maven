@@ -147,4 +147,51 @@ defmodule RuleMaven.ThemePaletteTest do
     bad = %{"--accent" => "not-a-color", "--accent-text" => "#1A1A1A"}
     assert ThemePalette.fix_accent_text(bad) == bad
   end
+
+  describe "names/1" do
+    test "extracts and trims both variant names" do
+      raw = %{"names" => %{"light" => "  Harbor Daylight ", "dark" => "Longest Night"}}
+
+      assert {:ok, %{"light" => "Harbor Daylight", "dark" => "Longest Night"}} =
+               ThemePalette.names(raw)
+    end
+
+    test "is :error when names are missing, partial, blank or not strings" do
+      assert :error = ThemePalette.names(%{})
+      assert :error = ThemePalette.names(%{"names" => %{"light" => "Day"}})
+      assert :error = ThemePalette.names(%{"names" => %{"light" => "Day", "dark" => "   "}})
+      assert :error = ThemePalette.names(%{"names" => %{"light" => "Day", "dark" => 42}})
+    end
+
+    test "scrubs characters that would break out of the markup it lands in" do
+      raw = %{
+        "names" => %{
+          "light" => ~s|Day" onload="alert(1)|,
+          "dark" => "Night<script>&"
+        }
+      }
+
+      {:ok, %{"light" => light, "dark" => dark}} = ThemePalette.names(raw)
+
+      for name <- [light, dark], char <- ~w(< > " ' &) do
+        refute String.contains?(name, char), "#{inspect(name)} still contains #{char}"
+      end
+    end
+
+    test "collapses whitespace and caps the length so the picker can't blow out" do
+      raw = %{
+        "names" => %{
+          "light" => "Harbor\n\tDaylight",
+          "dark" => String.duplicate("Night ", 40)
+        }
+      }
+
+      {:ok, %{"light" => light, "dark" => dark}} = ThemePalette.names(raw)
+
+      assert light == "Harbor Daylight"
+      assert String.length(dark) <= 24
+      # capped mid-word, but never left with a trailing space
+      assert dark == String.trim(dark)
+    end
+  end
 end
