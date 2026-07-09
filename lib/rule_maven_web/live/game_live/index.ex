@@ -277,6 +277,23 @@ defmodule RuleMavenWeb.GameLive.Index do
   # Deletion is confirmed client-side via data-confirm on the "⋯" menu item.
   @impl true
   def handle_event("confirm_delete", %{"id" => id_str}, socket) do
+    # This LiveView is in the :default live_session — logged-in, but NOT admin —
+    # so the delete menu item being hidden in the template is not a guard at all.
+    # LiveView events are forgeable, and this cascades documents and questions.
+    # Re-fetch the user rather than trusting a mount-time assign, so a demoted
+    # admin can't delete on a still-open socket.
+    if admin?(socket) do
+      do_confirm_delete(socket, id_str)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  defp admin?(socket) do
+    RuleMaven.Users.can?(RuleMaven.Users.get_user(socket.assigns.current_user.id), :admin)
+  end
+
+  defp do_confirm_delete(socket, id_str) do
     {id, _} = Integer.parse(id_str)
     game = Games.get_game!(id)
 
@@ -740,7 +757,9 @@ defmodule RuleMavenWeb.GameLive.Index do
               title="More actions"
               aria-label="More actions"
               style="cursor:pointer;list-style:none;user-select:none;display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.6rem;border-radius:9999px;font-size:0.78rem;font-weight:600;border:1.5px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary)"
-            >⚙️ <span aria-hidden="true" style="font-size:0.6rem;opacity:0.6">▾</span></summary>
+            >
+              ⚙️ <span aria-hidden="true" style="font-size:0.6rem;opacity:0.6">▾</span>
+            </summary>
             <div class="card-menu__pop card-menu__pop--wide">
               <.link
                 :if={RuleMaven.Users.can?(@current_user, :admin)}

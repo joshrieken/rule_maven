@@ -102,14 +102,26 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
                    game_id: doc.game_id
                  ) do
               {:ok, result} ->
-                Games.replace_page(doc, index, result)
+                case Games.replace_page(doc, index, result) do
+                  {:error, :empty_extraction} ->
+                    # The page kept its existing text rather than being blanked.
+                    Logger.warning("Re-extract page #{index} produced empty text — page kept")
 
-                log.(
-                  "Done — #{label} re-extracted (confidence #{fmt_conf(page.confidence)} → #{fmt_conf(result[:confidence])}).",
-                  "done"
-                )
+                    log.(
+                      "Failed — #{label}: re-extraction produced no text; the existing text was kept.",
+                      "error"
+                    )
 
-                :ok
+                    {:error, "empty extraction"}
+
+                  _ ->
+                    log.(
+                      "Done — #{label} re-extracted (confidence #{fmt_conf(page.confidence)} → #{fmt_conf(result[:confidence])}).",
+                      "done"
+                    )
+
+                    :ok
+                end
 
               {:error, reason} ->
                 Logger.warning("Re-extract page #{index} failed: #{reason}")

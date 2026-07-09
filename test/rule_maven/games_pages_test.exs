@@ -234,6 +234,57 @@ defmodule RuleMaven.GamesPagesTest do
       # Must NOT be clobbered back to nil/original by the stale snapshot.
       assert page1.cleaned == "freshly cleaned page two"
     end
+
+    test "an empty re-extraction never blanks a page that already has text" do
+      # `reextract_page/3` seeds escalation with an empty cheap_text, and a
+      # failed strong-model transcribe can return "". Writing that over a good
+      # page is irrecoverable — there is no revert path.
+      {:ok, game} = Games.create_game(%{name: "Blank #{System.unique_integer([:positive])}"})
+
+      {:ok, doc} =
+        Games.create_document(%{
+          game_id: game.id,
+          label: "Rules",
+          full_text: "page one text\fpage two text"
+        })
+
+      assert {:error, :empty_extraction} =
+               Games.replace_page(doc, 0, %{
+                 text: "",
+                 confidence: 0.5,
+                 lane: "t3",
+                 source: "reextract"
+               })
+
+      # Whitespace-only is just as blank.
+      assert {:error, :empty_extraction} =
+               Games.replace_page(doc, 0, %{
+                 text: "   \n  ",
+                 confidence: 0.5,
+                 lane: "t3",
+                 source: "reextract"
+               })
+
+      reloaded = Games.get_document!(doc.id)
+      assert Enum.find(reloaded.pages, &(&1.index == 0)).text == "page one text"
+    end
+
+    test "an empty re-extraction onto a page that does not exist is a harmless no-op" do
+      # Empty pages are dropped at parse time, so a page that exists always has
+      # text — the guard only ever fires where there is something to lose.
+      {:ok, game} = Games.create_game(%{name: "Blank2 #{System.unique_integer([:positive])}"})
+
+      {:ok, doc} =
+        Games.create_document(%{game_id: game.id, label: "Rules", full_text: "only page"})
+
+      assert {:ok, _} =
+               Games.replace_page(doc, 99, %{
+                 text: "",
+                 confidence: 0.5,
+                 lane: "t3",
+                 source: "reextract"
+               })
+    end
   end
 
   describe "job log" do

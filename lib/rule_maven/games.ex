@@ -3205,6 +3205,29 @@ defmodule RuleMaven.Games do
   meantime. Only `doc.id` from the passed-in struct is used.
   """
   def replace_page(%Document{} = doc, index, fields) do
+    # A re-extract that produced nothing must never overwrite a page that has
+    # something. `reextract_page/3` seeds the escalation with an empty
+    # `cheap_text`, and a failed strong-model transcribe (or a critic call that
+    # errors) can return `text: ""` — which used to be written straight over the
+    # page's raw text with no guard and no revert path. The cleanup path has a
+    # length-floor guard for exactly this (`LLM.cleanup_page`); re-extraction had
+    # none.
+    if blank_page_text?(fields) and page_has_text?(doc, index) do
+      {:error, :empty_extraction}
+    else
+      do_replace_page(doc, index, fields)
+    end
+  end
+
+  defp blank_page_text?(fields), do: String.trim(to_string(Map.get(fields, :text))) == ""
+
+  defp page_has_text?(%Document{} = doc, index) do
+    Enum.any?(doc.pages, fn p ->
+      p.index == index and String.trim(to_string(p.text)) != ""
+    end)
+  end
+
+  defp do_replace_page(%Document{} = doc, index, fields) do
     Repo.transaction(fn ->
       doc = lock_document!(doc.id)
 
