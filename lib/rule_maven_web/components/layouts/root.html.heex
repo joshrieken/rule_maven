@@ -11,12 +11,24 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <script>
-      // Map legacy theme slugs to their standardized (kebab-of-label) names, so
-      // a user's saved theme survives the rename. Shared with the picker script.
+      // Map retired theme slugs to their current (kebab-of-label) names, so a
+      // saved theme survives a rename. Shared with the picker script. Lookup is
+      // one hop, so slugs from *any* past generation must point straight at a
+      // live slug — never at another key in this map.
       window.__themeMigrate = {
-        ocean: 'abyss', forest: 'canopy', retro: 'cassette', scary: 'crypt',
-        sunset: 'dusk', happy: 'golden-hour', light: 'lavender',
-        dark: 'midnight', scifi: 'nebula', matrix: 'neon', fantasy: 'parchment'
+        // pre-rename originals
+        ocean: 'kraken', forest: 'overgrowth', retro: 'mixtape',
+        scary: 'grave-digger', sunset: 'last-turn', happy: 'lemonade',
+        light: 'fresh-deck', dark: 'night-owl', scifi: 'deep-space',
+        matrix: 'cheat-code', fantasy: 'dungeon-master',
+        // one-word era
+        abyss: 'kraken', arcade: 'insert-coin', brass: 'steamworks',
+        canopy: 'overgrowth', cassette: 'mixtape', coral: 'flamingo',
+        crypt: 'grave-digger', dusk: 'last-turn', ember: 'campfire',
+        frost: 'snow-day', 'golden-hour': 'lemonade', honey: 'honeycomb',
+        lavender: 'fresh-deck', marble: 'chess-club', meadow: 'picnic',
+        midnight: 'night-owl', nebula: 'deep-space', neon: 'cheat-code',
+        parchment: 'dungeon-master', twilight: 'moonrise', void: 'black-hole'
       };
       (function() {
         var html = document.documentElement;
@@ -27,7 +39,7 @@
           html.setAttribute('data-theme', migrated);
         } else {
           var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-          html.setAttribute('data-theme', prefersDark ? 'midnight' : 'lavender');
+          html.setAttribute('data-theme', prefersDark ? 'night-owl' : 'fresh-deck');
         }
         // Apply the saved ambient-motion preference before paint to avoid a flash.
         if (localStorage.getItem('motion') === 'off') {
@@ -280,7 +292,7 @@
             var migrate = window.__themeMigrate || {};
             return migrate[s] || s;
           }
-          return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'midnight' : 'lavender';
+          return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'night-owl' : 'fresh-deck';
         }
 
         function isGameTheme(v) {

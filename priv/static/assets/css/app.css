@@ -10,7 +10,7 @@
    Theme Variables
    ============================ */
 
-/* Lavender — soft purple, daylight */
+/* Fresh Deck — soft purple, daylight */
 :root {
   /* Real sticky-header height; refined to the measured px value in app.js. The
      fallback matches the default header (icon + padding + border). */
@@ -57,8 +57,8 @@
   color-scheme: light;
 }
 
-/* Midnight — Tabletop Tavern, rich warm dark */
-[data-theme="midnight"] {
+/* Night Owl — Tabletop Tavern, rich warm dark */
+[data-theme="night-owl"] {
   color-scheme: dark;
   --bg: #1a1410;
   --bg-surface: #241e18;
@@ -122,8 +122,8 @@
   }
 }
 
-/* Arcade — 90s cabinet neon */
-[data-theme="arcade"] {
+/* Insert Coin — 90s cabinet neon */
+[data-theme="insert-coin"] {
   color-scheme: dark;
   --bg: #080810;
   --bg-surface: #10101c;
@@ -154,8 +154,8 @@
   --focus-ring: rgba(240, 96, 224, 0.25);
 }
 
-/* Brass — industrial steampunk copper */
-[data-theme="brass"] {
+/* Steamworks — industrial steampunk copper */
+[data-theme="steamworks"] {
   color-scheme: dark;
   --bg: #1a1810;
   --bg-surface: #242018;
@@ -186,8 +186,8 @@
   --focus-ring: rgba(192, 160, 72, 0.2);
 }
 
-/* Coral — tropical reef vibrant */
-[data-theme="coral"] {
+/* Flamingo — tropical reef vibrant */
+[data-theme="flamingo"] {
   color-scheme: light;
   --bg: #fef6f4;
   --bg-surface: #ffffff;
@@ -218,8 +218,8 @@
   --focus-ring: rgba(224, 104, 80, 0.2);
 }
 
-/* Ember — volcanic forge heat */
-[data-theme="ember"] {
+/* Campfire — volcanic forge heat */
+[data-theme="campfire"] {
   color-scheme: dark;
   --bg: #1a1008;
   --bg-surface: #241810;
@@ -250,8 +250,8 @@
   --focus-ring: rgba(232, 112, 48, 0.25);
 }
 
-/* Parchment — warm medieval scroll */
-[data-theme="parchment"] {
+/* Dungeon Master — warm medieval scroll */
+[data-theme="dungeon-master"] {
   color-scheme: light;
   --bg: #f5ecd7;
   --bg-surface: #fdf6e8;
@@ -281,8 +281,8 @@
   --focus-ring: rgba(139, 94, 60, 0.2);
 }
 
-/* Canopy — deep forest serenity */
-[data-theme="canopy"] {
+/* Overgrowth — deep forest serenity */
+[data-theme="overgrowth"] {
   color-scheme: dark;
   --bg: #0a1a0e;
   --bg-surface: #162418;
@@ -313,8 +313,8 @@
   --focus-ring: rgba(80, 184, 96, 0.2);
 }
 
-/* Frost — icy winter tundra */
-[data-theme="frost"] {
+/* Snow Day — icy winter tundra */
+[data-theme="snow-day"] {
   color-scheme: light;
   --bg: #f0f4f8;
   --bg-surface: #ffffff;
@@ -345,8 +345,8 @@
   --focus-ring: rgba(64, 136, 200, 0.2);
 }
 
-/* Golden Hour — warm sunny cheer */
-[data-theme="golden-hour"] {
+/* Lemonade — warm sunny cheer */
+[data-theme="lemonade"] {
   color-scheme: light;
   --bg: #fef9f0;
   --bg-surface: #ffffff;
@@ -377,8 +377,8 @@
   --focus-ring: rgba(224, 144, 32, 0.2);
 }
 
-/* Honey — warm golden sweetness */
-[data-theme="honey"] {
+/* Honeycomb — warm golden sweetness */
+[data-theme="honeycomb"] {
   color-scheme: light;
   --bg: #fef8e8;
   --bg-surface: #fffdf5;
@@ -409,8 +409,8 @@
   --focus-ring: rgba(216, 144, 32, 0.2);
 }
 
-/* Lavender — soft approachable daylight */
-[data-theme="lavender"] {
+/* Fresh Deck — soft approachable daylight */
+[data-theme="fresh-deck"] {
   color-scheme: light;
   --bg: #faf8f5;
   --bg-surface: #ffffff;
@@ -440,8 +440,8 @@
   --focus-ring: rgba(108, 92, 231, 0.2);
 }
 
-/* Marble — classical stone statuary */
-[data-theme="marble"] {
+/* Chess Club — classical stone statuary */
+[data-theme="chess-club"] {
   color-scheme: light;
   --bg: #f0ede8;
   --bg-surface: #faf8f5;
@@ -471,8 +471,8 @@
   --focus-ring: rgba(112, 96, 80, 0.15);
 }
 
-/* Neon — cyberpunk green glow */
-[data-theme="neon"] {
+/* Cheat Code — cyberpunk green glow */
+[data-theme="cheat-code"] {
   color-scheme: dark;
   --bg: #0d1117;
   --bg-surface: #131820;
@@ -503,8 +503,8 @@
   --focus-ring: rgba(0, 204, 68, 0.2);
 }
 
-/* Meadow — spring wildflower bloom */
-[data-theme="meadow"] {
+/* Picnic — spring wildflower bloom */
+[data-theme="picnic"] {
   color-scheme: light;
   --bg: #f5faf2;
   --bg-surface: #ffffff;
@@ -535,8 +535,8 @@
   --focus-ring: rgba(96, 152, 56, 0.2);
 }
 
-/* Abyss — deep ocean depths */
-[data-theme="abyss"] {
+/* Kraken — deep ocean depths */
+[data-theme="kraken"] {
   color-scheme: dark;
   --bg: #0a141e;
   --bg-surface: #101c2a;
@@ -567,8 +567,8 @@
   --focus-ring: rgba(48, 144, 208, 0.2);
 }
 
-/* Cassette — 80s synthwave neon */
-[data-theme="cassette"] {
+/* Mixtape — 80s synthwave neon */
+[data-theme="mixtape"] {
   color-scheme: dark;
   --bg: #100a20;
   --bg-surface: #1a1430;
@@ -598,8 +598,8 @@
   --focus-ring: rgba(224, 64, 192, 0.2);
 }
 
-/* Crypt — dark gothic cathedral */
-[data-theme="crypt"] {
+/* Grave Digger — dark gothic cathedral */
+[data-theme="grave-digger"] {
   color-scheme: dark;
   --bg: #120a0a;
   --bg-surface: #1c1212;
@@ -629,8 +629,8 @@
   --focus-ring: rgba(200, 64, 64, 0.2);
 }
 
-/* Nebula — deep space cosmic */
-[data-theme="nebula"] {
+/* Deep Space — cosmic deep field */
+[data-theme="deep-space"] {
   color-scheme: dark;
   --bg: #0a0e1a;
   --bg-surface: #101830;
@@ -661,8 +661,8 @@
   --focus-ring: rgba(64, 192, 224, 0.2);
 }
 
-/* Dusk — warm sunset sky */
-[data-theme="dusk"] {
+/* Last Turn — warm sunset sky */
+[data-theme="last-turn"] {
   color-scheme: dark;
   --bg: #1a1420;
   --bg-surface: #241c2a;
@@ -692,8 +692,8 @@
   --focus-ring: rgba(208, 96, 160, 0.2);
 }
 
-/* Twilight — dreamy purple dusk */
-[data-theme="twilight"] {
+/* Moonrise — dreamy purple dusk */
+[data-theme="moonrise"] {
   color-scheme: dark;
   --bg: #14101e;
   --bg-surface: #1c1830;
@@ -724,8 +724,8 @@
   --focus-ring: rgba(144, 96, 216, 0.2);
 }
 
-/* Void — absolute black minimalism */
-[data-theme="void"] {
+/* Black Hole — absolute black minimalism */
+[data-theme="black-hole"] {
   color-scheme: dark;
   --bg: #000000;
   --bg-surface: #0a0a0a;
@@ -781,8 +781,8 @@ a { color: inherit; text-decoration: inherit; }
   color: var(--selection-text, var(--accent-text, var(--bg)));
 }
 /* Yellow-accent themes need dark text on selection for contrast */
-[data-theme="golden-hour"] ::selection,
-[data-theme="honey"] ::selection {
+[data-theme="lemonade"] ::selection,
+[data-theme="honeycomb"] ::selection {
   color: var(--text);
 }
 /* On accent-filled surfaces (user chat bubble, filled buttons/pills) the default

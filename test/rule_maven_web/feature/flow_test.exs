@@ -177,12 +177,12 @@ defmodule RuleMavenWeb.Feature.FlowTest do
 
     Process.sleep(500)
 
-    # Set theme via JS. Use a current slug ("nebula") — legacy slugs like
-    # "ocean" get rewritten by the theme-migration script on load.
+    # Set theme via JS. Use a current slug ("deep-space") — retired slugs like
+    # "nebula" get rewritten by the theme-migration script on load.
     session
     |> Wallaby.Browser.execute_script("""
-      document.documentElement.setAttribute('data-theme', 'nebula');
-      localStorage.setItem('theme', 'nebula');
+      document.documentElement.setAttribute('data-theme', 'deep-space');
+      localStorage.setItem('theme', 'deep-space');
     """)
 
     # Navigate to another page
@@ -190,7 +190,7 @@ defmodule RuleMavenWeb.Feature.FlowTest do
     |> visit("/login")
 
     page_source = session |> Wallaby.Browser.page_source()
-    assert page_source =~ ~s(data-theme="nebula")
+    assert page_source =~ ~s(data-theme="deep-space")
   end
 
   feature "game list shows game metadata when logged in", %{session: session} do
