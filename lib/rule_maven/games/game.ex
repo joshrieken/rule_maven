@@ -17,6 +17,10 @@ defmodule RuleMaven.Games.Game do
     # Per-game theme derived from the BGG cover image. See ThemePaletteWorker.
     # %{"light" => %{"--bg" => "#…", …}, "dark" => %{…}}
     field :theme_palette, :map
+    # Player-facing names for the two palette variants, generated with it.
+    # %{"light" => "Harbor Daylight", "dark" => "Longest Night"}. Nil until a
+    # palette is (re)generated; the picker falls back to "Game Light"/"Game Dark".
+    field :theme_names, :map
 
     # Readiness: `playable` is the denormalized end-of-pipeline flag (RAG-ready
     # *and* reviewed), recomputed by `RuleMaven.Readiness`. Indexed; the catalog
@@ -54,7 +58,8 @@ defmodule RuleMaven.Games.Game do
       :image_url,
       :bgg_data,
       :category,
-      :theme_palette
+      :theme_palette,
+      :theme_names
     ])
     |> validate_required([:name])
   end

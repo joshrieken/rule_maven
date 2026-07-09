@@ -696,7 +696,8 @@ defmodule RuleMaven.Prompts do
 
   {
     "light": { "accent": "#RRGGBB", "bg": "#RRGGBB", "surface": "#RRGGBB", "text": "#RRGGBB" },
-    "dark":  { "accent": "#RRGGBB", "bg": "#RRGGBB", "surface": "#RRGGBB", "text": "#RRGGBB" }
+    "dark":  { "accent": "#RRGGBB", "bg": "#RRGGBB", "surface": "#RRGGBB", "text": "#RRGGBB" },
+    "names": { "light": "Harbor Daylight", "dark": "Longest Night" }
   }
 
   Anchor meanings:
@@ -704,6 +705,12 @@ defmodule RuleMaven.Prompts do
   - bg      — the page background. In "light" a near-white tinted toward the cover; in "dark" a near-black tinted toward the cover.
   - surface — the card background, a small step from bg (lighter than bg in dark, brighter/whiter in light).
   - text    — the main body text color; high contrast against bg/surface.
+
+  Names:
+  - "names.light" / "names.dark" name the two variants in the theme picker.
+  - 1-3 words, title case, evocative of THIS game's world, places, factions or objects — not generic ("Light Mode", "Game Dark") and not just the game's title.
+  - The light name should feel bright or daytime; the dark name dim or nighttime.
+  - Write the names in English.
 
   Rules:
   - Every value MUST be a 6-digit hex string starting with "#".
@@ -1341,7 +1348,8 @@ defmodule RuleMaven.Prompts do
       key: "turn_flow",
       group: "Content generation",
       label: "Turn wizard",
-      description: "Generates the ordered turn phases + available actions for the 'what can I do now?' wizard.",
+      description:
+        "Generates the ordered turn phases + available actions for the 'what can I do now?' wizard.",
       vars: ~w(game_name rulebook),
       default: @turn_flow
     },
@@ -1596,7 +1604,8 @@ defmodule RuleMaven.Prompts do
       key: "house_rule_check",
       group: "House rules",
       label: "House rule — RAW check",
-      description: "User prompt carrying the game name, the house rule, and retrieved rulebook text.",
+      description:
+        "User prompt carrying the game name, the house rule, and retrieved rulebook text.",
       vars: ["game_name", "house_rule", "rulebook"],
       default: @house_rule_check
     },

@@ -303,6 +303,24 @@ defmodule RuleMaven.Games do
     end
   end
 
+  @doc """
+  The player-facing names for a game's two theme variants, e.g.
+  `%{"light" => "Harbor Daylight", "dark" => "Longest Night"}`. Inherited by
+  expansions from their base game, exactly like the palette they name. `nil`
+  when the palette was generated before names existed, or when the model's
+  names were unusable — callers fall back to the generic variant labels.
+  """
+  def effective_theme_names(%Game{theme_names: names} = game) do
+    if expansion?(game.id) do
+      case base_game_for(game) do
+        %Game{theme_names: n} -> n
+        nil -> nil
+      end
+    else
+      names
+    end
+  end
+
   ## Expansion selection (per user, per base game) -----------------------------
 
   @doc """

@@ -5,6 +5,11 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
   them into a full light/dark CSS-variable palette (`RuleMaven.ThemePalette`),
   and stores it on `games.theme_palette`.
 
+  The same call names the two variants after the game's world (e.g. "Harbor
+  Daylight" / "Longest Night"); the names land on `games.theme_names` and label
+  the game options in the theme picker. Names are cosmetic — an unusable one
+  never fails an otherwise good palette, it just falls back to "Game Light".
+
   Enqueued after a successful BGG enrich (when `image_url` first lands) and
   re-runnable on demand. Skips silently when the game has no cover. Broadcasts
   `{:theme_palette, game_id, :ok | {:error, reason}}` on `topic/1` so an open
@@ -49,9 +54,12 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
 
     status =
       case build_palette(game) do
-        {:ok, palette} ->
-          case Games.update_game(game, %{theme_palette: palette}) do
-            {:ok, _} -> {:ok, palette}
+        {:ok, palette, names} ->
+          attrs = %{theme_palette: palette}
+          attrs = if names, do: Map.put(attrs, :theme_names, names), else: attrs
+
+          case Games.update_game(game, attrs) do
+            {:ok, _} -> {:ok, palette, names}
             {:error, reason} -> {:error, reason}
           end
 
@@ -63,8 +71,12 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
       end
 
     case status do
-      {:ok, palette} ->
-        Jobs.finish_run(run, "done", "Palette generated (#{map_size(palette)} colours).")
+      {:ok, palette, names} ->
+        Jobs.finish_run(
+          run,
+          "done",
+          "Palette generated (#{map_size(palette)} variants). #{name_summary(names)}"
+        )
 
       :skip ->
         Jobs.finish_run(run, "done", "Skipped — no cover image.")
@@ -93,11 +105,22 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
   defp build_palette(%{id: id, name: name, image_url: url}) when is_binary(url) and url != "" do
     with {:ok, anchors} <- LLM.generate_theme_palette(name, url, id),
          {:ok, palette} <- ThemePalette.build(anchors) do
-      {:ok, palette}
+      # Names are cosmetic: a model that returns junk (or nothing) still gets its
+      # colours, and the picker falls back to the generic "Game Light"/"Game Dark".
+      names =
+        case ThemePalette.names(anchors) do
+          {:ok, names} -> names
+          :error -> nil
+        end
+
+      {:ok, palette, names}
     end
   end
 
   defp build_palette(_), do: :skip
+
+  defp name_summary(%{"light" => light, "dark" => dark}), do: "Named #{light} / #{dark}."
+  defp name_summary(_), do: "Unnamed — using the default variant labels."
 
   @doc """
   Enqueue palette generation for a game that has a cover image. Expansions

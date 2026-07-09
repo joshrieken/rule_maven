@@ -8,33 +8,35 @@ defmodule RuleMaven.Metrics do
   alias RuleMaven.Repo
   alias RuleMaven.Metrics.ThemeEvent
 
-  # Slug -> human label, alphabetical by label — the order shown in the theme
-  # picker, which has no meaningful grouping to preserve. The slug is the
+  # Slug -> human label -> scheme, alphabetical by label. The slug is the
   # `data-theme` value AND the kebab-case of the label — one canonical name per
   # theme, no drift. This list is the single source of truth: the picker, the
   # CSS `[data-theme="…"]` blocks, and the allowlist all derive from it.
+  #
+  # `scheme` must match the `color-scheme` of the theme's CSS block; it groups
+  # the picker into Light/Dark optgroups. `theme_scheme_test` pins the two.
   @themes [
-    {"black-hole", "Black Hole"},
-    {"campfire", "Campfire"},
-    {"cheat-code", "Cheat Code"},
-    {"chess-club", "Chess Club"},
-    {"deep-space", "Deep Space"},
-    {"dungeon-master", "Dungeon Master"},
-    {"flamingo", "Flamingo"},
-    {"fresh-deck", "Fresh Deck"},
-    {"grave-digger", "Grave Digger"},
-    {"honeycomb", "Honeycomb"},
-    {"insert-coin", "Insert Coin"},
-    {"kraken", "Kraken"},
-    {"last-turn", "Last Turn"},
-    {"lemonade", "Lemonade"},
-    {"mixtape", "Mixtape"},
-    {"moonrise", "Moonrise"},
-    {"night-owl", "Night Owl"},
-    {"overgrowth", "Overgrowth"},
-    {"picnic", "Picnic"},
-    {"snow-day", "Snow Day"},
-    {"steamworks", "Steamworks"}
+    {"black-hole", "Black Hole", :dark},
+    {"campfire", "Campfire", :dark},
+    {"cheat-code", "Cheat Code", :dark},
+    {"chess-club", "Chess Club", :light},
+    {"deep-space", "Deep Space", :dark},
+    {"dungeon-master", "Dungeon Master", :light},
+    {"flamingo", "Flamingo", :light},
+    {"fresh-deck", "Fresh Deck", :light},
+    {"grave-digger", "Grave Digger", :dark},
+    {"honeycomb", "Honeycomb", :light},
+    {"insert-coin", "Insert Coin", :dark},
+    {"kraken", "Kraken", :dark},
+    {"last-turn", "Last Turn", :dark},
+    {"lemonade", "Lemonade", :light},
+    {"mixtape", "Mixtape", :dark},
+    {"moonrise", "Moonrise", :dark},
+    {"night-owl", "Night Owl", :dark},
+    {"overgrowth", "Overgrowth", :dark},
+    {"picnic", "Picnic", :light},
+    {"snow-day", "Snow Day", :light},
+    {"steamworks", "Steamworks", :dark}
   ]
 
   # The dynamic per-game themes. Not static `[data-theme]` blocks in app.css —
@@ -56,7 +58,20 @@ defmodule RuleMaven.Metrics do
   def default_theme(_), do: "fresh-deck"
 
   @doc "Ordered list of `{slug, label}` for every selectable theme."
-  def themes, do: @themes
+  def themes, do: Enum.map(@themes, fn {slug, label, _scheme} -> {slug, label} end)
+
+  @doc """
+  The static themes grouped for the picker: `[{:light, [{slug, label}, …]},
+  {:dark, …}]`. Light first — it's the default for a fresh visitor.
+  """
+  def themes_by_scheme do
+    for scheme <- [:light, :dark] do
+      {scheme,
+       for {slug, label, ^scheme} <- @themes do
+         {slug, label}
+       end}
+    end
+  end
 
   @doc "Allowlist of valid theme slugs (includes the dynamic per-game themes)."
   def theme_slugs do
@@ -64,7 +79,7 @@ defmodule RuleMaven.Metrics do
   end
 
   @doc "Map of slug => label."
-  def theme_labels, do: Map.new(@themes)
+  def theme_labels, do: Map.new(themes())
 
   @doc """
   Records that `theme` was selected. `user_id` may be nil for logged-out

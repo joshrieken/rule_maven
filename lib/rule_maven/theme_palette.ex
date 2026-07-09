@@ -390,4 +390,41 @@ defmodule RuleMaven.ThemePalette do
     |> Enum.sort()
     |> Enum.map_join(" ", fn {k, v} -> "#{k}: #{v};" end)
   end
+
+  # Long enough for "Longest Night" and friends; short enough that a runaway
+  # generation can't blow out the picker's width.
+  @max_name_length 24
+
+  @doc """
+  Pull the two player-facing variant names out of the raw model response.
+
+  Returns `{:ok, %{"light" => name, "dark" => name}}` or `:error` when either is
+  missing or unusable. Names are free text from the model, so they are trimmed,
+  collapsed, length-capped and stripped of characters that have meaning in the
+  markup they land in — a `<style>` tag's attribute and an `<option>` label.
+  Callers treat `:error` as "no names", not as a palette failure: a game with a
+  good palette and a bad name still gets its theme, under the generic label.
+  """
+  def names(%{"names" => %{"light" => light, "dark" => dark}}) do
+    with {:ok, l} <- clean_name(light),
+         {:ok, d} <- clean_name(dark) do
+      {:ok, %{"light" => l, "dark" => d}}
+    end
+  end
+
+  def names(_), do: :error
+
+  defp clean_name(name) when is_binary(name) do
+    cleaned =
+      name
+      |> String.replace(~r/[<>"'&\\\r\n\t]/u, " ")
+      |> String.replace(~r/\s+/u, " ")
+      |> String.trim()
+      |> String.slice(0, @max_name_length)
+      |> String.trim()
+
+    if cleaned == "", do: :error, else: {:ok, cleaned}
+  end
+
+  defp clean_name(_), do: :error
 end

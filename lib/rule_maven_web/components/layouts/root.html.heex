@@ -68,10 +68,17 @@
       defer
       phx-track-static
       type="text/javascript"
-      src={~p"/assets/js/phoenix_live_view.js?v=#{asset_version("assets/js/phoenix_live_view.js")}"}
+      src={
+        ~p"/assets/js/phoenix_live_view.js?v=#{asset_version("assets/js/phoenix_live_view.js")}"
+      }
     >
     </script>
-    <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js?v=#{js_version()}"}>
+    <script
+      defer
+      phx-track-static
+      type="text/javascript"
+      src={~p"/assets/js/app.js?v=#{js_version()}"}
+    >
     </script>
   </head>
   <body>
@@ -145,9 +152,14 @@
                 aria-label="Theme"
                 title="Change the site's color theme"
               >
-                <option :for={{slug, label} <- RuleMaven.Metrics.themes()} value={slug}>
-                  🎨 {label}
-                </option>
+                <optgroup
+                  :for={{scheme, entries} <- RuleMaven.Metrics.themes_by_scheme()}
+                  label={if scheme == :light, do: "Light", else: "Dark"}
+                >
+                  <option :for={{slug, label} <- entries} value={slug}>
+                    🎨 {label}
+                  </option>
+                </optgroup>
               </select>
               <button
                 type="button"
@@ -311,24 +323,47 @@
         // Fold the game-theme options into the single site picker as a pinned
         // top optgroup whenever the page offers a palette — same control on
         // every screen size, so there's just one theme menu to learn.
+        // The game's own names for its two variants, generated with its palette
+        // and published on the #game-theme marker. Absent for palettes made
+        // before names existed — the static "Game Light"/"Game Dark" stand in.
+        function gameVariantLabel(value) {
+          var marker = document.getElementById('game-theme');
+          if (!marker) return null;
+          var attr = value === 'game-light' ? 'data-light-name' : 'data-dark-name';
+          var name = marker.getAttribute(attr);
+          return name && name.trim() ? name.trim() : null;
+        }
+
         function syncGameOptions(available) {
           var group = document.getElementById('theme-select-game-group');
-          if (available) {
-            if (!group) {
-              group = document.createElement('optgroup');
-              group.id = 'theme-select-game-group';
-              group.label = 'Match game';
-              Array.prototype.forEach.call(gameSource.options, function(opt) {
-                if (opt.value === '0') return;
-                group.appendChild(opt.cloneNode(true));
-              });
-              // Pin to the TOP: buried under 20+ site themes the game options
-              // were effectively invisible. First thing you see now.
-              select.insertBefore(group, select.firstChild);
-            }
-          } else if (group) {
-            group.remove();
+          if (!available) {
+            if (group) group.remove();
+            return;
           }
+          if (!group) {
+            group = document.createElement('optgroup');
+            group.id = 'theme-select-game-group';
+            group.label = 'Match game';
+            Array.prototype.forEach.call(gameSource.options, function(opt) {
+              if (opt.value === '0') return;
+              var clone = opt.cloneNode(true);
+              // Stash the generic label ("🖌️ Game Light") to fall back to on a
+              // game whose palette carries no names.
+              clone.dataset.defaultLabel = opt.textContent.trim();
+              group.appendChild(clone);
+            });
+            // Pin to the TOP: buried under 20+ site themes the game options
+            // were effectively invisible. First thing you see now.
+            select.insertBefore(group, select.firstChild);
+          }
+          // Relabel on EVERY sync, not just on create: the group survives a
+          // LiveView navigation from one game to the next, and would otherwise
+          // still be advertising the previous game's variant names.
+          Array.prototype.forEach.call(group.children, function(opt) {
+            var name = gameVariantLabel(opt.value);
+            // textContent, never innerHTML — these names are model-authored.
+            opt.textContent = name ? '🖌️ ' + name : opt.dataset.defaultLabel;
+          });
         }
 
         // Sync the picker and active theme to the current page: the chosen game
@@ -356,6 +391,14 @@
         // LiveView swaps page content without a full reload; re-sync so leaving a
         // game page can't strand us on the now-undefined game theme.
         window.addEventListener('phx:page-loading-stop', syncTheme);
+        // Regenerating a palette from the Prepare page swaps the #game-theme
+        // marker (and its names) via a server push — no page-loading-stop. Pick
+        // the fresh names up whenever the picker is actually opened.
+        ['focus', 'pointerdown'].forEach(function(evt) {
+          select.addEventListener(evt, function() {
+            syncGameOptions(gameThemeAvailable());
+          });
+        });
 
         function track(value) {
           var meta = document.querySelector('meta[name="csrf-token"]');
