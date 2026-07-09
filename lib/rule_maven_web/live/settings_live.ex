@@ -403,7 +403,8 @@ defmodule RuleMavenWeb.SettingsLive do
             style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:1rem"
           >
             <h3 class="font-semibold text-sm mb-2">By Provider</h3>
-            <table style="width:100%;font-size:0.8rem">
+            <div style="overflow-x:auto">
+              <table style="width:100%;font-size:0.8rem">
               <tr style="text-align:left;border-bottom:1px solid var(--border)">
                 <th style="padding:0.25rem 0.5rem">Provider</th>
                 <th style="padding:0.25rem 0.5rem">Requests</th>
@@ -416,7 +417,8 @@ defmodule RuleMavenWeb.SettingsLive do
                   <td style="padding:0.25rem 0.5rem">{p.tokens}</td>
                 </tr>
               <% end %>
-            </table>
+              </table>
+            </div>
           </div>
         </div>
       <% else %>

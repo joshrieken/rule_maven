@@ -2747,7 +2747,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         <div
           id="question-sidebar"
           class={"question-sidebar #{if @sidebar_open, do: "", else: "sidebar-closed"}"}
-          style="flex-shrink:0;width:16rem;overflow-y:auto;border-right:1px solid var(--border);background:color-mix(in srgb,var(--bg-surface) 50%,transparent);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);padding:0.5rem 0;font-size:0.9rem;display:flex;flex-direction:column;position:relative;z-index:1"
+          style="flex-shrink:0;width:min(16rem,85vw);overflow-y:auto;border-right:1px solid var(--border);background:color-mix(in srgb,var(--bg-surface) 50%,transparent);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);padding:0.5rem 0;font-size:0.9rem;display:flex;flex-direction:column;position:relative;z-index:1"
         >
           <div style="padding:0.35rem 0.75rem;font-size:0.78rem;font-weight:600;color:var(--text);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center">
             <span>
