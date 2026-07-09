@@ -242,7 +242,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
     assigns = assign(assigns, :selected, selected)
 
     ~H"""
-    <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:nowrap;min-width:0;flex-shrink:1">
+    <div class="table-context">
       <button
         :if={@expansions != []}
         type="button"
@@ -253,12 +253,15 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         title={expansion_title(@selected)}
         aria-label={expansion_title(@selected)}
         class="pill-link"
-        style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;flex-shrink:1"
+        style="min-width:0;flex-shrink:1"
       >
         <span aria-hidden="true">📦</span>
-        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">
-          {expansion_label(@selected)}
-        </span>
+        <%!-- Two labels, one shown at a time. Below 640px the header's free
+              width is ~149px and the full name alone wants 245px, so the long
+              label gives way to a bare count. The full list stays in `title`
+              and `aria-label`. --%>
+        <span class="tc-label">{expansion_label(@selected)}</span>
+        <span class="tc-label-compact">{length(@selected)}</span>
       </button>
 
       <button
@@ -266,8 +269,10 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         data-testid="table-context-house-rules"
         phx-click="open_tool"
         phx-value-tool="house_rules"
+        title={house_rule_title(@house_rule_count)}
+        aria-label={house_rule_title(@house_rule_count)}
         class="pill-link"
-        style="display:inline-flex;align-items:center;gap:0.25rem;flex-shrink:0"
+        style="flex-shrink:0"
       >
         <span aria-hidden="true">🏠</span>
         <span>{if @house_rule_count == 0, do: "Add", else: @house_rule_count}</span>
@@ -275,6 +280,10 @@ defmodule RuleMavenWeb.GameLive.SubBar do
     </div>
     """
   end
+
+  defp house_rule_title(0), do: "No house rules yet — tap to add one"
+  defp house_rule_title(1), do: "1 house rule — tap to manage"
+  defp house_rule_title(n), do: "#{n} house rules — tap to manage"
 
   defp expansion_label([]), do: "Base game"
   defp expansion_label([one]), do: one.name
