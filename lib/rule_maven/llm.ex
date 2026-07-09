@@ -869,7 +869,12 @@ defmodule RuleMaven.LLM do
         do_normalize(game, raw, recent_context, user_id)
 
       true ->
-        key = {game.id, String.downcase(raw)}
+        # The prompt fingerprint is part of the key: `normalize_question_system`
+        # is live-editable in the Prompts registry, and without it an admin
+        # fixing a bad rewrite rule would keep serving the old rewrite for the
+        # full 24h TTL. A changed prompt simply misses and re-normalizes; the
+        # stale entries age out on their own.
+        key = {game.id, normalize_prompt_version(), String.downcase(raw)}
 
         case RuleMaven.LLM.NormalizeCache.get(key) do
           {:ok, cached} ->
@@ -881,6 +886,16 @@ defmodule RuleMaven.LLM do
             cleaned
         end
     end
+  end
+
+  # Cheap fingerprint of the two templates that decide a rewrite. Not a hash of
+  # the rendered prompt — the canonical-questions hint changes constantly, and
+  # keying on it would make every cache entry single-use.
+  defp normalize_prompt_version do
+    :erlang.phash2({
+      RuleMaven.Prompts.template("normalize_question_system"),
+      RuleMaven.Prompts.template("normalize_question")
+    })
   end
 
   defp do_normalize(game, raw, recent_context, user_id) do
@@ -988,6 +1003,9 @@ defmodule RuleMaven.LLM do
   def __strip_game_name__(text, game_name), do: strip_game_name(text, game_name)
 
   @doc false
+  def __normalize_prompt_version__, do: normalize_prompt_version()
+
+  @doc false
   def __affirmative__(text), do: affirmative?(text)
 
   defp unglue_interrogative(text) do
@@ -1012,7 +1030,10 @@ defmodule RuleMaven.LLM do
     # Leading: "Catan: ...", "In Catan, ...", "For Catan — ..."
     |> String.replace(~r/\A\s*(?:in|for|playing)?\s*#{name}\s*[:,\-–—]\s*/i, "")
     # Trailing: "... in Catan?", "... for Catan."
-    |> String.replace(~r/\s*\b(?:in|for)\s+#{name}\b\s*(?=[?.!]*\s*\z)/i, "")
+    # No `\b` after the name: a name ending in punctuation ("Sorry!") has no
+    # word-boundary there, so the strip silently never fired. The end-anchored
+    # lookahead already prevents over-reach ("in Fused state?" stays intact).
+    |> String.replace(~r/\s*\b(?:in|for)\s+#{name}\s*(?=[?.!]*\s*\z)/i, "")
     |> String.replace(~r/\s{2,}/, " ")
     |> String.trim()
   end
