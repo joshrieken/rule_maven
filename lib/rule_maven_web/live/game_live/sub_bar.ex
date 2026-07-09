@@ -134,7 +134,6 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         {render_slot(@inner_block)}
         <.header_pills
           game={@game}
-          sources={@sources}
           community_count={@community_count}
           is_admin={@is_admin}
           has_cheatsheet={@has_cheatsheet}
@@ -146,7 +145,6 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   end
 
   attr :game, :map, required: true
-  attr :sources, :list, required: true
   attr :community_count, :integer, required: true
   attr :is_admin, :boolean, required: true
   attr :has_cheatsheet, :boolean, required: true
@@ -158,47 +156,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   # game page when you are on Community, so its slot never empties.
   defp header_pills(assigns) do
     ~H"""
-    <details
-      :if={@sources != []}
-      class="sources-dropdown hide-mobile"
-      style="flex-shrink:0;position:relative;display:inline-flex;align-items:center"
-    >
-      <summary class="pill-link" style="cursor:pointer;list-style:none;gap:0.2rem;user-select:none">
-        <span aria-hidden="true">📖</span>
-        <span>Rulebooks</span>
-        <span style="font-size:0.6rem;opacity:0.6">▾</span>
-      </summary>
-      <div style="position:absolute;right:0;top:calc(100% + 0.35rem);z-index:200;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;box-shadow:0 6px 20px rgba(0,0,0,0.18);min-width:200px;max-width:min(320px,calc(100vw - 2rem));overflow:hidden">
-        <%= for {src, i} <- Enum.with_index(@sources) do %>
-          <div style={"padding:0.5rem 0.75rem;#{if i > 0, do: "border-top:1px solid var(--border-subtle)"}"}>
-            <div style="font-size:0.78rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-              {src.label}
-            </div>
-            <%!-- Rulebooks may be copyrighted, so regular users see only the
-                  source name — no PDF, no full text. Admins get the extracted
-                  HTML view. `↻ Regen` posts `regenerate_html`, a handler that
-                  exists only on the game page, so it is gated to :show. --%>
-            <div :if={@is_admin and src.html_path} style="display:flex;gap:0.5rem">
-              <.link
-                href={~p"/rulebooks/#{src}/html"}
-                target="_blank"
-                style="display:inline-flex;align-items:center;gap:0.2rem;color:var(--blue);font-size:0.7rem;font-weight:600;text-decoration:none;padding:0.15rem 0.4rem;border:1px solid var(--blue);border-radius:0.25rem;opacity:0.85"
-              >🔗 HTML</.link>
-              <button
-                :if={@current == :show}
-                type="button"
-                phx-click="regenerate_html"
-                phx-value-id={src.id}
-                title="Re-render the HTML view from the current text"
-                class="btn-xs"
-              >↻ Regen</button>
-            </div>
-          </div>
-        <% end %>
-      </div>
-    </details>
-
-<%!-- On the Community page this pill is the way back to your own Q&A. It
+    <%!-- On the Community page this pill is the way back to your own Q&A. It
           keeps the slot a Community pill would occupy, so the bar's shape holds. --%>
     <.link
       :if={@current == :community}
@@ -404,9 +362,20 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           <div class="card-menu__label">📖 Rulebooks</div>
           <%= for src <- @sources do %>
             <%= if @is_admin and src.html_path do %>
-              <.link href={~p"/rulebooks/#{src}/html"} target="_blank" class="card-menu__item">
-                {src.label}
-              </.link>
+              <div class="card-menu__item" style="display:flex;align-items:center;gap:0.5rem">
+                <.link href={~p"/rulebooks/#{src}/html"} target="_blank" style="flex:1;min-width:0">
+                  {src.label}
+                </.link>
+                <%!-- `regenerate_html` is handled only on the game page. --%>
+                <button
+                  :if={@current == :show}
+                  type="button"
+                  phx-click="regenerate_html"
+                  phx-value-id={src.id}
+                  title="Re-render the HTML view from the current text"
+                  class="btn-xs"
+                >↻</button>
+              </div>
             <% else %>
               <div class="card-menu__item" style="cursor:default">{src.label}</div>
             <% end %>
