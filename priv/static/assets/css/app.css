@@ -2577,6 +2577,13 @@ textarea {
   color: color-mix(in srgb, var(--accent-text, #fff) 88%, transparent);
   word-break: break-word;
 }
+/* Pin the ? to the right edge of its flex line. Long question text wraps the
+   icon onto its own line, and left-aligned there the right-anchored popover
+   (right:0, grows leftward) runs off the bubble's left edge. margin-left:auto
+   keeps the icon on the right whichever line it lands on. */
+.ask-orig .conf-help {
+  margin-left: auto;
+}
 /* Override the muted surface button so the ? reads on the accent bubble. */
 .ask-orig .conf-help__btn {
   background: color-mix(in srgb, var(--accent-text, #fff) 15%, transparent);
