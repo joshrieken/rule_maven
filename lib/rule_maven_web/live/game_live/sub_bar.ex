@@ -1,10 +1,22 @@
 defmodule RuleMavenWeb.GameLive.SubBar do
   @moduledoc """
-  Persistent slim sub-bar under the game header. Three group menus
-  (🎲 Play · 📚 Learn · 💬 More); Play/Learn items dispatch `open_tool`,
-  More items are navigation/links. Always rendered (empty state AND
-  mid-conversation) so tools stay reachable. Mobile-first: one row, three
-  short pills fit 390px.
+  The bar every user-facing game screen wears. `game_bar/1` is the public entry
+  point: full-bleed chrome, pinned to the top of the scroll container, wrapping a
+  header row of `←` back to the games list, the game name, three group menus
+  (🎲 Play · 📚 Learn · 💬 More), and the right-hand pills.
+
+  Always rendered — empty state and mid-conversation alike — so the table tools
+  stay one tap away. Mobile-first: at 390px the pills hide and the three short
+  menu pills fit one row.
+
+  The pills (Rulebooks, Community Q&A, Cheat Sheet) duplicate More-menu items on
+  purpose: they are `hide-mobile` desktop shortcuts, and More is the mobile path
+  to the same destinations. Anything reachable from the bar belongs in the More
+  menu; not everything in the More menu earns a pill.
+
+  Pages pass `current` — the page they are on. It decides whether Overview
+  patches (`:show`) or navigates (everywhere else; patching across LiveViews
+  crashes), and renders the pill pointing at the current page inert.
   """
   use RuleMavenWeb, :html
   alias RuleMavenWeb.GameLive.ToolRegistry
@@ -55,14 +67,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   slot :inner_block, doc: "page-specific controls, right-aligned (e.g. the Q&A sidebar toggle)"
 
   @doc """
-  The one header row every game screen wears: `←` back to the games list, the
-  game name (linking to its overview), then the tool sub-bar. The Q&A page
-  renders this inside its chat chrome and hangs its own controls off the inner
-  block; every other game screen renders it bare at the top of the page.
-
-  Nothing else belongs here. Overview, Community Q&A, Cheat Sheet, rulebooks,
-  Edit, Review and Prepare are all items of the More menu — a page that also
-  paints them as loose links is showing the same destination twice.
+  The header row itself. An implementation detail of `game_bar/1` — call that
+  instead, so the chrome comes with it.
   """
   def game_header(assigns) do
     ~H"""
