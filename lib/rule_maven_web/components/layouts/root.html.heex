@@ -189,13 +189,11 @@
                           this summary empty — an invisible control that was a
                           signed-in visitor's only route to Settings/Log out. --%>
                     <span class="header-user-icon" aria-hidden="true">👤</span>
-                    <span class="header-user">
-                      {me.username}
-                      <span
-                        :if={RuleMaven.Users.can?(me, :admin)}
-                        style="font-size:0.6rem;background:var(--accent);color:var(--accent-text,#fff);padding:0.1rem 0.35rem;border-radius:0.25rem;margin-left:0.3rem;font-weight:700;vertical-align:middle"
-                      >ADMIN</span>
-                    </span>
+                    <span class="header-user">{me.username}</span>
+                    <%!-- Outside .header-user, which is display:none under 768px:
+                          the badge is the only signal of an elevated session, so
+                          it must survive the mobile collapse the username doesn't. --%>
+                    <RuleMavenWeb.CoreComponents.role_badge user={me} />
                   </summary>
                   <div class="user-dropdown-menu">
                     <div class="user-dropdown-section">Display</div>

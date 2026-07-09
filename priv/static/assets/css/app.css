@@ -1660,6 +1660,33 @@ button.motion-toggle--menu:hover {
   background: var(--accent);
 }
 
+/* Role badge: "A" beside an admin's username, "SA" for the super admin.
+   Both use the accent fill + --accent-text label, the one pair every theme is
+   contrast-tested on (see static_theme_accent_text_test.exs) — the super
+   variant separates itself with a ring and tighter letter-spacing rather than
+   an untested color, so it can never fall below the WCAG floor on some theme. */
+.role-badge {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 0.3rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  background: var(--accent);
+  color: var(--accent-text, #fff);
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+
+.role-badge--super {
+  letter-spacing: 0.06em;
+  /* The ring reads as "one rank above" without introducing a second fill.
+     `box-shadow` rather than `border` so the badge doesn't grow by 2px and
+     nudge the username baseline. */
+  box-shadow: 0 0 0 1px var(--bg), 0 0 0 2px var(--accent);
+}
+
 /* Difficulty badge: BGG complexity number + bucket label. Color comes from
    --difficulty-color set inline per bucket; the fill is a translucent tint of
    the same color so it reads as a badge in both light and dark themes. */
@@ -3895,6 +3922,10 @@ body:has([data-phx-main].phx-connected)::after {
   .header-brand { align-items: center; }
   /* The username is replaced by an icon, so the summary is never empty. */
   .header-user-icon { display: inline; }
+  /* .header-inner is flex-wrap:nowrap here and main-content clips the overflow,
+     so anything added to this row has to earn its width. The badge stays (it's
+     the only elevated-session signal once the username is hidden) but shrinks. */
+  .role-badge { margin-left: 0.2rem; padding: 0.05rem 0.25rem; font-size: 0.55rem; }
   /* #game-theme-select is a hidden option-source only (always `hidden`); its
      options fold into the single #theme-select picker on game pages. Belt-and-
      suspenders hide in case anything unsets the attribute. */

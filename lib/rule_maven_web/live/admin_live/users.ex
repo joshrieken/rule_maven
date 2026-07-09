@@ -272,8 +272,9 @@ defmodule RuleMavenWeb.AdminLive.Users do
                 </td>
                 <td style="padding:0.45rem 0.75rem;font-weight:600;font-size:0.78rem">
                   <span style={"#{if Users.can?(user, :admin), do: "color:var(--accent-ink, var(--accent))", else: "color:var(--text-muted)"}"}>
-                    {user.role}
+                    {String.replace(user.role, "_", " ")}
                   </span>
+                  <.role_badge user={user} />
                 </td>
                 <td style="padding:0.45rem 0.75rem;color:var(--text-muted);font-size:0.75rem">
                   {String.slice(to_string(user.inserted_at), 0, 10)}

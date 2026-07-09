@@ -244,7 +244,12 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
               <tr style={"border-top:1px solid var(--border-subtle);#{if s.risk > 0, do: "background:color-mix(in srgb, var(--danger,#c0392b) 6%, transparent)"}"}>
                 <td style={td()}>
                   <span style="font-weight:600">{s.username}</span>
-                  <span :if={s.is_admin} style={pill("var(--accent)")}>admin</span>
+                  <%!-- Super admins are immune to every button in this table
+                        (Users refuses the action), so say so before it's clicked. --%>
+                  <span :if={Users.super_admin?(s)} style={pill("var(--accent)")}>super admin</span>
+                  <span :if={s.is_admin and not Users.super_admin?(s)} style={pill("var(--accent)")}>
+                    admin
+                  </span>
                   <span :if={s.suspended} style={pill("var(--danger,#c0392b)")}>suspended</span>
                   <span
                     :if={not s.confirmed}
@@ -300,6 +305,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                       >Suspend</button>
                     <% end %>
                     <button
+                      :if={not Users.super_admin?(s)}
                       type="button"
                       phx-click="demote_answers"
                       phx-value-id={s.user_id}
@@ -307,6 +313,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                       class="btn-xs"
                     >Pull answers</button>
                     <button
+                      :if={not Users.super_admin?(s)}
                       type="button"
                       phx-click="force_logout"
                       phx-value-id={s.user_id}
@@ -315,6 +322,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                       title="Revoke all active sessions"
                     >Force logout</button>
                     <button
+                      :if={not Users.super_admin?(s)}
                       type="button"
                       phx-click="reset_reputation"
                       phx-value-id={s.user_id}
