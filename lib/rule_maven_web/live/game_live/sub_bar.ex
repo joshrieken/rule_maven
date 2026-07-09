@@ -16,7 +16,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
 
   Pages pass `current` — the page they are on. It decides whether Overview
   patches (`:show`) or navigates (everywhere else; patching across LiveViews
-  crashes), and renders the pill pointing at the current page inert.
+  crashes), and swaps the Community pill for a `My Q&A` link back to the game
+  page when you are already on Community.
   """
   use RuleMavenWeb, :html
   alias RuleMavenWeb.GameLive.ToolRegistry
@@ -62,7 +63,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :has_cheatsheet, :boolean, default: false
   # Which page the bar is being rendered on. Drives two things: the Overview
   # link patches on :show and navigates elsewhere (patching across LiveViews
-  # crashes), and a pill pointing at the current page renders inert.
+  # crashes), and the Community pill becomes a `My Q&A` link back to the game
+  # page when rendered on Community.
   attr :current, :atom, default: :show, values: [:show, :community, :prepare, :review, :edit]
   slot :inner_block, doc: "page-specific controls, right-aligned (e.g. the Q&A sidebar toggle)"
 
@@ -132,8 +134,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
 
   # The right-hand shortcuts. Every destination here is also a More-menu item —
   # deliberately: these are `hide-mobile` desktop shortcuts and the More menu is
-  # the mobile path to the same places. A pill pointing at the current page
-  # renders inert rather than vanishing, so the bar keeps its shape between pages.
+  # the mobile path to the same places. The Community pill points back at the
+  # game page when you are on Community, so its slot never empties.
   defp header_pills(assigns) do
     ~H"""
     <details
@@ -176,14 +178,25 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       </div>
     </details>
 
-    <.pill_link
-      :if={@community_count > 0}
-      navigate={~p"/games/#{@game}/community"}
-      current={@current == :community}
+<%!-- On the Community page this pill is the way back to your own Q&A. It
+          keeps the slot a Community pill would occupy, so the bar's shape holds. --%>
+    <.link
+      :if={@current == :community}
+      navigate={~p"/games/#{@game}"}
       class="btn btn-primary btn-xs hide-mobile"
+      style="flex-shrink:0"
+    >
+      <span aria-hidden="true">💬</span> My Q&amp;A
+    </.link>
+
+    <.link
+      :if={@current != :community and @community_count > 0}
+      navigate={~p"/games/#{@game}/community"}
+      class="btn btn-primary btn-xs hide-mobile"
+      style="flex-shrink:0"
     >
       <span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})
-    </.pill_link>
+    </.link>
 
     <%!-- The cheat sheet is a standalone printable document, never "the current
           page", so it is always a plain link. --%>
@@ -195,25 +208,6 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       style="flex-shrink:0"
     >
       Cheat Sheet
-    </.link>
-    """
-  end
-
-  attr :navigate, :string, required: true
-  attr :current, :boolean, required: true
-  attr :class, :string, required: true
-  slot :inner_block, required: true
-
-  # A pill that points at the page you are already on renders inert rather than
-  # linking to itself — but it keeps its place, so the bar's shape never shifts
-  # between pages. Label and count live here once; only the element changes.
-  defp pill_link(assigns) do
-    ~H"""
-    <span :if={@current} class={@class} aria-current="page" style="flex-shrink:0">
-      {render_slot(@inner_block)}
-    </span>
-    <.link :if={!@current} navigate={@navigate} class={@class} style="flex-shrink:0">
-      {render_slot(@inner_block)}
     </.link>
     """
   end
