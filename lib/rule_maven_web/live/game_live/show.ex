@@ -2972,7 +2972,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                         <%= if c["page"] do %>
                           <figcaption style={"display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.6rem;font-size:0.66rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;border-bottom:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 15%,transparent)", else: "var(--border-subtle)"};color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 85%,transparent)", else: "var(--text-muted)"}"}>
                             <span aria-hidden="true">&#128206;</span>
-                            {c["source"] || "Rulebook"} &middot; p.{c["page"]}
+                            <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                              {c["source"] || "Rulebook"}
+                            </span>
+                            <span class="cite-page">p.{c["page"]}</span>
                           </figcaption>
                         <% end %>
                         <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 50%,transparent)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;word-break:break-word;color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 92%,transparent)", else: "var(--text)"}"}>

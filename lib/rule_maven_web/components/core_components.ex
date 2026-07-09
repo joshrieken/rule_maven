@@ -609,9 +609,7 @@ defmodule RuleMavenWeb.CoreComponents do
         <span style="font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
           {c["source"] || "Rulebook"}
         </span>
-        <span :if={c["page"]} style="flex-shrink:0;font-weight:600;margin-left:-0.15rem">
-          &middot; p.{c["page"]}
-        </span>
+        <span :if={c["page"]} class="cite-page">p.{c["page"]}</span>
       </figcaption>
       <div style="padding:0.5rem 0.75rem 0.6rem 0.9rem;border-left:3px solid var(--accent)">
         <%!-- Content sits flush against the tags: `pre-line` turns the
