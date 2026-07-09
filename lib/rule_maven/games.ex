@@ -803,12 +803,54 @@ defmodule RuleMaven.Games do
     Application.get_env(:rule_maven, Oban)[:testing] == :manual
   end
 
+  @doc """
+  UNSCOPED. Fetches any document by id, regardless of which game owns it.
+
+  Never call this from a handler that acts on a user-supplied id: LiveView
+  `phx-value-*` params are attacker-controlled, so an unscoped lookup lets a
+  member of game A approve, reject or read a document in game B. Use
+  `get_game_document/2` there. This stays for admin tools and internal callers
+  that already know the id is trusted.
+  """
   def get_document!(id), do: Repo.get!(Document, id)
 
-  @doc "Fetches a document by id, returning nil when missing or the id is invalid."
+  @doc "UNSCOPED — see get_document!/1. Returns nil when missing or the id is invalid."
   def get_document(id) do
     case Integer.parse(to_string(id)) do
       {int_id, ""} -> Repo.get(Document, int_id)
+      _ -> nil
+    end
+  end
+
+  # ── Game-scoped lookups ────────────────────────────────────────────────────
+  #
+  # Every handler that takes an id off the wire must resolve it through one of
+  # these. They return nil for "no such row" and "belongs to another game"
+  # alike, so the caller cannot distinguish the two and cannot act across the
+  # game boundary. Scoping by construction beats an ownership `if` per call
+  # site — the `if` is the thing people forget.
+
+  @doc "Fetches a document only if it belongs to `game`. nil otherwise."
+  def get_game_document(%Game{} = game, id), do: scoped_get(Document, game, id)
+
+  @doc "Fetches a category only if it belongs to `game`. nil otherwise."
+  def get_game_category(%Game{} = game, id), do: scoped_get(GameCategory, game, id)
+
+  @doc "Fetches a question log row only if it belongs to `game`. nil otherwise."
+  def get_game_question(%Game{} = game, id), do: scoped_get(QuestionLog, game, id)
+
+  defp scoped_get(schema, %Game{id: game_id}, id) do
+    case parse_id(id) do
+      nil -> nil
+      int_id -> Repo.one(from r in schema, where: r.id == ^int_id and r.game_id == ^game_id)
+    end
+  end
+
+  defp parse_id(id) when is_integer(id), do: id
+
+  defp parse_id(id) do
+    case Integer.parse(to_string(id)) do
+      {int_id, ""} -> int_id
       _ -> nil
     end
   end

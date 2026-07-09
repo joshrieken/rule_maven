@@ -45,31 +45,35 @@ defmodule RuleMavenWeb.GameLive.Review do
 
   @impl true
   def handle_event("approve_doc", %{"id" => id_str}, socket) do
-    with {id, ""} <- Integer.parse(id_str) do
-      doc = Games.get_document!(id)
+    game = socket.assigns.game
+
+    if doc = Games.get_game_document(game, id_str) do
       Games.approve_document(doc, socket.assigns.current_user)
     end
 
-    {:noreply, assign(socket, documents: Games.list_documents(socket.assigns.game))}
+    {:noreply, assign(socket, documents: Games.list_documents(game))}
   end
 
   @impl true
   def handle_event("reject_doc", %{"id" => id_str}, socket) do
-    with {id, ""} <- Integer.parse(id_str) do
-      doc = Games.get_document!(id)
+    game = socket.assigns.game
+
+    if doc = Games.get_game_document(game, id_str) do
       Games.reject_document(doc, socket.assigns.current_user)
     end
 
-    {:noreply, assign(socket, documents: Games.list_documents(socket.assigns.game))}
+    {:noreply, assign(socket, documents: Games.list_documents(game))}
   end
 
   @impl true
   def handle_event("reject", %{"id" => id_str}, socket) do
-    with {id, ""} <- Integer.parse(id_str) do
-      Games.set_question_visibility(id, "private")
+    game = socket.assigns.game
+
+    if q = Games.get_game_question(game, id_str) do
+      Games.set_question_visibility(q.id, "private")
     end
 
-    {:noreply, assign(socket, community_questions: Games.faq_questions(socket.assigns.game, 100))}
+    {:noreply, assign(socket, community_questions: Games.faq_questions(game, 100))}
   end
 
   @impl true

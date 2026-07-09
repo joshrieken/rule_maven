@@ -235,8 +235,8 @@ defmodule RuleMavenWeb.GameLive.Community do
   @impl true
   def handle_event("reject", %{"id" => id_str}, socket) do
     if socket.assigns.is_admin do
-      with {id, ""} <- Integer.parse(id_str) do
-        Games.set_question_visibility(id, "private")
+      if q = Games.get_game_question(socket.assigns.game, id_str) do
+        Games.set_question_visibility(q.id, "private")
       end
     end
 

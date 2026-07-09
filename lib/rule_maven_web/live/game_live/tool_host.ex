@@ -424,7 +424,9 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
 
   def handle_tool_event("block_house_rule", %{"id" => id}, socket) do
     if RuleMaven.Users.can?(socket.assigns.current_user, :admin) do
-      if hr = get_house_rule(id) do
+      # Scoped: `id` is off the wire, so confine the block to this game's rules.
+      with %{} = hr <- get_house_rule(id),
+           true <- hr.game_id == socket.assigns.game.id do
         {:ok, _} = RuleMaven.HouseRules.set_blocked(hr, !hr.blocked)
       end
     end

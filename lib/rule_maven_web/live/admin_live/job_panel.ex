@@ -44,6 +44,7 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
     {:ok,
      assign(socket,
        admin?: admin?,
+       viewer_id: user && user.id,
        open: false,
        runs: (admin? && Jobs.list_runs(limit: @max_runs)) || [],
        # High-volume kinds hidden by default so they don't drown the panel; the
@@ -64,10 +65,22 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
     {:noreply, assign(socket, open: !socket.assigns.open)}
   end
 
+  # This LiveView is mounted in the ROOT layout, so it runs for every logged-in
+  # viewer — the `:admin` live_session never guards it. The template not
+  # rendering the rail for non-admins is not a guard either: events are forged
+  # over the socket. Job events carry prompts, costs and file paths.
   def handle_event("select", %{"id" => id}, socket) do
-    id = String.to_integer(id)
-    {:noreply, assign(socket, selected_id: id, events: Jobs.events(id, @max_events))}
+    with true <- admin_now?(socket),
+         {id, ""} <- Integer.parse(to_string(id)) do
+      {:noreply, assign(socket, selected_id: id, events: Jobs.events(id, @max_events))}
+    else
+      _ -> {:noreply, socket}
+    end
   end
+
+  # Re-fetch: a role revoked mid-session must take effect on the open socket.
+  defp admin_now?(%{assigns: %{viewer_id: nil}}), do: false
+  defp admin_now?(%{assigns: %{viewer_id: id}}), do: Users.can?(Users.get_user(id), :admin)
 
   def handle_event("clear-selection", _params, socket) do
     {:noreply, assign(socket, selected_id: nil, events: [])}
