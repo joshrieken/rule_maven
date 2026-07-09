@@ -2577,13 +2577,6 @@ textarea {
   color: color-mix(in srgb, var(--accent-text, #fff) 88%, transparent);
   word-break: break-word;
 }
-/* Pin the ? to the right edge of its flex line. Long question text wraps the
-   icon onto its own line, and left-aligned there the right-anchored popover
-   (right:0, grows leftward) runs off the bubble's left edge. margin-left:auto
-   keeps the icon on the right whichever line it lands on. */
-.ask-orig .conf-help {
-  margin-left: auto;
-}
 /* Override the muted surface button so the ? reads on the accent bubble. */
 .ask-orig .conf-help__btn {
   background: color-mix(in srgb, var(--accent-text, #fff) 15%, transparent);
@@ -2621,9 +2614,11 @@ textarea {
   opacity: 0.5;
   cursor: default;
 }
-/* The user bubble is right-aligned, so left-anchoring spills the popover off
-   the right edge — anchor it to the right instead. It must open DOWNWARD
-   (default direction): #chat-messages is an `overflow-y:auto` scroller whose
+/* The ? sits right after the "You asked:" label near the bubble's left edge,
+   so the popover anchors left and grows rightward into the bubble; a
+   right-anchored popover would grow leftward off the bubble. It must open
+   DOWNWARD (default direction): #chat-messages is an `overflow-y:auto`
+   scroller whose
    top edge sits just under the chat-header, and answers scroll to that top, so
    an upward popover pokes past the scroller's top edge and gets clipped away
    (looking "hidden behind the top bar"). Clipping is z-index-independent, and
@@ -2632,8 +2627,8 @@ textarea {
    is the only direction with open room; it floats over the answer below, which
    is fine for a transient hover tooltip. */
 .ask-orig .conf-help__pop {
-  left: auto;
-  right: 0;
+  left: 0;
+  right: auto;
   top: calc(100% + 6px);
   bottom: auto;
   z-index: 60;
