@@ -263,7 +263,9 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         <span class="pill-label">{@label}</span>
         <span class="pill-caret" style="font-size:0.6rem;opacity:0.6">▾</span>
       </summary>
-      <div class="card-menu__pop">
+      <%!-- Wide, so the longest tool label ("Rules tables get wrong") sits on
+            one line; a wrapped row breaks the icon column's rhythm. --%>
+      <div class="card-menu__pop card-menu__pop--wide">
         <button
           :for={t <- @tools}
           type="button"
@@ -301,23 +303,23 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       </summary>
       <div class="card-menu__pop card-menu__pop--right card-menu__pop--wide">
         <.link :if={@current == :show} patch={~p"/games/#{@game}?start=1"} class="card-menu__item">
-          🔍 Overview
+          <span aria-hidden="true">🔍</span> Overview
         </.link>
         <.link
           :if={@current != :show}
           navigate={~p"/games/#{@game}?start=1"}
           class="card-menu__item"
         >
-          🔍 Overview
+          <span aria-hidden="true">🔍</span> Overview
         </.link>
         <.link
           :if={@community_count > 0}
           navigate={~p"/games/#{@game}/community"}
           class="card-menu__item"
-        >💬 Community Q&amp;A ({@community_count})</.link>
+        ><span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})</.link>
         <%= if @has_cheatsheet do %>
           <.link href={~p"/games/#{@game}/cheatsheet"} target="_blank" class="card-menu__item">
-            📋 Cheat Sheet
+            <span aria-hidden="true">📋</span> Cheat Sheet
           </.link>
         <% end %>
         <%= if @sources != [] do %>
@@ -339,19 +341,23 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           target="_blank"
           rel="noopener"
           class="card-menu__item"
-        >🔗 View on BGG</.link>
+        ><span aria-hidden="true">🔗</span> View on BGG</.link>
         <%!-- Admin actions live here too: on phones the header collapses to one
               row and the separate "Admin ▾" pill is hidden, so this menu is the
               only way in. --%>
         <%= if @is_admin do %>
           <div class="card-menu__divider"></div>
-          <.link navigate={~p"/games/#{@game}/edit"} class="card-menu__item">✏️ Edit</.link>
-          <.link navigate={~p"/games/#{@game}/review"} class="card-menu__item">🔍 Review</.link>
+          <.link navigate={~p"/games/#{@game}/edit"} class="card-menu__item">
+            <span aria-hidden="true">✏️</span> Edit
+          </.link>
+          <.link navigate={~p"/games/#{@game}/review"} class="card-menu__item">
+            <span aria-hidden="true">🔍</span> Review
+          </.link>
           <.link
             :if={RuleMaven.Games.bgg_synced?(@game)}
             href={~p"/games/#{@game}/prepare"}
             class="card-menu__item"
-          >🚀 Prepare</.link>
+          ><span aria-hidden="true">🚀</span> Prepare</.link>
         <% end %>
       </div>
     </details>

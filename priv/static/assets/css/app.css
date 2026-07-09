@@ -2872,11 +2872,21 @@ textarea {
   font-weight: 600;
   color: var(--text);
   cursor: pointer;
+  /* The generic `button` rule centers its content. Nothing here opposed it, so
+     rows read as a ragged centered stack instead of a list. Menu rows are a
+     list: left edge, always. */
+  justify-content: flex-start;
   /* Long rows (rulebook titles) wrap inside the capped popup instead of
      spilling out of it. */
   white-space: normal;
   overflow-wrap: anywhere;
   text-decoration: none;
+}
+/* Emoji glyphs differ in advance width, so a leading icon left to itself pushes
+   each label to a different x. Fixed cell = one icon column, one text column. */
+.card-menu__item > span[aria-hidden="true"]:first-child {
+  flex: 0 0 1.15rem;
+  text-align: center;
 }
 .card-menu__item {
   transition: background 0.12s, color 0.12s;
