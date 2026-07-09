@@ -84,13 +84,7 @@ defmodule RuleMavenWeb.GameLive.Review do
         community_count={@community_count}
         is_admin={@is_admin}
         on_game_page={false}
-      >
-        <:back>
-          <.link navigate={~p"/games/#{@game}"} class="back-link" style="margin-bottom:0">
-            &larr; Back to {String.slice(@game.name, 0, 20)}
-          </.link>
-        </:back>
-      </SubBar.game_header>
+      />
 
       <h1 class="text-xl font-bold mb-6">Review — {@game.name}</h1>
 

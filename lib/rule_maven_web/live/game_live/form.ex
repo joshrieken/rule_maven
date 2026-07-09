@@ -2604,26 +2604,7 @@ defmodule RuleMavenWeb.GameLive.Form do
         community_count={@community_count}
         is_admin={@is_admin}
         on_game_page={false}
-      >
-        <:back>
-          <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">
-            &larr; Back to games
-          </.link>
-        </:back>
-        <:actions>
-          <.link
-            :if={bgg_synced?(@game)}
-            href={~p"/games/#{@game}/prepare"}
-            class="back-link"
-            style="margin-bottom:0"
-          >
-            Prepare game &rarr;
-          </.link>
-          <.link navigate={~p"/games/#{@game}"} class="back-link" style="margin-bottom:0">
-            Ask questions &rarr;
-          </.link>
-        </:actions>
-      </SubBar.game_header>
+      />
 
       <div :if={!@game} class="mb-4 flex items-center justify-between">
         <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">
