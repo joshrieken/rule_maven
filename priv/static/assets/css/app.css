@@ -1487,6 +1487,9 @@ a:not([class]):hover {
   text-decoration: none;
   border-radius: 5px;
   transition: background 0.1s;
+  /* The menu sizes to its widest row rather than wrapping it: "🧭 Understanding
+     answers" broke onto two lines against the 130px min-width. */
+  white-space: nowrap;
 }
 .user-dropdown-link:hover {
   background: var(--bg-subtle);
