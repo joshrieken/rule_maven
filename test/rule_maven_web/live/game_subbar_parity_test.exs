@@ -162,6 +162,21 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
     refute community_html =~ "regenerate_html"
   end
 
+  test "the desktop Rulebooks dropdown is gone", %{conn: conn, game: game} do
+    _doc = document_fixture(game, %{html_path: "/priv/html/rulebook.html"})
+
+    {:ok, _view, html} = live(conn, ~p"/games/#{game}")
+    refute html =~ "sources-dropdown"
+  end
+
+  test "regenerate_html is absent for non-admins", %{game: game} do
+    _doc = document_fixture(game, %{html_path: "/priv/html/rulebook.html"})
+    regular = create_user("subbar_regular")
+
+    {:ok, _view, html} = login(build_conn(), regular) |> live(~p"/games/#{game}")
+    refute html =~ ~s(phx-click="regenerate_html")
+  end
+
   test "every game page wraps the bar in the same chrome", %{conn: conn, game: game} do
     for path <- [
           ~p"/games/#{game}",

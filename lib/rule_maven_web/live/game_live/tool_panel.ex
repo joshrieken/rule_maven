@@ -631,6 +631,29 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
     """
   end
 
+  defp render_tool(%{tool: :expansions} = assigns) do
+    ~H"""
+    <div :if={@expansions == []} style="font-size:0.8rem;color:var(--text-muted)">
+      This game has no expansions.
+    </div>
+    <div :if={@expansions != []} style="display:flex;flex-wrap:wrap;gap:0.35rem">
+      <label
+        :for={exp <- @expansions}
+        style={"cursor:pointer;font-size:0.72rem;padding:0.25rem 0.5rem;border-radius:0.3rem;#{if Map.get(@included_expansions, exp.id), do: "background:var(--accent);color:var(--accent-text,#fff)", else: "background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border)"}"}
+      >
+        <input
+          type="checkbox"
+          checked={Map.get(@included_expansions, exp.id)}
+          phx-click="toggle_expansion"
+          phx-value-id={exp.id}
+          style="display:none"
+        />
+        {exp.name}
+      </label>
+    </div>
+    """
+  end
+
   defp render_tool(assigns) do
     ~H"""
     <p style="color:var(--text-muted)">Tool coming soon.</p>

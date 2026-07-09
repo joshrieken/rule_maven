@@ -403,6 +403,9 @@ defmodule RuleMavenWeb.GameLive.Community do
       is_admin={@is_admin}
       has_cheatsheet={@has_cheatsheet}
       current={:community}
+      expansions={@expansions}
+      included_expansions={@included_expansions}
+      house_rule_count={@house_rule_count}
     />
     <div style="max-width:52rem;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index:1">
       <h1 style="font-size:1.25rem;font-weight:700;margin-bottom:0.25rem">

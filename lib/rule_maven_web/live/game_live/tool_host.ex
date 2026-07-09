@@ -36,7 +36,7 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
              toggle_house_rules_card toggle_house_rule_form add_house_rule
              start_edit_house_rule cancel_edit_house_rule edit_house_rule
              delete_house_rule toggle_house_rule_visibility recheck_house_rule
-             block_house_rule)
+             block_house_rule toggle_expansion)
 
   def events, do: @events
   def session_keys, do: @session_keys
@@ -60,6 +60,17 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
     |> put_new(:sources, fn _s -> RuleMaven.Games.list_documents(game) end)
     |> put_new(:community_count, fn _s -> RuleMaven.Faq.community_count(game) end)
     |> put_new(:has_cheatsheet, fn s -> has_cheatsheet?(s.assigns.sources) end)
+    # Same source Show uses (`expansions_with_documents/1`, not the more
+    # permissive `expansions_for/1`): an expansion with no published rulebook
+    # has nothing to answer questions from, so it isn't a real toggle choice.
+    # Keeping the same query here means `effective_expansion_ids/2` (below)
+    # is filtering against the identical "available" set this page renders.
+    |> put_new(:expansions, fn _s -> RuleMaven.Games.expansions_with_documents(game) end)
+    |> put_new(:included_expansions, fn s ->
+      s.assigns.current_user.id
+      |> RuleMaven.Games.effective_expansion_ids(game)
+      |> Map.new(&{&1, true})
+    end)
   end
 
   @doc """
@@ -87,6 +98,7 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
     dyk_facts = load_did_you_know(game, sources, connected?(socket))
     {setup_status, setup_checklist} = load_setup(game, sources)
     seed = socket.assigns[:dyk_seed] || :erlang.unique_integer()
+    own_house_rules = load_own_house_rules(game, user)
 
     socket
     |> assign(
@@ -110,7 +122,8 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
       tool_states: %{},
       tool_order: [],
       single_panel?: socket.assigns.coarse_pointer,
-      house_rules: load_own_house_rules(game, user),
+      house_rules: own_house_rules,
+      house_rule_count: length(own_house_rules),
       community_house_rules: RuleMaven.HouseRules.community_for_game(game.id, user && user.id),
       hr_card_open: Map.get(socket.assigns, :hr_card_open, true),
       hr_form_open: false,
@@ -337,6 +350,54 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
 
   def handle_tool_event("checklist_restore", _params, socket), do: {:noreply, socket}
 
+  # ── Expansions ───────────────────────────────────────────────────────────
+
+  def handle_tool_event("toggle_expansion", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    included = socket.assigns.included_expansions
+
+    included =
+      if included[id], do: Map.delete(included, id), else: Map.put(included, id, true)
+
+    RuleMaven.Games.put_expansion_selection(
+      socket.assigns.current_user.id,
+      socket.assigns.game.id,
+      Map.keys(included)
+    )
+
+    {:noreply,
+     socket
+     |> assign(included_expansions: included)
+     |> refresh_expansion_deltas()}
+  end
+
+  # Only the Q&A screen carries `expansion_deltas` (it drives the "How does my
+  # rule change this answer?" overlay there). Community has no such assign,
+  # and recomputing it unconditionally would raise on that page.
+  defp refresh_expansion_deltas(socket) do
+    if Map.has_key?(socket.assigns, :expansion_deltas) do
+      assign(socket,
+        expansion_deltas:
+          load_expansion_deltas(socket.assigns.expansions, socket.assigns.included_expansions)
+      )
+    else
+      socket
+    end
+  end
+
+  # Deltas for the currently-included expansions that have one stored, in
+  # expansion-name order (the `expansions` assign is already name-sorted).
+  def load_expansion_deltas(expansions, included) do
+    expansions
+    |> Enum.filter(&Map.get(included, &1.id))
+    |> Enum.flat_map(fn exp ->
+      case RuleMaven.ExpansionDelta.stored(exp.id) do
+        nil -> []
+        delta -> [{exp, delta}]
+      end
+    end)
+  end
+
   # ── House rules ──────────────────────────────────────────────────────────
 
   def handle_tool_event("toggle_house_rules_card", _params, socket) do
@@ -352,9 +413,15 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
 
     case RuleMaven.HouseRules.submit(user, game.id, params) do
       {:ok, _hr} ->
+        own_house_rules = load_own_house_rules(game, user)
+
         {:noreply,
          socket
-         |> assign(house_rules: load_own_house_rules(game, user), hr_form_open: false)
+         |> assign(
+           house_rules: own_house_rules,
+           house_rule_count: length(own_house_rules),
+           hr_form_open: false
+         )
          |> put_flash(:info, "House rule added — checking it against the rulebook…")}
 
       {:error, :injection} ->
@@ -466,9 +533,11 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
   # its own load_hr_overlay after delegated house-rule events.
   def refresh_house_rules(socket) do
     %{game: game, current_user: user} = socket.assigns
+    own_house_rules = load_own_house_rules(game, user)
 
     assign(socket,
-      house_rules: load_own_house_rules(game, user),
+      house_rules: own_house_rules,
+      house_rule_count: length(own_house_rules),
       community_house_rules: RuleMaven.HouseRules.community_for_game(game.id, user && user.id)
     )
   end

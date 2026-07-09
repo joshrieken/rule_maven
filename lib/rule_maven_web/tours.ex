@@ -84,7 +84,7 @@ defmodule RuleMavenWeb.Tours do
         sel: "[data-tour='expansions']",
         title: "Playing with expansions?",
         body:
-          "Toggle the ones on your table. Answers automatically account for their rule changes."
+          "This shows what you're playing with. Tap it to add or remove expansions — answers adjust to match."
       },
       %{
         sel: "[data-tour='tools-subbar']",

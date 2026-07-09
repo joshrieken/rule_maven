@@ -88,6 +88,9 @@ defmodule RuleMavenWeb.GameLive.Review do
       is_admin={@is_admin}
       has_cheatsheet={@has_cheatsheet}
       current={:review}
+      expansions={@expansions}
+      included_expansions={@included_expansions}
+      house_rule_count={@house_rule_count}
     />
     <div style="max-width:48rem;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index:1">
       <h1 class="text-xl font-bold mb-6">Review — {@game.name}</h1>
