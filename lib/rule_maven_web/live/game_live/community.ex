@@ -410,13 +410,7 @@ defmodule RuleMavenWeb.GameLive.Community do
         community_count={@community_count}
         is_admin={@is_admin}
         on_game_page={false}
-      >
-        <:back>
-          <.link navigate={~p"/games/#{@game}"} class="back-link" style="margin-bottom:0">
-            &larr; Back to {@game.name}
-          </.link>
-        </:back>
-      </SubBar.game_header>
+      />
 
       <h1 style="font-size:1.25rem;font-weight:700;margin-bottom:0.25rem">
         {@game.name} — Community Q&amp;A

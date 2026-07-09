@@ -17,20 +17,47 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   # False when rendered on another LiveView (community): Overview must then be
   # a full navigate — patching across LiveViews crashes.
   attr :on_game_page, :boolean, default: true
-  slot :back, doc: "left-hand link(s) — typically a back-link"
-  slot :actions, doc: "page-specific links, shown left of the sub-bar"
+  slot :inner_block, doc: "page-specific controls, right-aligned (e.g. the Q&A sidebar toggle)"
 
   @doc """
-  Standard top row for every game-related screen: back-link on the left, the
-  tool sub-bar on the right. Use this instead of hand-rolling a header row so
-  Prepare/Review/Edit/Community all keep the tools in the same place.
+  The one header row every game screen wears: `←` back to the games list, the
+  game name (linking to its overview), then the tool sub-bar. The Q&A page
+  renders this inside its chat chrome and hangs its own controls off the inner
+  block; every other game screen renders it bare at the top of the page.
+
+  Nothing else belongs here. Overview, Community Q&A, Cheat Sheet, rulebooks,
+  Edit, Review and Prepare are all items of the More menu — a page that also
+  paints them as loose links is showing the same destination twice.
   """
   def game_header(assigns) do
     ~H"""
     <div class="game-header-row">
-      <div class="game-header-row__left">{render_slot(@back)}</div>
-      <div class="game-header-row__right">
-        {render_slot(@actions)}
+      <div class="game-header-row__left">
+        <.link navigate={~p"/"} class="action-link" style="flex-shrink:0">&larr;</.link>
+        <%!-- Same patch-here / navigate-elsewhere split the More menu's
+              Overview item uses: patching across LiveViews crashes. --%>
+        <.link
+          :if={@on_game_page}
+          patch={~p"/games/#{@game}?start=1"}
+          title="Game overview"
+          class="chat-header__title"
+          style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;text-decoration:none;color:inherit"
+        >
+          <h1 class="text-sm font-bold truncate" style="max-width:min(220px,45vw)">
+            {@game.name}
+          </h1>
+        </.link>
+        <.link
+          :if={!@on_game_page}
+          navigate={~p"/games/#{@game}?start=1"}
+          title="Game overview"
+          class="chat-header__title"
+          style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;text-decoration:none;color:inherit"
+        >
+          <h1 class="text-sm font-bold truncate" style="max-width:min(220px,45vw)">
+            {@game.name}
+          </h1>
+        </.link>
         <.sub_bar
           game={@game}
           sources={@sources}
@@ -39,6 +66,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           on_game_page={@on_game_page}
         />
       </div>
+      <div :if={@inner_block != []} class="game-header-row__right">{render_slot(@inner_block)}</div>
     </div>
     """
   end

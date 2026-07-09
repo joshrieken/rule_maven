@@ -2292,29 +2292,12 @@ defmodule RuleMavenWeb.GameLive.Show do
         class="chat-header"
         style="flex-shrink:0;padding:0.25rem 0.75rem;border-bottom:1px solid var(--border);background:var(--bg-surface);position:relative;z-index:20"
       >
-        <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:0.35rem">
-          <div class="flex items-center gap-1" style="min-width:0;flex-wrap:wrap">
-            <.link navigate={~p"/"} class="action-link" style="flex-shrink:0">
-              &larr;
-            </.link>
-            <.link
-              patch={~p"/games/#{@game}?start=1"}
-              title="Game overview"
-              class="chat-header__title"
-              style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;text-decoration:none;color:inherit"
-            >
-              <h1 class="text-sm font-bold truncate" style="max-width:min(220px,45vw)">
-                {@game.name}
-              </h1>
-            </.link>
-            <SubBar.sub_bar
-              game={@game}
-              sources={@sources}
-              community_count={@community_count}
-              is_admin={@is_admin}
-            />
-          </div>
-          <div class="flex items-center gap-1" style="flex-wrap:wrap">
+        <SubBar.game_header
+          game={@game}
+          sources={@sources}
+          community_count={@community_count}
+          is_admin={@is_admin}
+        >
             <%!-- Sidebar toggle: kept first so it is the leftmost control on
                   whichever row this group wraps onto on narrow screens. --%>
             <button
@@ -2386,8 +2369,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             <% end %>
             <%!-- Admin actions now live in the sub-bar's More menu, which is
                   reachable on every viewport. --%>
-          </div>
-        </div>
+        </SubBar.game_header>
       </div>
 
       <div style="display:flex;flex:1;min-height:0">

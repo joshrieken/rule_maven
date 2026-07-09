@@ -694,26 +694,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         community_count={@community_count}
         is_admin={@is_admin}
         on_game_page={false}
-      >
-        <:back>
-          <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">
-            &larr; Back to games
-          </.link>
-        </:back>
-        <:actions>
-          <.link navigate={~p"/games/#{@game}/edit"} class="back-link" style="margin-bottom:0">
-            Edit game &rarr;
-          </.link>
-          <.link
-            :if={@playable?}
-            navigate={~p"/games/#{@game}"}
-            class="back-link"
-            style="margin-bottom:0"
-          >
-            Ask questions &rarr;
-          </.link>
-        </:actions>
-      </SubBar.game_header>
+      />
 
       <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:0.25rem 0 0.35rem">
         <div style="display:flex;align-items:center;gap:0.75rem">

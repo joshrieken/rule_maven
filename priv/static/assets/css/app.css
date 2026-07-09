@@ -2796,28 +2796,26 @@ textarea {
 .tool-subbar { scrollbar-width: none; }
 .tool-subbar::-webkit-scrollbar { display: none; }
 
-/* Shared top row for every game screen (SubBar.game_header): back-link left,
-   tool sub-bar right. On a phone the two halves stack so the pills get a full
-   row of their own instead of being squeezed off-screen beside a long title. */
+/* The one header row every game screen wears (SubBar.game_header): ← , game
+   name, tool sub-bar; page-specific controls right-aligned. The Q&A page nests
+   it inside .chat-header, which supplies the surface + border; elsewhere it
+   sits bare above the page body, hence the margin. */
 .game-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem 1rem;
+  gap: 0.35rem;
   flex-wrap: wrap;
   margin-bottom: 1rem;
 }
+.chat-header .game-header-row { margin-bottom: 0; }
 .game-header-row__left,
 .game-header-row__right {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.25rem;
   min-width: 0;
   flex-wrap: wrap;
-}
-@media (max-width: 640px) {
-  .game-header-row__left,
-  .game-header-row__right { flex-basis: 100%; }
 }
 
 /* Desktop: floating, resizable card, no backdrop, chat stays live. `bottom`
