@@ -5,54 +5,73 @@ defmodule RuleMavenWeb.UserLiveAuth do
 
   alias RuleMaven.Users
 
-  def on_mount(:default, _params, session, socket) do
+  # LiveViews that only an admin may mount. This list is the admin gate: it used
+  # to be a separate `live_session :admin`, but a live_session boundary can't be
+  # crossed on the existing socket — `navigate` between one and a :default view
+  # forces a full page reload, which users saw as Prepare's back arrow blanking
+  # the page and re-fetching the games list. Everything now shares one
+  # live_session and the gate moved in here, where it still runs before mount
+  # (halting a non-admin on a raw socket) and again before every event.
+  @admin_views [
+    RuleMavenWeb.GameLive.Review,
+    RuleMavenWeb.GameLive.Prepare,
+    RuleMavenWeb.GameLive.Form
+  ]
+
+  def on_mount(:app, _params, session, socket) do
     case active_user(session) do
       nil ->
         {:halt, redirect(socket, to: "/login")}
 
       user ->
-        # Mirrors the :admin hook below: a socket outlives its mount, so a
-        # user suspended (or force-logged-out) after connecting would
-        # otherwise keep a live session with full event access. Re-verify
-        # suspension/session validity before EVERY event so revocation takes
-        # effect on the next interaction, uniformly across all :default
-        # LiveViews. `logged_in_at` is stashed on the socket (it only ever
-        # comes from the session, not the DB) so the hook can re-run
-        # `session_valid?/2` without threading the session through.
-        logged_in_at = session[:logged_in_at] || session["logged_in_at"]
+        cond do
+          not admin_view?(socket.view) ->
+            {:cont, mount_user(socket, user, session)}
 
-        socket =
-          socket
-          |> assign(:logged_in_at, logged_in_at)
-          |> attach_hook(:suspension_reauth, :handle_event, &default_reauth_event/3)
+          Users.can?(user, :admin) ->
+            # A LiveView socket outlives its mount: if an admin is demoted or
+            # suspended mid-session, the connection stays open and could keep
+            # firing mutating events. Re-verify admin standing before EVERY
+            # event so revocation takes effect on the next interaction,
+            # uniformly across all admin LiveViews (DB Admin, Security, etc.)
+            # without each having to remember its own per-event check.
+            socket
+            |> mount_user(user, session)
+            |> attach_hook(:admin_reauth, :handle_event, &reauth_event/3)
+            |> then(&{:cont, &1})
 
-        {:cont, assign(socket, :current_user, user)}
-    end
-  end
-
-  def on_mount(:admin, _params, session, socket) do
-    case active_user(session) do
-      nil ->
-        {:halt, redirect(socket, to: "/login")}
-
-      user ->
-        if Users.can?(user, :admin) do
-          # A LiveView socket outlives its mount: if an admin is demoted or
-          # suspended mid-session, the connection stays open and could keep
-          # firing mutating events. Re-verify admin standing before EVERY event
-          # so revocation takes effect on the next interaction, uniformly across
-          # all :admin LiveViews (DB Admin, Security, etc.) without each having
-          # to remember its own per-event check.
-          socket = attach_hook(socket, :admin_reauth, :handle_event, &reauth_event/3)
-          {:cont, assign(socket, :current_user, user)}
-        else
-          {:halt, redirect(socket, to: "/")}
+          true ->
+            {:halt, redirect(socket, to: "/")}
         end
     end
   end
 
   def on_mount(:public, _params, session, socket) do
     {:cont, assign(socket, :current_user, active_user(session))}
+  end
+
+  @doc """
+  Whether `view` may only be mounted by an admin. Public so the router's
+  live_session can be audited against it.
+  """
+  def admin_view?(view) do
+    view in @admin_views or
+      String.starts_with?(Atom.to_string(view), "Elixir.RuleMavenWeb.AdminLive.")
+  end
+
+  # A socket outlives its mount, so a user suspended (or force-logged-out) after
+  # connecting would otherwise keep a live session with full event access.
+  # Re-verify suspension/session validity before EVERY event so revocation takes
+  # effect on the next interaction. `logged_in_at` is stashed on the socket (it
+  # only ever comes from the session, not the DB) so the hook can re-run
+  # `session_valid?/2` without threading the session through.
+  defp mount_user(socket, user, session) do
+    logged_in_at = session[:logged_in_at] || session["logged_in_at"]
+
+    socket
+    |> assign(:logged_in_at, logged_in_at)
+    |> assign(:current_user, user)
+    |> attach_hook(:suspension_reauth, :handle_event, &default_reauth_event/3)
   end
 
   # Re-checks admin standing from the DB on each event. Halts (redirects) the
