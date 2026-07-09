@@ -2835,7 +2835,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                           <span
                             :if={String.starts_with?(cur_voice, "g:")}
                             aria-hidden="true"
-                            style="color:var(--accent)"
+                            style="color:var(--accent-ink, var(--accent))"
                           >✦</span>
                           <span aria-hidden="true">{cur.emoji}</span>
                           <span>{if speaking,
@@ -3270,7 +3270,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         />
                         <span
                           :if={MapSet.member?(@asker_confirmed_ids, msg[:id])}
-                          style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
+                          style="font-size:0.6rem;color:var(--accent-ink, var(--accent));border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
                           title="Count includes the asker, who confirmed this answered their question"
                         >✓ asker</span>
                       </span>
@@ -3294,7 +3294,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                           />
                           <span
                             :if={MapSet.member?(@asker_confirmed_ids, sid)}
-                            style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
+                            style="font-size:0.6rem;color:var(--accent-ink, var(--accent));border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
                             title="Count includes the asker, who confirmed this answered their question"
                           >✓ asker</span>
                         </span>
@@ -3842,7 +3842,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 <summary
                   class="composer-controls__ideas"
                   title="Question ideas"
-                  style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;font-weight:600;color:var(--accent);cursor:pointer;list-style:none"
+                  style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;font-weight:600;color:var(--accent-ink, var(--accent));cursor:pointer;list-style:none"
                 >
                   <span aria-hidden="true">💡</span>
                   <span class="pill-label">Ideas</span>

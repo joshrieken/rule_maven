@@ -261,7 +261,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
                   <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted);font-size:0.78rem">{user.email}</span>
                 </td>
                 <td style="padding:0.45rem 0.75rem;font-weight:600;font-size:0.78rem">
-                  <span style={"#{if user.role == "admin", do: "color:var(--accent)", else: "color:var(--text-muted)"}"}>
+                  <span style={"#{if user.role == "admin", do: "color:var(--accent-ink, var(--accent))", else: "color:var(--text-muted)"}"}>
                     {user.role}
                   </span>
                 </td>

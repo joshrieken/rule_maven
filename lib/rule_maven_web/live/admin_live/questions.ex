@@ -256,7 +256,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   defp status_label(:pending),
     do:
       {"Pending",
-       "color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)"}
+       "color:var(--accent-ink, var(--accent));background:color-mix(in srgb,var(--accent) 12%,transparent)"}
 
   defp status_label(:refused),
     do: {"Refused", "color:var(--text-muted);background:var(--bg-subtle)"}
@@ -474,7 +474,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
             <%= if @expanded_id == q.id do %>
               <div style="margin:0 0.75rem 0.75rem;padding:0.65rem 0.75rem;background:var(--bg);border:1px solid var(--border-subtle);border-radius:0.35rem">
                 <%= if q.canonical_question do %>
-                  <p style="font-size:0.7rem;color:var(--accent);font-weight:600;margin:0 0 0.35rem">
+                  <p style="font-size:0.7rem;color:var(--accent-ink, var(--accent));font-weight:600;margin:0 0 0.35rem">
                     ★ Curated: {q.canonical_question}
                   </p>
                 <% end %>
