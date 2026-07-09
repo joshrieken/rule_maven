@@ -712,10 +712,10 @@ defmodule RuleMavenWeb.GameLive.Index do
             block flush against the header otherwise. --%>
       <div style="padding-top:1.25rem;margin-bottom:1rem">
         <p style="font-size:0.92rem;font-weight:600;color:var(--text);margin:0">
-          ⚡ Ask a rules question, get a sourced answer in seconds — keep the game moving instead of flipping through rulebooks.
+          ⚡ Rules questions, answered from the rulebook in seconds.
         </p>
         <p style="font-size:0.75rem;color:var(--text-muted);margin:0.25rem 0 0">
-          🤖 AI-powered with strict guardrails: every answer is grounded in the actual rulebook text and cites its sources. AI can still be wrong — double-check anything important.
+          🤖 AI-generated and cited — but it can be wrong. Check anything important.
         </p>
         <%!-- Rule of the day: one obscure generated fact, rotating with the
               UTC date. Links to the game it came from. --%>
