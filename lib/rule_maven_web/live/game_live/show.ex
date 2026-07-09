@@ -2587,7 +2587,8 @@ defmodule RuleMavenWeb.GameLive.Show do
             <.link
               patch={~p"/games/#{@game}?start=1"}
               title="Game overview"
-              style="display:inline-flex;align-items:center;gap:0.25rem;flex-shrink:0;text-decoration:none;color:inherit"
+              class="chat-header__title"
+              style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;text-decoration:none;color:inherit"
             >
               <h1 class="text-sm font-bold truncate" style="max-width:min(220px,45vw)">
                 {@game.name}
@@ -2608,61 +2609,6 @@ defmodule RuleMavenWeb.GameLive.Show do
               phx-click="toggle_sidebar"
               class="sidebar-toggle btn-icon btn-sm"
             >☰</button>
-            <%!-- Mobile overflow: on phones the header collapses to a single
-                  row (back · title · ☰ · ⋯), so every secondary control below
-                  carries hide-mobile and is mirrored here as a flat menu row.
-                  Desktop hides this whole menu (show-mobile) and shows the
-                  inline controls instead. --%>
-            <details class="card-menu show-mobile" style="flex-shrink:0">
-              <summary class="card-menu__trigger" title="More actions">⋯</summary>
-              <div class="card-menu__pop card-menu__pop--right">
-                <.link patch={~p"/games/#{@game}?start=1"} class="card-menu__item">
-                  🔍 Overview
-                </.link>
-                <%= if @sources != [] do %>
-                  <div class="card-menu__divider"></div>
-                  <div class="card-menu__label">📖 Rulebooks</div>
-                  <%= for src <- @sources do %>
-                    <%= if @is_admin and src.html_path do %>
-                      <.link href={~p"/rulebooks/#{src}/html"} target="_blank" class="card-menu__item">
-                        {src.label}
-                      </.link>
-                    <% else %>
-                      <div class="card-menu__item" style="cursor:default">{src.label}</div>
-                    <% end %>
-                  <% end %>
-                <% end %>
-                <%= if @community_count > 0 do %>
-                  <div class="card-menu__divider"></div>
-                  <.link navigate={~p"/games/#{@game}/community"} class="card-menu__item">
-                    💬 Community Q&amp;A ({@community_count})
-                  </.link>
-                <% end %>
-                <%= if Enum.any?(@sources, &(CheatSheet.active_version(&1.id) != nil)) do %>
-                  <.link href={~p"/games/#{@game}/cheatsheet"} target="_blank" class="card-menu__item">
-                    📋 Cheat Sheet
-                  </.link>
-                <% end %>
-                <%= if @game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category) do %>
-                  <.link
-                    href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
-                    target="_blank"
-                    rel="noopener"
-                    class="card-menu__item"
-                  >🔗 View on BGG</.link>
-                <% end %>
-                <%= if RuleMaven.Users.can?(@current_user, :admin) do %>
-                  <div class="card-menu__divider"></div>
-                  <.link navigate={~p"/games/#{@game}/edit"} class="card-menu__item">✏️ Edit</.link>
-                  <.link navigate={~p"/games/#{@game}/review"} class="card-menu__item">🔍 Review</.link>
-                  <.link
-                    :if={RuleMaven.Games.bgg_synced?(@game)}
-                    href={~p"/games/#{@game}/prepare"}
-                    class="card-menu__item"
-                  >🚀 Prepare</.link>
-                <% end %>
-              </div>
-            </details>
             <%!-- Rulebook sources dropdown --%>
             <details
               :if={@sources != []}
@@ -2725,34 +2671,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                 Cheat Sheet
               </.link>
             <% end %>
-            <details
-              :if={RuleMaven.Users.can?(@current_user, :admin)}
-              class="card-menu hide-mobile"
-              style="flex-shrink:0"
-            >
-              <summary
-                class="action-link"
-                style="display:inline-flex;align-items:center;gap:0.2rem"
-                title="Admin actions"
-              >
-                Admin <span style="font-size:0.6rem;opacity:0.6">▾</span>
-              </summary>
-              <div class="card-menu__pop card-menu__pop--right">
-                <.link navigate={~p"/games/#{@game}/edit"} class="card-menu__item">
-                  ✏️ Edit
-                </.link>
-                <.link navigate={~p"/games/#{@game}/review"} class="card-menu__item">
-                  🔍 Review
-                </.link>
-                <.link
-                  :if={RuleMaven.Games.bgg_synced?(@game)}
-                  href={~p"/games/#{@game}/prepare"}
-                  class="card-menu__item"
-                >
-                  🚀 Prepare
-                </.link>
-              </div>
-            </details>
+            <%!-- Admin actions now live in the sub-bar's More menu, which is
+                  reachable on every viewport. --%>
           </div>
         </div>
       </div>
@@ -4163,62 +4083,94 @@ defmodule RuleMavenWeb.GameLive.Show do
           >
             🧪 Not yet marked Ready — you're testing as admin.
           </div>
-          <%!-- Above-the-box controls, one row: question-idea menu (left) and
-                the default answer voice (right). Suggested questions + Settle
-                an argument fold into a card-menu disclosure so the row stays a
-                single line on mobile. The voice applies to every answer and
-                persists in localStorage via VoiceDefault. --%>
           <% cur_default = Enum.find(@voices, &(&1.id == @default_voice)) || hd(@voices) %>
-          <div style="display:flex;align-items:center;flex-wrap:wrap;gap:0.25rem 0.5rem;margin-bottom:0.35rem">
-            <details class="card-menu" data-tour="suggestions" style="flex-shrink:0">
-              <summary style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;font-weight:600;color:var(--accent);cursor:pointer;list-style:none">
-                <span aria-hidden="true">💡</span> Ideas <span style="opacity:0.6">▾</span>
-              </summary>
-              <%!-- Opens upward — the ask box sits at the bottom of the
-                    viewport. Items close the menu themselves: they open modals
-                    in the same LiveView, so no navigation closes it for us. --%>
-              <div class="card-menu__pop card-menu__pop--up">
-                <button
-                  :if={@suggestions != []}
-                  type="button"
-                  phx-click="open_suggestions"
-                  onclick="this.closest('details').open = false"
-                  class="card-menu__item"
+          <form
+            phx-submit="ask"
+            class="flex gap-2"
+            style="flex-wrap:wrap"
+            phx-hook="KeyboardSubmit"
+            id="ask-form"
+          >
+            <%!-- Above-the-box controls: question-idea menu (left) and the
+                  default answer voice (right). They are form children with
+                  `flex-basis:100%` so they claim their own wrapped row above
+                  the ask box; on phones `.composer-controls` drops to
+                  `flex-basis:auto` and they ride the ask row itself, saving a
+                  whole row of a short viewport. The voice applies to every
+                  answer and persists in localStorage via VoiceDefault. --%>
+            <%!-- data-tour="voices" sits on the wrapper, not the persona pill:
+                  the pill is display:none on phones and a hidden step is
+                  skipped, but the wrapper is visible on every viewport. --%>
+            <div class="composer-controls" data-tour="voices">
+              <details class="card-menu" data-tour="suggestions" style="flex-shrink:0">
+                <summary
+                  class="composer-controls__ideas"
+                  title="Question ideas"
+                  style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.7rem;font-weight:600;color:var(--accent);cursor:pointer;list-style:none"
                 >
-                  <span aria-hidden="true">💡</span> Suggested questions
-                </button>
+                  <span aria-hidden="true">💡</span>
+                  <span class="pill-label">Ideas</span>
+                  <span style="opacity:0.6">▾</span>
+                </summary>
+                <%!-- Opens upward — the ask box sits at the bottom of the
+                      viewport. Items close the menu themselves: they open modals
+                      in the same LiveView, so no navigation closes it for us. --%>
+                <div class="card-menu__pop card-menu__pop--up">
+                  <button
+                    :if={@suggestions != []}
+                    type="button"
+                    phx-click="open_suggestions"
+                    onclick="this.closest('details').open = false"
+                    class="card-menu__item"
+                  >
+                    <span aria-hidden="true">💡</span> Suggested questions
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="open_settle"
+                    onclick="this.closest('details').open = false"
+                    disabled={
+                      @pending_count >= @max_concurrent || @source_count == 0 ||
+                        (not @game.playable and not @is_admin)
+                    }
+                    class="card-menu__item"
+                  >
+                    <span aria-hidden="true">⚖️</span> Settle an argument
+                  </button>
+                  <%!-- The persona pill beside this menu is hidden on phones to
+                        keep the ask row short, so mirror it as a menu item. --%>
+                  <button
+                    type="button"
+                    id="persona-default-menu-btn"
+                    phx-click="open_persona_modal"
+                    phx-value-target="default"
+                    onclick="this.closest('details').open = false"
+                    class="card-menu__item show-mobile"
+                  >
+                    <span aria-hidden="true">{cur_default.emoji}</span>
+                    Answer persona: {cur_default.label}
+                  </button>
+                </div>
+              </details>
+              <div
+                data-tour="voices"
+                class="composer-controls__voice hide-mobile"
+                style="display:flex;align-items:center;gap:0.4rem;margin-left:auto"
+              >
+                <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Answer persona</span>
                 <button
                   type="button"
-                  phx-click="open_settle"
-                  onclick="this.closest('details').open = false"
-                  disabled={
-                    @pending_count >= @max_concurrent || @source_count == 0 ||
-                      (not @game.playable and not @is_admin)
-                  }
-                  class="card-menu__item"
+                  id="persona-default-btn"
+                  phx-click="open_persona_modal"
+                  phx-value-target="default"
+                  style="font-size:0.68rem;color:var(--text);font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;background:var(--bg-surface);cursor:pointer;display:inline-flex;align-items:center;gap:0.25rem"
                 >
-                  <span aria-hidden="true">⚖️</span> Settle an argument
+                  <span aria-hidden="true">{cur_default.emoji}</span>
+                  <span>{cur_default.label}</span>
+                  <span style="opacity:0.6">▾</span>
                 </button>
               </div>
-            </details>
-            <div
-              data-tour="voices"
-              style="display:flex;align-items:center;gap:0.4rem;margin-left:auto"
-            >
-              <span style="font-size:0.68rem;color:var(--text-muted);font-weight:600">Answer persona</span>
-              <button
-                type="button"
-                phx-click="open_persona_modal"
-                phx-value-target="default"
-                style="font-size:0.68rem;color:var(--text);font-weight:600;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;background:var(--bg-surface);cursor:pointer;display:inline-flex;align-items:center;gap:0.25rem"
-              >
-                <span aria-hidden="true">{cur_default.emoji}</span>
-                <span>{cur_default.label}</span>
-                <span style="opacity:0.6">▾</span>
-              </button>
             </div>
-          </div>
-          <form phx-submit="ask" class="flex gap-2" phx-hook="KeyboardSubmit" id="ask-form">
             <button
               type="button"
               id="voice-ask-btn"

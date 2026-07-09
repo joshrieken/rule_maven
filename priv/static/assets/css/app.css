@@ -3289,36 +3289,74 @@ body:has([data-phx-main].phx-connected)::after {
   .persona-modal { max-width: none; max-height: 90vh; }
 }
 
+/* The composer's Ideas menu + persona pill are form children. `flex-basis:100%`
+   makes them claim their own wrapped row above the ask box (the form's 0.5rem
+   row-gap separates them); on phones they collapse onto the ask row itself. */
+.composer-controls {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  min-width: 0;
+}
+
 /* Q&A page on phones: the chrome (site header + game toolbar + composer)
-   already eats most of a small viewport, so trim everything non-essential. */
+   already eats most of a small viewport, so trim everything non-essential.
+   Budget at 390x844 after this block: 40px game header + ~80px composer, both
+   single-row, leaving the answer column ~75% of the viewport. */
 @media (max-width: 640px) {
   /* Secondary pills (View on BGG) — still reachable from the Overview panel. */
   .hide-mobile { display: none !important; }
   .show-mobile { display: inline-flex !important; }
-  /* Collapse the game header to a single row: the leftover controls (back,
-     title, ☰, ⋯) fit one line, so let the title truncate rather than wrap. */
+  /* Collapse the game header to ONE row: back · title · 🎲 📚 💬 · ☰. The
+     sub-bar pills only fit because they go icon-only below; the title is the
+     one flexible item, so it truncates. */
   .chat-layout .chat-header .flex { flex-wrap: nowrap !important; }
-  /* ...except the sub-bar, which can't fit on that row. Let the title group
-     (and only it) wrap so the pills get their own full-width row below the
-     title; ☰/⋯ stay on the title row. Without this the pills overflow the
-     viewport and are clipped by .main-content's overflow-x. */
-  .chat-layout .chat-header > .flex > .flex:first-child {
-    flex-wrap: wrap !important;
-  }
+  .chat-layout .chat-header > .flex > .flex:first-child { min-width: 0; }
+  .chat-header__title h1 { max-width: 100% !important; }
   .tool-subbar {
-    flex-basis: 100%;
-    width: 100%;
-    gap: 0.35rem !important;
-    margin-top: 0.1rem;
+    gap: 0.2rem !important;
+    flex-wrap: nowrap !important;
   }
-  .tool-subbar > details { flex: 1 1 0; min-width: 0; }
+  /* Icon-only pills. The text lives in title/aria-label, and every menu item
+     inside still carries its own emoji + label. */
+  .tool-subbar .pill-label,
+  .tool-subbar .pill-caret { display: none; }
   .tool-subbar > details > summary {
     justify-content: center;
     min-height: 34px;
-    width: 100%;
+    min-width: 34px;
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
   }
   /* !important: overrides the element's inline padding. */
-  .chat-layout .chat-header { padding: 0.25rem 0.5rem !important; }
+  .chat-layout .chat-header { padding: 0.2rem 0.5rem !important; }
+  .chat-layout .chat-input { padding: 0.3rem 0.6rem 0.35rem !important; }
+  /* Ride the ask row instead of owning a row above it. */
+  .composer-controls { flex-basis: auto; gap: 0; }
+  /* On the ask row the Ideas summary sits beside the 🎤 button, so it has to
+     read as a button too — and clear the 34px touch target. */
+  .composer-controls__ideas {
+    border: 1px solid var(--border);
+    border-radius: 2rem;
+    min-height: 34px;
+    padding: 0 0.5rem;
+    font-size: 0.85rem !important;
+  }
+  .composer-controls__ideas .pill-label { display: none; }
+  /* The menu is anchored to a 51px-wide button, so it inherits a narrow
+     min-width and every label wraps onto two lines. Widening it leaves the
+     shrink-to-fit items ragged, hence the full-width row. */
+  .composer-controls .card-menu__pop { min-width: 15rem; }
+  .composer-controls .card-menu__item { width: 100%; justify-content: flex-start; }
+  /* The ask row now carries four controls, so every fixed one gives back width
+     and the input floors low enough that Send never wraps to a second line
+     (an input's default sizing floors at ~170px, which does wrap it). */
+  #ask-form { gap: 0.4rem !important; }
+  #ask-form input[type="text"] { min-width: 0; flex: 1 1 4rem; }
+  #ask-form button[type="submit"] { padding-left: 0.85rem !important; padding-right: 0.85rem !important; }
+  #voice-ask-btn { padding: 0.4rem 0.5rem !important; }
   /* The confidence tooltip opens left-anchored from a button in the right
      half of the card, so left-anchoring runs it off the viewport edge. */
   .conf-help__pop { left: auto; right: -0.5rem; }
