@@ -59,6 +59,28 @@ defmodule RuleMavenWeb.GameLiveToolPanelTest do
     assert html =~ ~s(data-dock-pill="turn")
   end
 
+  test "tray renders only while a tool is minimized", %{conn: conn} do
+    view = open_view(conn)
+
+    html = render_click(view, "open_tool", %{"tool" => "turn"})
+    refute html =~ ~s(data-tool-dock)
+
+    html = render_click(view, "minimize_tool", %{"tool" => "turn"})
+    assert html =~ ~s(data-tool-dock)
+    assert html =~ ~s(id="tool-tray")
+  end
+
+  test "a tray pill closes its tool without restoring it", %{conn: conn} do
+    view = open_view(conn)
+
+    render_click(view, "open_tool", %{"tool" => "turn"})
+    render_click(view, "minimize_tool", %{"tool" => "turn"})
+    html = render_click(view, "close_tool", %{"tool" => "turn"})
+
+    refute html =~ ~s(data-dock-pill="turn")
+    refute html =~ ~s(data-tool-panel="turn")
+  end
+
   test "quiz score survives close and re-open", %{conn: conn} do
     view = open_view(conn)
 
