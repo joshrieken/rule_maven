@@ -3248,12 +3248,29 @@ body:has([data-phx-main].phx-connected)::after {
 /* Title row + search stay pinned while the thread list scrolls under them. The
    drawer's own background is translucent (color-mix + backdrop blur), so the
    pinned block needs an opaque fill of its own or rows read through it. */
+/* The drawer carries an inline `padding: 0.5rem 0`. A sticky child pins to the
+   container's *padding* edge, so that half-rem strip stayed uncovered and
+   thread rows scrolled visibly through it, above the pinned header. Move the
+   top padding off the container and onto the header itself. */
+.question-sidebar {
+  padding-top: 0 !important;
+}
+
 .sidebar-head {
   position: sticky;
   top: 0;
   z-index: 2;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
+  padding-top: 0.5rem;
+}
+
+/* The drawer is a flex column, so once the thread list is taller than the
+   drawer every child is a shrinkable flex item: they compress below their
+   own text height and the questions overlap. Scrolling, not squeezing, is
+   what should absorb the overflow. */
+.question-sidebar > * {
+  flex-shrink: 0;
 }
 
 .sidebar-item:hover { background: var(--bg-subtle); }
@@ -3999,8 +4016,15 @@ body:has([data-phx-main].phx-connected)::after {
     padding: 0.2rem 0.6rem;
   }
 
+  /* Desktop deliberately sizes these two to a shared 1.85rem so the header
+     reads as one row of controls. Growing only the toggle for touch broke that
+     pairing, so the select grows with it. */
   button.motion-toggle {
     width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .theme-select {
     height: 2.5rem;
   }
 
@@ -4024,11 +4048,17 @@ body:has([data-phx-main].phx-connected)::after {
 
   /* Thread rows in the question drawer sit at 0.22rem vertical padding, which
      packs adjacent questions close enough to mis-tap. The padding is inline on
-     the element, so !important is the only way to reach it. */
+     the element, so !important is the only way to reach it. Padding alone still
+     butts the rows against each other — a multi-line question then reads as two
+     questions — so separate them with a real gap as well. The 36px floor comes
+     from the `button[phx-click]` rule further down. */
   .sidebar-item {
-    padding-top: 0.5rem !important;
-    padding-bottom: 0.5rem !important;
-    min-height: 40px;
+    padding-top: 0.45rem !important;
+    padding-bottom: 0.45rem !important;
+  }
+
+  .sidebar-item + .sidebar-item {
+    margin-top: 0.3rem;
   }
 }
 
