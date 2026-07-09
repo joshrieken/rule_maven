@@ -4,8 +4,11 @@ defmodule RuleMavenWeb.GameLive.Form do
   alias RuleMaven.{Games, Repo, RulebookDownloader, Settings, CheatSheet}
   import Ecto.Query
   alias RuleMaven.Games.Document
+  alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
 
   @max_pdfs 10
+
+  @tool_events ToolHost.events()
 
   @impl true
   def mount(_params, _session, socket) do
@@ -13,6 +16,10 @@ defmodule RuleMavenWeb.GameLive.Form do
       socket
       |> assign(
         game: nil,
+        # Connect params are readable only at mount; the tool machinery mounts
+        # later (the game arrives in handle_params), so stash the split now.
+        coarse_pointer:
+          connected?(socket) and get_connect_params(socket)["coarse_pointer"] == true,
         source_entries: [],
         # Source ids with a single-page re-extraction job in flight (=> true), so
         # the review badge can show a busy state until {:reextract_done} arrives.
@@ -174,6 +181,16 @@ defmodule RuleMavenWeb.GameLive.Form do
               cheat_started_at: cheat_started_at,
               cheat_level: cheat_level
             )
+
+          # The game only becomes known here, so the tools mount here too —
+          # but exactly once. Re-running it on every tab patch would reset
+          # whatever windows the user has open.
+          socket =
+            if Map.has_key?(socket.assigns, :tool_states) do
+              socket
+            else
+              socket |> ToolHost.mount_header(game) |> ToolHost.mount_tools(game)
+            end
 
           if cheat_status in ["compressing", "generating"] do
             Process.send_after(self(), :poll_cheat_status, 2000)
@@ -337,7 +354,11 @@ defmodule RuleMavenWeb.GameLive.Form do
     {:noreply, socket}
   end
 
+  # Table tools (sub-bar → floating windows) are shared by every game screen.
   @impl true
+  def handle_event(event, params, socket) when event in @tool_events,
+    do: ToolHost.handle_tool_event(event, params, socket)
+
   def handle_event("add_source", _params, socket) do
     entries = socket.assigns.source_entries
     next_id = (Enum.map(entries, & &1.id) ++ [-1]) |> Enum.max() |> Kernel.+(1)
@@ -2574,28 +2595,40 @@ defmodule RuleMavenWeb.GameLive.Form do
         </div>
       </div>
 
-      <div class="mb-4 flex items-center justify-between">
-        <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">
-          &larr; Back to games
-        </.link>
-        <div style="display:flex;align-items:center;gap:1rem">
+      <%!-- Editing an existing game: same header + tool sub-bar as every other
+            game screen. "Add Game" has no game yet, so it keeps a plain row. --%>
+      <SubBar.game_header
+        :if={@game}
+        game={@game}
+        sources={@sources}
+        community_count={@community_count}
+        is_admin={@is_admin}
+        on_game_page={false}
+      >
+        <:back>
+          <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">
+            &larr; Back to games
+          </.link>
+        </:back>
+        <:actions>
           <.link
-            :if={@game && bgg_synced?(@game)}
+            :if={bgg_synced?(@game)}
             href={~p"/games/#{@game}/prepare"}
             class="back-link"
             style="margin-bottom:0"
           >
             Prepare game &rarr;
           </.link>
-          <.link
-            :if={@game}
-            navigate={~p"/games/#{@game}"}
-            class="back-link"
-            style="margin-bottom:0"
-          >
+          <.link navigate={~p"/games/#{@game}"} class="back-link" style="margin-bottom:0">
             Ask questions &rarr;
           </.link>
-        </div>
+        </:actions>
+      </SubBar.game_header>
+
+      <div :if={!@game} class="mb-4 flex items-center justify-between">
+        <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">
+          &larr; Back to games
+        </.link>
       </div>
 
       <h1 class="text-2xl font-bold mb-6">
@@ -3935,6 +3968,10 @@ defmodule RuleMavenWeb.GameLive.Form do
         </div>
       <% end %>
     <% end %>
+
+    <%!-- Floating tool windows + minimized dock, same machinery as the game
+          and community pages (edit mode only — "Add Game" has no game yet). --%>
+    <ToolPanel.tool_panel :if={@game} {assigns} />
     """
   end
 

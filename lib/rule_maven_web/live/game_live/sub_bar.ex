@@ -17,6 +17,37 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   # False when rendered on another LiveView (community): Overview must then be
   # a full navigate — patching across LiveViews crashes.
   attr :on_game_page, :boolean, default: true
+  slot :back, doc: "left-hand link(s) — typically a back-link"
+  slot :actions, doc: "page-specific links, shown left of the sub-bar"
+
+  @doc """
+  Standard top row for every game-related screen: back-link on the left, the
+  tool sub-bar on the right. Use this instead of hand-rolling a header row so
+  Prepare/Review/Edit/Community all keep the tools in the same place.
+  """
+  def game_header(assigns) do
+    ~H"""
+    <div class="game-header-row">
+      <div class="game-header-row__left">{render_slot(@back)}</div>
+      <div class="game-header-row__right">
+        {render_slot(@actions)}
+        <.sub_bar
+          game={@game}
+          sources={@sources}
+          community_count={@community_count}
+          is_admin={@is_admin}
+          on_game_page={@on_game_page}
+        />
+      </div>
+    </div>
+    """
+  end
+
+  attr :game, :map, required: true
+  attr :sources, :list, default: []
+  attr :community_count, :integer, default: 0
+  attr :is_admin, :boolean, default: false
+  attr :on_game_page, :boolean, default: true
 
   @doc """
   Renders the three group menus (Play / Learn / More) inline. Meant to sit in

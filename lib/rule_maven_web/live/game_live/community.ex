@@ -404,18 +404,19 @@ defmodule RuleMavenWeb.GameLive.Community do
     <div style="max-width:52rem;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index:1">
       <%!-- Same tool sub-bar as the game page: every game screen keeps the
             table tools one tap away. Admin Review lives in the More menu. --%>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">
-        <.link navigate={~p"/games/#{@game}"} class="back-link" style="margin-bottom:0">
-          &larr; Back to {@game.name}
-        </.link>
-        <SubBar.sub_bar
-          game={@game}
-          sources={@sources}
-          community_count={@community_count}
-          is_admin={@is_admin}
-          on_game_page={false}
-        />
-      </div>
+      <SubBar.game_header
+        game={@game}
+        sources={@sources}
+        community_count={@community_count}
+        is_admin={@is_admin}
+        on_game_page={false}
+      >
+        <:back>
+          <.link navigate={~p"/games/#{@game}"} class="back-link" style="margin-bottom:0">
+            &larr; Back to {@game.name}
+          </.link>
+        </:back>
+      </SubBar.game_header>
 
       <h1 style="font-size:1.25rem;font-weight:700;margin-bottom:0.25rem">
         {@game.name} — Community Q&amp;A

@@ -44,6 +44,28 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
   # ── Mount ────────────────────────────────────────────────────────────────
 
   @doc """
+  Everything `mount_tools/2` and `SubBar.game_header/1` need that a page might
+  not already carry: the pointer split (connect params are mount-only), the
+  admin flag, the source list and the community-question count. Existing
+  assigns win, so a page that loaded documents itself pays no second query.
+
+  Call once, at mount, before `mount_tools/2`.
+  """
+  def mount_header(socket, game) do
+    socket
+    |> put_new(:coarse_pointer, fn ->
+      connected?(socket) and get_connect_params(socket)["coarse_pointer"] == true
+    end)
+    |> put_new(:is_admin, fn -> RuleMaven.Users.can?(socket.assigns.current_user, :admin) end)
+    |> put_new(:sources, fn -> RuleMaven.Games.list_documents(game) end)
+    |> put_new(:community_count, fn -> RuleMaven.Faq.community_count(game) end)
+  end
+
+  defp put_new(socket, key, fun) do
+    if Map.has_key?(socket.assigns, key), do: socket, else: assign(socket, key, fun.())
+  end
+
+  @doc """
   Assigns every tool's data + window state, then re-opens whatever the
   TableSession snapshot says was open for this user+game.
   """
@@ -56,6 +78,7 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
 
     socket
     |> assign(
+      sources: sources,
       dyk_facts: dyk_facts,
       rule_card: dyk_card_for(dyk_facts, seed),
       setup_status: setup_status,

@@ -3,6 +3,9 @@ defmodule RuleMavenWeb.GameLive.Review do
 
   alias RuleMaven.Games
   alias RuleMaven.Games.QuestionLog
+  alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
+
+  @tool_events ToolHost.events()
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -17,17 +20,28 @@ defmodule RuleMavenWeb.GameLive.Review do
         {:ok, push_navigate(socket, to: ~p"/games/#{id}/community")}
 
       true ->
-        {:ok,
-         assign(socket,
-           game: game,
-           is_admin: is_admin,
-           documents: Games.list_documents(game),
-           community_questions: Games.faq_questions(game, 100),
-           categories: Games.list_game_categories(game),
-           page_title: "Review — #{game.name}"
-         )}
+        socket =
+          socket
+          |> assign(
+            game: game,
+            is_admin: is_admin,
+            sources: Games.list_documents(game),
+            documents: Games.list_documents(game),
+            community_questions: Games.faq_questions(game, 100),
+            categories: Games.list_game_categories(game),
+            page_title: "Review — #{game.name}"
+          )
+          |> ToolHost.mount_header(game)
+          |> ToolHost.mount_tools(game)
+
+        {:ok, socket}
     end
   end
+
+  # Table tools (sub-bar → floating windows) are shared by every game screen.
+  @impl true
+  def handle_event(event, params, socket) when event in @tool_events,
+    do: ToolHost.handle_tool_event(event, params, socket)
 
   @impl true
   def handle_event("approve_doc", %{"id" => id_str}, socket) do
@@ -64,11 +78,21 @@ defmodule RuleMavenWeb.GameLive.Review do
     {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
     <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
     <div style="max-width:48rem;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index:1">
-      <.link navigate={~p"/games/#{@game}"} class="back-link" style="margin-bottom:0">
-        &larr; Back to {String.slice(@game.name, 0, 20)}
-      </.link>
+      <SubBar.game_header
+        game={@game}
+        sources={@sources}
+        community_count={@community_count}
+        is_admin={@is_admin}
+        on_game_page={false}
+      >
+        <:back>
+          <.link navigate={~p"/games/#{@game}"} class="back-link" style="margin-bottom:0">
+            &larr; Back to {String.slice(@game.name, 0, 20)}
+          </.link>
+        </:back>
+      </SubBar.game_header>
 
-      <h1 class="text-xl font-bold mt-4 mb-6">Review — {@game.name}</h1>
+      <h1 class="text-xl font-bold mb-6">Review — {@game.name}</h1>
 
       <!-- Documents (admin only) -->
       <%= if @is_admin do %>
@@ -143,6 +167,10 @@ defmodule RuleMavenWeb.GameLive.Review do
         </div>
       </div>
     </div>
+
+    <%!-- Floating tool windows + minimized dock, same machinery as the game
+          and community pages. --%>
+    <ToolPanel.tool_panel {assigns} />
     """
   end
 

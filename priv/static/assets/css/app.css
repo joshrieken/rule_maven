@@ -2796,6 +2796,30 @@ textarea {
 .tool-subbar { scrollbar-width: none; }
 .tool-subbar::-webkit-scrollbar { display: none; }
 
+/* Shared top row for every game screen (SubBar.game_header): back-link left,
+   tool sub-bar right. On a phone the two halves stack so the pills get a full
+   row of their own instead of being squeezed off-screen beside a long title. */
+.game-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.game-header-row__left,
+.game-header-row__right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+@media (max-width: 640px) {
+  .game-header-row__left,
+  .game-header-row__right { flex-basis: 100%; }
+}
+
 /* Desktop: floating, resizable card, no backdrop, chat stays live. `bottom`
    clears the composer (--rm-tray-bottom) plus the minimized-tool tray
    (--rm-tray-h, unset when nothing is minimized), so the panel never covers
@@ -3017,38 +3041,73 @@ body.tool-panel-resizing { user-select: none; }
   transform: translateY(-1px);
   border-color: var(--accent);
 }
+/* The pill is the visual button; its two children are bare hit areas. The
+   generic `button:hover` rule (lift + shadow + background swap) would fire on
+   each child inside the rounded pill — a square glow around the ✕ and a
+   second lift inside the lifted pill — so every child re-asserts flat chrome
+   on all states. */
+.tool-dock__restore,
+.tool-dock__close {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: none;
+  transform: none;
+}
+.tool-dock__restore:hover,
+.tool-dock__restore:active,
+.tool-dock__close:hover,
+.tool-dock__close:active {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
 .tool-dock__restore {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  padding: 0.35rem 0.7rem;
-  background: none;
-  border: none;
-  border-radius: 999px;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+  padding: 0.35rem 0.15rem 0.35rem 0.7rem;
+  border-radius: 999px 0 0 999px;
 }
-/* Dismiss without restoring. Fine pointers only — on touch the ✕ is too small a
-   target next to the restore action; close from the panel instead. */
+/* Dismiss without restoring. Always laid out (never display:none) so the pill
+   keeps one width — toggling display on hover resized the pill under the
+   cursor and shoved the ✕ against its rounded cap. Fine pointers only: on
+   touch the ✕ is too small a target, so it stays invisible there and the tool
+   is closed from the panel instead. */
 .tool-dock__close {
-  display: none;
-  padding: 0.35rem 0.55rem 0.35rem 0.1rem;
-  background: none;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0 0.4rem 0 0.15rem;
+  padding: 0;
+  border-radius: 999px;
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   line-height: 1;
-  cursor: pointer;
+  visibility: hidden;
 }
-.tool-dock__close:hover { color: var(--text); }
+.tool-dock__close:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
 @media (pointer: fine) {
   .tool-dock__pill:hover .tool-dock__close,
-  .tool-dock__pill:focus-within .tool-dock__close { display: inline-block; }
+  .tool-dock__pill:focus-within .tool-dock__close { visibility: visible; }
+}
+/* Coarse pointers never reveal the ✕, so the restore button owns the whole
+   pill and needs its right padding back. */
+@media (pointer: coarse) {
+  .tool-dock__close { display: none; }
+  .tool-dock__restore { padding-right: 0.7rem; border-radius: 999px; }
 }
 @media (max-width: 640px) {
   .tool-dock__inner { padding: 0 0.5rem; }
-  .tool-dock__restore { padding: 0.3rem 0.6rem; }
+  .tool-dock__restore { padding-top: 0.3rem; padding-bottom: 0.3rem; }
 }
 
 /* ===== Up-vote thank-you toast ===== */
