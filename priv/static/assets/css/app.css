@@ -2708,6 +2708,9 @@ textarea {
   flex-direction: column;
   gap: 0.15rem;
   min-width: 160px;
+  /* Never wider than the viewport; app.js also nudges it back in when a
+     near-the-edge trigger would push it off-screen. */
+  max-width: min(20rem, calc(100vw - 1rem));
 }
 .card-menu__pop--right {
   right: 0;
@@ -2744,7 +2747,10 @@ textarea {
   font-weight: 600;
   color: var(--text);
   cursor: pointer;
-  white-space: nowrap;
+  /* Long rows (rulebook titles) wrap inside the capped popup instead of
+     spilling out of it. */
+  white-space: normal;
+  overflow-wrap: anywhere;
   text-decoration: none;
 }
 .card-menu__item {
@@ -3283,6 +3289,25 @@ body:has([data-phx-main].phx-connected)::after {
   /* Collapse the game header to a single row: the leftover controls (back,
      title, ☰, ⋯) fit one line, so let the title truncate rather than wrap. */
   .chat-layout .chat-header .flex { flex-wrap: nowrap !important; }
+  /* ...except the sub-bar, which can't fit on that row. Let the title group
+     (and only it) wrap so the pills get their own full-width row below the
+     title; ☰/⋯ stay on the title row. Without this the pills overflow the
+     viewport and are clipped by .main-content's overflow-x. */
+  .chat-layout .chat-header > .flex > .flex:first-child {
+    flex-wrap: wrap !important;
+  }
+  .tool-subbar {
+    flex-basis: 100%;
+    width: 100%;
+    gap: 0.35rem !important;
+    margin-top: 0.1rem;
+  }
+  .tool-subbar > details { flex: 1 1 0; min-width: 0; }
+  .tool-subbar > details > summary {
+    justify-content: center;
+    min-height: 34px;
+    width: 100%;
+  }
   /* !important: overrides the element's inline padding. */
   .chat-layout .chat-header { padding: 0.25rem 0.5rem !important; }
   /* The confidence tooltip opens left-anchored from a button in the right
