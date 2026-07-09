@@ -604,14 +604,13 @@ defmodule RuleMavenWeb.CoreComponents do
     >
       <figcaption style="display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.7rem;font-size:0.72rem;border-bottom:1px solid var(--border-subtle);color:var(--text-secondary)">
         <span aria-hidden="true" style="opacity:0.7">&#128214;</span>
+        <%!-- Page sits outside the truncating span: a long source name should
+              ellipsis itself, never eat the page number. --%>
         <span style="font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
           {c["source"] || "Rulebook"}
         </span>
-        <span
-          :if={c["page"]}
-          style="margin-left:auto;flex-shrink:0;font-size:0.66rem;font-weight:600;padding:0.05rem 0.4rem;border-radius:0.6rem;background:var(--accent-soft,var(--bg));color:var(--accent-ink,var(--accent))"
-        >
-          p.{c["page"]}
+        <span :if={c["page"]} style="flex-shrink:0;font-weight:600;margin-left:-0.15rem">
+          &middot; p.{c["page"]}
         </span>
       </figcaption>
       <div style="padding:0.5rem 0.75rem 0.6rem 0.9rem;border-left:3px solid var(--accent)">
