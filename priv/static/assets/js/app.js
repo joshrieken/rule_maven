@@ -153,6 +153,7 @@ Hooks.ChatScroll = {
     // happens on later updates (a new answer arriving) and the scroll_bottom event.
     this.answerCount = this.countAnswers();
     this.handleEvent("scroll_bottom", () => this.scrollToBottom());
+    this.handleEvent("scroll_top", () => this.scrollToTop());
   },
   updated() {
     // updated() fires on every LiveView patch — voting, toggling the sidebar,
@@ -187,6 +188,16 @@ Hooks.ChatScroll = {
     const el = this.el;
     requestAnimationFrame(() => {
       el.scrollTop = el.scrollHeight;
+    });
+  },
+  scrollToTop() {
+    const el = this.el;
+    requestAnimationFrame(() => {
+      // Re-baseline first: the incoming thread may have more answers than the
+      // one we left, which would otherwise look like "a new answer arrived" to
+      // updated() and scroll the view back down.
+      this.answerCount = this.countAnswers();
+      el.scrollTo({ top: 0, behavior: "auto" });
     });
   }
 };
