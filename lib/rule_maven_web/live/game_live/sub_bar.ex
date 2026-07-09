@@ -178,6 +178,13 @@ defmodule RuleMavenWeb.GameLive.SubBar do
     """
   end
 
+  attr :game, :map, required: true
+  attr :sources, :list, default: []
+  attr :community_count, :integer, default: 0
+  attr :is_admin, :boolean, default: false
+  attr :has_cheatsheet, :boolean, default: false
+  attr :current, :atom, default: :show, values: [:show, :community, :prepare, :review, :edit]
+
   @doc """
   Renders the three group menus (Play / Learn / More) inline. Meant to sit in
   the game header row beside the title — no full-width bar, no overflow (an

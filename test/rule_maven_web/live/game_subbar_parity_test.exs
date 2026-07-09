@@ -8,15 +8,20 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
 
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
 
-  defp document_fixture(game) do
+  defp document_fixture(game, attrs \\ %{}) do
     {:ok, doc} =
       %Games.Document{}
-      |> Games.Document.changeset(%{
-        label: "Rulebook",
-        full_text: "Test rulebook text.",
-        game_id: game.id,
-        status: "published"
-      })
+      |> Games.Document.changeset(
+        Map.merge(
+          %{
+            label: "Rulebook",
+            full_text: "Test rulebook text.",
+            game_id: game.id,
+            status: "published"
+          },
+          attrs
+        )
+      )
       |> Repo.insert()
 
     doc
@@ -86,7 +91,15 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
           ~p"/games/#{game}/edit"
         ] do
       {:ok, _view, html} = live(conn, path)
-      assert html =~ "Community Q&amp;A", "no Community pill on #{path}"
+
+      # `more_menu/1` also renders the text "Community Q&amp;A (...)" on every
+      # page under the same @community_count > 0 gate, so a bare text
+      # assertion would still pass with `header_pills/1`'s <.pill_link> call
+      # deleted outright. Narrow to markup only the pill emits: its
+      # `btn btn-primary btn-xs hide-mobile` class list (the More-menu item
+      # carries `card-menu__item` instead).
+      assert html =~ ~s(class="btn btn-primary btn-xs hide-mobile"),
+             "no Community pill on #{path}"
     end
   end
 
@@ -113,12 +126,20 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
   end
 
   test "the admin Regen button renders only on the game page", %{conn: conn, game: game} do
-    {:ok, _view, show_html} = live(conn, ~p"/games/#{game}")
-    {:ok, _view, review_html} = live(conn, ~p"/games/#{game}/review")
+    _doc = document_fixture(game, %{html_path: "/priv/html/rulebook.html"})
 
-    # Both are rendered for an admin, so a difference here is the gate working,
-    # not an authorization accident.
-    assert show_html =~ "regenerate_html" or show_html =~ "Rulebooks"
-    refute review_html =~ "regenerate_html"
+    {:ok, _view, show_html} = live(conn, ~p"/games/#{game}")
+    {:ok, _view, community_html} = live(conn, ~p"/games/#{game}/community")
+
+    # Both pages must actually render the Rulebooks dropdown for the gate
+    # assertions below to be meaningful.
+    assert show_html =~ "Rulebooks"
+    assert community_html =~ "Rulebooks"
+
+    # `regenerate_html` only has a handler on show.ex; the gate must keep it
+    # off every other game page or an admin clicking it there crashes the
+    # LiveView.
+    assert show_html =~ "regenerate_html"
+    refute community_html =~ "regenerate_html"
   end
 end
