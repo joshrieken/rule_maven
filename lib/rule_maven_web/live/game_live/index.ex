@@ -326,6 +326,13 @@ defmodule RuleMavenWeb.GameLive.Index do
   end
 
   @impl true
+  def handle_event("go_to_prepare", %{"id" => id_str}, socket) do
+    {id, _} = Integer.parse(id_str)
+    token = RuleMaven.Hashid.encode(id)
+    {:noreply, push_navigate(socket, to: ~p"/games/#{token}/prepare")}
+  end
+
+  @impl true
   def handle_event("key_nav", %{"key" => key}, socket) do
     visible = visible_games(socket.assigns)
 
@@ -854,8 +861,21 @@ defmodule RuleMavenWeb.GameLive.Index do
               <div class="flex-1 min-w-0" style="pointer-events:none">
                 <h2 class="text-lg font-semibold">
                   {game.name}
+                  <%!-- /games/:id/prepare lives in the :admin live_session, so only
+                        admins get the clickable badge; others see the plain pill. --%>
+                  <% can_prepare = RuleMaven.Users.can?(@current_user, :admin) %>
+                  <button
+                    :if={game.playable and can_prepare}
+                    type="button"
+                    phx-click="go_to_prepare"
+                    phx-value-id={game.id}
+                    title="Ready to play — open Prepare"
+                    style="font-size:0.6rem;font-weight:700;vertical-align:middle;color:var(--green,#16a34a);background:none;border:1px solid var(--green,#16a34a);border-radius:999px;padding:0.15rem 0.5rem;margin-left:0.4rem;min-height:24px;cursor:pointer;pointer-events:auto"
+                  >
+                    ✓ Ready
+                  </button>
                   <span
-                    :if={game.playable}
+                    :if={game.playable and not can_prepare}
                     title="Ready to play — rulebook reviewed and searchable"
                     style="font-size:0.6rem;font-weight:700;vertical-align:middle;color:var(--green,#16a34a);border:1px solid var(--green,#16a34a);border-radius:999px;padding:0.05rem 0.4rem;margin-left:0.4rem"
                   >
