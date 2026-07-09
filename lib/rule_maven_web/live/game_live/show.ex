@@ -1250,7 +1250,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   def handle_event("favorite_community_answer", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
 
-    case Games.toggle_answer_favorite(socket.assigns.current_user.id, id) do
+    case favorite_scoped(socket, id) do
       {:ok, favorited?} ->
         ids =
           if favorited?,
@@ -1330,7 +1330,9 @@ defmodule RuleMavenWeb.GameLive.Show do
   def handle_event("toggle_llm_trace", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
 
-    if socket.assigns.is_admin do
+    # Scoped: the trace carries prompts and per-call cost. Admin alone isn't the
+    # gate — the row must belong to the game whose page this is.
+    if socket.assigns.is_admin and Games.get_game_question(socket.assigns.game, id) do
       open = socket.assigns.llm_trace_open
 
       if MapSet.member?(open, id) do
@@ -1717,6 +1719,16 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   # Scope the lookup to the current game so an id from another game can't be
   # acted on through this game-scoped LiveView (cross-game IDOR).
+  # Favoriting is harmless in itself, but the id is off the wire: keep it inside
+  # the game the user is looking at rather than any pooled row anywhere.
+  defp favorite_scoped(socket, id) do
+    if Games.get_game_question(socket.assigns.game, id) do
+      Games.toggle_answer_favorite(socket.assigns.current_user.id, id)
+    else
+      {:error, :not_found}
+    end
+  end
+
   defp find_question_log(game, id) do
     import Ecto.Query
     RuleMaven.Repo.one(from q in QuestionLog, where: q.id == ^id and q.game_id == ^game.id)

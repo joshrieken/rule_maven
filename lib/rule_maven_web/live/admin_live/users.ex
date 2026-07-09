@@ -35,13 +35,20 @@ defmodule RuleMavenWeb.AdminLive.Users do
         {:noreply, put_flash(socket, :error, "User not found.")}
 
       user ->
-        {:ok, _} = Users.update_user_role(user, "admin")
-        audit(socket, "role.promote", user, %{to: "admin"})
-        users = Users.list_users()
+        case Users.update_user_role(user, "admin") do
+          {:ok, _} ->
+            audit(socket, "role.promote", user, %{to: "admin"})
 
-        {:noreply,
-         assign(socket, users: users)
-         |> put_flash(:info, "#{user.username} promoted to admin.")}
+            {:noreply,
+             assign(socket, users: Users.list_users())
+             |> put_flash(:info, "#{user.username} promoted to admin.")}
+
+          {:error, :super_admin} ->
+            {:noreply, put_flash(socket, :error, "A super admin's role can't be changed here.")}
+
+          {:error, _changeset} ->
+            {:noreply, put_flash(socket, :error, "Couldn't change #{user.username}'s role.")}
+        end
     end
   end
 
@@ -127,6 +134,9 @@ defmodule RuleMavenWeb.AdminLive.Users do
 
       {:error, :not_admin} ->
         {:noreply, put_flash(socket, :error, "#{user.username} is not an admin.")}
+
+      {:error, :super_admin} ->
+        {:noreply, put_flash(socket, :error, "A super admin's role can't be changed here.")}
     end
   end
 
@@ -261,7 +271,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
                   <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted);font-size:0.78rem">{user.email}</span>
                 </td>
                 <td style="padding:0.45rem 0.75rem;font-weight:600;font-size:0.78rem">
-                  <span style={"#{if user.role == "admin", do: "color:var(--accent-ink, var(--accent))", else: "color:var(--text-muted)"}"}>
+                  <span style={"#{if Users.can?(user, :admin), do: "color:var(--accent-ink, var(--accent))", else: "color:var(--text-muted)"}"}>
                     {user.role}
                   </span>
                 </td>
@@ -270,21 +280,26 @@ defmodule RuleMavenWeb.AdminLive.Users do
                 </td>
                 <td style="padding:0.35rem 0.75rem">
                   <div style="display:flex;gap:0.35rem">
-                    <%= if user.role == "user" do %>
-                      <button
-                        type="button"
-                        phx-click="promote_user"
-                        phx-value-id={user.id}
-                        class="btn-outline btn-xs"
-                      >Promote</button>
-                    <% else %>
-                      <button
-                        type="button"
-                        phx-click="demote_user"
-                        phx-value-id={user.id}
-                        data-confirm={"Remove admin access from #{user.username}?"}
-                        class="btn-xs"
-                      >Demote</button>
+                    <%= cond do %>
+                      <% Users.super_admin?(user) -> %>
+                        <span style="color:var(--text-muted);font-size:0.75rem">
+                          server-managed
+                        </span>
+                      <% Users.can?(user, :admin) -> %>
+                        <button
+                          type="button"
+                          phx-click="demote_user"
+                          phx-value-id={user.id}
+                          data-confirm={"Remove admin access from #{user.username}?"}
+                          class="btn-xs"
+                        >Demote</button>
+                      <% true -> %>
+                        <button
+                          type="button"
+                          phx-click="promote_user"
+                          phx-value-id={user.id}
+                          class="btn-outline btn-xs"
+                        >Promote</button>
                     <% end %>
                   </div>
                 </td>

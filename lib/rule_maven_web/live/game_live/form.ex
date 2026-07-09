@@ -541,9 +541,13 @@ defmodule RuleMavenWeb.GameLive.Form do
     # flag the result inline next to the button (flash isn't visible on this page).
     sid = parse_id(id_str)
 
+    # Scoped to the game being edited: `id` is off the wire, and an unscoped
+    # lookup would re-render another game's source file.
     status =
-      case Games.get_document(sid) do
-        %Document{} = doc -> Games.regenerate_document_html(doc)
+      with %RuleMaven.Games.Game{} = game <- socket.assigns.game,
+           %Document{} = doc <- Games.get_game_document(game, sid) do
+        Games.regenerate_document_html(doc)
+      else
         _ -> :error
       end
 

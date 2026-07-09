@@ -38,6 +38,12 @@ defmodule RuleMaven.RulebookDownloader do
   # book page-by-page.
   @vision_concurrency 8
 
+  # Per-page LLM call allowance, pooled across the document (see crosscheck_extract).
+  # Overridable so tests can force an overrun without a 200-page fixture.
+  @llm_calls_per_page 6
+  defp llm_calls_per_page,
+    do: Application.get_env(:rule_maven, :extract_llm_calls_per_page, @llm_calls_per_page)
+
   # Page images go to the model as grayscale JPEG: providers downscale/tile the
   # image to the same token count regardless of encoding, so JPEG only shrinks
   # the base64 upload (~2-5x vs PNG, measured 1.8x on a dense page) — faster,
@@ -666,6 +672,7 @@ defmodule RuleMaven.RulebookDownloader do
   defp image_extract(full_path, on_progress, game_id) do
     on_progress.(:ocr)
     log(on_progress, "Reading image — OCR + vision cross-check…")
+    RuleMaven.LLM.start_call_budget(llm_calls_per_page())
     # pdf_path nil: there is no PDF to re-render, so a T1 disagreement skips the
     # T2 sharper-render tier and goes straight to T3 (see escalate_tiers).
     r = decide_page(full_path, "", false, %{game_id: game_id, pdf_path: nil, page: 1})
@@ -754,6 +761,15 @@ defmodule RuleMaven.RulebookDownloader do
         {:ok, total} ->
           on_progress.(:ocr)
 
+          # Bound what one document can spend. A page normally costs 0–2 model
+          # calls; the escalation ladder's worst case is ~9 (two cheap reads, a
+          # high-DPI re-read, a mid read, a strong read, then the critic loop).
+          # Budgeting @llm_calls_per_page across the whole book lets a genuinely
+          # hard page climb the full ladder while capping a pathological one —
+          # a corrupt scan where every page escalates — at a knowable ceiling.
+          RuleMaven.LLM.start_call_budget(total * llm_calls_per_page())
+          budget = RuleMaven.LLM.call_budget_handle()
+
           log(
             on_progress,
             "Reading #{total} page(s) — trusting clean text, cross-checking the rest…"
@@ -775,6 +791,9 @@ defmodule RuleMaven.RulebookDownloader do
             1..total
             |> Task.async_stream(
               fn page ->
+                # Pages run in child processes: adopt the document's budget so
+                # they spend from one shared allowance, not one each.
+                RuleMaven.LLM.adopt_call_budget(budget)
                 layer = String.trim(Enum.at(layer_pages, page - 1) || "")
                 ctx = %{game_id: game_id, pdf_path: full_path, page: page}
                 r = decide_page_lazy(layer, drift_rate, ctx)

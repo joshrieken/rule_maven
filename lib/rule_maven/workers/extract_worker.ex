@@ -50,20 +50,24 @@ defmodule RuleMaven.Workers.ExtractWorker do
 
         case RulebookDownloader.extract_document(doc, on_progress) do
           {:ok, updated} ->
-            # A doc saved before extraction skipped the insert-time auto-publish
-            # quality check; re-run it now so the doc doesn't sit pending_review
-            # (and thus invisible to retrieval) after a clean extraction.
-            case Games.maybe_auto_publish(updated) do
-              {:ok, %{status: "published"}} when updated.status != "published" ->
-                Jobs.event(run, "info", "Quality check passed — auto-published.")
+            if RuleMaven.LLM.budget_exceeded?() do
+              halt_over_budget(run, updated)
+            else
+              # A doc saved before extraction skipped the insert-time auto-publish
+              # quality check; re-run it now so the doc doesn't sit pending_review
+              # (and thus invisible to retrieval) after a clean extraction.
+              case Games.maybe_auto_publish(updated) do
+                {:ok, %{status: "published"}} when updated.status != "published" ->
+                  Jobs.event(run, "info", "Quality check passed — auto-published.")
 
-              _ ->
-                :noop
+                _ ->
+                  :noop
+              end
+
+              # finish_run (kind "extract") advances readiness centrally.
+              Jobs.finish_run(run, "done", "Extracted #{length(updated.pages)} page(s).")
+              :ok
             end
-
-            # finish_run (kind "extract") advances readiness centrally.
-            Jobs.finish_run(run, "done", "Extracted #{length(updated.pages)} page(s).")
-            :ok
 
           {:error, reason} ->
             # Leave the doc unextracted so the prepare page still offers Extract;
@@ -73,6 +77,33 @@ defmodule RuleMaven.Workers.ExtractWorker do
             :ok
         end
     end
+  end
+
+  # The document's LLM call budget ran out mid-extraction. Policy is stop and
+  # mark for review, never silent truncation: keep every page already extracted,
+  # hold the doc at pending_review so incomplete text can't reach retrieval, and
+  # say so plainly in the Jobs log. Finishing "failed" (rather than "done") also
+  # keeps the readiness pipeline from advancing to cleanup/embed on partial text.
+  # An admin re-runs Extract to continue with a fresh budget.
+  defp halt_over_budget(run, doc) do
+    case Games.update_document(doc, %{status: "pending_review"}, chunk: false) do
+      {:ok, _} -> :ok
+      _ -> :ok
+    end
+
+    Jobs.event(
+      run,
+      "warn",
+      "Extraction hit this document's LLM call budget — no further model calls were made."
+    )
+
+    Jobs.finish_run(
+      run,
+      "failed",
+      "Stopped over budget — #{length(doc.pages)} page(s) kept, held for review. Re-run Extract to continue."
+    )
+
+    :ok
   end
 
   defp stage_label(:extracting), do: "Extracting text…"

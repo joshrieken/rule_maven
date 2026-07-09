@@ -435,7 +435,11 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   def handle_event("delete_category", %{"id" => id}, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
-      Games.delete_game_category(String.to_integer(id))
+      # Scoped: the id is off the wire, and delete_game_category/1 is permanent.
+      if cat = Games.get_game_category(socket.assigns.game, id) do
+        Games.delete_game_category(cat.id)
+      end
+
       {:noreply, reload(socket)}
     else
       {:noreply, socket}

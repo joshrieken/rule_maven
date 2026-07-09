@@ -24,9 +24,10 @@ defmodule RuleMaven.Users do
     Repo.all(from u in User, order_by: [desc: u.inserted_at])
   end
 
-  @doc "Count of users with the admin role. Used to prevent last-admin lockout."
+  @doc "Count of users holding :admin (any role that grants it). Last-admin lockout guard."
   def count_admins do
-    Repo.aggregate(from(u in User, where: u.role == "admin"), :count)
+    admin_roles = User.roles_with_capability(:admin)
+    Repo.aggregate(from(u in User, where: u.role in ^admin_roles), :count)
   end
 
   def create_user(attrs) do
@@ -56,7 +57,35 @@ defmodule RuleMaven.Users do
   end
 
   def update_user_role(%User{} = user, role) do
-    update_user(user, %{role: role})
+    unless_super_admin(user, &update_user(&1, %{role: role}))
+  end
+
+  @doc """
+  True for the owner account. Super admins hold every capability and are immune
+  to admin moderation: the guards below are context-level, not UI-level, because
+  LiveView events are forgeable over the socket.
+
+  The role is grantable only by `mix rule_maven.grant_superadmin` on the server.
+  """
+  def super_admin?(user), do: User.super_admin?(user)
+
+  # Every destructive action an admin can take against another account routes
+  # through here. Returns {:error, :super_admin} rather than raising so callers
+  # can surface a flash.
+  defp unless_super_admin(%User{} = user, fun) do
+    if User.super_admin?(user), do: {:error, :super_admin}, else: fun.(user)
+  end
+
+  @doc """
+  Grants or revokes "super_admin". Server-side only — called by the mix tasks.
+  Nothing in the web layer may call this.
+  """
+  def set_super_admin(%User{} = user, true?) do
+    role = if true?, do: "super_admin", else: "user"
+
+    user
+    |> User.elevation_changeset(role)
+    |> Repo.update()
   end
 
   @doc """
@@ -66,13 +95,17 @@ defmodule RuleMaven.Users do
   the app with zero admins. Returns {:ok, user} | {:error, :last_admin} |
   {:error, :not_admin}.
   """
-  def demote_admin(%User{} = user) do
+  def demote_admin(%User{} = user), do: unless_super_admin(user, &do_demote_admin/1)
+
+  defp do_demote_admin(%User{} = user) do
     Repo.transaction(fn ->
       # Lock all admin rows for the duration so a concurrent demotion serializes
       # behind this one and re-reads the post-update count. (Postgres rejects
       # FOR UPDATE alongside an aggregate, so select the rows and count them.)
+      admin_roles = User.roles_with_capability(:admin)
+
       admin_ids =
-        Repo.all(from u in User, where: u.role == "admin", select: u.id, lock: "FOR UPDATE")
+        Repo.all(from u in User, where: u.role in ^admin_roles, select: u.id, lock: "FOR UPDATE")
 
       cond do
         not User.can?(user, :admin) -> Repo.rollback(:not_admin)
@@ -83,7 +116,7 @@ defmodule RuleMaven.Users do
   end
 
   def delete_user(%User{} = user) do
-    Repo.delete(user)
+    unless_super_admin(user, &Repo.delete/1)
   end
 
   def delete_user(nil), do: {:error, :not_found}
@@ -95,7 +128,7 @@ defmodule RuleMaven.Users do
 
   @doc "Suspends the account: blocks login and denies existing sessions."
   def suspend_user(%User{} = user),
-    do: user |> User.suspension_changeset(true) |> Repo.update()
+    do: unless_super_admin(user, &(&1 |> User.suspension_changeset(true) |> Repo.update()))
 
   @doc "Lifts suspension."
   def unsuspend_user(%User{} = user),
@@ -103,18 +136,18 @@ defmodule RuleMaven.Users do
 
   @doc "Revokes all of a user's live sessions (force logout) without suspending."
   def force_logout(%User{} = user),
-    do: user |> User.force_logout_changeset() |> Repo.update()
+    do: unless_super_admin(user, &(&1 |> User.force_logout_changeset() |> Repo.update()))
 
   @doc "Whether a session (login time in unix seconds) is still valid for the user."
   def session_valid?(user, logged_in_at), do: User.session_valid?(user, logged_in_at)
 
   @doc "Sets a user's monthly question quota (admin action)."
   def set_quota(%User{} = user, quota),
-    do: user |> User.quota_changeset(quota) |> Repo.update()
+    do: unless_super_admin(user, &(&1 |> User.quota_changeset(quota) |> Repo.update()))
 
   @doc "Zeroes a user's reputation. Trust recompute on their rows can re-derive it."
   def reset_reputation(%User{} = user),
-    do: user |> Ecto.Changeset.change(reputation: 0) |> Repo.update()
+    do: unless_super_admin(user, &(&1 |> Ecto.Changeset.change(reputation: 0) |> Repo.update()))
 
   @doc "Marks an onboarding tour as seen (completed or skipped)."
   def mark_tour_seen(%User{} = user, tour_id),
@@ -236,8 +269,8 @@ defmodule RuleMaven.Users do
 
   def admin?(user), do: User.admin?(user)
 
-  @doc "List of valid role strings."
-  def roles, do: User.all_roles()
+  @doc "Role strings the admin UI may assign. Excludes super_admin (mix task only)."
+  def roles, do: User.assignable_roles()
 
   @doc """
   Updates a user's profile (username, email). Validates uniqueness and required fields.
