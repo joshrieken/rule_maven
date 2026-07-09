@@ -51,7 +51,7 @@ defmodule RuleMavenWeb.Feature.FlowTest do
   feature "login page renders form", %{session: session} do
     session
     |> visit("/login")
-    |> assert_has(css("h2", text: "Log In"))
+    |> assert_has(css("h1.login-brand"))
     |> assert_has(css("input#session_username"))
     |> assert_has(css("input#session_password"))
     |> assert_has(css("button", text: "Log In"))

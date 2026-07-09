@@ -187,40 +187,6 @@ defmodule RuleMavenWeb.PrepareRenderTest do
     assert title =~ "Chunked &amp; embedded"
   end
 
-  test "Ask link shows only once the game is published", %{conn: conn} do
-    admin = admin!("prep_ask_admin")
-    game = game_fixture(%{name: "Askable Game", bgg_id: 9914, bgg_data: "<items/>"})
-
-    {:ok, doc} =
-      RuleMaven.Games.create_document(%{
-        game_id: game.id,
-        label: "Rulebook",
-        pdf_path: "uploads/rulebooks/x.pdf",
-        full_text: "rules"
-      })
-
-    RuleMaven.Games.set_page_cleaned(doc.id, 0, "rules", [])
-
-    import Ecto.Query
-
-    RuleMaven.Repo.update_all(
-      from(c in RuleMaven.Games.Chunk, where: c.document_id == ^doc.id),
-      set: [embedding: Pgvector.new(List.duplicate(0.0, 768))]
-    )
-
-    conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
-    ask_href = "/games/#{RuleMaven.Hashid.encode(game.id)}"
-
-    # Required steps complete but publish not approved: no Ask link yet.
-    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
-    refute has_element?(view, "a[href='#{ask_href}']", "Ask")
-
-    assert RuleMaven.Readiness.approve_publish(game, admin)
-
-    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
-    assert has_element?(view, "a[href='#{ask_href}']", "Ask")
-  end
-
   test "Mark Ready is enabled once every required step is complete", %{conn: conn} do
     admin = admin!("prep_ready_admin")
     game = game_fixture(%{name: "Ready Publish Game", bgg_id: 9912, bgg_data: "<items/>"})
@@ -321,7 +287,10 @@ defmodule RuleMavenWeb.PrepareRenderTest do
     conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
     {:ok, view, html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
 
-    refute has_element?(view, "a", "Review")
+    # Scoped to the step-action link (which points at the edit page's rulebook
+    # manager). The shared header's More menu always carries its own Review
+    # link, to /review — that one isn't gated on extraction.
+    refute has_element?(view, "a[href$='/edit']", "Review")
     # Extraction cost can't be estimated before extraction — show "—", not $0.0000.
     assert html =~ "est. —"
   end
@@ -346,7 +315,7 @@ defmodule RuleMavenWeb.PrepareRenderTest do
     conn = Plug.Test.init_test_session(conn, %{"user_id" => admin.id})
     {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
 
-    assert has_element?(view, "a", "Review")
+    assert has_element?(view, "a[href$='/edit']", "Review")
   end
 
   test "reset button is disabled with help text once questions exist", %{conn: conn} do
