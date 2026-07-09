@@ -454,7 +454,7 @@ Hooks.ShareCard = {
     ctx.font = "500 20px system-ui, sans-serif";
     const cite = d.sharePage ? `📖 Rulebook p.${d.sharePage} · ` : "";
     ctx.fillText(
-      `${cite}RuleMaven — AI-answered, rulebook-cited. Double-check important rulings.`,
+      `${cite}Rule Maven — AI-answered, rulebook-cited. Double-check important rulings.`,
       pad,
       y
     );
