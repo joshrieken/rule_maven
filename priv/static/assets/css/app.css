@@ -2957,6 +2957,23 @@ body.tool-panel-resizing { user-select: none; }
     border-top: 1px solid var(--border);
   }
 }
+/* In-flow variant (game page, desktop): a normal row above the composer inside
+   the chat column — the messages area shrinks instead of being overlaid, and
+   scrolls as usual. Under 640px the base fixed-strip rules still apply so an
+   open bottom sheet can't bury the pills. */
+@media (min-width: 641px) {
+  .tool-dock--flow {
+    position: static;
+    bottom: auto;
+    z-index: auto;
+    padding: 0.3rem 0 0;
+    pointer-events: auto;
+  }
+  .tool-dock--flow .tool-dock__inner {
+    max-width: none;
+    padding: 0 1rem;
+  }
+}
 .tool-dock__inner {
   display: flex;
   gap: 0.4rem;

@@ -17,9 +17,10 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
   # `assigns` is the full LiveView assigns map (needs every tool's state).
   # `@tool_order` is the window stack, back to front — render order *is* paint
   # order, so a freshly opened tool lands on top without any z-index of its own.
+  # Pass `dock: false` when the host page renders the dock itself (Show puts an
+  # in-flow dock above the composer).
   def tool_panel(assigns) do
-    minimized = for {id, :minimized} <- assigns.tool_states, do: id
-    assigns = assign(assigns, minimized: minimized)
+    assigns = Map.put_new(assigns, :dock, true)
 
     ~H"""
     <div :for={id <- @tool_order} data-tool-panel={id} data-tool-state="expanded">
@@ -28,7 +29,28 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
       </.panel_frame>
     </div>
 
-    <div :if={@minimized != []} id="tool-tray" phx-hook="ToolTray" class="tool-dock" data-tool-dock>
+    <.tool_dock :if={@dock} tool_states={@tool_states} />
+    """
+  end
+
+  attr :tool_states, :map, required: true
+  # In-flow variant: a normal row in the host's layout (desktop) instead of a
+  # fixed strip pinned over the viewport bottom. Under 640px the fixed-strip
+  # CSS still wins so an open bottom sheet can't bury the pills.
+  attr :flow, :boolean, default: false
+
+  def tool_dock(assigns) do
+    minimized = for {id, :minimized} <- assigns.tool_states, do: id
+    assigns = assign(assigns, minimized: minimized)
+
+    ~H"""
+    <div
+      :if={@minimized != []}
+      id="tool-tray"
+      phx-hook="ToolTray"
+      class={["tool-dock", @flow && "tool-dock--flow"]}
+      data-tool-dock
+    >
       <div class="tool-dock__inner">
         <span
           :for={id <- @minimized}

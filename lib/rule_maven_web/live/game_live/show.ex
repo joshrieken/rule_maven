@@ -3755,6 +3755,11 @@ defmodule RuleMavenWeb.GameLive.Show do
         </div>
       </div>
 
+      <%!-- Minimized tools: on desktop a normal in-flow row above the composer
+            (the messages area shrinks instead of being overlaid); under 640px
+            the CSS keeps it a fixed strip so a bottom sheet can't bury it. --%>
+      <ToolPanel.tool_dock tool_states={@tool_states} flow={true} />
+
       <!-- Input -->
       <%!-- id keys this node for the patcher: without it, a modal appearing
             as the previous sibling gets morphed INTO this div (ids on the
@@ -4077,8 +4082,9 @@ defmodule RuleMavenWeb.GameLive.Show do
           z-index:10`, which makes it a stacking context. A tool window nested
           inside it could never paint above the site header (z:100) no matter how
           high its own z-index went, so a window dragged to the top of the screen
-          slid under the header and lost its title bar. --%>
-    <ToolPanel.tool_panel {assigns} />
+          slid under the header and lost its title bar. The dock is rendered
+          in-flow inside the chat column instead (dock: false here). --%>
+    <ToolPanel.tool_panel {Map.put(assigns, :dock, false)} />
 
     <%!-- Persona picker modal (shared by the composer default picker and each
           answer's switcher). Outside .chat-layout for the same stacking-context
