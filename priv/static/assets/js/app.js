@@ -903,6 +903,9 @@ Hooks.ToolTray = {
 // Minimize/close/expand are server events (phx-click in the markup); this hook
 // only owns geometry and stacking.
 var SNAP_COUNT = 3;
+// Must mirror the .tool-panel--snap-N heights in app.css: a live sheet drag
+// resizes in px and needs to know where the snap points are.
+var SNAP_VH = [0.35, 0.55, 0.85];
 
 // Window stacking. `.tool-panel`'s CSS z-index sits above the site header, and
 // every panel that gets focus is lifted above its siblings from there. Focus is
@@ -1059,32 +1062,76 @@ Hooks.FloatingPanel = {
     this.write(this.sizeKey(), { w: r.width, h: r.height });
   },
 
-  // Tap the handle to cycle sheet height; a vertical drag snaps to the nearest.
+  // Snap heights in px for the current viewport, matching the CSS vh classes.
+  snapHeights() {
+    var vh = window.innerHeight;
+    var out = [];
+    for (var i = 0; i < SNAP_COUNT; i++) out.push(SNAP_VH[i] * vh);
+    return out;
+  },
+
+  // Tap the handle to cycle sheet height; a vertical drag resizes the sheet
+  // under the finger and snaps to the nearest height on release. Pointer events
+  // (not touchstart/touchend) so the sheet tracks the drag instead of jumping
+  // at the end, and `touch-action:none` on the bar keeps the page from
+  // scrolling underneath it.
   initSheet() {
     var self = this;
     var handle = this.el.querySelector("[data-drag-handle]");
     if (!handle) return;
     var startY = null;
+    var startH = 0;
+    var moved = false;
+    var pid = null;
 
-    this._touchStart = function(e) {
+    this._sheetDown = function(e) {
       if (e.target.closest("button")) return;
-      startY = e.touches[0].clientY;
+      pid = e.pointerId;
+      startY = e.clientY;
+      startH = self.el.getBoundingClientRect().height;
+      moved = false;
+      self.el.classList.add("tool-panel--dragging");
+      try { handle.setPointerCapture(pid); } catch (_e) {}
     };
-    this._touchEnd = function(e) {
+
+    this._sheetMove = function(e) {
+      if (startY === null || e.pointerId !== pid) return;
+      var dy = e.clientY - startY; // up is negative, and up grows the sheet
+      if (!moved && Math.abs(dy) < 6) return; // let a tap stay a tap
+      moved = true;
+      e.preventDefault();
+      var snaps = self.snapHeights();
+      var h = Math.max(snaps[0] * 0.6, Math.min(snaps[SNAP_COUNT - 1], startH - dy));
+      self.el.style.height = h + "px";
+      self.el.style.maxHeight = "none";
+    };
+
+    this._sheetUp = function(e) {
       if (startY === null) return;
-      var endY = (e.changedTouches[0] || {}).clientY;
-      var dy = endY - startY;
       startY = null;
-      if (Math.abs(dy) < 12) {
+      self.el.classList.remove("tool-panel--dragging");
+      try { handle.releasePointerCapture(pid); } catch (_e) {}
+      pid = null;
+      if (!moved) {
         self.applySnap((self._snap + 1) % SNAP_COUNT); // tap
       } else {
-        // Drag up grows the sheet, drag down shrinks it.
-        var step = dy < 0 ? 1 : -1;
-        self.applySnap(Math.max(0, Math.min(SNAP_COUNT - 1, self._snap + step)));
+        var h = self.el.getBoundingClientRect().height;
+        var snaps = self.snapHeights();
+        var best = 0;
+        for (var i = 1; i < SNAP_COUNT; i++) {
+          if (Math.abs(snaps[i] - h) < Math.abs(snaps[best] - h)) best = i;
+        }
+        self.applySnap(best);
       }
+      // Drop the dragged height so the snap class governs again (and animates).
+      self.el.style.height = "";
+      self.el.style.maxHeight = "";
     };
-    handle.addEventListener("touchstart", this._touchStart, { passive: true });
-    handle.addEventListener("touchend", this._touchEnd);
+
+    handle.addEventListener("pointerdown", this._sheetDown);
+    handle.addEventListener("pointermove", this._sheetMove);
+    handle.addEventListener("pointerup", this._sheetUp);
+    handle.addEventListener("pointercancel", this._sheetUp);
     this._handle = handle;
   },
 
@@ -1188,9 +1235,11 @@ Hooks.FloatingPanel = {
     WinGeom.drop(this.tool());
     if (this._focus) this.el.removeEventListener("pointerdown", this._focus, true);
     if (this._handle && this._down) this._handle.removeEventListener("mousedown", this._down);
-    if (this._handle && this._touchStart) {
-      this._handle.removeEventListener("touchstart", this._touchStart);
-      this._handle.removeEventListener("touchend", this._touchEnd);
+    if (this._handle && this._sheetDown) {
+      this._handle.removeEventListener("pointerdown", this._sheetDown);
+      this._handle.removeEventListener("pointermove", this._sheetMove);
+      this._handle.removeEventListener("pointerup", this._sheetUp);
+      this._handle.removeEventListener("pointercancel", this._sheetUp);
     }
     if (this._activeDragCleanup) this._activeDragCleanup();
     if (this._ro) this._ro.disconnect();
