@@ -18,6 +18,18 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   @max_concurrent 5
 
+  # A restyle finishes with a `{:voice_ready, ...}` broadcast, but Phoenix.PubSub
+  # only reaches subscribers on the node that ran the job. Any second BEAM
+  # sharing the Oban queue (a stray `mix phx.server`, a worktree run, a remote
+  # console) can dequeue the VoiceWorker job and broadcast where nobody is
+  # listening — the loader then spins forever even though `answer_voices` holds
+  # the finished restyle. So every enqueue also arms a poll against the DB, the
+  # one piece of state both nodes share. It stops on the first hit, and gives up
+  # (plain answer, no loader) once a restyle has had well past its worst-case
+  # latency to land.
+  @voice_poll_ms 2_500
+  @voice_poll_max 48
+
   @impl true
   def mount(_params, session, socket) do
     socket = maybe_curator_notice(socket)
@@ -581,6 +593,8 @@ defmodule RuleMavenWeb.GameLive.Show do
             }
             |> RuleMaven.Workers.VoiceWorker.new()
             |> Oban.insert()
+
+            Process.send_after(self(), {:voice_poll, id, voice, 1}, @voice_poll_ms)
 
             assign(acc,
               voice_pending: MapSet.put(acc.assigns.voice_pending, {id, voice}),
@@ -2090,6 +2104,38 @@ defmodule RuleMavenWeb.GameLive.Show do
        |> push_event("scroll_bottom", %{})}
     else
       {:noreply, socket}
+    end
+  end
+
+  # Backstop for a `{:voice_ready, ...}` that never arrives — see @voice_poll_ms.
+  # Only polls while the restyle is still pending here; a broadcast that beat the
+  # timer has already cleared it, so this is a no-op in the common case.
+  def handle_info({:voice_poll, ql_id, voice, attempt}, socket) do
+    cond do
+      not MapSet.member?(socket.assigns.voice_pending, {ql_id, voice}) ->
+        {:noreply, socket}
+
+      content = RuleMaven.Voices.get(ql_id, voice) ->
+        {:noreply,
+         assign(socket,
+           voice_cache: Map.put(socket.assigns.voice_cache, {ql_id, voice}, content),
+           voice_pending: MapSet.delete(socket.assigns.voice_pending, {ql_id, voice}),
+           voice_failed: MapSet.delete(socket.assigns.voice_failed, {ql_id, voice})
+         )}
+
+      attempt < @voice_poll_max ->
+        Process.send_after(self(), {:voice_poll, ql_id, voice, attempt + 1}, @voice_poll_ms)
+        {:noreply, socket}
+
+      true ->
+        # Out of patience: the job died, was discarded, or is wedged. Drop the
+        # loader and show the plain answer. No flash — unlike a reported
+        # `:voice_failed` this is our own timeout, and the answer is intact.
+        {:noreply,
+         assign(socket,
+           voice_pending: MapSet.delete(socket.assigns.voice_pending, {ql_id, voice}),
+           voice_failed: MapSet.put(socket.assigns.voice_failed, {ql_id, voice})
+         )}
     end
   end
 
