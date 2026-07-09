@@ -2574,9 +2574,6 @@ defmodule RuleMavenWeb.GameLive.Form do
       is_admin={@is_admin}
       has_cheatsheet={@has_cheatsheet}
       current={:edit}
-      expansions={@expansions}
-      included_expansions={@included_expansions}
-      house_rule_count={@house_rule_count}
     />
     <div class="game-form" style="position:relative;z-index:1">
       <div

@@ -83,4 +83,37 @@ defmodule RuleMavenWeb.GameTableContextTest do
     {:ok, _view, html} = live(conn, ~p"/games/#{base}")
     assert html =~ ~s|data-tour="expansions"|
   end
+
+  # The Edit screen's `included_expansions` assign is a different concept
+  # (the admin's expansion-link editor state, not "what this user plays
+  # with"), so the "what's at my table" strip is meaningless there — it must
+  # not render at all, regardless of what the admin has linked/selected.
+  test "the strip does not render on the admin Edit screen",
+       %{conn: conn, user: user, base: base} do
+    {:ok, admin} =
+      RuleMaven.Users.create_user(%{
+        username: "tablectx_admin",
+        email: "tablectx_admin@test.com",
+        password: "password1234",
+        role: "admin"
+      })
+
+    exp = published_game_fixture(%{name: "Oceania", bgg_id: 9107})
+    RuleMaven.Games.link_expansion(exp.id, base.id)
+    RuleMaven.Games.put_expansion_selection(user.id, base.id, [])
+
+    conn = login(conn, admin)
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}/edit")
+
+    refute html =~ ~s|data-testid="table-context-expansions"|
+    refute html =~ ~s|data-testid="table-context-house-rules"|
+  end
+
+  test "the strip still renders on show and community", %{conn: conn, base: base} do
+    {:ok, _view, show_html} = live(conn, ~p"/games/#{base}")
+    assert show_html =~ ~s|data-testid="table-context-house-rules"|
+
+    {:ok, _view, community_html} = live(conn, ~p"/games/#{base}/community")
+    assert community_html =~ ~s|data-testid="table-context-house-rules"|
+  end
 end

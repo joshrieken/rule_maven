@@ -118,7 +118,12 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           has_cheatsheet={@has_cheatsheet}
           current={@current}
         />
+        <%!-- Meaningless on the admin Edit screen: `included_expansions` there
+              is a different concept (the expansion-*link* editor state, not
+              "what this user plays with"), and the strip answers "what's at
+              my table" — a question Edit has no table for. --%>
         <.table_context
+          :if={@current != :edit}
           game={@game}
           expansions={@expansions}
           included_expansions={@included_expansions}
