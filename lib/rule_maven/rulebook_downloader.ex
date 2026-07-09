@@ -595,17 +595,22 @@ defmodule RuleMaven.RulebookDownloader do
     end
   end
 
-  # Extract, but if extraction fails for good, remove the PDF we just saved —
-  # no Document row will reference it, so it would otherwise linger on disk.
+  # The source PDF is NEVER deleted on an extraction failure.
+  #
+  # This used to `File.rm` the file, on the premise (stated in its old comment)
+  # that "no Document row will reference it." That premise is false: the only
+  # caller is `extract_document/2`, which is handed an existing `%Document{}`
+  # whose `pdf_path` is this file. And extraction fails for transient reasons —
+  # a pdftotext/pdftoppm timeout, an LLM outage making every page come back
+  # empty, a momentary :no_renderer. `ExtractWorker` deliberately returns :ok on
+  # failure so an admin can re-run it, but the re-run was doomed: the source was
+  # already gone, irrecoverably, from one bad rate-limit window.
+  #
+  # Orphaned files from a failed *upload* are a disk-hygiene problem, not a
+  # correctness one, and `delete_document/1` already removes the file on the
+  # paths where a document really goes away.
   defp extract_with_cleanup(pdf_path, on_progress, game_id) do
-    case extract_text_with_source(pdf_path, on_progress, game_id) do
-      {:ok, _text, _from_ocr, _meta} = ok ->
-        ok
-
-      {:error, _reason} = err ->
-        Application.app_dir(:rule_maven, "priv/static/#{pdf_path}") |> File.rm()
-        err
-    end
+    extract_text_with_source(pdf_path, on_progress, game_id)
   end
 
   defp extract_text_with_source(doc_path, on_progress, game_id) do
