@@ -463,4 +463,86 @@ defmodule RuleMaven.TrustTest do
       assert row.id == trusted.id
     end
   end
+
+  describe "find_pool_candidates/3 over the widened tiebreaker band" do
+    # Unit vectors with an exact, controllable cosine to the query e0.
+    defp vec_at(sim) do
+      [sim, :math.sqrt(1.0 - sim * sim) | List.duplicate(0.0, 766)]
+    end
+
+    defp pooled_row(game, author, name, opts) do
+      row = log(game, author, Map.merge(%{question: name, pooled: true}, Map.new(opts.attrs)))
+
+      Repo.update_all(
+        from(q in RuleMaven.Games.QuestionLog, where: q.id == ^row.id),
+        set: [question_embedding: Pgvector.new(vec_at(opts.sim))]
+      )
+
+      row
+    end
+
+    setup do
+      game = game_fixture()
+      author = user_fixture("author")
+      %{game: game, author: author, query: vec_at(1.0)}
+    end
+
+    test "a near-exact provisional row is not shadowed by a distant trusted one",
+         %{game: game, author: author, query: query} do
+      # This is the regression: trust-first SQL ordering across the wide 0.80
+      # band returned the trusted row at 0.81, burned a tiebreaker call on it,
+      # and never saw the 0.98 match.
+      near = pooled_row(game, author, "near", %{sim: 0.98, attrs: %{visibility: "private"}})
+      _far = pooled_row(game, author, "far", %{sim: 0.81, attrs: %{visibility: "community"}})
+
+      candidates =
+        Games.find_pool_candidates(game.id, query,
+          threshold: Games.pool_tiebreaker_distance_threshold()
+        )
+
+      # Nearest-first, both inside the widened band.
+      assert [{first, _}, {second, _}] = candidates
+      assert first.id == near.id
+      assert second.id != near.id
+
+      # Only the 0.98 row clears the direct-hit floor, so it wins outright —
+      # no tiebreaker call, and the trusted-but-distant row never competes.
+      floor = Games.pool_similarity_floor()
+      direct = Enum.filter(candidates, fn {_row, sim} -> sim >= floor end)
+      assert {row, :provisional} = Games.best_by_trust(direct)
+      assert row.id == near.id
+    end
+
+    test "trust still breaks ties among rows that all clear the direct-hit floor",
+         %{game: game, author: author, query: query} do
+      _prov = pooled_row(game, author, "prov", %{sim: 0.99, attrs: %{visibility: "private"}})
+
+      trusted =
+        pooled_row(game, author, "trusted", %{sim: 0.95, attrs: %{visibility: "community"}})
+
+      candidates = Games.find_pool_candidates(game.id, query)
+      assert {row, :trusted} = Games.best_by_trust(candidates)
+      assert row.id == trusted.id
+    end
+
+    test "stale rows are excluded even if still flagged pooled",
+         %{game: game, author: author, query: query} do
+      row = pooled_row(game, author, "staled", %{sim: 0.99, attrs: %{visibility: "community"}})
+
+      Repo.update_all(
+        from(q in RuleMaven.Games.QuestionLog, where: q.id == ^row.id),
+        set: [stale: true]
+      )
+
+      assert Games.find_pool_candidates(game.id, query) == []
+    end
+
+    test "respects the candidate limit", %{game: game, author: author, query: query} do
+      for i <- 1..4 do
+        pooled_row(game, author, "q#{i}", %{sim: 0.99, attrs: %{visibility: "private"}})
+      end
+
+      assert length(Games.find_pool_candidates(game.id, query, limit: 2)) == 2
+    end
+  end
 end

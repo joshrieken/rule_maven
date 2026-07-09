@@ -2404,76 +2404,101 @@ defmodule RuleMaven.Games do
     |> String.replace("_", "\\_")
   end
 
+  @default_pool_candidates 10
+
   @doc """
-  Finds a similar question in the cache pool using embedding similarity.
+  The `opts[:limit]` (default 10) pool rows nearest `question_embedding`,
+  ordered by cosine distance ascending, as `{question_log, similarity}` pairs.
+
+  Ordering is distance-only and paired with a LIMIT, which is the shape
+  pgvector needs to use the HNSW index on `question_embedding` — any leading
+  sort key (trust, recency) forces a full scan and sort of every pooled row
+  for the game. Trust is applied by the caller, over this candidate set.
 
   Eligibility is `pooled = true` (citation-gated, decoupled from `visibility`),
-  so citation-backed *private* answers serve the fast-path too. Results are
-  ordered trusted-first, then by trust_score, then cosine distance — so a
-  trusted (community / verified / above-floor) hit always wins over a provisional
-  one. Returns nil or `{question_log, tier}` where tier is `:trusted | :provisional`.
+  so citation-backed *private* answers serve the fast-path too.
 
   This is the ONLY surface that widens to private rows, and it serves answer
   text only (never the source row's question wording or author). Browse/list
   surfaces (`community_questions/2`, `faq_questions/2`) stay community-only.
 
-  Distance threshold derives from the `pool_similarity_threshold` setting
-  (cosine similarity, default 0.92); cosine distance = 1 - similarity.
-
   Scoped by `opts[:expansion_ids]` (default `[]`, i.e. base game only) —
   compared sorted ascending against the row's `expansion_ids`, so an answer
   only serves asks made against the exact same expansion set.
   """
-  def find_similar_question_in_pool(game_id, question_embedding, opts \\ []) do
+  def find_pool_candidates(game_id, question_embedding, opts \\ []) do
     threshold = Keyword.get(opts, :threshold, pool_distance_threshold())
+    limit = Keyword.get(opts, :limit, @default_pool_candidates)
     expansion_ids = opts |> Keyword.get(:expansion_ids, []) |> Enum.sort()
+    vec = Pgvector.new(question_embedding)
+
+    Repo.all(
+      from q in QuestionLog,
+        where: q.game_id == ^game_id,
+        # An answer only serves asks made against the SAME expansion set —
+        # expansions change rules, so a base-only answer can be wrong with
+        # an expansion in play (and vice versa).
+        where: q.expansion_ids == ^expansion_ids,
+        # Community rows are always eligible; private rows once citation-gated.
+        where: q.pooled == true or q.visibility == "community",
+        where: not is_nil(q.question_embedding),
+        where: q.refused == false,
+        # Skip answers flagged stale by a rulebook change until re-approved.
+        where: q.needs_review == false,
+        # Belt-and-braces: `invalidate_pool/1` already demotes `pooled` on every
+        # row it stales, but the serve path shouldn't depend on that coupling.
+        where: q.stale == false,
+        where:
+          fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec) <= ^threshold,
+        order_by: [asc: fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec)],
+        limit: ^limit,
+        select: {q, fragment("1.0 - cosine_distance(?, ?::vector)", q.question_embedding, ^vec)}
+    )
+  end
+
+  @doc """
+  Best pool match for `question_embedding`, or nil. Returns `{question_log,
+  tier}` where tier is `:trusted | :provisional`.
+
+  Among the candidates inside the (narrow) similarity threshold, a trusted
+  (community / verified / above-floor) row wins over a provisional one, then
+  higher trust_score, then nearer. Callers that widen the threshold past the
+  direct-hit floor must NOT use this — trust would outrank similarity across a
+  wide band and shadow a near-exact match (see `LLM.find_pool_hit/6`, which
+  ranks `find_pool_candidates/3` itself).
+
+  Distance threshold derives from the `pool_similarity_threshold` setting
+  (cosine similarity, default 0.92); cosine distance = 1 - similarity.
+  """
+  def find_similar_question_in_pool(game_id, question_embedding, opts \\ []) do
     floor = RuleMaven.Games.Trust.trusted_floor()
 
-    row =
-      Repo.one(
-        from q in QuestionLog,
-          where: q.game_id == ^game_id,
-          # An answer only serves asks made against the SAME expansion set —
-          # expansions change rules, so a base-only answer can be wrong with
-          # an expansion in play (and vice versa).
-          where: q.expansion_ids == ^expansion_ids,
-          # Community rows are always eligible; private rows once citation-gated.
-          where: q.pooled == true or q.visibility == "community",
-          where: not is_nil(q.question_embedding),
-          where: q.refused == false,
-          # Skip answers flagged stale by a rulebook change until re-approved.
-          where: q.needs_review == false,
-          where:
-            fragment(
-              "cosine_distance(?, ?::vector)",
-              q.question_embedding,
-              ^Pgvector.new(question_embedding)
-            ) <= ^threshold,
-          order_by: [
-            # Trusted rows first (community OR verified OR above trust floor)...
-            desc:
-              fragment(
-                "(? = 'community' OR ? OR ? >= ?)",
-                q.visibility,
-                q.verified,
-                q.trust_score,
-                ^floor
-              ),
-            desc: q.trust_score,
-            asc:
-              fragment(
-                "cosine_distance(?, ?::vector)",
-                q.question_embedding,
-                ^Pgvector.new(question_embedding)
-              )
-          ],
-          limit: 1
-      )
+    game_id
+    |> find_pool_candidates(question_embedding, opts)
+    |> best_by_trust(floor)
+  end
 
-    case row do
-      nil -> nil
-      q -> {q, pool_tier(q, floor)}
-    end
+  @doc """
+  Picks the winner from `find_pool_candidates/3` output: trusted-first, then
+  trust_score, then similarity. Returns `{row, tier}` or nil.
+
+  `pool_tier/2` runs a quorum query per row, so it is only ever called on the
+  rows this function actually compares — not on every candidate.
+  """
+  def best_by_trust(candidates, floor \\ nil)
+  def best_by_trust([], _floor), do: nil
+
+  def best_by_trust(candidates, floor) do
+    floor = floor || RuleMaven.Games.Trust.trusted_floor()
+
+    {row, _sim, tier} =
+      candidates
+      |> Enum.map(fn {row, sim} -> {row, sim, pool_tier(row, floor)} end)
+      |> Enum.max_by(fn {row, sim, tier} ->
+        {if(tier == :trusted, do: 1, else: 0), row.trust_score || 0.0, sim}
+      end)
+
+    {row, tier}
   end
 
   @doc """
@@ -2781,17 +2806,73 @@ defmodule RuleMaven.Games do
   Records that a cache/pool serve of `q` was reported "not my question" by the
   asker. The increment lands on the row the matcher actually surfaced — the
   pool source when `q` is a pool-hit copy, else `q` itself (same-user semantic
-  hits serve the matched row directly). Pure counter bump: never unpools,
-  hides, or edits the row — a mismatch means the MATCH was wrong for this
-  asker's question, not that the answer is wrong for its own.
+  hits serve the matched row directly).
+
+  A mismatch means the MATCH was wrong for this asker's question, not that the
+  answer is wrong for its own — so the answer is never edited or hidden. But a
+  row that keeps getting matched wrongly is a magnet: it sits near a cluster of
+  questions it doesn't answer, and every future asker in that cluster pays a
+  tiebreaker call and risks being mis-served. Past `pool_mismatch_limit`
+  (default 3) reports, it stops being offered cross-user:
+
+    * a private pooled row is demoted (`pooled: false`) — its own asker keeps it
+    * a community row is left pooled but flagged `needs_review`, because
+      un-pooling curated content silently would erase a moderator's decision
+
+  Returns `:ok`.
   """
+  @default_pool_mismatch_limit 3
+
   def record_pool_mismatch(%QuestionLog{} = q) do
     target_id = q.pool_source_id || q.id
 
-    from(x in QuestionLog, where: x.id == ^target_id)
-    |> Repo.update_all(inc: [mismatch_count: 1])
+    {_n, [target]} =
+      from(x in QuestionLog, where: x.id == ^target_id, select: x)
+      |> Repo.update_all(inc: [mismatch_count: 1])
+
+    maybe_demote_mismatched(target)
 
     :ok
+  end
+
+  defp maybe_demote_mismatched(%QuestionLog{} = q) do
+    # `update_all`'s RETURNING gives the post-increment row.
+    if (q.mismatch_count || 0) >= pool_mismatch_limit() do
+      cond do
+        q.visibility == "community" and not q.needs_review ->
+          Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
+            set: [needs_review: true]
+          )
+
+        q.visibility != "community" and q.pooled ->
+          Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id), set: [pooled: false])
+
+        true ->
+          :ok
+      end
+    end
+
+    :ok
+  end
+
+  @doc """
+  Mismatch reports tolerated before a row stops being served cross-user
+  (`pool_mismatch_limit` setting, default 3).
+  """
+  def pool_mismatch_limit do
+    case RuleMaven.Settings.get("pool_mismatch_limit") do
+      nil ->
+        @default_pool_mismatch_limit
+
+      "" ->
+        @default_pool_mismatch_limit
+
+      val ->
+        case Integer.parse(val) do
+          {n, _} when n > 0 -> n
+          _ -> @default_pool_mismatch_limit
+        end
+    end
   end
 
   @default_pool_similarity 0.92

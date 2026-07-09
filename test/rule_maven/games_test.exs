@@ -118,6 +118,7 @@ defmodule RuleMaven.GamesTest do
           name: "DelGame #{System.unique_integer([:positive])}",
           bgg_id: System.unique_integer([:positive])
         })
+
       {_doc, full} = doc_with_file(game)
       RuleMaven.Settings.put("cheat_content_#{game.id}", "stale")
 
@@ -586,7 +587,12 @@ defmodule RuleMaven.GamesTest do
         })
 
       assert {%{id: id}, _} =
-               Games.find_user_duplicate(game.id, user.id, "noncanon", "how many cards do i draw?")
+               Games.find_user_duplicate(
+                 game.id,
+                 user.id,
+                 "noncanon",
+                 "how many cards do i draw?"
+               )
 
       assert id == q.id
     end
@@ -665,13 +671,23 @@ defmodule RuleMaven.GamesTest do
 
     test "matches an own answer up to whitespace/case", %{game: game, user: user, prior: prior} do
       assert %{id: id} =
-               Games.find_user_answer_duplicate(game.id, user.id, "roll 3   DICE,\nthen move.", -1)
+               Games.find_user_answer_duplicate(
+                 game.id,
+                 user.id,
+                 "roll 3   DICE,\nthen move.",
+                 -1
+               )
 
       assert id == prior.id
     end
 
     test "excludes the provisional row itself", %{game: game, user: user, prior: prior} do
-      assert Games.find_user_answer_duplicate(game.id, user.id, "Roll 3 dice, then move.", prior.id) ==
+      assert Games.find_user_answer_duplicate(
+               game.id,
+               user.id,
+               "Roll 3 dice, then move.",
+               prior.id
+             ) ==
                nil
     end
 
@@ -791,9 +807,27 @@ defmodule RuleMaven.GamesTest do
     } do
       base = %{game_id: game.id, user_id: user.id, answer: "A", visibility: "private"}
 
-      Games.log_question(Map.merge(base, %{question: "q1", cleaned_question: "Refused Q", refused: true, pooled: true}))
-      Games.log_question(Map.merge(base, %{question: "q2", cleaned_question: "Needs Review Q", needs_review: true, pooled: true}))
-      Games.log_question(Map.merge(base, %{question: "q3", cleaned_question: "Never Pooled Q", pooled: false}))
+      Games.log_question(
+        Map.merge(base, %{
+          question: "q1",
+          cleaned_question: "Refused Q",
+          refused: true,
+          pooled: true
+        })
+      )
+
+      Games.log_question(
+        Map.merge(base, %{
+          question: "q2",
+          cleaned_question: "Needs Review Q",
+          needs_review: true,
+          pooled: true
+        })
+      )
+
+      Games.log_question(
+        Map.merge(base, %{question: "q3", cleaned_question: "Never Pooled Q", pooled: false})
+      )
 
       assert Games.list_canonical_questions(game.id) == []
     end
@@ -884,7 +918,9 @@ defmodule RuleMaven.GamesTest do
       {:ok, doc1} = Games.create_document(attrs)
       # Simulates a retried DownloadWorker attempt: same content, new pdf filename.
       {:ok, doc2} =
-        Games.create_document(Map.merge(attrs, %{label: "Rulebook (retry)", pdf_path: "uploads/x2.pdf"}))
+        Games.create_document(
+          Map.merge(attrs, %{label: "Rulebook (retry)", pdf_path: "uploads/x2.pdf"})
+        )
 
       assert doc2.id == doc1.id
       assert doc_count(game.id) == 1
@@ -975,6 +1011,63 @@ defmodule RuleMaven.GamesTest do
 
       assert :ok = Games.record_pool_mismatch(q)
       assert Repo.get!(QuestionLog, q.id).mismatch_count == 1
+    end
+
+    test "a private row that keeps being mis-matched is demoted out of the pool" do
+      {:ok, game} = Games.create_game(%{name: "Mismatch #{System.unique_integer([:positive])}"})
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "magnet q",
+          answer: "a",
+          visibility: "private",
+          pooled: true
+        })
+
+      for _ <- 1..(Games.pool_mismatch_limit() - 1), do: Games.record_pool_mismatch(q)
+      assert Repo.get!(QuestionLog, q.id).pooled, "must survive below the limit"
+
+      Games.record_pool_mismatch(q)
+      refute Repo.get!(QuestionLog, q.id).pooled
+    end
+
+    test "a community row is flagged for review rather than silently un-pooled" do
+      {:ok, game} = Games.create_game(%{name: "Mismatch #{System.unique_integer([:positive])}"})
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "curated q",
+          answer: "a",
+          visibility: "community",
+          pooled: true
+        })
+
+      for _ <- 1..Games.pool_mismatch_limit(), do: Games.record_pool_mismatch(q)
+
+      reloaded = Repo.get!(QuestionLog, q.id)
+      assert reloaded.needs_review, "moderator decides; we don't un-pool curated content"
+      assert reloaded.pooled
+    end
+
+    test "the limit is admin-tunable" do
+      RuleMaven.Settings.put("pool_mismatch_limit", "1")
+      on_exit(fn -> RuleMaven.Settings.delete("pool_mismatch_limit") end)
+
+      {:ok, game} = Games.create_game(%{name: "Mismatch #{System.unique_integer([:positive])}"})
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "one strike",
+          answer: "a",
+          visibility: "private",
+          pooled: true
+        })
+
+      Games.record_pool_mismatch(q)
+      refute Repo.get!(QuestionLog, q.id).pooled
     end
   end
 end
