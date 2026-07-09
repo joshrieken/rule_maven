@@ -186,6 +186,11 @@ defmodule RuleMavenWeb.Feature.SubBarVisualTest do
       g = session |> visit(path) |> probe(@probe)
 
       assert g["pillVisible"], "#{name} @1280: pills should be visible"
+
+      assert_in_delta g["width"], g["mcClientWidth"], 1.0,
+                      "#{name} @1280: bar is not full-bleed (#{g["width"]} vs scrollport #{g["mcClientWidth"]})"
+
+      assert_in_delta g["left"], 0.0, 1.0, "#{name} @1280: bar not flush left (left=#{g["left"]})"
     end
   end
 end

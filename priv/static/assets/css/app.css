@@ -1678,6 +1678,23 @@ button.motion-toggle:hover {
   margin: 0 auto;
 }
 
+/* .game-bar needs to span the true scrollport (.main-content), but its
+   containing block is .container, which caps at 56rem and centers. Below
+   ~59rem viewport .container already fills .main-content's width so the bar
+   looks full-bleed by coincidence; above it, the bar renders centered with
+   background showing on both sides. Let .container get out of the way on the
+   pages that carry a bar so `.main-content .game-bar`'s negative margin
+   below actually reaches .main-content's edges. Every other child of
+   .container on those pages must supply its own max-width/margin:auto to
+   stay centered now that .container itself no longer constrains width —
+   see the inline max-width wrappers in community.ex/prepare.ex/review.ex and
+   `.game-form`'s rule below for form.ex. Show is unaffected: its bar lives
+   inside .chat-layout, which is position:fixed and already spans the
+   viewport independent of .container. */
+.container:has(.game-bar) {
+  max-width: none;
+}
+
 /* ===== Card ===== */
 .card {
   background: var(--bg-surface);
@@ -2840,12 +2857,29 @@ textarea {
    rendered page in its own `data-phx-main` container div, so on the four
    hoisted pages (Community, Prepare, Review, Edit) the bar actually sits
    .main-content > .container > div[data-phx-main] > .game-bar — three levels
-   down, not two. The Show page's bar is a descendant too (nested one level
-   deeper still, inside the fixed .chat-layout), so it is pulled back out
-   below: .chat-layout is `position: fixed; left: 0; right: 0`, already
-   spanning the viewport on its own, and shifting it would misalign it. */
+   down, not two. This margin alone is not sufficient, though: .container
+   (56rem, centered) is the bar's containing block, not .main-content, so
+   without the `.container:has(.game-bar) { max-width: none }` rule above
+   this negative margin just widens the bar within a still-centered,
+   still-capped container — full-bleed only by coincidence below ~59rem
+   viewport width. With that cap removed, .container fills .main-content and
+   this margin correctly cancels .main-content's own padding. The Show
+   page's bar is a descendant too (nested one level deeper still, inside the
+   fixed .chat-layout), so it is pulled back out below: .chat-layout is
+   `position: fixed; left: 0; right: 0`, already spanning the viewport on its
+   own (immune to the .container max-width either way), and shifting it
+   would misalign it. */
 .main-content .game-bar {
   margin-inline: -1.5rem;
+}
+
+/* form.ex's Edit page relies on .container's 56rem cap to stay centered,
+   since .game-form itself carries no width rule. Removing that cap above
+   (so the game-bar on this page can go full-bleed) would otherwise stretch
+   the whole form to the window width, so .game-form needs its own cap. */
+.game-form {
+  max-width: 56rem;
+  margin: 0 auto;
 }
 
 /* Inside the fixed chat shell the bar does not scroll, so sticky is inert —
