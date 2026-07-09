@@ -14,6 +14,7 @@ defmodule RuleMavenWeb.GameLive.ToolRegistry do
     %{id: :checklist, emoji: "🧩", label: "Setup checklist", group: :play},
     %{id: :scorepad, emoji: "🏆", label: "Score pad", group: :play},
     %{id: :timer, emoji: "⏱️", label: "Turn timer", group: :play},
+    %{id: :expansions, emoji: "📦", label: "Expansions", group: :play},
     # Learn — understand this game
     %{id: :teach, emoji: "⚡", label: "Teach it in 60s", group: :learn},
     %{id: :quiz, emoji: "🎓", label: "Rules quiz", group: :learn},

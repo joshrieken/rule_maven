@@ -284,7 +284,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         has_cheatsheet: ToolHost.has_cheatsheet?(sources),
         expansions: expansions,
         included_expansions: included_expansions,
-        expansion_deltas: load_expansion_deltas(expansions, included_expansions),
+        expansion_deltas: ToolHost.load_expansion_deltas(expansions, included_expansions),
         expansions_seeded: true,
         source_count: length(sources),
         question: "",
@@ -622,30 +622,6 @@ defmodule RuleMavenWeb.GameLive.Show do
   @impl true
   def handle_event("tour_" <> _ = event, params, socket),
     do: RuleMavenWeb.Tours.handle_event(event, params, socket)
-
-  def handle_event("toggle_expansion", %{"id" => id_str}, socket) do
-    {id, _} = Integer.parse(id_str)
-    included = socket.assigns.included_expansions
-
-    included =
-      if included[id] do
-        Map.delete(included, id)
-      else
-        Map.put(included, id, true)
-      end
-
-    Games.put_expansion_selection(
-      socket.assigns.current_user.id,
-      socket.assigns.game.id,
-      Map.keys(included)
-    )
-
-    {:noreply,
-     assign(socket,
-       included_expansions: included,
-       expansion_deltas: load_expansion_deltas(socket.assigns.expansions, included)
-     )}
-  end
 
   @impl true
   def handle_event("toggle_sidebar", _params, socket) do
@@ -1988,7 +1964,10 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:noreply,
      assign(socket,
        expansion_deltas:
-         load_expansion_deltas(socket.assigns.expansions, socket.assigns.included_expansions)
+         ToolHost.load_expansion_deltas(
+           socket.assigns.expansions,
+           socket.assigns.included_expansions
+         )
      )}
   end
 
@@ -3733,26 +3712,6 @@ defmodule RuleMavenWeb.GameLive.Show do
         style="flex-shrink:0;padding:0.35rem 1rem 0.5rem 1rem;border-top:1px solid var(--border);background:var(--bg-surface);position:relative;z-index:1"
       >
         <div style="max-width:48rem;margin:0 auto;width:100%">
-          <%= if length(@expansions) > 0 do %>
-            <div
-              data-tour="expansions"
-              style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.35rem"
-            >
-              <span style="font-size:0.65rem;color:var(--text-muted);font-weight:600;align-self:center">Include:</span>
-              <%= for exp <- @expansions do %>
-                <label style={"cursor:pointer;font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:0.3rem;#{if Map.get(@included_expansions, exp.id), do: "background:var(--accent);color:var(--accent-text,#fff)", else: "background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border)"}"}>
-                  <input
-                    type="checkbox"
-                    checked={Map.get(@included_expansions, exp.id)}
-                    phx-click="toggle_expansion"
-                    phx-value-id={exp.id}
-                    style="display:none"
-                  />
-                  {exp.name}
-                </label>
-              <% end %>
-            </div>
-          <% end %>
           <div
             :if={@asks_disabled}
             style="margin-bottom:0.5rem;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:0.5rem;background:color-mix(in srgb,var(--danger,#c0392b) 8%,transparent);color:var(--text);font-size:0.78rem"
@@ -4449,19 +4408,6 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp player_stat(%{min_players: nil, max_players: n}), do: {"👥", "#{n} players"}
   defp player_stat(%{min_players: n, max_players: nil}), do: {"👥", "#{n}+ players"}
   defp player_stat(%{min_players: min, max_players: max}), do: {"👥", "#{min}–#{max} players"}
-
-  # Deltas for the currently-included expansions that have one stored, in
-  # expansion-name order (the `expansions` assign is already name-sorted).
-  defp load_expansion_deltas(expansions, included) do
-    expansions
-    |> Enum.filter(&Map.get(included, &1.id))
-    |> Enum.flat_map(fn exp ->
-      case RuleMaven.ExpansionDelta.stored(exp.id) do
-        nil -> []
-        delta -> [{exp, delta}]
-      end
-    end)
-  end
 
   # A message's citation list, preferring the new multi-citation field and
   # falling back to the legacy scalar fields for rows saved before the
