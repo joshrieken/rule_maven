@@ -62,7 +62,13 @@ window.addEventListener("phx:vote_thanks", showVoteThanks);
     e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    // Clicking a sibling menu's summary should swap menus, not just close this
+    // one — the swallowed click never reaches the summary, so toggle by hand.
+    const sum = e.target.closest && e.target.closest("details.card-menu > summary");
+    const next = sum && sum.parentElement;
+    const prev = owner;
     owner.open = false; // fires toggle -> owner = null
+    if (next && next !== prev) next.open = true; // fires toggle -> owner = next
   }
   // Capture on window: runs before the target and before LiveView's listeners.
   window.addEventListener("click", swallowOutside, true);
