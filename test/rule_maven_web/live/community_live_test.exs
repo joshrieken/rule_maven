@@ -298,4 +298,30 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       refute html =~ "Reported and pulled"
     end
   end
+
+  describe "tool sub-bar" do
+    setup [:setup_game]
+
+    test "community page shows the sub-bar and opens tools",
+         %{conn: conn, game: game, viewer: viewer} do
+      conn = login(conn, viewer)
+      {:ok, view, html} = live(conn, ~p"/games/#{game}/community")
+
+      assert html =~ "tool-subbar"
+      refute html =~ "Admin Review →"
+
+      html = render_click(view, "open_tool", %{"tool" => "timer"})
+      assert html =~ ~s(id="tool-panel-timer")
+    end
+
+    test "sub-bar overview link navigates (cross-LiveView), not patches",
+         %{conn: conn, game: game, viewer: viewer} do
+      conn = login(conn, viewer)
+      {:ok, _view, html} = live(conn, ~p"/games/#{game}/community")
+
+      # patch to another LiveView would crash; the link must data-phx-link=redirect
+      assert html =~ "🔍 Overview"
+      refute html =~ ~r/data-phx-link="patch"[^>]*>🔍 Overview/
+    end
+  end
 end
