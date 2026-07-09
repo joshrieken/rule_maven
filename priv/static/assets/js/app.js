@@ -202,12 +202,31 @@ Hooks.FocusInput = {
   }
 };
 
-// Static `autofocus` attributes (login form, game search) fire during parse,
-// before any hook runs. This script is deferred, so undo them right here.
+// Static `autofocus` attributes (game search) fire during parse, before any
+// hook runs. This script is deferred, so undo them right here. The scroll has
+// to be reset on .main-content, not window: it is the overflow-y:auto scroll
+// container, so it — not the document — is what autofocus scrolled. Mobile
+// browsers can also queue that scroll asynchronously, landing after this blur,
+// so re-assert the top once layout has settled.
+function scrollPageTop() {
+  window.scrollTo(0, 0);
+  const main = document.querySelector(".main-content");
+  if (main) main.scrollTop = 0;
+}
+
 if (coarsePointer) {
   const el = document.activeElement;
   if (el && el.matches("input, textarea, select")) el.blur();
-  window.scrollTo(0, 0);
+  scrollPageTop();
+  window.addEventListener("load", scrollPageTop, { once: true });
+}
+
+// Dead-rendered pages (login, password reset) can't use a LiveView hook, and a
+// static `autofocus` scrolls mobile past the stacked pitch column to the form.
+// Opt into focus from JS instead, so touch devices never scroll at all.
+if (!coarsePointer) {
+  const target = document.querySelector("[data-autofocus-desktop]");
+  if (target) target.focus({ preventScroll: true });
 }
 
 Hooks.KeyboardSubmit = {

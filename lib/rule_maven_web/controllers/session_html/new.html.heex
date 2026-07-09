@@ -1,4 +1,4 @@
-<div style="max-width:60rem;margin:1.25rem auto;padding:0 1rem">
+<div class="login-page">
   <%!-- Compact header: logo mark inline with the title so the whole page fits
         a laptop viewport without scrolling. --%>
   <div style="text-align:center;margin-bottom:1.25rem">
@@ -13,21 +13,21 @@
     </p>
   </div>
 
-  <%!-- Two columns on wide screens (pitch left, login right), stacking to one
-        column on narrow ones. flex-wrap + a ~19rem basis does the responsive
-        switch without a media query, which inline styles can't express. --%>
-  <div style="display:flex;flex-wrap:wrap;gap:2rem;justify-content:center;align-items:flex-start">
-    <%!-- Selling points for logged-out visitors: this page is the app's front
-          door, so pitch the concrete features here. --%>
-    <div class="text-left" style="flex:1 1 19rem;max-width:26rem">
-      <p style="color:var(--text-secondary);margin:0 0 1rem">
-        Ask in plain English, get a straight answer with the exact rulebook passages it came from.
-        Keep the game moving.
-      </p>
-      <%!-- Selling points grouped under small section headings so a skimming
-            visitor can find the theme they care about (speed, trust, fit,
-            extras, community) instead of parsing one flat list. --%>
-      <div style="display:flex;flex-direction:column;gap:0.45rem;font-size:0.85rem;color:var(--text-secondary)">
+  <%!-- Selling points for logged-out visitors: this page is the app's front
+        door, so pitch the concrete features here. The pitch scrolls under the
+        sticky login bar below, on every viewport. --%>
+  <div class="text-left">
+    <p style="color:var(--text-secondary);margin:0 0 1rem">
+      Ask in plain English, get a straight answer with the exact rulebook passages it came from.
+      Keep the game moving.
+    </p>
+    <%!-- Selling points grouped under small section headings so a skimming
+          visitor can find the theme they care about (speed, trust, fit,
+          extras, community) instead of parsing one flat list. Laid out as CSS
+          columns: one on a phone, two or three as the viewport widens, with no
+          media query. --%>
+    <div class="login-pitch">
+      <div class="login-pitch-group">
         <div class="login-pitch-heading">Fast at the table</div>
         <div>
           ⚡ <strong>Instant rulings</strong>
@@ -40,7 +40,9 @@
           📱 <strong>Lives on your phone</strong>
           — installs to your home screen like an app; no laptop at the table.
         </div>
+      </div>
 
+      <div class="login-pitch-group">
         <div class="login-pitch-heading">Answers you can check</div>
         <div>
           ✅ <strong>Clear verdicts</strong>
@@ -54,7 +56,9 @@
           📊 <strong>Confidence up front</strong>
           — each answer shows how strongly the rulebook backs it, so you know when to double-check.
         </div>
+      </div>
 
+      <div class="login-pitch-group">
         <div class="login-pitch-heading">Tuned to your table</div>
         <div>
           🧩 <strong>Expansion-aware</strong>
@@ -68,7 +72,9 @@
           🎭 <strong>Answer personas</strong>
           — get your rulings delivered straight, or in a voice with a little more character.
         </div>
+      </div>
 
+      <div class="login-pitch-group">
         <div class="login-pitch-heading">More than Q&amp;A</div>
         <div>
           📋 <strong>Cheat sheets</strong>
@@ -81,7 +87,9 @@
         <div>
           🎲 <strong>Random rule card</strong> — surface a rule you've probably been playing wrong.
         </div>
+      </div>
 
+      <div class="login-pitch-group">
         <div class="login-pitch-heading">Powered by players</div>
         <div>
           🏆 <strong>Community FAQ</strong>
@@ -90,63 +98,49 @@
       </div>
     </div>
 
-    <div class="card text-left" style="flex:1 1 19rem;max-width:24rem">
-      <h2 style="font-size:1.1rem;font-weight:600;margin-bottom:1rem">Log In</h2>
-
-      <.form for={%{}} action={~p"/login"} as={:session} class="space-y-4">
-        <div>
-          <label for="session_username" class="block text-sm font-medium mb-1">Username</label>
-          <input
-            type="text"
-            id="session_username"
-            name="session[username]"
-            value={@username}
-            class="w-full border rounded px-3 py-2"
-            autofocus
-            required
-          />
-        </div>
-
-        <div>
-          <label for="session_password" class="block text-sm font-medium mb-1">Password</label>
-          <input
-            type="password"
-            id="session_password"
-            name="session[password]"
-            class="w-full border rounded px-3 py-2"
-            required
-          />
-        </div>
-
-        <div :if={@error} class="alert alert-error">{@error}</div>
-
-        <button
-          type="submit"
-          class="btn-primary w-full"
-        >
-          Log In
-        </button>
-      </.form>
-
-      <div style="margin-top:1rem;text-align:center">
-        <a
-          href="/reset-password"
-          style="color:var(--text-muted);font-size:0.78rem;text-decoration:none"
-        >
-          Forgot your password?
-        </a>
-      </div>
-      <div style="margin-top:0.5rem;text-align:center">
-        <a href="/register" style="color:var(--text-muted);font-size:0.78rem;text-decoration:none">
-          Don't have an account? Register with an invite code
-        </a>
-      </div>
-    </div>
-  </div>
-
-  <div style="text-align:center">
-    <p style="color:var(--text-muted);font-size:0.72rem;margin-top:1rem">
+    <p style="color:var(--text-muted);font-size:0.72rem;margin:1rem 0 0;text-align:center">
       🤖 AI-powered with strict guardrails: every answer is grounded in the actual rulebook text and cites its sources. AI can still be wrong — double-check anything important.
     </p>
+  </div>
+
+  <%!-- Compact login bar, pinned to the bottom of the viewport while the pitch
+        above scrolls past it. `position: sticky` (not fixed) keeps it in flow,
+        so it can't overlap the pitch's last line and needs no viewport math. --%>
+  <div class="login-bar">
+    <.form for={%{}} action={~p"/login"} as={:session} class="login-bar-form">
+      <div class="login-bar-field">
+        <label for="session_username" class="login-bar-label">Username</label>
+        <input
+          type="text"
+          id="session_username"
+          name="session[username]"
+          value={@username}
+          class="w-full border rounded px-3 py-2"
+          data-autofocus-desktop
+          required
+        />
+      </div>
+
+      <div class="login-bar-field">
+        <label for="session_password" class="login-bar-label">Password</label>
+        <input
+          type="password"
+          id="session_password"
+          name="session[password]"
+          class="w-full border rounded px-3 py-2"
+          required
+        />
+      </div>
+
+      <button type="submit" class="btn-primary login-bar-submit">Log In</button>
+    </.form>
+
+    <div :if={@error} class="alert alert-error" style="margin:0.6rem 0 0">{@error}</div>
+
+    <div class="login-bar-links">
+      <a href="/reset-password">Forgot your password?</a>
+      <span aria-hidden="true">·</span>
+      <a href="/register">Register with an invite code</a>
+    </div>
   </div>
 </div>

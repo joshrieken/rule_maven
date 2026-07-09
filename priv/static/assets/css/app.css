@@ -1231,6 +1231,109 @@ a:not([class]):hover {
   margin-top: 0;
 }
 
+.login-page {
+  max-width: 60rem;
+  margin: 1.25rem auto 0;
+  padding: 0 1rem;
+}
+
+/* .main-content is the scroll container and reserves 4rem of bottom padding for
+   ordinary pages. Here that padding would strand the sticky login bar above the
+   viewport's bottom edge once the pitch is fully scrolled, so drop it. */
+.main-content:has(.login-page) {
+  padding-bottom: 0;
+}
+
+/* The pitch flows in CSS columns rather than a flex row: one column on a phone,
+   two or three as the viewport widens, with no media query and no explicit
+   column assignment per group. */
+.login-pitch {
+  column-width: 17rem;
+  column-gap: 2rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.login-pitch-group {
+  break-inside: avoid;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+/* Login bar pinned to the bottom of the viewport while the pitch scrolls
+   behind it. Sticky (not fixed) so it stays in flow: it can never cover the
+   pitch's final lines, and it needs no viewport-height math. The negative
+   inline margins let its background bleed to the page gutters that the
+   wrapper's horizontal padding would otherwise leave uncovered. */
+.login-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: 1rem -1rem 0;
+  padding: 0.7rem 1rem calc(0.7rem + env(safe-area-inset-bottom, 0px));
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -6px 20px -12px rgb(0 0 0 / 45%);
+}
+
+/* Fields sit on one line where there's room and wrap to their own rows on a
+   phone; the button spans the full width once wrapping starts. */
+.login-bar-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+/* 8rem basis for the fields against 7rem for the button: the three fit one row
+   on a laptop, and on a phone the button is the first to wrap — leaving the two
+   fields side by side rather than stacking all three. */
+.login-bar-field {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+
+/* The site's input styling only reaches type=text, so a bare password field
+   falls back to the UA's 13.3px and renders shorter than its neighbour. Pin
+   both: 16px also stops iOS Safari zooming the page on focus. */
+.login-bar input {
+  font-size: 1rem;
+  height: 2.75rem;
+}
+
+.login-bar-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.15rem;
+}
+
+.login-bar-submit {
+  flex: 1 1 7rem;
+}
+
+.login-bar-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.login-bar-links a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.login-bar-links a:hover {
+  text-decoration: underline;
+}
+
 .header-tagline {
   font-family: var(--font-body);
   font-size: 0.75rem;
