@@ -4,7 +4,14 @@ defmodule RuleMavenWeb.GameLive.Show do
   alias RuleMaven.{Games, CheatSheet}
   alias RuleMaven.Games.QuestionLog
   alias RuleMavenWeb.ReportModal
-  alias RuleMavenWeb.GameLive.{SubBar, ToolPanel, ToolRegistry}
+  alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
+
+  # Events delegated to the shared ToolHost; the house-rule subset also
+  # recomputes this page's answer overlay after the shared handler runs.
+  @tool_events RuleMavenWeb.GameLive.ToolHost.events()
+  @hr_overlay_events ~w(add_house_rule edit_house_rule delete_house_rule
+                        toggle_house_rule_visibility recheck_house_rule
+                        block_house_rule)
   alias Oban
 
   import RuleMavenWeb.GameLive.ToolHelpers
@@ -260,9 +267,6 @@ defmodule RuleMavenWeb.GameLive.Show do
     all_thread_ids = Enum.map(threads, & &1.id)
     question_categories = Games.categories_for_questions(all_thread_ids ++ cq_ids)
 
-    dyk_facts = load_did_you_know(game, sources, connected?(socket))
-    {setup_status, setup_checklist} = load_setup(game, sources)
-
     # ?t navigation that lands on a different thread than the one on screen
     # (browser back/forward, a pasted link). Event handlers that assign the new
     # thread before patching push scroll_top themselves, so this never doubles.
@@ -293,33 +297,12 @@ defmodule RuleMavenWeb.GameLive.Show do
         favorited_answer_ids: favorited_answer_ids,
         flagged_ids: Games.user_flagged_ids(socket.assigns.current_user.id),
         asks_disabled: RuleMaven.Settings.asks_disabled?(),
-        question_categories: question_categories,
-        dyk_facts: dyk_facts,
-        # Seed the pick with the per-load dyk_seed so the dead render and the
-        # connected mount agree (no flicker, no layout shift) while a refresh
-        # re-rolls it. Manual shuffle + new answers still randomize via fact_card/1.
-        rule_card: dyk_card_for(dyk_facts, socket.assigns.dyk_seed),
-        setup_status: setup_status,
-        setup_checklist: setup_checklist,
-        fp_selectors: load_first_player(game),
-        fp_pick: nil,
-        common_mistakes: load_common_mistakes(game),
-        teach_pitch: load_teach_pitch(game),
-        score_categories: load_score_categories(game),
-        turn_flow: load_turn_flow(game),
-        turn_phase: 0,
-        turn_open: false,
-        quiz: load_quiz(game),
-        quiz_idx: 0,
-        quiz_choice: nil,
-        quiz_score: {0, 0},
-        tool_states: %{},
-        tool_order: [],
-        single_panel?: socket.assigns.coarse_pointer,
-        house_rules: load_own_house_rules(game, socket.assigns.current_user),
-        community_house_rules:
-          RuleMaven.HouseRules.community_for_game(game.id, socket.assigns.current_user.id)
+        question_categories: question_categories
       )
+
+    # Tool data + window state load once per mount (seeded_before gates first
+    # vs later handle_params) — a thread patch must not reset open windows.
+    socket = if seeded_before, do: socket, else: ToolHost.mount_tools(socket, game)
 
     # Restyle the just-loaded thread's answers to the current voice (switching
     # threads, ?t navigation, reload). No-op on first mount where the default is
@@ -672,251 +655,20 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:noreply, assign(socket, show_refused: !socket.assigns.show_refused)}
   end
 
-  def handle_event("shuffle_rule", _params, socket) do
-    {:noreply, assign(socket, rule_card: fact_card(socket.assigns.dyk_facts))}
-  end
-
-  # Re-roll until it lands on something new, so mashing the button never
-  # repeats (with 2+ selectors).
-  def handle_event("roll_first_player", _params, socket) do
-    pick =
-      socket.assigns.fp_selectors
-      |> Enum.reject(&(&1 == socket.assigns.fp_pick))
-      |> case do
-        [] -> socket.assigns.fp_pick
-        rest -> Enum.random(rest)
-      end
-
-    {:noreply, assign(socket, fp_pick: pick)}
-  end
-
-  # First tap on a choice locks it in and scores it; later taps are ignored.
-  def handle_event("quiz_answer", %{"choice" => choice_str}, socket) do
-    with nil <- socket.assigns.quiz_choice,
-         {choice, ""} <- Integer.parse(choice_str),
-         %{"answer" => answer, "choices" => choices} <-
-           Enum.at(socket.assigns.quiz, socket.assigns.quiz_idx),
-         true <- choice >= 0 and choice < length(choices) do
-      {right, asked} = socket.assigns.quiz_score
-      right = if choice == answer, do: right + 1, else: right
-
-      {:noreply, assign(socket, quiz_choice: choice, quiz_score: {right, asked + 1})}
-    else
-      _ -> {:noreply, socket}
-    end
-  end
-
-  def handle_event("quiz_next", _params, socket) do
-    {:noreply, assign(socket, quiz_idx: socket.assigns.quiz_idx + 1, quiz_choice: nil)}
-  end
-
-  def handle_event("quiz_restart", _params, socket) do
-    {:noreply,
-     assign(socket,
-       quiz: Enum.shuffle(socket.assigns.quiz),
-       quiz_idx: 0,
-       quiz_choice: nil,
-       quiz_score: {0, 0}
-     )}
-  end
-
-  def handle_event("open_tool", %{"tool" => tool}, socket) do
-    {:noreply, update_tool_state(socket, tool, :expanded)}
-  end
-
-  def handle_event("expand_tool", %{"tool" => tool}, socket) do
-    {:noreply, update_tool_state(socket, tool, :expanded)}
-  end
-
-  def handle_event("minimize_tool", %{"tool" => tool}, socket) do
-    {:noreply, update_tool_state(socket, tool, :minimized)}
-  end
-
-  def handle_event("close_tool", %{"tool" => tool}, socket) do
-    id = safe_tool_id(tool)
-
-    states =
-      if id, do: Map.delete(socket.assigns.tool_states, id), else: socket.assigns.tool_states
-
-    order = Enum.filter(socket.assigns.tool_order, &(states[&1] == :expanded))
-    {:noreply, assign(socket, tool_states: states, tool_order: order)}
-  end
-
-  # Click-to-front. The client raises z-index immediately (no round-trip), but
-  # the server keeps the order so a re-render doesn't resurrect the old stack.
-  def handle_event("focus_tool", %{"tool" => tool}, socket) do
-    case safe_tool_id(tool) do
-      nil ->
-        {:noreply, socket}
-
-      id ->
-        if socket.assigns.tool_states[id] == :expanded do
-          {:noreply, assign(socket, :tool_order, bump_order(socket.assigns.tool_order, id, :expanded))}
-        else
-          {:noreply, socket}
-        end
-    end
-  end
-
-  # Turn wizard: step through the cached turn phases (pure client-agnostic
-  # navigation over already-loaded data — no LLM at play time). Clamp to bounds.
-  # `turn_open` is server-controlled so the LiveView re-render on nav doesn't
-  # strip the browser-set `open` attr off the <details> (which collapsed it).
-  def handle_event("turn_toggle", _params, socket) do
-    {:noreply, assign(socket, turn_open: !socket.assigns.turn_open)}
-  end
-
-  def handle_event("turn_next", _params, socket) do
-    last = max(length(socket.assigns.turn_flow) - 1, 0)
-
-    {:noreply,
-     assign(socket, turn_phase: min(socket.assigns.turn_phase + 1, last), turn_open: true)}
-  end
-
-  def handle_event("turn_prev", _params, socket) do
-    {:noreply, assign(socket, turn_phase: max(socket.assigns.turn_phase - 1, 0), turn_open: true)}
-  end
-
-  def handle_event("turn_restart", _params, socket) do
-    {:noreply, assign(socket, turn_phase: 0, turn_open: true)}
-  end
-
-  def handle_event("toggle_step", %{"key" => key}, socket) do
-    done = socket.assigns.checklist_done
-
-    done =
-      if MapSet.member?(done, key),
-        do: MapSet.delete(done, key),
-        else: MapSet.put(done, key)
-
-    {:noreply, socket |> assign(checklist_done: done) |> push_checklist_save(done)}
-  end
-
-  def handle_event("reset_checklist", _params, socket) do
-    done = MapSet.new()
-    {:noreply, socket |> assign(checklist_done: done) |> push_checklist_save(done)}
-  end
-
-  # Restore checked items from the browser's localStorage (pushed by the
-  # ChecklistStore hook on connect). Persists per-browser, not per-account.
-  def handle_event("checklist_restore", %{"keys" => keys}, socket) when is_list(keys) do
-    {:noreply, assign(socket, checklist_done: MapSet.new(keys))}
-  end
-
-  def handle_event("checklist_restore", _params, socket), do: {:noreply, socket}
-
-  # House rules card -----------------------------------------------------
-
-  def handle_event("toggle_house_rules_card", _params, socket) do
-    {:noreply, assign(socket, hr_card_open: !socket.assigns.hr_card_open)}
-  end
-
-  def handle_event("toggle_house_rule_form", _params, socket) do
-    {:noreply, assign(socket, hr_form_open: !socket.assigns.hr_form_open)}
-  end
-
-  def handle_event("add_house_rule", %{"house_rule" => params}, socket) do
-    %{game: game, current_user: user} = socket.assigns
-
-    case RuleMaven.HouseRules.submit(user, game.id, params) do
-      {:ok, _hr} ->
-        {:noreply,
-         socket
-         |> assign(house_rules: load_own_house_rules(game, user), hr_form_open: false)
-         |> put_flash(:info, "House rule added — checking it against the rulebook…")}
-
-      {:error, :injection} ->
-        {:noreply, put_flash(socket, :error, "That doesn't look like a house rule.")}
-
-      {:error, %Ecto.Changeset{} = cs} ->
-        {:noreply, put_flash(socket, :error, changeset_error_text(cs))}
-
-      {:error, msg} when is_binary(msg) ->
-        {:noreply, put_flash(socket, :error, msg)}
-    end
-  end
-
-  def handle_event("start_edit_house_rule", %{"id" => id}, socket) do
-    id = to_integer(id)
-    hr = get_house_rule(id)
-
-    if hr && owner?(socket, hr) do
-      {:noreply, assign(socket, hr_editing_id: id)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_event("cancel_edit_house_rule", _params, socket) do
-    {:noreply, assign(socket, hr_editing_id: nil)}
-  end
-
-  def handle_event("edit_house_rule", %{"id" => id, "house_rule" => params}, socket) do
-    with %{} = hr <- get_house_rule(id),
-         true <- owner?(socket, hr),
-         {:ok, _} <-
-           RuleMaven.HouseRules.update_and_recheck(socket.assigns.current_user, hr, params) do
-      {:noreply, socket |> assign(hr_editing_id: nil) |> refresh_house_rules()}
-    else
-      {:error, msg} when is_binary(msg) ->
-        {:noreply, put_flash(socket, :error, msg)}
-
-      {:error, :injection} ->
-        {:noreply, put_flash(socket, :error, "That doesn't look like a house rule.")}
-
-      {:error, %Ecto.Changeset{}} ->
-        {:noreply, put_flash(socket, :error, "Couldn't save that house rule.")}
-
-      _ ->
-        {:noreply, socket}
-    end
-  end
-
-  def handle_event("delete_house_rule", %{"id" => id}, socket) do
-    with %{} = hr <- get_house_rule(id),
-         true <- owner?(socket, hr) do
-      {:ok, _} = RuleMaven.HouseRules.delete(hr)
-    end
-
-    {:noreply, refresh_house_rules(socket)}
-  end
-
-  def handle_event("toggle_house_rule_visibility", %{"id" => id}, socket) do
-    with %{} = hr <- get_house_rule(id),
-         true <- owner?(socket, hr) do
-      new_vis = if hr.visibility == "community", do: "private", else: "community"
-      {:ok, _} = RuleMaven.HouseRules.update(hr, %{"visibility" => new_vis})
-    end
-
-    {:noreply, refresh_house_rules(socket)}
-  end
-
-  def handle_event("recheck_house_rule", %{"id" => id}, socket) do
-    with %{} = hr <- get_house_rule(id),
-         true <- owner?(socket, hr),
-         {:ok, _} <- RuleMaven.HouseRules.resubmit_check(socket.assigns.current_user, hr) do
-      {:noreply, refresh_house_rules(socket)}
-    else
-      {:error, msg} when is_binary(msg) -> {:noreply, put_flash(socket, :error, msg)}
-      _ -> {:noreply, socket}
-    end
-  end
-
-  def handle_event("block_house_rule", %{"id" => id}, socket) do
-    if RuleMaven.Users.can?(socket.assigns.current_user, :admin) do
-      if hr = get_house_rule(id) do
-        {:ok, _} = RuleMaven.HouseRules.set_blocked(hr, !hr.blocked)
-      end
-    end
-
-    {:noreply, refresh_house_rules(socket)}
+  # Table tools (window state, quiz, turn wizard, checklist, house rules) are
+  # shared with the Community page via ToolHost — one delegating clause here.
+  # House-rule changes additionally refresh the Show-only answer overlay.
+  def handle_event(event, params, socket) when event in @tool_events do
+    {:noreply, socket} = ToolHost.handle_tool_event(event, params, socket)
+    socket = if event in @hr_overlay_events, do: load_hr_overlay(socket), else: socket
+    {:noreply, socket}
   end
 
   # "How does my rule change this answer?" — cache hit renders instantly and
   # free; a miss checks quota and enqueues the durable delta worker, showing a
   # spinner until {:house_rule_delta, ...} arrives over PubSub.
   def handle_event("house_rule_delta", %{"id" => id}, socket) do
-    with %{} = hr <- get_house_rule(id),
+    with %{} = hr <- ToolHost.get_house_rule(id),
          tid when not is_nil(tid) <- socket.assigns.active_thread_id,
          %{} = ql <- get_question_log_by_id(tid) do
       case RuleMaven.HouseRules.request_delta(socket.assigns.current_user, hr, ql) do
@@ -1266,7 +1018,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                      |> assign(
                        question: "",
                        active_thread_id: question_log.id,
-                       rule_card: fact_card(socket.assigns.dyk_facts),
+                       rule_card: ToolHost.fact_card(socket.assigns.dyk_facts),
                        pending_count: socket.assigns.pending_count + 1,
                        conversation: [
                          %{
@@ -1666,38 +1418,8 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
-  defp to_integer(id) when is_integer(id), do: id
-
-  defp to_integer(id) when is_binary(id) do
-    case Integer.parse(id) do
-      {int, ""} -> int
-      _ -> nil
-    end
-  end
-
-  # Guards HouseRules.get/1 against a nil id (a non-numeric phx-value-id):
-  # Repo.get/2 raises ArgumentError on a nil primary key, so a crafted
-  # non-numeric id must short-circuit to nil rather than reach the repo.
-  defp get_house_rule(nil), do: nil
-  defp get_house_rule(id), do: id |> to_integer() |> get_house_rule_by_int()
-
-  defp get_house_rule_by_int(nil), do: nil
-  defp get_house_rule_by_int(int), do: RuleMaven.HouseRules.get(int)
-
-  defp owner?(socket, hr) do
-    u = socket.assigns.current_user
-    u && u.id == hr.user_id
-  end
-
   defp refresh_house_rules(socket) do
-    %{game: game, current_user: user} = socket.assigns
-
-    socket
-    |> assign(
-      house_rules: load_own_house_rules(game, user),
-      community_house_rules: RuleMaven.HouseRules.community_for_game(game.id, user && user.id)
-    )
-    |> load_hr_overlay()
+    socket |> ToolHost.refresh_house_rules() |> load_hr_overlay()
   end
 
   # Recompute the house-rule overlay for the active thread: pgvector match of
@@ -1728,18 +1450,6 @@ defmodule RuleMavenWeb.GameLive.Show do
     else
       _ -> assign(socket, hr_overlay: [], hr_overlay_deltas: %{}, hr_delta_pending: MapSet.new())
     end
-  end
-
-  defp load_own_house_rules(_game, nil), do: []
-  defp load_own_house_rules(game, user), do: RuleMaven.HouseRules.list_for_user(game.id, user.id)
-
-  defp changeset_error_text(%Ecto.Changeset{} = cs) do
-    Ecto.Changeset.traverse_errors(cs, fn {msg, opts} ->
-      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-      end)
-    end)
-    |> Enum.map_join("; ", fn {field, errors} -> "#{field} #{Enum.join(errors, ", ")}" end)
   end
 
   # Demote-only: promotion to community happens via vote quorum or admin
@@ -2401,7 +2111,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   # Facts finished generating: swap the raw-chunk fallback for a real fact.
   def handle_info({:did_you_know_ready, facts}, socket) when is_list(facts) and facts != [] do
-    {:noreply, assign(socket, dyk_facts: facts, rule_card: fact_card(facts))}
+    {:noreply, assign(socket, dyk_facts: facts, rule_card: ToolHost.fact_card(facts))}
   end
 
   def handle_info({:did_you_know_ready, _facts}, socket), do: {:noreply, socket}
@@ -4772,136 +4482,6 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp player_stat(%{min_players: n, max_players: nil}), do: {"👥", "#{n}+ players"}
   defp player_stat(%{min_players: min, max_players: max}), do: {"👥", "#{min}–#{max} players"}
 
-  # ── Random rule card ──
-  # Load cached LLM facts. Generation is not automatic — it runs when an admin
-  # finalizes the source. Subscribe so a finalize while this page is open streams
-  # the result in live; never enqueue here.
-  defp load_did_you_know(game, sources, connected?) do
-    case RuleMaven.Settings.get("did_you_know_#{game.id}") do
-      nil ->
-        if sources != [] and connected? do
-          Phoenix.PubSub.subscribe(
-            RuleMaven.PubSub,
-            RuleMaven.Workers.DidYouKnowWorker.topic(game.id)
-          )
-        end
-
-        []
-
-      json ->
-        Jason.decode!(json)
-    end
-  end
-
-  # Load the cached setup checklist (already subscribed to Setup.topic in mount).
-  # Generation is not automatic — it runs at finalize. Returns {status, checklist}.
-  defp load_setup(game, _sources) do
-    {RuleMaven.Setup.status(game.id), RuleMaven.Setup.stored_checklist(game.id)}
-  end
-
-  # Cached first-player selectors (generated at finalize). Empty until the
-  # worker has run — the picker card is simply hidden.
-  defp load_first_player(game) do
-    case RuleMaven.Settings.get("first_player_#{game.id}") do
-      nil -> []
-      json -> Jason.decode!(json)
-    end
-  end
-
-  # Cached fact-checked common-mistakes entries (generated at finalize).
-  defp load_common_mistakes(game) do
-    case RuleMaven.Settings.get("common_mistakes_#{game.id}") do
-      nil -> []
-      json -> Jason.decode!(json)
-    end
-  end
-
-  # Cached "teach it in 60 seconds" summary (generated at finalize): a map of
-  # any of goal/loop/win/trap the rulebook supported. Empty until the worker runs
-  # — the card is simply hidden.
-  defp load_teach_pitch(game) do
-    case RuleMaven.Settings.get("teach_pitch_#{game.id}") do
-      nil -> %{}
-      json -> Jason.decode!(json)
-    end
-  end
-
-  # Cached end-game scoring categories (generated at finalize). Empty for
-  # non-points games — the score-pad card is simply hidden.
-  defp load_score_categories(game) do
-    case RuleMaven.Settings.get("score_categories_#{game.id}") do
-      nil -> []
-      json -> Jason.decode!(json)
-    end
-  end
-
-  # Cached turn-structure phases (generated at finalize) for the "what can I do
-  # now?" wizard. Empty until the worker runs — the wizard card is hidden.
-  defp load_turn_flow(game) do
-    case RuleMaven.Settings.get("turn_flow_#{game.id}") do
-      nil -> []
-      json -> Jason.decode!(json)
-    end
-  end
-
-  # Cached quiz questions (generated at finalize). Loaded in stored order so
-  # the static and connected mounts agree; "Play again" shuffles.
-  defp load_quiz(game) do
-    case RuleMaven.Settings.get("quiz_#{game.id}") do
-      nil -> []
-      json -> Jason.decode!(json)
-    end
-  end
-
-  # Only accept ids the registry knows; ignore anything else (events are
-  # client-driven). Returns the atom id or nil.
-  defp safe_tool_id(tool) when is_binary(tool) do
-    id = String.to_existing_atom(tool)
-    if ToolRegistry.valid?(id), do: id, else: nil
-  rescue
-    ArgumentError -> nil
-  end
-
-  defp safe_tool_id(_), do: nil
-
-  defp update_tool_state(socket, tool, state) do
-    case safe_tool_id(tool) do
-      nil ->
-        socket
-
-      id ->
-        single? = socket.assigns.single_panel?
-        states = set_tool_state(socket.assigns.tool_states, id, state, single?)
-
-        # A demoted window leaves the stack too, not just the id we touched.
-        order =
-          socket.assigns.tool_order
-          |> bump_order(id, state)
-          |> Enum.filter(&(states[&1] == :expanded))
-
-        assign(socket, tool_states: states, tool_order: order)
-    end
-  end
-
-  # Desktop stacks tool windows: several may be :expanded at once. A phone has no
-  # room to stack bottom sheets, so there it stays one-at-a-time and opening a
-  # tool demotes whoever was expanded.
-  defp set_tool_state(states, id, state, single?) do
-    states
-    |> Enum.map(fn
-      {k, :expanded} when k != id and single? -> {k, :minimized}
-      other -> other
-    end)
-    |> Map.new()
-    |> Map.put(id, state)
-  end
-
-  # Front-to-back order of the expanded windows, back first: a freshly opened or
-  # focused tool goes to the end (on top). Minimized/closed tools drop out. The
-  # list is the render order; the client raises z-index on click from there.
-  defp bump_order(order, id, :expanded), do: (order -- [id]) ++ [id]
-  defp bump_order(order, id, _state), do: order -- [id]
-
   # Deltas for the currently-included expansions that have one stored, in
   # expansion-name order (the `expansions` assign is already name-sorted).
   defp load_expansion_deltas(expansions, included) do
@@ -4913,32 +4493,6 @@ defmodule RuleMavenWeb.GameLive.Show do
         delta -> [{exp, delta}]
       end
     end)
-  end
-
-  # Push the current checked-item set to the browser so the ChecklistStore hook
-  # can persist it in localStorage (keyed per game).
-  defp push_checklist_save(socket, done) do
-    push_event(socket, "save_checklist", %{
-      game_id: socket.assigns.game.id,
-      keys: MapSet.to_list(done)
-    })
-  end
-
-  # Wrap a random generated fact in the shape the card template expects, or nil
-  # when none have been generated yet (the card is simply hidden). Generated
-  # facts have no page citation.
-  defp fact_card([]), do: nil
-  defp fact_card(facts), do: %{content: Enum.random(facts), page_number: nil}
-
-  # Deterministic fact pick for the initial render: the static and connected
-  # mounts must agree, else the card flickers or shifts layout on connect.
-  # Seeded by the per-load dyk_seed (stable across both renders, re-rolled on
-  # refresh).
-  defp dyk_card_for([], _seed), do: nil
-
-  defp dyk_card_for(facts, seed) do
-    idx = rem(:erlang.phash2(seed), length(facts))
-    %{content: Enum.at(facts, idx), page_number: nil}
   end
 
   # A message's citation list, preferring the new multi-citation field and
