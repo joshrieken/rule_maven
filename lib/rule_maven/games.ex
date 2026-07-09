@@ -2504,6 +2504,12 @@ defmodule RuleMaven.Games do
         select: q.cleaned_question
       )
 
+    # Fetch headroom above `limit` so Enum.uniq/1 can drop repeated canonical
+    # texts and still fill the cap. The SQL LIMIT is load-bearing: without it
+    # the `near` ordering sorts every pooled row for the game, and pgvector
+    # only reaches for the HNSW index on ORDER BY distance + LIMIT.
+    fetch = limit * 4
+
     query =
       case Keyword.get(opts, :near) do
         nil ->
@@ -2520,6 +2526,7 @@ defmodule RuleMaven.Games do
       end
 
     query
+    |> limit(^fetch)
     |> Repo.all()
     |> Enum.uniq()
     |> Enum.take(limit)
