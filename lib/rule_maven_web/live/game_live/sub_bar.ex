@@ -7,13 +7,13 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   short pills fit 390px.
   """
   use RuleMavenWeb, :html
-  alias RuleMaven.CheatSheet
   alias RuleMavenWeb.GameLive.ToolRegistry
 
   attr :game, :map, required: true
   attr :sources, :list, default: []
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
+  attr :has_cheatsheet, :boolean, default: false
   # Which page the bar is being rendered on. Drives two things: the Overview
   # link patches on :show and navigates elsewhere (patching across LiveViews
   # crashes), and a pill pointing at the current page renders inert.
@@ -64,6 +64,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           sources={@sources}
           community_count={@community_count}
           is_admin={@is_admin}
+          has_cheatsheet={@has_cheatsheet}
           current={@current}
         />
       </div>
@@ -76,6 +77,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, default: []
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
+  attr :has_cheatsheet, :boolean, default: false
   attr :current, :atom, default: :show
 
   @doc """
@@ -98,6 +100,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
+        has_cheatsheet={@has_cheatsheet}
         current={@current}
       />
     </div>
@@ -141,6 +144,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, required: true
   attr :community_count, :integer, required: true
   attr :is_admin, :boolean, required: true
+  attr :has_cheatsheet, :boolean, required: true
   attr :current, :atom, required: true
 
   defp more_menu(assigns) do
@@ -172,7 +176,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           navigate={~p"/games/#{@game}/community"}
           class="card-menu__item"
         >💬 Community Q&amp;A ({@community_count})</.link>
-        <%= if Enum.any?(@sources, &(CheatSheet.active_version(&1.id) != nil)) do %>
+        <%= if @has_cheatsheet do %>
           <.link href={~p"/games/#{@game}/cheatsheet"} target="_blank" class="card-menu__item">
             📋 Cheat Sheet
           </.link>

@@ -37,4 +37,10 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
     refute community_html =~ ~s(data-phx-link="patch")
     assert community_html =~ ~s(data-phx-link="redirect")
   end
+
+  test "has_cheatsheet?/1 is true only when some source has an active version" do
+    alias RuleMavenWeb.GameLive.ToolHost
+
+    refute ToolHost.has_cheatsheet?([])
+  end
 end

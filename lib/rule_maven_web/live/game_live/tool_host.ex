@@ -53,16 +53,28 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
   """
   def mount_header(socket, game) do
     socket
-    |> put_new(:coarse_pointer, fn ->
-      connected?(socket) and get_connect_params(socket)["coarse_pointer"] == true
+    |> put_new(:coarse_pointer, fn s ->
+      connected?(s) and get_connect_params(s)["coarse_pointer"] == true
     end)
-    |> put_new(:is_admin, fn -> RuleMaven.Users.can?(socket.assigns.current_user, :admin) end)
-    |> put_new(:sources, fn -> RuleMaven.Games.list_documents(game) end)
-    |> put_new(:community_count, fn -> RuleMaven.Faq.community_count(game) end)
+    |> put_new(:is_admin, fn s -> RuleMaven.Users.can?(s.assigns.current_user, :admin) end)
+    |> put_new(:sources, fn _s -> RuleMaven.Games.list_documents(game) end)
+    |> put_new(:community_count, fn _s -> RuleMaven.Faq.community_count(game) end)
+    |> put_new(:has_cheatsheet, fn s -> has_cheatsheet?(s.assigns.sources) end)
+  end
+
+  @doc """
+  Whether any of the game's sources has an active cheat-sheet version.
+
+  One query per source, so it is computed once at mount and passed down as an
+  assign — the sub-bar renders on every game page and would otherwise re-run it
+  on each render, once for the More menu and once for the pill.
+  """
+  def has_cheatsheet?(sources) do
+    Enum.any?(sources, &(RuleMaven.CheatSheet.active_version(&1.id) != nil))
   end
 
   defp put_new(socket, key, fun) do
-    if Map.has_key?(socket.assigns, key), do: socket, else: assign(socket, key, fun.())
+    if Map.has_key?(socket.assigns, key), do: socket, else: assign(socket, key, fun.(socket))
   end
 
   @doc """

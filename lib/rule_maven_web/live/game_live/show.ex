@@ -281,6 +281,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         threads: threads,
         active_thread_id: active_thread_id,
         sources: sources,
+        has_cheatsheet: ToolHost.has_cheatsheet?(sources),
         expansions: expansions,
         included_expansions: included_expansions,
         expansion_deltas: load_expansion_deltas(expansions, included_expansions),
@@ -2297,6 +2298,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           sources={@sources}
           community_count={@community_count}
           is_admin={@is_admin}
+          has_cheatsheet={@has_cheatsheet}
           current={:show}
         >
           <%!-- Sidebar toggle: kept first so it is the leftmost control on

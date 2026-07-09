@@ -35,20 +35,12 @@ defmodule RuleMavenWeb.GameLive.Community do
   end
 
   defp mount_game(game, socket) do
-    is_admin = RuleMaven.Users.can?(socket.assigns.current_user, :admin)
     categories = Games.list_game_categories(game)
 
     socket =
       assign(socket,
         game: game,
-        is_admin: is_admin,
         categories: categories,
-        sources: Games.list_documents(game),
-        community_count: RuleMaven.Faq.community_count(game),
-        # Mount-only: connect params are unreadable from handle_params, so the
-        # phone/desktop split is stashed here for the tool machinery.
-        coarse_pointer:
-          connected?(socket) and get_connect_params(socket)["coarse_pointer"] == true,
         # Report-reason modal: nil, or the question id being reported.
         report_target: nil,
         filter_category: nil,
@@ -61,6 +53,7 @@ defmodule RuleMavenWeb.GameLive.Community do
         page_title: "Community Q&A — #{game.name}"
       )
 
+    socket = ToolHost.mount_header(socket, game)
     socket = ToolHost.mount_tools(socket, game)
 
     {:ok, load_questions(socket)}
@@ -409,6 +402,7 @@ defmodule RuleMavenWeb.GameLive.Community do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
+        has_cheatsheet={@has_cheatsheet}
         current={:community}
       />
 
