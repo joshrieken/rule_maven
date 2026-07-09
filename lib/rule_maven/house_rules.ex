@@ -93,6 +93,24 @@ defmodule RuleMaven.HouseRules do
   end
 
   @doc """
+  Turn a rule on or off at the owner's own table. Owner-only.
+
+  Independent of `visibility` (who else sees it) and `blocked` (admin removal).
+  A disabled rule keeps its verdict, quote and embedding — flipping it back on
+  costs no LLM call. `enabled` is deliberately absent from `HouseRule.changeset/2`
+  so the edit form cannot mass-assign it.
+  """
+  def set_enabled(user, %HouseRule{} = hr, enabled?) when is_boolean(enabled?) do
+    if hr.user_id == user.id do
+      hr
+      |> Ecto.Changeset.change(enabled: enabled?)
+      |> Repo.update()
+    else
+      {:error, :unauthorized}
+    end
+  end
+
+  @doc """
   UI entry point: guard (injection, rate limit) → insert → enqueue check.
   """
   def submit(user, game_id, attrs) do
@@ -160,6 +178,8 @@ defmodule RuleMaven.HouseRules do
     Repo.all(
       from h in HouseRule,
         where: h.user_id == ^user_id and h.game_id == ^game_id,
+        # A rule the owner switched off must not colour an answer.
+        where: h.enabled == true,
         where: h.check_status == "done" and h.verdict in ["overrides", "fills_gap"],
         where: not is_nil(h.body_embedding),
         where: fragment("cosine_distance(?, ?::vector)", h.body_embedding, ^vec) <= ^distance,

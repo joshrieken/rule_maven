@@ -250,6 +250,58 @@ defmodule RuleMaven.HouseRulesTest do
       game = game_fixture()
       assert HouseRules.overlay_rules(user.id, game.id, nil) == []
     end
+
+    test "a disabled rule never overlays, even when it would otherwise match" do
+      user = user_fixture()
+      game = game_fixture()
+
+      kept = checked_rule(user, game, "6 cards", "overrides", 0)
+      turned_off = checked_rule(user, game, "ties reroll", "fills_gap", 0)
+
+      {:ok, _} = HouseRules.set_enabled(user, turned_off, false)
+
+      ids = HouseRules.overlay_rules(user.id, game.id, basis_vec(0)) |> Enum.map(& &1.id)
+
+      assert ids == [kept.id]
+    end
+  end
+
+  describe "set_enabled/3" do
+    test "owner can disable and re-enable; enabled defaults to true" do
+      user = user_fixture()
+      game = game_fixture()
+      {:ok, hr} = HouseRules.create(user, game.id, %{"body" => "some rule"})
+
+      assert hr.enabled == true
+
+      assert {:ok, off} = HouseRules.set_enabled(user, hr, false)
+      assert off.enabled == false
+
+      assert {:ok, on} = HouseRules.set_enabled(user, off, true)
+      assert on.enabled == true
+    end
+
+    test "a non-owner cannot toggle someone else's rule" do
+      owner = user_fixture()
+      stranger = user_fixture()
+      game = game_fixture()
+      {:ok, hr} = HouseRules.create(owner, game.id, %{"body" => "mine"})
+
+      assert {:error, :unauthorized} = HouseRules.set_enabled(stranger, hr, false)
+      assert HouseRules.get(hr.id).enabled == true
+    end
+
+    test "disabling does not change visibility or trigger a re-check" do
+      user = user_fixture()
+      game = game_fixture()
+      hr = checked_rule(user, game, "6 cards", "overrides", 0)
+
+      {:ok, off} = HouseRules.set_enabled(user, hr, false)
+
+      assert off.visibility == hr.visibility
+      assert off.check_status == "done"
+      assert off.verdict == "overrides"
+    end
   end
 
   describe "delta cache" do
