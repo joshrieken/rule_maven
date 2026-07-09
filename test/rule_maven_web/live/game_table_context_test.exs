@@ -75,7 +75,11 @@ defmodule RuleMavenWeb.GameTableContextTest do
     refute html =~ ~s|data-testid="table-context-expansions"|
   end
 
-  test "the expansions tour step targets a visible element",
+  # Only proves the attribute is rendered. Whether the element is *visible* —
+  # the property that decides if the tour step runs or is silently skipped —
+  # cannot be checked from markup. That is verified in a browser; see
+  # docs/superpowers/plans/2026-07-09-table-context-ui.md, Task 4.
+  test "the expansions tour step's selector is present in the markup",
        %{conn: conn, base: base} do
     exp = published_game_fixture(%{name: "Oceania", bgg_id: 9106})
     RuleMaven.Games.link_expansion(exp.id, base.id)
