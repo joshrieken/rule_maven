@@ -52,12 +52,33 @@ defmodule RuleMaven.Workers.AskWorker do
       )
 
     cond do
+      # Oban is at-least-once: `max_attempts: 2` plus orphan-rescue after a node
+      # restart means this job can run again when the first run already wrote its
+      # answer (a raise anywhere AFTER log_question_update — Jobs.finish_run,
+      # TagQuestionWorker.enqueue, Voices.store_direct — re-executes the whole
+      # pipeline). Without this guard the rerun pays for a second LLM call,
+      # overwrites the good answer, and broadcasts a duplicate :ask_complete.
+      #
+      # Safe because EVERY enqueue path inserts a FRESH row with "Thinking..."
+      # (resubmit_question deletes the old row before logging a new one), so a
+      # legitimate first execution always finds the sentinel.
+      answered_already?(question_log_id) ->
+        Jobs.finish_run(run, "done", "Answer already present — duplicate job execution.")
+        :ok
+
       # Re-check the kill switch at execution time: a job may have been queued
       # (or is retrying) before an admin flipped the switch off, and it must not
       # spend after that. Persist a friendly answer and close the run gracefully
       # rather than leaving the question stuck on "Thinking...".
       RuleMaven.Settings.asks_disabled?() ->
         handle_disabled(run, game_id, question_log_id, question)
+
+      # The LiveView gates asks on takedown, but a job queued moments before the
+      # takedown (or already sitting in the queue) would otherwise run to
+      # completion: real LLM spend and a persisted answer for a game that is
+      # legally blocked. The queue is the last place to enforce this.
+      Games.taken_down?(game) ->
+        handle_taken_down(run, game_id, question_log_id, question)
 
       RuleMaven.Security.prompt_injection?(question) ->
         if ql = get_question_log!(question_log_id) do
@@ -556,6 +577,42 @@ defmodule RuleMaven.Workers.AskWorker do
     end
 
     Jobs.finish_run(run, "done", "Skipped — question answering is paused.")
+    :ok
+  end
+
+  # True once the row carries a real answer. The in-flight sentinel and a
+  # vanished row both read as "not answered" — a deleted row is handled by the
+  # `is_nil(ql)` branch further down, and a stuck "Thinking..." row is exactly
+  # what a retry is meant to re-drive.
+  defp answered_already?(question_log_id) do
+    case get_question_log!(question_log_id) do
+      nil -> false
+      %{answer: answer} -> is_binary(answer) and String.trim(answer) not in ["", "Thinking..."]
+    end
+  end
+
+  # Mirrors handle_disabled/4: persist a friendly ⚠️ answer so the LiveView
+  # unblocks the "Thinking..." row, and close the run without spending.
+  defp handle_taken_down(run, game_id, question_log_id, question) do
+    message = "⚠️ This game is unavailable."
+
+    if ql = get_question_log!(question_log_id) do
+      case Games.log_question_update(ql, %{answer: message, error_kind: "paused"}) do
+        {:ok, _updated} ->
+          Phoenix.PubSub.broadcast(
+            RuleMaven.PubSub,
+            "game:#{game_id}",
+            {:ask_error, %{question_log_id: question_log_id, question: question, error: message}}
+          )
+
+        {:error, changeset} ->
+          Logger.error(
+            "AskWorker takedown DB update failed for question #{question_log_id}: #{inspect(changeset.errors)}"
+          )
+      end
+    end
+
+    Jobs.finish_run(run, "done", "Skipped — game is taken down.")
     :ok
   end
 
