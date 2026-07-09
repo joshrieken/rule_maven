@@ -75,6 +75,28 @@ defmodule RuleMavenWeb.GameTableContextTest do
     refute html =~ ~s|data-testid="table-context-expansions"|
   end
 
+  # The strip renders both labels and CSS picks one: below 640px the long
+  # expansion name is hidden and a bare count takes its place, because the
+  # header's free width there (~149px) cannot hold the name (~245px) without
+  # the strip claiming a second 40px row.
+  test "the strip carries both a full label and a compact count",
+       %{conn: conn, user: user, base: base} do
+    for n <- ["Oceania", "European"] do
+      exp = published_game_fixture(%{name: n, bgg_id: 9200 + String.length(n)})
+      RuleMaven.Games.link_expansion(exp.id, base.id)
+    end
+
+    ids = base |> RuleMaven.Games.expansions_with_documents() |> Enum.map(& &1.id)
+    RuleMaven.Games.put_expansion_selection(user.id, base.id, ids)
+
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+
+    assert html =~ ~s|class="tc-label"|
+    assert html =~ ~s|class="tc-label-compact"|
+    # The compact label is the selected count, not the name.
+    assert html =~ ~s|<span class="tc-label-compact">2</span>|
+  end
+
   # Only proves the attribute is rendered. Whether the element is *visible* —
   # the property that decides if the tour step runs or is silently skipped —
   # cannot be checked from markup. That is verified in a browser; see

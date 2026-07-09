@@ -21,6 +21,11 @@ defmodule RuleMaven.Games.HouseRule do
     field :citations, {:array, :map}
     field :checked_at, :utc_datetime
     field :blocked, :boolean, default: false
+    # Three independent axes, easy to conflate:
+    #   visibility — who else can see it
+    #   blocked    — an admin pulled it from the community list
+    #   enabled    — does it apply at the owner's table right now
+    field :enabled, :boolean, default: true
     field :body_embedding, Pgvector.Ecto.Vector
 
     belongs_to :user, RuleMaven.Users.User

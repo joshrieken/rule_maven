@@ -2059,6 +2059,68 @@ button:disabled, .btn:disabled, [type="button"]:disabled, [type="submit"]:disabl
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
 }
 
+/* Re-assert the pill chrome. `[type="button"]:hover` above is (0,2,0) — the
+   same specificity as `.pill-link:hover` — and wins on source order, swapping
+   the pill to the page background with a light-grey border and a lift. A
+   <summary> or <a> pill never matched it; a <button class="pill-link"> does. */
+button.pill-link:hover,
+[type="button"].pill-link:hover {
+  color: var(--accent-text, #fff);
+  background: var(--accent);
+  border-color: var(--accent-ink, var(--accent));
+  box-shadow: 0 2px 8px var(--shadow-hover);
+  /* Pills sit in a sticky bar beside non-lifting siblings; a lone lift reads
+     as a rendering glitch rather than an affordance. */
+  transform: none;
+}
+button.pill-link:active,
+[type="button"].pill-link:active {
+  background: var(--accent-dark, var(--accent));
+  transform: none;
+}
+
+/* The table-context strip: what this user is playing with. Its pills sit in the
+   header's leftover width. At 390px that leftover is ~149px (36px back-arrow +
+   69px title + 109px icon-only .tool-subbar out of 363px), so the full
+   expansion name — which alone wants ~245px — must give way to a count or the
+   strip claims a second 40px row. */
+.table-context {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
+}
+.table-context .pill-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+.table-context .tc-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.table-context .tc-label-compact { display: none; }
+
+/* Mirrors the .tool-subbar icon-only collapse at the same breakpoint.
+
+   `.game-header-row__left` is `flex-wrap: wrap`, and a flex line wraps on its
+   items' BASE widths — `flex-shrink` never gets a chance. So the strip has to
+   *fit* at 390px, not merely be shrinkable, or it claims a second 40px row.
+   Deliberately not switching the row to `nowrap`: that has already once run
+   these pills off-screen, silently clipped by `.main-content`'s `overflow-x`. */
+@media (max-width: 640px) {
+  .table-context { gap: 0.2rem; }
+  .table-context .tc-label { display: none; }
+  .table-context .tc-label-compact { display: inline; }
+  .table-context .pill-link { padding-left: 0.35rem; padding-right: 0.35rem; }
+  .game-header-row__left { gap: 0.15rem; }
+}
+
 .btn-primary:hover::after {
   left: 130%;
 }

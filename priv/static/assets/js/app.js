@@ -978,6 +978,42 @@ Hooks.FloatingPanel = {
     this.write(this.snapKey(), i);
   },
 
+  // Reveal content a patch just added (the add-house-rule form, an expanded
+  // row) instead of hiding it behind the body's scrollbar. Grows only — never
+  // shrinks a window the user sized themselves — and never past the viewport.
+  //
+  // The sheet animates `height`, so measuring after each applySnap would read a
+  // mid-transition value and overshoot to the tallest snap. Pick the smallest
+  // snap that fits in one shot instead.
+  growToFit() {
+    var body = this.el.querySelector(".tool-panel__body");
+    if (!body) return;
+    var overflow = body.scrollHeight - body.clientHeight;
+    if (overflow <= 1) return;
+
+    var chrome = this.el.getBoundingClientRect().height - body.clientHeight;
+    var needed = body.scrollHeight + chrome;
+
+    if (this.isCoarse()) {
+      var frac = needed / window.innerHeight;
+      var want = SNAP_COUNT - 1;
+      for (var i = 0; i < SNAP_COUNT; i++) {
+        if (SNAP_VH[i] >= frac) { want = i; break; }
+      }
+      var cur = this._snap || 0;
+      if (want > cur) this.applySnap(want);
+      return;
+    }
+
+    // Desktop: bottom-anchored, so extra height grows upward. Stop a hair short
+    // of the viewport top. applyGeom sets max-height:none for user-sized
+    // windows, so the CSS 80vh cap cannot be relied on here.
+    var rect = this.el.getBoundingClientRect();
+    var cap = Math.max(128, rect.bottom - 8);
+    var next = Math.min(needed, cap);
+    if (next > rect.height + 1) this.el.style.height = next + "px";
+  },
+
   tool() { return this.el.dataset.tool; },
 
   bringToFront(push) {
@@ -1286,6 +1322,7 @@ Hooks.FloatingPanel = {
     if (coarse) {
       this.initSheet();
       this.initSheetHeightVar();
+      this.growToFit();
       return; // one sheet at a time: nothing to stack, nothing to focus
     }
     // Newest window on top. The server already renders the stack back-to-front,
@@ -1309,6 +1346,9 @@ Hooks.FloatingPanel = {
     } else {
       this.applyGeom();
     }
+    // After the patch's geometry is re-asserted, not before: growToFit measures
+    // the body, and applySnap/applyGeom are what give it a height to measure.
+    this.growToFit();
   },
 
   destroyed() {

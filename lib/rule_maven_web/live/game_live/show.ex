@@ -10,8 +10,8 @@ defmodule RuleMavenWeb.GameLive.Show do
   # recomputes this page's answer overlay after the shared handler runs.
   @tool_events RuleMavenWeb.GameLive.ToolHost.events()
   @hr_overlay_events ~w(add_house_rule edit_house_rule delete_house_rule
-                        toggle_house_rule_visibility recheck_house_rule
-                        block_house_rule)
+                        toggle_house_rule_visibility toggle_house_rule_enabled
+                        recheck_house_rule block_house_rule)
   alias Oban
 
   import RuleMavenWeb.GameLive.ToolHelpers
