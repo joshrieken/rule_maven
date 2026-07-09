@@ -4010,6 +4010,15 @@ body:has([data-phx-main].phx-connected)::after {
     font-size: 0.7rem;
     cursor: pointer;
   }
+
+  /* Thread rows in the question drawer sit at 0.22rem vertical padding, which
+     packs adjacent questions close enough to mis-tap. The padding is inline on
+     the element, so !important is the only way to reach it. */
+  .sidebar-item {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+    min-height: 40px;
+  }
 }
 
 /* Pills, tabs and menu rows are wide enough but only ~20-29px tall, so they're
