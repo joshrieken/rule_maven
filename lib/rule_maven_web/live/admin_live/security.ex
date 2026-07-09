@@ -211,7 +211,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
         <%= if @blocked == [] do %>
           <p style="color:var(--text-muted);font-size:0.85rem">No blocked questions.</p>
         <% else %>
-          <div style="border:1px solid var(--border);border-radius:0.5rem;overflow:hidden">
+          <div style="border:1px solid var(--border);border-radius:0.5rem;overflow-x:auto">
             <table style="width:100%;border-collapse:collapse;font-size:0.8rem;table-layout:fixed">
               <colgroup>
                 <col style="width:7rem" />
@@ -334,7 +334,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
         </form>
 
         <%!-- Patterns table --%>
-        <div style="border:1px solid var(--border);border-radius:0.5rem;overflow:hidden">
+        <div style="border:1px solid var(--border);border-radius:0.5rem;overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:0.8rem;table-layout:fixed">
             <colgroup>
               <col />

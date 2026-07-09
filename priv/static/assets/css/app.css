@@ -997,6 +997,9 @@ a:not([class]):hover {
      reserves space via padding-bottom so .main-content shrinks above it and
      scrolls internally, instead of the whole window scrolling. */
   height: 100vh;
+  /* dvh tracks the collapsing mobile URL bar; 100vh alone overshoots on iOS
+     Safari and pushes the footer under the toolbar. */
+  height: 100dvh;
   min-height: 0;
   box-sizing: border-box;
   padding-bottom: var(--jobpanel-h, 0px);
@@ -1126,12 +1129,17 @@ a:not([class]):hover {
   align-items: baseline;
   gap: 0.4rem;
   text-decoration: none;
+  /* .header-right is flex-shrink:0, so the brand is the only thing that can
+     absorb a narrow viewport. Without min-width:0 it refuses to shrink below
+     its text width and the header overflows (~320px devices). */
+  min-width: 0;
 }
 
 .header-icon {
   font-size: 1.5rem;
   line-height: 1;
   display: inline-block;
+  flex-shrink: 0;
   color: var(--header-border);
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--header-border) 60%, transparent));
   animation: icon-float 4s ease-in-out infinite;
@@ -1153,6 +1161,10 @@ a:not([class]):hover {
   font-weight: 800;
   color: #FFFFFF;
   letter-spacing: -0.02em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* "Maven" — static theme-accent gradient text. No motion: animating a
@@ -1648,6 +1660,12 @@ button.motion-toggle:hover {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* The DB admin page breaks out of the 56rem .container with a 100vw
+     full-bleed. `100vw` counts the classic scrollbar, so on platforms that
+     reserve one it overhangs by ~15px and this pane scrolls sideways. Every
+     genuinely wide child (tables, code blocks) carries its own overflow-x:auto,
+     so nothing here needs to scroll horizontally. */
+  overflow-x: hidden;
   padding: 2rem 1.5rem 4rem;
 }
 
@@ -3376,6 +3394,14 @@ body:has([data-phx-main].phx-connected)::after {
   height: 16rem;
   border-top: 1px solid var(--border, #ddd);
 }
+
+/* The 220px run list leaves ~150px for the event pane on a phone. Stack. */
+@media (max-width: 640px) {
+  .jobpanel-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 8rem 1fr;
+  }
+}
 .jobpanel-list {
   overflow: auto;
   border-right: 1px solid var(--border, #ddd);
@@ -3704,4 +3730,112 @@ body:has([data-phx-main].phx-connected)::after {
   display: inline-block;
   width: 1rem;
   height: 1rem;
+}
+
+/* ===== Touch targets ==========================================================
+   Coarse pointers (phones, tablets) need a finger-sized hit area. These controls
+   are all sized for a mouse: the hamburger is 28x22, the drawer close 18x27, the
+   confidence "?" 14x14. Scoped to `pointer: coarse` so desktop density is
+   untouched. The header controls stop at 40px rather than 44 because the Q&A
+   page sizes its chat area off the live-measured --header-height, and every
+   header pixel comes straight out of the messages pane. Controls with room to
+   grow (drawer close) get the full 44. */
+@media (pointer: coarse) {
+  .hamburger {
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+  }
+
+  .drawer-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .user-dropdown-toggle {
+    min-height: 40px;
+    padding: 0.2rem 0.6rem;
+  }
+
+  button.motion-toggle {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .btn-icon {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+  }
+
+  .card-menu__trigger {
+    min-width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  /* Revealed by :focus-within, so tapping it works — it just has to be hittable. */
+  .conf-help__btn {
+    width: 24px;
+    height: 24px;
+    font-size: 0.7rem;
+    cursor: pointer;
+  }
+}
+
+/* Pills, tabs and menu rows are wide enough but only ~20-29px tall, so they're
+   hard to hit with a thumb. Grow them vertically only — width already reads as
+   a target. Kept in a separate block from the icon buttons above because these
+   are laid out by the flow, not by fixed square sizes. */
+@media (pointer: coarse) {
+  #view-tabs button,
+  .card-menu__item {
+    min-height: 40px;
+  }
+
+  /* The composer's "💡 Ideas ▾" / "📋 Plain ▾" disclosures. */
+  .card-menu > summary {
+    min-height: 36px;
+  }
+
+  .pill-link {
+    min-height: 36px;
+  }
+
+  .btn-xs {
+    min-height: 34px;
+  }
+}
+
+/* Catch-all for the remaining hand-styled controls: the settings/view tab pills
+   and the expansion disclosure are class-less inline-styled buttons, so they can
+   only be reached through their phx-click hook. Ordered last so .btn-icon wins
+   over the shorter .btn-xs floor above. .ai-note-summary is a one-line
+   disclaimer, not a control — leave it at its natural height. */
+@media (pointer: coarse) {
+  button[phx-click],
+  summary:not(.ai-note-summary),
+  .btn-sm {
+    min-height: 36px;
+  }
+
+  .btn-icon,
+  .btn-icon.btn-xs {
+    min-height: 40px;
+  }
+
+  .user-dropdown-toggle {
+    min-width: 40px;
+    justify-content: center;
+  }
+
+  /* The taller controls above push the header down, and the Q&A page measures
+     --header-height off it — every pixel comes out of the messages pane. Trim
+     the row padding to pay for them. */
+  .header-inner {
+    padding: 0.25rem 0;
+  }
 }
