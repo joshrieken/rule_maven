@@ -1543,20 +1543,34 @@ button.motion-toggle:hover {
 /* The account-menu variant is a full-width menu row, not the square header
    button. It keeps the .motion-toggle class so the sparkle/moon swap below
    still applies, so it has to undo the square button's box here. */
+/* Must read as one of the menu's links, so it restates .user-dropdown-link's
+   type and padding: the square header button zeroes the padding, and the
+   generic `button` reset (defined later, lower specificity but nothing here
+   overrode these) supplies font-weight 600 and its own font stack. */
 button.motion-toggle--menu {
   width: 100%;
   height: auto;
   justify-content: flex-start;
   gap: 0.35rem;
-  font-size: 0.85rem;
+  padding: 0.4rem 0.75rem;
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 400;
   border: none;
   border-radius: 5px;
   background: none;
   color: var(--text);
   text-align: left;
+  transition: background 0.1s;
 }
+/* The generic `button:hover` lifts and shadows every button; a menu row must
+   just tint. */
 button.motion-toggle--menu:hover {
   background: var(--bg-subtle);
+  color: var(--accent-ink, var(--accent));
+  border-color: transparent;
+  transform: none;
+  box-shadow: none;
 }
 
 /* The account icon only stands in for the username under 768px. */
