@@ -3576,13 +3576,18 @@ defmodule RuleMaven.Games do
   @dup_threshold 0.97
 
   defp dedup_near_duplicates(chunks, base_game_id) do
+    # `chunks` arrives in relevance order (cosine distance ascending), so a
+    # chunk's position IS its relevance rank. Captured up front because `kept`
+    # gets reordered as clusters collapse.
+    rank = chunks |> Enum.with_index() |> Map.new(fn {c, i} -> {c.id, i} end)
+
     Enum.reduce(chunks, [], fn chunk, kept ->
       case Enum.split_with(kept, &(cosine_sim(&1.embedding, chunk.embedding) >= @dup_threshold)) do
         {[], _} ->
           kept ++ [chunk]
 
         {matches, _rest} ->
-          winner = pick_authoritative([chunk | matches], base_game_id)
+          winner = pick_authoritative([chunk | matches], base_game_id, rank)
           # Preserve relevance order: the survivor takes the EARLIEST position
           # among the colliding cluster's members in `kept`, rather than being
           # appended to the end. Appending would push a top-ranked cluster's
@@ -3670,9 +3675,15 @@ defmodule RuleMaven.Games do
     end
   end
 
-  defp pick_authoritative(candidates, base_game_id) do
+  # Authority (errata > faq > rulebook > …) and base-game scope still decide the
+  # survivor of a near-duplicate cluster. Relevance rank only breaks a tie among
+  # equally authoritative, equally scoped chunks — where `Enum.min_by` otherwise
+  # kept whichever it happened to see first, which could discard the chunk the
+  # semantic search ranked closest to the question.
+  defp pick_authoritative(candidates, base_game_id, rank \\ %{}) do
     Enum.min_by(candidates, fn c ->
-      {RuleMaven.Games.Document.authority(c.kind), if(c.game_id == base_game_id, do: 0, else: 1)}
+      {RuleMaven.Games.Document.authority(c.kind), if(c.game_id == base_game_id, do: 0, else: 1),
+       Map.get(rank, c.id, 0)}
     end)
   end
 
@@ -3707,6 +3718,13 @@ defmodule RuleMaven.Games do
   @fallback_char_budget 12_000
 
   defp published_full_text_fallback(game_ids) do
+    # Slice in SQL, not in Elixir. A document's `full_text` is the whole
+    # rulebook; selecting every one of them in full just to keep the first
+    # `@fallback_char_budget` characters pulled hundreds of KB over the wire to
+    # throw ~98% of it away. One document can never contribute more than the
+    # whole budget (that's the single-doc case), so it is a safe upper bound to
+    # slice at; the exact per-doc split is still applied below once the doc
+    # count is known.
     docs =
       Repo.all(
         from d in Document,
@@ -3715,7 +3733,8 @@ defmodule RuleMaven.Games do
           where: d.game_id in ^game_ids and d.status == "published",
           order_by: [asc: d.game_id, asc: d.id],
           select: %{
-            full_text: d.full_text,
+            full_text:
+              fragment("substring(btrim(?) from 1 for ?)", d.full_text, ^@fallback_char_budget),
             document_id: d.id,
             label: d.label,
             kind: d.kind,
