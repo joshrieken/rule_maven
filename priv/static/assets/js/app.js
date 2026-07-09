@@ -883,9 +883,10 @@ Hooks.ToolTray = {
     var self = this;
     ToolLayout.acquire();
     this._ro = new ResizeObserver(function() {
-      // The in-flow dock (desktop game page) takes real layout space; only the
-      // fixed strip needs to reserve room under the floating panels.
-      if (getComputedStyle(self.el).position !== "fixed") {
+      // The in-flow dock (game page, above the composer) takes real layout
+      // space; only the sticky bottom bar (composer-less pages) needs to
+      // reserve room under the floating panels.
+      if (getComputedStyle(self.el).position === "static") {
         document.documentElement.style.removeProperty("--rm-tray-h");
         return;
       }

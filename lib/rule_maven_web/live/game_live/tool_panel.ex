@@ -34,9 +34,10 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
   end
 
   attr :tool_states, :map, required: true
-  # In-flow variant: a normal row in the host's layout (desktop) instead of a
-  # fixed strip pinned over the viewport bottom. Under 640px the fixed-strip
-  # CSS still wins so an open bottom sheet can't bury the pills.
+  # In-flow variant (all widths): a normal row in the host's layout, used when
+  # the host places the dock itself (Show puts it directly above the composer).
+  # Without it the dock is a sticky bar pinned to the bottom of the scrolling
+  # .main-content — in flow, never fixed, always above the background-job bar.
   attr :flow, :boolean, default: false
 
   def tool_dock(assigns) do

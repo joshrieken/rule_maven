@@ -2948,48 +2948,38 @@ body.tool-panel-resizing { user-select: none; }
 .tool-panel--snap-1 { height: 55vh; max-height: 55vh; }
 .tool-panel--snap-2 { height: 85vh; max-height: 85vh; }
 
-/* Tray of minimized tools: a bottom taskbar sitting directly above the chat
-   composer (--rm-tray-bottom), full-bleed so it reads as a strip rather than a
-   floating cluster. Pills are left-aligned in the content gutter and the strip
-   scrolls horizontally once tools outnumber the width. */
+/* Bar of minimized tools: a distinct in-flow strip, never position:fixed or
+   absolute — it takes real layout space instead of overlaying the page.
+   Default (pages without a composer, e.g. Community): rendered at the end of
+   the content, it sticks to the bottom edge of the scrolling .main-content.
+   That scrollport already ends above the admin background-job bar (.app-shell
+   reserves --jobpanel-h), so the pills can never slide under the job bar. */
 .tool-dock {
-  position: fixed;
-  left: 0;
-  right: 0;
-  /* Above the composer normally; above the mobile sheet when one is open, since
-     the sheet is anchored to the viewport bottom and would otherwise bury the
-     tray (--rm-sheet-h is 0 unless a sheet is mounted). */
-  bottom: max(var(--rm-tray-bottom, 5rem), var(--rm-sheet-h, 0px));
-  z-index: 55;
+  position: sticky;
+  /* Sticky pins against .main-content's content box, which keeps its 4rem
+     bottom padding as a see-through band under the bar. The negative offset
+     cancels exactly that padding so the bar rests flush on the scrollport's
+     bottom edge (still above the job bar — .app-shell reserves its height). */
+  bottom: -4rem;
+  z-index: 20;
   padding: 0.35rem 0;
-  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+  backdrop-filter: blur(6px);
+  border-top: 1px solid var(--border);
 }
-/* The strip only earns its background on narrow screens, where it spans the
-   whole layout. On desktop a full-bleed bar would cut across the sidebar and
-   clip the composer's notices, so the pills float bare over the chat column. */
-@media (max-width: 640px) {
-  .tool-dock {
-    background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
-    backdrop-filter: blur(6px);
-    border-top: 1px solid var(--border);
-  }
+/* In-flow variant (game page, all widths): a normal row directly above the
+   composer inside the chat column — the messages area shrinks instead of being
+   overlaid. The chat-layout shell already rests on top of the job bar
+   (bottom: var(--jobpanel-h)), so no sticky needed here. */
+.tool-dock--flow {
+  position: static;
+  bottom: auto;
+  z-index: auto;
+  padding: 0.3rem 0;
 }
-/* In-flow variant (game page, desktop): a normal row above the composer inside
-   the chat column — the messages area shrinks instead of being overlaid, and
-   scrolls as usual. Under 640px the base fixed-strip rules still apply so an
-   open bottom sheet can't bury the pills. */
-@media (min-width: 641px) {
-  .tool-dock--flow {
-    position: static;
-    bottom: auto;
-    z-index: auto;
-    padding: 0.3rem 0 0;
-    pointer-events: auto;
-  }
-  .tool-dock--flow .tool-dock__inner {
-    max-width: none;
-    padding: 0 1rem;
-  }
+.tool-dock--flow .tool-dock__inner {
+  max-width: none;
+  padding: 0 1rem;
 }
 .tool-dock__inner {
   display: flex;
