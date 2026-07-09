@@ -271,5 +271,14 @@ defmodule RuleMaven.Games.CitationsTest do
       # happens to mention a number.
       assert Citations.suspicion("You move 4 spaces.", []) == nil
     end
+
+    test "a [Page N] marker's digit cannot ground a fabricated number" do
+      # normalize/1 strips [page N] before the digit scan. If that ever stops
+      # being true, the page marker's own digits would silently ground any
+      # answer that happens to state the same number, reopening the hole the
+      # :numeric trigger exists to close.
+      sources = ["[Page 3] Each player takes actions during their turn."]
+      assert Citations.suspicion("You get 3 action points per turn.", [], sources) == :numeric
+    end
   end
 end
