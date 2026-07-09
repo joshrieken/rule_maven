@@ -615,12 +615,12 @@ defmodule RuleMavenWeb.CoreComponents do
         </span>
       </figcaption>
       <div style="padding:0.5rem 0.75rem 0.6rem 0.9rem;border-left:3px solid var(--accent)">
+        <%!-- Content sits flush against the tags: `pre-line` turns the
+              template's own indentation newlines into blank lines. --%>
         <blockquote
           :for={{parts, i} <- Enum.with_index(c["quotes"] || [])}
           style={"margin:0;#{if i > 0, do: "padding-top:0.5rem;margin-top:0.5rem;border-top:1px dashed var(--border-subtle);", else: ""}white-space:pre-line;font-size:0.82rem;line-height:1.6;word-break:break-word;color:var(--text)"}
-        >
-          <strong :if={parts.heading} style="display:block;font-size:0.85rem;margin-bottom:0.15rem;color:var(--text)">{parts.heading}</strong>{parts.body}
-        </blockquote>
+        ><strong :if={parts.heading} style="display:block;font-size:0.85rem;margin-bottom:0.15rem;color:var(--text)">{parts.heading}</strong>{parts.body}</blockquote>
       </div>
     </figure>
     """
