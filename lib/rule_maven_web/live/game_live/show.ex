@@ -3022,7 +3022,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 id="game-theme-hint"
                 phx-hook="GameThemeHint"
                 data-tour="game-theme-hint"
-                style="margin:1.1rem auto 0;display:inline-flex;align-items:center;gap:0.4rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.75rem;font-weight:700;color:var(--accent-ink,var(--accent));cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
+                style="margin:1.1rem auto 0;display:inline-flex;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.75rem;font-weight:700;color:var(--accent-ink,var(--accent));cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
               >
                 🖌️ Dress this page in {@game.name}'s colors
               </button>
