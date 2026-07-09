@@ -733,6 +733,20 @@ defmodule RuleMavenWeb.GameLive.Index do
         </form>
 
         <div class="mb-4 flex gap-2 flex-wrap" id="view-tabs" phx-hook="ViewPref">
+          <%!-- Mobile: actions that get their own button row on desktop fold
+                into this disclosure menu so the game list starts higher. --%>
+          <details class="card-menu show-mobile" style="flex-shrink:0">
+            <summary
+              title="More actions"
+              aria-label="More actions"
+              style="cursor:pointer;list-style:none;user-select:none;display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.6rem;border-radius:9999px;font-size:0.78rem;font-weight:600;border:1.5px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary)"
+            >⚙️ <span aria-hidden="true" style="font-size:0.6rem;opacity:0.6">▾</span></summary>
+            <div class="card-menu__pop card-menu__pop--wide">
+              <.link navigate={~p"/games/import"} class="card-menu__item">
+                🔄 Sync Your BGG Collection
+              </.link>
+            </div>
+          </details>
           <%= for {key, label} <- view_tabs(@current_user) do %>
             <button
               type="button"
@@ -774,7 +788,15 @@ defmodule RuleMavenWeb.GameLive.Index do
             variant="primary"
             navigate={~p"/games/new"}
           >+ Add Game</.button>
-          <.button variant="secondary" navigate={~p"/games/import"} data-tour="bgg-sync">
+          <%!-- Desktop only: on mobile this lives in the ⚙️ disclosure menu
+                above the view pills (data-tour stays here; the tour step is
+                skipped on mobile where this button is hidden). --%>
+          <.button
+            variant="secondary"
+            navigate={~p"/games/import"}
+            class={["btn", "btn-secondary", "hide-mobile"]}
+            data-tour="bgg-sync"
+          >
             Sync Your BGG Collection
           </.button>
         </div>
