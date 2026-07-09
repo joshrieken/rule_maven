@@ -83,4 +83,20 @@ defmodule RuleMavenWeb.GameLiveLandingOverviewTest do
     assert html =~ "Landing Unknown Game Rules"
     refute html =~ "You roll 3 dice."
   end
+
+  test "patching to ?start=1 from an open thread survives", %{conn: conn} do
+    user = setup_user("land_patch")
+    game = published_game_fixture(%{name: "Landing Patch Game"})
+    ql = seed_thread(game, user)
+    token = RuleMaven.Hashid.encode(game.id)
+
+    conn = login(conn, user)
+
+    {:ok, view, _html} =
+      live(conn, ~p"/games/#{token}?t=#{RuleMaven.Hashid.encode(ql.id)}")
+
+    html = render_patch(view, ~p"/games/#{token}?start=1")
+
+    assert html =~ "Landing Patch Game Rules"
+  end
 end
