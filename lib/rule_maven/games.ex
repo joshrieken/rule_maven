@@ -2478,22 +2478,48 @@ defmodule RuleMaven.Games do
 
   @doc """
   Distinct `cleaned_question` texts already eligible for pool reuse in this
-  game (pooled or community, not refused/needs_review), most recent first,
-  capped at 20. Fed back into question normalization as a hint so a fresh
-  paraphrase of an already-answered question converges on the SAME canonical
-  wording — and therefore the same embedding — instead of drifting to a
-  slightly different phrasing that misses the pool/tiebreaker match entirely.
+  game (pooled or community, not refused/needs_review), capped at
+  `opts[:limit]` (default 20). Fed back into question normalization as a hint
+  so a fresh paraphrase of an already-answered question converges on the SAME
+  canonical wording — and therefore the same embedding — instead of drifting
+  to a slightly different phrasing that misses the pool/tiebreaker match
+  entirely.
+
+  With `opts[:near]` (a question embedding), rows are ordered nearest-first
+  by cosine distance, so the hint stays relevant even when the game has far
+  more canonical questions than the cap — recency ordering would surface
+  whatever was asked lately, not the questions this ask could actually match.
+  Without `near`, falls back to most recent first.
   """
-  def list_canonical_questions(game_id, limit \\ 20) do
-    from(q in QuestionLog,
-      where: q.game_id == ^game_id,
-      where: q.pooled == true or q.visibility == "community",
-      where: q.refused == false,
-      where: q.needs_review == false,
-      where: not is_nil(q.cleaned_question),
-      order_by: [desc: q.inserted_at],
-      select: q.cleaned_question
-    )
+  def list_canonical_questions(game_id, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 20)
+
+    base =
+      from(q in QuestionLog,
+        where: q.game_id == ^game_id,
+        where: q.pooled == true or q.visibility == "community",
+        where: q.refused == false,
+        where: q.needs_review == false,
+        where: not is_nil(q.cleaned_question),
+        select: q.cleaned_question
+      )
+
+    query =
+      case Keyword.get(opts, :near) do
+        nil ->
+          order_by(base, [q], desc: q.inserted_at)
+
+        embedding ->
+          vec = Pgvector.new(embedding)
+
+          base
+          |> where([q], not is_nil(q.question_embedding))
+          |> order_by([q],
+            asc: fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec)
+          )
+      end
+
+    query
     |> Repo.all()
     |> Enum.uniq()
     |> Enum.take(limit)

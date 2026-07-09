@@ -828,6 +828,38 @@ defmodule RuleMaven.GamesTest do
 
       assert Games.list_canonical_questions(game.id) == []
     end
+
+    test "near: orders nearest-first regardless of recency", %{game: game, user: user} do
+      # e0 and e1 are orthogonal unit axes; "Far Q" is newest but furthest.
+      e0 = [1.0 | List.duplicate(0.0, 767)]
+      e1 = [0.0, 1.0 | List.duplicate(0.0, 766)]
+
+      # Explicit inserted_at: same-second inserts make recency order ambiguous.
+      for {text, vec, ago} <- [{"Near Q", e0, 60}, {"Far Q", e1, 0}] do
+        {:ok, q} =
+          Games.log_question(%{
+            game_id: game.id,
+            user_id: user.id,
+            question: text,
+            cleaned_question: text,
+            answer: "A",
+            visibility: "private",
+            pooled: true
+          })
+
+        inserted_at = DateTime.add(DateTime.utc_now(), -ago, :second)
+
+        Repo.update_all(
+          from(ql in RuleMaven.Games.QuestionLog, where: ql.id == ^q.id),
+          set: [question_embedding: Pgvector.new(vec), inserted_at: inserted_at]
+        )
+      end
+
+      assert Games.list_canonical_questions(game.id, near: e0) == ["Near Q", "Far Q"]
+      assert Games.list_canonical_questions(game.id, near: e1) == ["Far Q", "Near Q"]
+      # Without near:, recency ordering — Far Q was inserted last.
+      assert Games.list_canonical_questions(game.id) == ["Far Q", "Near Q"]
+    end
   end
 
   describe "create_document/1 content-hash dedup" do

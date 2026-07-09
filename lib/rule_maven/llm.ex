@@ -855,12 +855,23 @@ defmodule RuleMaven.LLM do
   end
 
   defp do_normalize(game, raw, recent_context, user_id) do
+    # Embed the RAW text to pick the nearest canonical questions as the hint.
+    # An extra embed call, but only on a normalize-cache miss, and it keeps the
+    # 20-question hint cap from going popularity-blind on games with a deep
+    # pool (recency ordering surfaced whatever was asked lately, not what this
+    # ask could match). Embed failure just degrades to the recent-20 hint.
+    hint_embedding =
+      case RuleMaven.Embed.embed(raw) do
+        {:ok, vec} -> vec
+        {:error, _} -> nil
+      end
+
     user =
       RuleMaven.Prompts.render("normalize_question", %{
         game_name: game.name,
         game_kind: RuleMaven.Games.Category.context_noun(game.category),
         context_block: normalize_context_block(recent_context),
-        canonical_questions_block: canonical_questions_block(game.id),
+        canonical_questions_block: canonical_questions_block(game.id, hint_embedding),
         question: raw
       })
 
@@ -904,8 +915,9 @@ defmodule RuleMaven.LLM do
   # answer for — passed to the normalize LLM as a rewrite hint (see rule 8 of
   # `normalize_question_system`) so a fresh paraphrase converges on the SAME
   # wording instead of drifting to a phrasing that misses the pool match.
-  defp canonical_questions_block(game_id) do
-    case RuleMaven.Games.list_canonical_questions(game_id) do
+  # Nearest-first to the asked question when its embedding is available.
+  defp canonical_questions_block(game_id, hint_embedding) do
+    case RuleMaven.Games.list_canonical_questions(game_id, near: hint_embedding) do
       [] ->
         ""
 
