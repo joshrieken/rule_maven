@@ -28,6 +28,9 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :is_admin, :boolean, default: false
   attr :has_cheatsheet, :boolean, default: false
   attr :current, :atom, default: :show, values: [:show, :community, :prepare, :review, :edit]
+  attr :expansions, :list, default: []
+  attr :included_expansions, :map, default: %{}
+  attr :house_rule_count, :integer, default: 0
   attr :class, :string, default: nil, doc: "extra classes for the chrome element"
   slot :inner_block
 
@@ -49,6 +52,9 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         is_admin={@is_admin}
         has_cheatsheet={@has_cheatsheet}
         current={@current}
+        expansions={@expansions}
+        included_expansions={@included_expansions}
+        house_rule_count={@house_rule_count}
       >
         {render_slot(@inner_block)}
       </.game_header>
@@ -66,6 +72,9 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   # crashes), and the Community pill becomes a `My Q&A` link back to the game
   # page when rendered on Community.
   attr :current, :atom, default: :show, values: [:show, :community, :prepare, :review, :edit]
+  attr :expansions, :list, default: []
+  attr :included_expansions, :map, default: %{}
+  attr :house_rule_count, :integer, default: 0
   slot :inner_block, doc: "page-specific controls, right-aligned (e.g. the Q&A sidebar toggle)"
 
   @doc """
@@ -108,6 +117,12 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           is_admin={@is_admin}
           has_cheatsheet={@has_cheatsheet}
           current={@current}
+        />
+        <.table_context
+          game={@game}
+          expansions={@expansions}
+          included_expansions={@included_expansions}
+          house_rule_count={@house_rule_count}
         />
       </div>
       <div class="game-header-row__right">
@@ -245,6 +260,65 @@ defmodule RuleMavenWeb.GameLive.SubBar do
     </div>
     """
   end
+
+  attr :game, :map, required: true
+  attr :expansions, :list, default: []
+  attr :included_expansions, :map, default: %{}
+  attr :house_rule_count, :integer, default: 0
+
+  @doc """
+  The table-context strip: what this user is actually playing with. Renders at
+  all widths, directly under the game title.
+
+  `data-tour="expansions"` lives here — not on the picker — because the picker
+  now sits inside a tool panel that is closed by default, and a tour step
+  pointed at a hidden element is silently skipped.
+  """
+  def table_context(assigns) do
+    selected = Enum.filter(assigns.expansions, &Map.get(assigns.included_expansions, &1.id))
+    assigns = assign(assigns, :selected, selected)
+
+    ~H"""
+    <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:nowrap;min-width:0;flex-shrink:1">
+      <button
+        :if={@expansions != []}
+        type="button"
+        data-tour="expansions"
+        data-testid="table-context-expansions"
+        phx-click="open_tool"
+        phx-value-tool="expansions"
+        title={expansion_title(@selected)}
+        aria-label={expansion_title(@selected)}
+        class="pill-link"
+        style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;flex-shrink:1"
+      >
+        <span aria-hidden="true">📦</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">
+          {expansion_label(@selected)}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        data-testid="table-context-house-rules"
+        phx-click="open_tool"
+        phx-value-tool="house_rules"
+        class="pill-link"
+        style="display:inline-flex;align-items:center;gap:0.25rem;flex-shrink:0"
+      >
+        <span aria-hidden="true">🏠</span>
+        <span>{if @house_rule_count == 0, do: "Add", else: @house_rule_count}</span>
+      </button>
+    </div>
+    """
+  end
+
+  defp expansion_label([]), do: "Base game"
+  defp expansion_label([one]), do: one.name
+  defp expansion_label([first | rest]), do: "#{first.name} +#{length(rest)}"
+
+  defp expansion_title([]), do: "Playing the base game — tap to add expansions"
+  defp expansion_title(sel), do: "Playing with: " <> Enum.map_join(sel, ", ", & &1.name)
 
   attr :emoji, :string, required: true
   attr :label, :string, required: true

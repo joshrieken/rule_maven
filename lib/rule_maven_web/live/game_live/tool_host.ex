@@ -98,6 +98,7 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
     dyk_facts = load_did_you_know(game, sources, connected?(socket))
     {setup_status, setup_checklist} = load_setup(game, sources)
     seed = socket.assigns[:dyk_seed] || :erlang.unique_integer()
+    own_house_rules = load_own_house_rules(game, user)
 
     socket
     |> assign(
@@ -121,7 +122,8 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
       tool_states: %{},
       tool_order: [],
       single_panel?: socket.assigns.coarse_pointer,
-      house_rules: load_own_house_rules(game, user),
+      house_rules: own_house_rules,
+      house_rule_count: length(own_house_rules),
       community_house_rules: RuleMaven.HouseRules.community_for_game(game.id, user && user.id),
       hr_card_open: Map.get(socket.assigns, :hr_card_open, true),
       hr_form_open: false,
@@ -411,9 +413,15 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
 
     case RuleMaven.HouseRules.submit(user, game.id, params) do
       {:ok, _hr} ->
+        own_house_rules = load_own_house_rules(game, user)
+
         {:noreply,
          socket
-         |> assign(house_rules: load_own_house_rules(game, user), hr_form_open: false)
+         |> assign(
+           house_rules: own_house_rules,
+           house_rule_count: length(own_house_rules),
+           hr_form_open: false
+         )
          |> put_flash(:info, "House rule added — checking it against the rulebook…")}
 
       {:error, :injection} ->
@@ -525,9 +533,11 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
   # its own load_hr_overlay after delegated house-rule events.
   def refresh_house_rules(socket) do
     %{game: game, current_user: user} = socket.assigns
+    own_house_rules = load_own_house_rules(game, user)
 
     assign(socket,
-      house_rules: load_own_house_rules(game, user),
+      house_rules: own_house_rules,
+      house_rule_count: length(own_house_rules),
       community_house_rules: RuleMaven.HouseRules.community_for_game(game.id, user && user.id)
     )
   end

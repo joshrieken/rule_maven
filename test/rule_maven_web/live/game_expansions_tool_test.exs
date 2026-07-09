@@ -41,11 +41,19 @@ defmodule RuleMavenWeb.GameExpansionsToolTest do
     %{conn: login(conn, user), user: user, base: base, exp: exp}
   end
 
+  # Task 2 added a second way to open the same tool — the always-visible
+  # table-context strip (`data-testid="table-context-expansions"`) — beside
+  # the pre-existing Play-menu item, so the plain `open_tool`/`expansions`
+  # selector now matches two elements. Scope to the Play menu's item here;
+  # the strip's own open path is covered by game_table_context_test.exs.
   test "toggling an expansion from the tool persists the selection",
        %{conn: conn, user: user, base: base, exp: exp} do
     {:ok, view, _html} = live(conn, ~p"/games/#{base}")
 
-    view |> element(~s|[phx-click="open_tool"][phx-value-tool="expansions"]|) |> render_click()
+    view
+    |> element(~s|.card-menu__item[phx-click="open_tool"][phx-value-tool="expansions"]|)
+    |> render_click()
+
     view |> element(~s|[phx-click="toggle_expansion"][phx-value-id="#{exp.id}"]|) |> render_click()
 
     assert RuleMaven.Games.get_expansion_selection(user.id, base.id) == [exp.id]
@@ -55,7 +63,10 @@ defmodule RuleMavenWeb.GameExpansionsToolTest do
        %{conn: conn, user: user, base: base, exp: exp} do
     {:ok, view, _html} = live(conn, ~p"/games/#{base}/community")
 
-    view |> element(~s|[phx-click="open_tool"][phx-value-tool="expansions"]|) |> render_click()
+    view
+    |> element(~s|.card-menu__item[phx-click="open_tool"][phx-value-tool="expansions"]|)
+    |> render_click()
+
     view |> element(~s|[phx-click="toggle_expansion"][phx-value-id="#{exp.id}"]|) |> render_click()
 
     assert RuleMaven.Games.get_expansion_selection(user.id, base.id) == [exp.id]

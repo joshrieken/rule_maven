@@ -2318,6 +2318,9 @@ defmodule RuleMavenWeb.GameLive.Show do
         is_admin={@is_admin}
         has_cheatsheet={@has_cheatsheet}
         current={:show}
+        expansions={@expansions}
+        included_expansions={@included_expansions}
+        house_rule_count={length(@house_rules)}
       >
         <%!-- Sidebar toggle: kept first so it is the leftmost control on
               whichever row this group wraps onto on narrow screens. The

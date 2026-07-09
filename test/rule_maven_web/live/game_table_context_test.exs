@@ -1,0 +1,86 @@
+defmodule RuleMavenWeb.GameTableContextTest do
+  @moduledoc """
+  Task 2: the always-visible table-context strip — what this user is playing
+  with (selected expansions + house-rule count) — renders under the game
+  title on every game screen and taps into the `:expansions` / `:house_rules`
+  tools.
+  """
+  use RuleMavenWeb.ConnCase, async: true
+
+  import Phoenix.LiveViewTest
+  import RuleMaven.GamesFixtures
+
+  defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
+
+  defp create_user(prefix, attrs \\ %{}) do
+    {:ok, user} =
+      RuleMaven.Users.create_user(
+        Map.merge(
+          %{
+            username: "#{prefix}_user",
+            email: "#{prefix}_user@test.com",
+            password: "password1234"
+          },
+          attrs
+        )
+      )
+
+    user
+  end
+
+  setup %{conn: conn} do
+    user = create_user("tablectx")
+    base = published_game_fixture(%{name: "Wingspan", bgg_id: 9101})
+    %{conn: login(conn, user), user: user, base: base}
+  end
+
+  # The game must HAVE an expansion for the 🎲 half to render at all; the user
+  # simply hasn't selected it. A game with no expansions hides the half entirely
+  # — see the last test in this file.
+  test "an unselected expansion shows the muted base label",
+       %{conn: conn, user: user, base: base} do
+    exp = published_game_fixture(%{name: "Oceania", bgg_id: 9102})
+    RuleMaven.Games.link_expansion(exp.id, base.id)
+
+    RuleMaven.Games.put_expansion_selection(user.id, base.id, [])
+
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+    assert html =~ "Base game"
+  end
+
+  test "no house rules shows an Add affordance", %{conn: conn, base: base} do
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+    assert html =~ ~s|data-testid="table-context-house-rules"|
+    assert html =~ "Add"
+  end
+
+  test "selected expansions are named, extras collapse to +N",
+       %{conn: conn, user: user, base: base} do
+    for {n, bgg_id} <- [{"Oceania", 9103}, {"European", 9104}, {"Asia", 9105}] do
+      exp = published_game_fixture(%{name: n, bgg_id: bgg_id})
+      RuleMaven.Games.link_expansion(exp.id, base.id)
+    end
+
+    ids = base |> RuleMaven.Games.expansions_with_documents() |> Enum.map(& &1.id)
+    RuleMaven.Games.put_expansion_selection(user.id, base.id, ids)
+
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+    assert html =~ "Oceania"
+    assert html =~ "+2"
+  end
+
+  test "a game with no expansions hides the expansions half",
+       %{conn: conn, base: base} do
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+    refute html =~ ~s|data-testid="table-context-expansions"|
+  end
+
+  test "the expansions tour step targets a visible element",
+       %{conn: conn, base: base} do
+    exp = published_game_fixture(%{name: "Oceania", bgg_id: 9106})
+    RuleMaven.Games.link_expansion(exp.id, base.id)
+
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+    assert html =~ ~s|data-tour="expansions"|
+  end
+end
