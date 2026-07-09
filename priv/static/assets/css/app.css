@@ -2860,7 +2860,10 @@ textarea {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: var(--rm-tray-bottom, 5rem);
+  /* Above the composer normally; above the mobile sheet when one is open, since
+     the sheet is anchored to the viewport bottom and would otherwise bury the
+     tray (--rm-sheet-h is 0 unless a sheet is mounted). */
+  bottom: max(var(--rm-tray-bottom, 5rem), var(--rm-sheet-h, 0px));
   z-index: 55;
   padding: 0.35rem 0;
   background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
