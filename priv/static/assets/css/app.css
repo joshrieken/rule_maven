@@ -1666,6 +1666,10 @@ button.motion-toggle:hover {
      genuinely wide child (tables, code blocks) carries its own overflow-x:auto,
      so nothing here needs to scroll horizontally. */
   overflow-x: hidden;
+  /* The 1.5rem left/right value here is hardcoded into `.main-content
+     .game-bar`'s `margin-inline: -1.5rem` below — keep the two in sync if
+     this changes, or the bar will overhang and get silently clipped by
+     overflow-x: hidden above. */
   padding: 2rem 1.5rem 4rem;
 }
 
@@ -2847,10 +2851,12 @@ textarea {
 /* Inside the fixed chat shell the bar does not scroll, so sticky is inert —
    but the flex column still needs it to hold its height. It also already
    spans the viewport via the shell's own fixed positioning, so the full-bleed
-   margin above must not apply here. Same specificity as `.main-content
-   .game-bar` (two classes each) — this rule must stay below it in source
-   order to win the tiebreak. */
-.chat-layout .game-bar {
+   margin above must not apply here. Show's bar carries both `chat-header`
+   and `game-bar` classes (`<SubBar.game_bar class="chat-header">` renders
+   `class="game-bar chat-header"`), so this selector's 0-3-0 specificity beats
+   `.main-content .game-bar`'s 0-2-0 outright — it wins on specificity, not on
+   coming later in the file, so reordering these blocks can't break Show. */
+.chat-layout .chat-header.game-bar {
   flex-shrink: 0;
   margin-inline: 0;
 }

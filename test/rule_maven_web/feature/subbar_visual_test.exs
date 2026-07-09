@@ -51,13 +51,18 @@ defmodule RuleMavenWeb.Feature.SubBarVisualTest do
       })
       |> Repo.insert()
 
-    {:ok, _q} =
-      Games.log_question(%{
-        game_id: game.id,
-        question: "How does X work?",
-        answer: "Like Y.",
-        visibility: "community"
-      })
+    # Enough logged questions that the Community page's list overflows the
+    # 500x844 headless viewport — otherwise `.main-content` never scrolls and
+    # the sticky-pin assertion below has nothing to exercise (see Finding 3).
+    for i <- 1..20 do
+      {:ok, _q} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "How does rule #{i} work?",
+          answer: "Like this, for reason number #{i}, at length so the row has some height.",
+          visibility: "community"
+        })
+    end
 
     {admin, game}
   end
@@ -105,7 +110,12 @@ defmodule RuleMavenWeb.Feature.SubBarVisualTest do
   var bar = document.querySelector('.game-bar');
   var scRect = sc.getBoundingClientRect();
   var barRect = bar.getBoundingClientRect();
-  return {gap: barRect.top - scRect.top, scrolled: sc.scrollTop};
+  return {
+    gap: barRect.top - scRect.top,
+    scrolled: sc.scrollTop,
+    scrollHeight: sc.scrollHeight,
+    clientHeight: sc.clientHeight
+  };
   """
 
   feature "the bar is full-bleed, opaque and pinned on every game page", %{session: session} do
@@ -149,13 +159,24 @@ defmodule RuleMavenWeb.Feature.SubBarVisualTest do
     end
 
     # ── Sticky: the bar pins to .main-content's top edge, no blank band ─────
+    # Show is excluded on purpose, not just skipped: its bar lives inside
+    # `.chat-layout`, which is `position: fixed` and therefore never IS the
+    # scroll container — `.main-content` doesn't scroll on Show at all, so
+    # sticky positioning is inert there by design, and there is nothing for
+    # this probe to exercise on that page.
     for {name, path} <- paths, name != "show" do
       s = session |> visit(path) |> probe(@after_scroll)
 
-      if s["scrolled"] > 0 do
-        assert_in_delta s["gap"], 0.0, 2.0,
-                        "#{name}: bar did not pin flush (gap #{s["gap"]}px after scroll)"
-      end
+      assert s["scrollHeight"] > s["clientHeight"],
+             "#{name}: fixture content does not overflow .main-content " <>
+               "(scrollHeight #{s["scrollHeight"]} <= clientHeight #{s["clientHeight"]}) " <>
+               "so the sticky-pin assertion below would silently no-op"
+
+      assert s["scrolled"] > 0,
+             "#{name}: .main-content did not actually scroll (scrollTop #{s["scrolled"]})"
+
+      assert_in_delta s["gap"], 0.0, 2.0,
+                      "#{name}: bar did not pin flush (gap #{s["gap"]}px after scroll)"
     end
 
     # ── Desktop: pills reappear ────────────────────────────────────────────
