@@ -1556,6 +1556,9 @@ button.motion-toggle--menu {
   font-family: var(--font-body);
   font-size: 0.75rem;
   font-weight: 400;
+  /* The square header button pins line-height to 1, which made this row 8px
+     shorter than the links it sits above. Match their inherited 1.6. */
+  line-height: 1.6;
   border: none;
   border-radius: 5px;
   background: none;

@@ -206,8 +206,11 @@
                       aria-pressed="false"
                       aria-label="Toggle ambient animations"
                     >
-                      <span class="motion-toggle-on">✨ Animations on</span>
-                      <span class="motion-toggle-off">🌙 Animations off</span>
+                      <%!-- No emoji: the sibling links have no icon column, and
+                            a leading glyph pushes this row's label out of their
+                            left edge. The on/off word carries the state. --%>
+                      <span class="motion-toggle-on">Animations on</span>
+                      <span class="motion-toggle-off">Animations off</span>
                     </button>
                     <div class="user-dropdown-section">Account</div>
                     <.link href={~p"/standing"} class="user-dropdown-link">Standing</.link>
