@@ -114,5 +114,6 @@ defmodule RuleMaven.Games.QuestionLog do
       :error_retries
     ])
     |> validate_required([:question, :answer, :game_id])
+    |> validate_inclusion(:visibility, ~w(private community))
   end
 end

@@ -14,8 +14,10 @@ defmodule RuleMaven.LLM.Pricing do
     {"deepseek-v4-flash", {0.089, 0.18}},
     {"gpt-5-mini", {0.25, 2.00}},
     {"gemini-3.1-pro", {2.00, 12.00}},
+    {"gemini-2.5-flash-lite", {0.10, 0.40}},
     {"gemini-2.5-flash", {0.30, 2.50}},
     {"gemini-2.5-pro", {1.25, 10.00}},
+    {"gemini-2.0-flash-lite", {0.075, 0.30}},
     {"gemini-2.0-flash", {0.10, 0.40}},
     {"gemini-1.5-flash", {0.075, 0.30}},
     {"llama-3.3-70b", {0.59, 0.79}},
@@ -61,9 +63,11 @@ defmodule RuleMaven.LLM.Pricing do
   def rate(model) do
     m = String.downcase(model)
 
-    case Enum.find(@prices, fn {key, _} -> String.contains?(m, key) end) do
-      {_key, rate} -> rate
-      nil -> @default_rate
-    end
+    # Longest match wins, regardless of table order — plain first-hit substring
+    # matching priced "-lite" variants at their parent model's rate.
+    @prices
+    |> Enum.filter(fn {key, _} -> String.contains?(m, key) end)
+    |> Enum.max_by(fn {key, _} -> String.length(key) end, fn -> {nil, @default_rate} end)
+    |> elem(1)
   end
 end

@@ -907,10 +907,15 @@ defmodule RuleMavenWeb.GameLive.Show do
   @max_question_length 600
   @min_question_length 3
 
-  def handle_event("ask", %{"question" => question} = params, socket) do
+  def handle_event("ask", %{"question" => question}, socket) do
     # Strip --- sequences so user input can't inject parser delimiters into LLM output
     question = question |> String.replace("---", "") |> String.trim()
-    visibility = params["visibility"] || socket.assigns.visibility
+
+    # Never trust the client's visibility: "community" rows are pool-eligible
+    # and pool_tier treats them as trusted, so a tampered payload would inject
+    # an unvetted answer into every other user's cache. New asks are always
+    # private; only curation/promotion can make a row community.
+    visibility = "private"
 
     cond do
       Games.taken_down?(socket.assigns.game) ->
@@ -1664,7 +1669,10 @@ defmodule RuleMavenWeb.GameLive.Show do
               user_id: socket.assigns.current_user.id,
               skip_pool: skip_pool,
               skip_normalize: verbatim,
-              never_pool: protect_existing?
+              never_pool: protect_existing?,
+              # Without the voice a persona user's regenerate skips the
+              # single-call persona path and pays a separate restyle call.
+              voice: socket.assigns.default_voice
             }
             |> RuleMaven.Workers.AskWorker.new()
             |> Oban.insert()
@@ -1779,9 +1787,16 @@ defmodule RuleMavenWeb.GameLive.Show do
         socket
       ) do
     if Enum.any?(socket.assigns.threads, &(&1.id == prov_id)) do
+      # Drop the provisional thread entirely — its row was deleted by the
+      # worker. Leaving it would count as pending forever, eventually hitting
+      # @max_concurrent and blocking all asks until reload.
+      threads = Enum.reject(socket.assigns.threads, &(&1.id == prov_id))
+
       {:noreply,
        socket
        |> assign(
+         threads: threads,
+         pending_count: Enum.count(threads, & &1.pending),
          active_thread_id: source_id,
          reask_typed: stash_reask(socket.assigns.reask_typed, source_id, payload[:asked_as]),
          ask_partial: Map.delete(socket.assigns.ask_partial, prov_id),

@@ -350,9 +350,11 @@ defmodule RuleMaven.LLMTest do
         visibility: "community"
       })
 
+      # Promotion to community always sets `pooled` too — mirror that here,
+      # since the visibility-only pool branch now carries the citation gate.
       Repo.update_all(
         from(ql in QuestionLog, where: ql.game_id == ^game.id),
-        set: [question_embedding: Pgvector.new(embedding)]
+        set: [question_embedding: Pgvector.new(embedding), pooled: true]
       )
 
       # Mock the embed to return the same embedding (guarantees cosine_distance ~0)
@@ -742,8 +744,10 @@ defmodule RuleMaven.LLMTest do
           visibility: "community"
         })
 
+      # Promotion to community always sets `pooled` too — mirror that here,
+      # since the visibility-only pool branch now carries the citation gate.
       Repo.update_all(from(r in QuestionLog, where: r.id == ^q.id),
-        set: [question_embedding: Pgvector.new(embedding)]
+        set: [question_embedding: Pgvector.new(embedding), pooled: true]
       )
 
       Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, embedding} end)
@@ -947,6 +951,10 @@ defmodule RuleMaven.LLMTest do
     test "an identical re-ask is normalized standalone (text-cached)" do
       {:ok, game} = Games.create_game(%{name: "RepeatGame"})
 
+      # Only a REAL rewrite is cached now — the raw-text failure fallback no
+      # longer poisons the cache — so the normalize call must succeed.
+      mock_llm(fn _ -> {:ok, %{answer: "How many dice do I roll?"}} end)
+
       LLM.normalize_question(game, "How many dice do I roll?", [
         {"How many dice do I roll?", "You roll 3 dice."}
       ])
@@ -967,6 +975,9 @@ defmodule RuleMaven.LLMTest do
 
     test "editing the normalize prompt does not serve the old rewrite" do
       {:ok, game} = Games.create_game(%{name: "PromptVersionGame"})
+
+      # Only a REAL rewrite is cached now — the normalize call must succeed.
+      mock_llm(fn _ -> {:ok, %{answer: "How many dice do I roll?"}} end)
 
       LLM.normalize_question(game, "How many dice do I roll?")
       assert {:ok, _} = NormalizeCache.get(cache_key(game.id, "how many dice do i roll?"))

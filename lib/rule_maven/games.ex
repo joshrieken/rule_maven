@@ -2541,8 +2541,12 @@ defmodule RuleMaven.Games do
         # expansions change rules, so a base-only answer can be wrong with
         # an expansion in play (and vice versa).
         where: q.expansion_ids == ^expansion_ids,
-        # Community rows are always eligible; private rows once citation-gated.
-        where: q.pooled == true or q.visibility == "community",
+        # Pooled rows passed the grounded-citation gate in `mark_pooled/1`.
+        # Community rows normally imply `pooled` (promotion sets both); the
+        # visibility-only branch exists for legacy rows, so it must carry the
+        # citation gate itself — otherwise a row that skipped `mark_pooled`
+        # would serve cross-user ungated.
+        where: q.pooled == true or (q.visibility == "community" and q.citation_valid == true),
         where: not is_nil(q.question_embedding),
         where: q.refused == false,
         # Skip answers flagged stale by a rulebook change until re-approved.
@@ -2550,6 +2554,9 @@ defmodule RuleMaven.Games do
         # Belt-and-braces: `invalidate_pool/1` already demotes `pooled` on every
         # row it stales, but the serve path shouldn't depend on that coupling.
         where: q.stale == false,
+        # Failed answers must never serve cross-user (⚠️ prefix covers legacy
+        # rows persisted before `error_kind`).
+        where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
         where:
           fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec) <= ^threshold,
         order_by: [asc: fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec)],
@@ -2723,6 +2730,10 @@ defmodule RuleMaven.Games do
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
           where: q.answer != "Thinking..." and not is_nil(q.answer),
+        # A failed answer must never be served as a cache hit — a repeat ask
+        # would collapse onto the error row with no way to re-ask out of it.
+        # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
+        where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
           where:
             fragment("lower(?) = ?", q.cleaned_question, ^cleaned) or
               (is_nil(q.cleaned_question) and fragment("lower(?) = ?", q.question, ^raw)),
@@ -2764,6 +2775,10 @@ defmodule RuleMaven.Games do
           q.refused == false and q.blocked == false and q.needs_review == false and
             q.stale == false,
         where: q.answer != "Thinking..." and not is_nil(q.answer),
+        # A failed answer must never be served as a cache hit — a repeat ask
+        # would collapse onto the error row with no way to re-ask out of it.
+        # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
+        where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
         where: fragment("lower(?) = ?", q.question, ^raw),
         order_by: [desc: q.inserted_at, desc: q.id],
         limit: 1
@@ -2798,6 +2813,10 @@ defmodule RuleMaven.Games do
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
           where: q.answer != "Thinking..." and not is_nil(q.answer),
+        # A failed answer must never be served as a cache hit — a repeat ask
+        # would collapse onto the error row with no way to re-ask out of it.
+        # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
+        where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
           where: not is_nil(q.question_embedding),
           where:
             fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec) <= ^threshold,
@@ -2841,6 +2860,10 @@ defmodule RuleMaven.Games do
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
           where: q.answer != "Thinking..." and not is_nil(q.answer),
+        # A failed answer must never be served as a cache hit — a repeat ask
+        # would collapse onto the error row with no way to re-ask out of it.
+        # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
+        where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
           where:
             fragment("btrim(lower(regexp_replace(?, '\\s+', ' ', 'g'))) = ?", q.answer, ^norm),
           order_by: [desc: q.inserted_at, desc: q.id],

@@ -63,7 +63,21 @@ defmodule RuleMaven.Workers.AskWorker do
       # (resubmit_question deletes the old row before logging a new one), so a
       # legitimate first execution always finds the sentinel.
       answered_already?(question_log_id) ->
+        # The first execution may have crashed AFTER persisting but BEFORE its
+        # :ask_complete broadcast (mark_pooled, store_direct, etc. sit between
+        # them) — without a re-broadcast the asker's LiveView shows
+        # "Thinking..." forever and their pending slot never frees. The
+        # handler re-reads the row, so a duplicate broadcast is harmless.
+        rebroadcast_completed(game_id, question_log_id)
         Jobs.finish_run(run, "done", "Answer already present — duplicate job execution.")
+        :ok
+
+      # Row deleted (resubmit replaced it) while this job sat in the queue —
+      # bail BEFORE paying for the full LLM pipeline. The old code only
+      # noticed after LLM.ask returned, discarding a fully-paid answer, and
+      # the orphan also held the singleflight key against the replacement job.
+      is_nil(get_question_log!(question_log_id)) ->
+        Jobs.finish_run(run, "done", "Question no longer exists — skipping.")
         :ok
 
       # Re-check the kill switch at execution time: a job may have been queued
@@ -181,8 +195,13 @@ defmodule RuleMaven.Workers.AskWorker do
               # to one of the asker's own prior answers — two differently-worded
               # questions that produced the same ruling. Redirect there instead of
               # persisting a duplicate. Own rows only, so no cross-user exposure.
+              # Skipped for error answers (the ⚠️ boilerplate is byte-identical
+              # across unrelated failed questions — matching it would delete the
+              # new question and redirect to an unrelated failure) and for short
+              # answers ("Yes." to two different questions is not a duplicate).
               answer_dup =
-                ql && !llm_result[:pool_hit] && !refused?(answer) &&
+                ql && !llm_result[:pool_hit] && !refused?(answer) && is_nil(error_kind) &&
+                  String.length(String.trim(answer)) >= 20 &&
                   Games.find_user_answer_duplicate(
                     game_id,
                     user_id,
@@ -306,10 +325,11 @@ defmodule RuleMaven.Workers.AskWorker do
                   # Sanity check: cleaned must be shorter than the answer and
                   # not exceed a reasonable question length, else the LLM put
                   # answer content in the CLEANED block — discard it.
+                  # Judged on its own length only — gating on the ANSWER's
+                  # length discarded perfectly good cleaned questions whenever
+                  # the answer happened to be short ("Yes, always.").
                   cleaned =
-                    if cleaned != "" and
-                         String.length(cleaned) <= 250 and
-                         String.length(cleaned) <= String.length(answer) * 2 do
+                    if cleaned != "" and String.length(cleaned) <= 250 do
                       cleaned
                     else
                       ""
@@ -598,6 +618,38 @@ defmodule RuleMaven.Workers.AskWorker do
       nil -> false
       %{answer: answer} -> is_binary(answer) and String.trim(answer) not in ["", "Thinking..."]
     end
+  end
+
+  # Duplicate-execution path: the answer is already in the DB but the first
+  # run may have died before telling the LiveView. Rebuild a minimal
+  # :ask_complete from the persisted row; the handler re-reads the row for
+  # everything it renders, so the payload only needs the routing fields.
+  defp rebroadcast_completed(game_id, question_log_id) do
+    if ql = get_question_log!(question_log_id) do
+      Phoenix.PubSub.broadcast(
+        RuleMaven.PubSub,
+        "game:#{game_id}",
+        {:ask_complete,
+         %{
+           question_log_id: question_log_id,
+           faq_hit: false,
+           pool_hit: false,
+           tier: nil,
+           verified: ql.verified || false,
+           source_question_log_id: ql.pool_source_id,
+           followups: ql.followups || [],
+           also_asked: ql.also_asked || [],
+           cited_page: ql.cited_page,
+           refused: ql.refused,
+           verdict: ql.verdict,
+           raw_response: nil,
+           styled_voice: nil,
+           styled_answer: nil
+         }}
+      )
+    end
+
+    :ok
   end
 
   # Mirrors handle_disabled/4: persist a friendly ⚠️ answer so the LiveView

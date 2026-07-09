@@ -126,6 +126,51 @@ defmodule RuleMaven.LLMGroundingSalvageTest do
     assert result.verdict == "silent"
   end
 
+  test "a failed corrective retry still salvages — never serves the confirmed answer" do
+    {:ok, game} = Games.create_game(%{name: "Salv #{System.unique_integer([:positive])}"})
+    seed_chunk(game)
+    mock_embed()
+
+    # The critic CONFIRMS the aside as hallucinated, then the corrective retry
+    # errors (budget exhaustion lands exactly here — deepest pipeline point).
+    # The old code returned the confirmed-bad answer unchanged.
+    mock_llm(
+      fn
+        1 -> answer_result(@answer_with_aside)
+        _n -> {:error, "boom"}
+      end,
+      fn _n -> {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: #{@aside}"}} end
+    )
+
+    {:ok, result} = LLM.ask(game, @question)
+
+    assert result.answer =~ "discard one Item"
+    refute result.answer =~ "Perk cards"
+  end
+
+  test "salvage drops the styled answer along with the flagged clause" do
+    {:ok, game} = Games.create_game(%{name: "Salv #{System.unique_integer([:positive])}"})
+    seed_chunk(game)
+    mock_embed()
+
+    styled = "Ah, adventurer! " <> @aside
+
+    mock_llm(
+      fn _n ->
+        {:ok, res} = answer_result(@answer_with_aside)
+        {:ok, Map.merge(res, %{styled_answer: styled, styled_voice: "wizard"})}
+      end,
+      fn _n -> {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: #{@aside}"}} end
+    )
+
+    {:ok, result} = LLM.ask(game, @question)
+
+    # The plain answer is sanitized; the styled answer restated the flagged
+    # clause in-voice, so it must not survive to be cached by the worker.
+    refute result.answer =~ "Perk cards"
+    assert result[:styled_answer] == nil
+  end
+
   test "a clean retry is kept unchanged" do
     {:ok, game} = Games.create_game(%{name: "Salv #{System.unique_integer([:positive])}"})
     seed_chunk(game)

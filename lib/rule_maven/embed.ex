@@ -13,13 +13,25 @@ defmodule RuleMaven.Embed do
   @expected_dim 768
 
   def embed(text) when is_binary(text) do
-    case Application.get_env(:rule_maven, :embed_mock) do
-      # The cache wraps the real API call only. A mock exists precisely to avoid
-      # that call, so caching it buys nothing — and the ETS table outlives a
-      # single test, so a cached mock vector would leak into the next test that
-      # embeds the same text behind a different mock.
-      nil -> cached_embed(text)
-      mock when is_function(mock) -> mock.(text)
+    # A blank input either errors at the API (re-paid on every call — errors
+    # are never cached) or comes back as a junk vector that nearest-neighbor
+    # happily ranks against, returning arbitrary chunks. Embedding the TRIMMED
+    # text also keeps the payload consistent with the cache key, which hashes
+    # trimmed text — otherwise "q" and "q " could cache different vectors
+    # under one key depending on arrival order.
+    case String.trim(text) do
+      "" ->
+        {:error, :empty}
+
+      trimmed ->
+        case Application.get_env(:rule_maven, :embed_mock) do
+          # The cache wraps the real API call only. A mock exists precisely to avoid
+          # that call, so caching it buys nothing — and the ETS table outlives a
+          # single test, so a cached mock vector would leak into the next test that
+          # embeds the same text behind a different mock.
+          nil -> cached_embed(trimmed)
+          mock when is_function(mock) -> mock.(trimmed)
+        end
     end
   end
 
