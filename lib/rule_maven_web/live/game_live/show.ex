@@ -2550,27 +2550,14 @@ defmodule RuleMavenWeb.GameLive.Show do
               title="Game overview"
               style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;text-decoration:none;color:inherit"
             >
-              <h1 class="text-sm font-bold truncate" style="max-width:300px">{@game.name}</h1>
-              <span class="hide-mobile" style="display:inline-flex">
-                <.difficulty_badge weight={
-                  difficulty_weight(@game, {@expansions, @included_expansions})
-                } />
-              </span>
+              <h1 class="text-sm font-bold truncate" style="max-width:220px">{@game.name}</h1>
             </.link>
-            <.link
-              patch={~p"/games/#{@game}?start=1"}
-              class="pill-link pill-link-accent hide-mobile"
-            >
-              Overview
-            </.link>
-            <%= if @game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category) do %>
-              <.link
-                href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
-                target="_blank"
-                rel="noopener"
-                class="pill-link hide-mobile"
-              >View on BGG</.link>
-            <% end %>
+            <SubBar.sub_bar
+              game={@game}
+              sources={@sources}
+              community_count={@community_count}
+              is_admin={@is_admin}
+            />
           </div>
           <div class="flex items-center gap-1" style="flex-wrap:wrap">
             <%!-- Sidebar toggle: kept first so it is the leftmost control on
@@ -2728,13 +2715,6 @@ defmodule RuleMavenWeb.GameLive.Show do
           </div>
         </div>
       </div>
-
-      <SubBar.sub_bar
-        game={@game}
-        sources={@sources}
-        community_count={@community_count}
-        is_admin={@is_admin}
-      />
 
       <div style="display:flex;flex:1;min-height:0">
         <!-- Sidebar backdrop (mobile only). Always rendered (not :if) so toggling

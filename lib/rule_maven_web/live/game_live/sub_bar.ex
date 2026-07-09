@@ -15,12 +15,18 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
 
+  @doc """
+  Renders the three group menus (Play / Learn / More) inline. Meant to sit in
+  the game header row beside the title — no full-width bar, no overflow (an
+  overflow container clips the absolutely-positioned dropdowns). Mobile-first:
+  short pills that wrap under the title on narrow screens.
+  """
   def sub_bar(assigns) do
     ~H"""
     <div
       class="tool-subbar"
       data-tour="tools-subbar"
-      style="flex-shrink:0;display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.75rem;border-bottom:1px solid var(--border);background:var(--bg-surface);overflow-x:auto"
+      style="display:inline-flex;align-items:center;gap:0.3rem;flex-shrink:0;flex-wrap:wrap"
     >
       <.group_menu emoji="🎲" label="Play" tools={ToolRegistry.group(:play)} />
       <.group_menu emoji="📚" label="Learn" tools={ToolRegistry.group(:learn)} />
