@@ -35,20 +35,12 @@ defmodule RuleMavenWeb.GameLive.Community do
   end
 
   defp mount_game(game, socket) do
-    is_admin = RuleMaven.Users.can?(socket.assigns.current_user, :admin)
     categories = Games.list_game_categories(game)
 
     socket =
       assign(socket,
         game: game,
-        is_admin: is_admin,
         categories: categories,
-        sources: Games.list_documents(game),
-        community_count: RuleMaven.Faq.community_count(game),
-        # Mount-only: connect params are unreadable from handle_params, so the
-        # phone/desktop split is stashed here for the tool machinery.
-        coarse_pointer:
-          connected?(socket) and get_connect_params(socket)["coarse_pointer"] == true,
         # Report-reason modal: nil, or the question id being reported.
         report_target: nil,
         filter_category: nil,
@@ -61,6 +53,7 @@ defmodule RuleMavenWeb.GameLive.Community do
         page_title: "Community Q&A — #{game.name}"
       )
 
+    socket = ToolHost.mount_header(socket, game)
     socket = ToolHost.mount_tools(socket, game)
 
     {:ok, load_questions(socket)}
@@ -401,17 +394,17 @@ defmodule RuleMavenWeb.GameLive.Community do
     <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
     <%!-- Report-reason modal: pick why the answer is being reported. --%>
     <ReportModal.report_modal :if={@report_target} />
+    <%!-- Same tool sub-bar as the game page: every game screen keeps the
+          table tools one tap away. Admin Review lives in the More menu. --%>
+    <SubBar.game_bar
+      game={@game}
+      sources={@sources}
+      community_count={@community_count}
+      is_admin={@is_admin}
+      has_cheatsheet={@has_cheatsheet}
+      current={:community}
+    />
     <div style="max-width:52rem;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index:1">
-      <%!-- Same tool sub-bar as the game page: every game screen keeps the
-            table tools one tap away. Admin Review lives in the More menu. --%>
-      <SubBar.game_header
-        game={@game}
-        sources={@sources}
-        community_count={@community_count}
-        is_admin={@is_admin}
-        on_game_page={false}
-      />
-
       <h1 style="font-size:1.25rem;font-weight:700;margin-bottom:0.25rem">
         {@game.name} — Community Q&amp;A
       </h1>
