@@ -4542,6 +4542,10 @@ defmodule RuleMavenWeb.GameLive.Show do
           <span class="persona-modal__title">Answer persona</span>
           <button type="button" class="btn-icon" phx-click="close_persona_modal" aria-label="Close">✕</button>
         </div>
+        <p class="persona-modal__blurb">
+          Personas change how an answer is written, not what it says. Pick a voice and the same
+          rules get explained in its style.
+        </p>
         <input
           type="text"
           id="persona-search"
