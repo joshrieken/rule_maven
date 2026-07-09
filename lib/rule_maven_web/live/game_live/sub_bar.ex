@@ -96,7 +96,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         <span class="pill-label">More</span>
         <span class="pill-caret" style="font-size:0.6rem;opacity:0.6">▾</span>
       </summary>
-      <div class="card-menu__pop card-menu__pop--right">
+      <div class="card-menu__pop card-menu__pop--right card-menu__pop--wide">
         <.link :if={@on_game_page} patch={~p"/games/#{@game}?start=1"} class="card-menu__item">
           🔍 Overview
         </.link>

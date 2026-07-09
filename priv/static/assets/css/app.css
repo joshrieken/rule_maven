@@ -2614,9 +2614,16 @@ textarea {
   opacity: 0.5;
   cursor: default;
 }
-/* The user bubble is right-aligned, so left-anchoring spills the popover off
-   the right edge — anchor it to the right instead. It must open DOWNWARD
-   (default direction): #chat-messages is an `overflow-y:auto` scroller whose
+/* The ? sits right after the "You asked:" label near the bubble's left edge,
+   so the popover centers under the icon — a hard left anchor grows rightward
+   past narrow phone viewports, a right anchor grows leftward off the bubble;
+   centered splits the width both ways. The translateX(-50%) shares the
+   transform with the show animation's translateY, so the hover/focus state
+   below re-asserts both (the generic .conf-help:hover rule only sets
+   translateY and would lose the centering — same specificity, earlier in
+   file, so this later block must win with the full pair). It must open
+   DOWNWARD (default direction): #chat-messages is an `overflow-y:auto`
+   scroller whose
    top edge sits just under the chat-header, and answers scroll to that top, so
    an upward popover pokes past the scroller's top edge and gets clipped away
    (looking "hidden behind the top bar"). Clipping is z-index-independent, and
@@ -2625,11 +2632,16 @@ textarea {
    is the only direction with open room; it floats over the answer below, which
    is fine for a transient hover tooltip. */
 .ask-orig .conf-help__pop {
-  left: auto;
-  right: 0;
+  left: 50%;
+  right: auto;
   top: calc(100% + 6px);
   bottom: auto;
   z-index: 60;
+  transform: translateX(-50%) translateY(-2px);
+}
+.ask-orig .conf-help:hover .conf-help__pop,
+.ask-orig .conf-help:focus-within .conf-help__pop {
+  transform: translateX(-50%) translateY(0);
 }
 /* The downward popover overlaps the answer bubble below it. Both bubbles are
    direct children of #chat-messages with no z-index (steady state), so they
@@ -2714,6 +2726,11 @@ textarea {
 }
 .card-menu__pop--right {
   right: 0;
+}
+/* Wider pop for menus with long single-line items (sub-bar "More": the
+   "💬 Community Q&A (N)" link wraps at the default 160px). */
+.card-menu__pop--wide {
+  min-width: 13.5rem;
 }
 /* Open upward. Used by the answer action-row menus (voice, overflow) so they
    never drop into and get hidden behind the chat input composer below. */
@@ -3393,6 +3410,29 @@ body:has([data-phx-main].phx-connected)::after {
 @media (max-width: 640px) {
   .persona-modal-backdrop { padding: 3vh 0.75rem 0.75rem; }
   .persona-modal { max-width: none; max-height: 90vh; }
+}
+
+/* Games-list chrome on phones: compress the search/pill rows so the list
+   itself starts higher. Pills keep a 36px tap height (34px floor); the
+   !importants beat the pills' inline styles. */
+@media (max-width: 640px) {
+  .list-controls .mb-4 { margin-bottom: 0.4rem; }
+  .list-controls #view-tabs,
+  .list-controls .category-pills { gap: 0.3rem; }
+  .list-controls #view-tabs button,
+  .list-controls .category-pills button {
+    padding: 0.14rem 0.5rem !important;
+    font-size: 0.7rem !important;
+  }
+  .list-controls #view-tabs details > summary {
+    padding: 0.14rem 0.45rem !important;
+    font-size: 0.7rem !important;
+    min-height: 36px;
+  }
+}
+@media (max-width: 640px) and (pointer: coarse) {
+  .list-controls #view-tabs button,
+  .list-controls .category-pills button { min-height: 36px; }
 }
 
 /* The composer's Ideas menu + persona pill are form children. `flex-basis:100%`

@@ -2949,7 +2949,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                                normalization_changed?(asked_as, msg.content) do %>
                           <div class="ask-orig">
                             <span class="ask-orig__label">↳ You asked:</span>
-                            <span class="ask-orig__text">"{asked_as}"</span>
                             <span class="conf-help">
                               <button
                                 type="button"
@@ -2963,6 +2962,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                                 original wording is always kept.
                               </span>
                             </span>
+                            <span class="ask-orig__text">"{asked_as}"</span>
                           </div>
                         <% end %>
                         <%!-- "Ask exactly this" — escape hatch below the original

@@ -733,6 +733,25 @@ defmodule RuleMavenWeb.GameLive.Index do
         </form>
 
         <div class="mb-4 flex gap-2 flex-wrap" id="view-tabs" phx-hook="ViewPref">
+          <%!-- Mobile: actions that get their own button row on desktop fold
+                into this disclosure menu so the game list starts higher. --%>
+          <details class="card-menu show-mobile" style="flex-shrink:0">
+            <summary
+              title="More actions"
+              aria-label="More actions"
+              style="cursor:pointer;list-style:none;user-select:none;display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.6rem;border-radius:9999px;font-size:0.78rem;font-weight:600;border:1.5px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary)"
+            >⚙️ <span aria-hidden="true" style="font-size:0.6rem;opacity:0.6">▾</span></summary>
+            <div class="card-menu__pop card-menu__pop--wide">
+              <.link
+                :if={RuleMaven.Users.can?(@current_user, :admin)}
+                navigate={~p"/games/new"}
+                class="card-menu__item"
+              >➕ Add Game</.link>
+              <.link navigate={~p"/games/import"} class="card-menu__item">
+                🔄 Sync Your BGG Collection
+              </.link>
+            </div>
+          </details>
           <%= for {key, label} <- view_tabs(@current_user) do %>
             <button
               type="button"
@@ -750,7 +769,7 @@ defmodule RuleMavenWeb.GameLive.Index do
           |> Enum.sort() %>
 
         <%= if length(present_categories) > 1 do %>
-          <div class="mb-4 flex gap-2 flex-wrap">
+          <div class="mb-4 flex gap-2 flex-wrap category-pills">
             <button
               type="button"
               phx-click="set_category_filter"
@@ -768,7 +787,10 @@ defmodule RuleMavenWeb.GameLive.Index do
           </div>
         <% end %>
 
-        <div class="flex gap-2 flex-wrap">
+        <%!-- Desktop only: on mobile both actions live in the ⚙️ disclosure
+              menu at the head of the view pills (data-tour stays here; the
+              tour step is skipped on mobile where this row is hidden). --%>
+        <div class="flex gap-2 flex-wrap hide-mobile">
           <.button
             :if={RuleMaven.Users.can?(@current_user, :admin)}
             variant="primary"
