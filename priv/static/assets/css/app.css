@@ -2797,18 +2797,41 @@ textarea {
 .tool-subbar::-webkit-scrollbar { display: none; }
 
 /* The one header row every game screen wears (SubBar.game_header): ← , game
-   name, tool sub-bar; page-specific controls right-aligned. The Q&A page nests
-   it inside .chat-header, which supplies the surface + border; elsewhere it
-   sits bare above the page body, hence the margin. */
+   name, tool sub-bar; page-specific controls right-aligned. Every game screen
+   now wraps this in .game-bar chrome, which supplies the surface + border +
+   spacing, so the row itself carries none of its own. */
 .game-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.35rem;
   flex-wrap: wrap;
-  margin-bottom: 1rem;
 }
-.chat-header .game-header-row { margin-bottom: 0; }
+
+/* The chrome every game screen wears. Sticky, not fixed: it pins to the top of
+   .main-content (the real scroll container) so the tools stay one tap away no
+   matter how far down the page you have scrolled. The background must be opaque
+   — the blurred game art sits behind it and would otherwise scroll through. */
+.game-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 0.25rem 0.75rem;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Sticky is measured from .main-content's PADDING box, so leaving its top
+   padding in place would strand the bar in a blank band below the header. Same
+   fix `.main-content:has(.game-list)` applies for .list-controls. */
+.main-content:has(.game-bar) {
+  padding-top: 0;
+}
+
+/* Inside the fixed chat shell the bar does not scroll, so sticky is inert —
+   but the flex column still needs it to hold its height. */
+.chat-layout .game-bar { flex-shrink: 0; }
+
 .game-header-row__left,
 .game-header-row__right {
   display: flex;

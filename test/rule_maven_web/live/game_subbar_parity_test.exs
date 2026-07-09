@@ -142,4 +142,16 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
     assert show_html =~ "regenerate_html"
     refute community_html =~ "regenerate_html"
   end
+
+  test "every game page wraps the bar in the same chrome", %{conn: conn, game: game} do
+    for path <- [
+          ~p"/games/#{game}",
+          ~p"/games/#{game}/community",
+          ~p"/games/#{game}/review",
+          ~p"/games/#{game}/edit"
+        ] do
+      {:ok, _view, html} = live(conn, path)
+      assert html =~ "game-bar", "no .game-bar chrome on #{path}"
+    end
+  end
 end

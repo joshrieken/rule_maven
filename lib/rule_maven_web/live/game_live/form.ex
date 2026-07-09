@@ -2560,6 +2560,17 @@ defmodule RuleMavenWeb.GameLive.Form do
     ~H"""
     {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
     <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game && @game.image_url} />
+    <%!-- Editing an existing game: same header + tool sub-bar as every other
+          game screen. "Add Game" has no game yet, so it keeps a plain row. --%>
+    <SubBar.game_bar
+      :if={@game}
+      game={@game}
+      sources={@sources}
+      community_count={@community_count}
+      is_admin={@is_admin}
+      has_cheatsheet={@has_cheatsheet}
+      current={:edit}
+    />
     <div class="game-form" style="position:relative;z-index:1">
       <div
         :if={@expansion_prompt}
@@ -2594,18 +2605,6 @@ defmodule RuleMavenWeb.GameLive.Form do
           </div>
         </div>
       </div>
-
-      <%!-- Editing an existing game: same header + tool sub-bar as every other
-            game screen. "Add Game" has no game yet, so it keeps a plain row. --%>
-      <SubBar.game_header
-        :if={@game}
-        game={@game}
-        sources={@sources}
-        community_count={@community_count}
-        is_admin={@is_admin}
-        has_cheatsheet={@has_cheatsheet}
-        current={:edit}
-      />
 
       <div :if={!@game} class="mb-4 flex items-center justify-between">
         <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">

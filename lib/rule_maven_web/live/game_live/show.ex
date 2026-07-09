@@ -2289,29 +2289,25 @@ defmodule RuleMavenWeb.GameLive.Show do
       >
       </div>
       <!-- Header -->
-      <div
+      <SubBar.game_bar
         class="chat-header"
-        style="flex-shrink:0;padding:0.25rem 0.75rem;border-bottom:1px solid var(--border);background:var(--bg-surface);position:relative;z-index:20"
+        game={@game}
+        sources={@sources}
+        community_count={@community_count}
+        is_admin={@is_admin}
+        has_cheatsheet={@has_cheatsheet}
+        current={:show}
       >
-        <SubBar.game_header
-          game={@game}
-          sources={@sources}
-          community_count={@community_count}
-          is_admin={@is_admin}
-          has_cheatsheet={@has_cheatsheet}
-          current={:show}
-        >
-          <%!-- Sidebar toggle: kept first so it is the leftmost control on
-                whichever row this group wraps onto on narrow screens. The
-                Rulebooks / Community / Cheat Sheet pills now live in the shared
-                bar, so every game screen paints them identically. --%>
-          <button
-            type="button"
-            phx-click="toggle_sidebar"
-            class="sidebar-toggle btn-icon btn-sm"
-          >☰</button>
-        </SubBar.game_header>
-      </div>
+        <%!-- Sidebar toggle: kept first so it is the leftmost control on
+              whichever row this group wraps onto on narrow screens. The
+              Rulebooks / Community / Cheat Sheet pills now live in the shared
+              bar, so every game screen paints them identically. --%>
+        <button
+          type="button"
+          phx-click="toggle_sidebar"
+          class="sidebar-toggle btn-icon btn-sm"
+        >☰</button>
+      </SubBar.game_bar>
 
       <div style="display:flex;flex:1;min-height:0">
         <!-- Sidebar backdrop (mobile only). Always rendered (not :if) so toggling

@@ -687,16 +687,15 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     ~H"""
     {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
     <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
+    <SubBar.game_bar
+      game={@game}
+      sources={@sources}
+      community_count={@community_count}
+      is_admin={@is_admin}
+      has_cheatsheet={@has_cheatsheet}
+      current={:prepare}
+    />
     <div style="max-width:52rem;margin:0 auto;padding:0 1.5rem 1.25rem;position:relative;z-index:1">
-      <SubBar.game_header
-        game={@game}
-        sources={@sources}
-        community_count={@community_count}
-        is_admin={@is_admin}
-        has_cheatsheet={@has_cheatsheet}
-        current={:prepare}
-      />
-
       <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:0.25rem 0 0.35rem">
         <div style="display:flex;align-items:center;gap:0.75rem">
           <img

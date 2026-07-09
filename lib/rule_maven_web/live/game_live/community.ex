@@ -394,18 +394,17 @@ defmodule RuleMavenWeb.GameLive.Community do
     <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
     <%!-- Report-reason modal: pick why the answer is being reported. --%>
     <ReportModal.report_modal :if={@report_target} />
+    <%!-- Same tool sub-bar as the game page: every game screen keeps the
+          table tools one tap away. Admin Review lives in the More menu. --%>
+    <SubBar.game_bar
+      game={@game}
+      sources={@sources}
+      community_count={@community_count}
+      is_admin={@is_admin}
+      has_cheatsheet={@has_cheatsheet}
+      current={:community}
+    />
     <div style="max-width:52rem;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index:1">
-      <%!-- Same tool sub-bar as the game page: every game screen keeps the
-            table tools one tap away. Admin Review lives in the More menu. --%>
-      <SubBar.game_header
-        game={@game}
-        sources={@sources}
-        community_count={@community_count}
-        is_admin={@is_admin}
-        has_cheatsheet={@has_cheatsheet}
-        current={:community}
-      />
-
       <h1 style="font-size:1.25rem;font-weight:700;margin-bottom:0.25rem">
         {@game.name} — Community Q&amp;A
       </h1>

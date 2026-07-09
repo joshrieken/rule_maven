@@ -14,6 +14,40 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
   attr :has_cheatsheet, :boolean, default: false
+  attr :current, :atom, default: :show, values: [:show, :community, :prepare, :review, :edit]
+  attr :class, :string, default: nil, doc: "extra classes for the chrome element"
+  slot :inner_block
+
+  @doc """
+  The bar as every game screen wears it: full-bleed chrome, pinned to the top of
+  the scroll container, wrapping the header row. Pages render this, not
+  `game_header/1` — the chrome is what makes the bar the same control everywhere.
+
+  Render it as a sibling *before* the page's centered content column, so it
+  spans the viewport while the content stays centered.
+  """
+  def game_bar(assigns) do
+    ~H"""
+    <div class={["game-bar", @class]}>
+      <.game_header
+        game={@game}
+        sources={@sources}
+        community_count={@community_count}
+        is_admin={@is_admin}
+        has_cheatsheet={@has_cheatsheet}
+        current={@current}
+      >
+        {render_slot(@inner_block)}
+      </.game_header>
+    </div>
+    """
+  end
+
+  attr :game, :map, required: true
+  attr :sources, :list, default: []
+  attr :community_count, :integer, default: 0
+  attr :is_admin, :boolean, default: false
+  attr :has_cheatsheet, :boolean, default: false
   # Which page the bar is being rendered on. Drives two things: the Overview
   # link patches on :show and navigates elsewhere (patching across LiveViews
   # crashes), and a pill pointing at the current page renders inert.

@@ -77,16 +77,15 @@ defmodule RuleMavenWeb.GameLive.Review do
     ~H"""
     {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
     <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
+    <SubBar.game_bar
+      game={@game}
+      sources={@sources}
+      community_count={@community_count}
+      is_admin={@is_admin}
+      has_cheatsheet={@has_cheatsheet}
+      current={:review}
+    />
     <div style="max-width:48rem;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index:1">
-      <SubBar.game_header
-        game={@game}
-        sources={@sources}
-        community_count={@community_count}
-        is_admin={@is_admin}
-        has_cheatsheet={@has_cheatsheet}
-        current={:review}
-      />
-
       <h1 class="text-xl font-bold mb-6">Review — {@game.name}</h1>
 
       <!-- Documents (admin only) -->
