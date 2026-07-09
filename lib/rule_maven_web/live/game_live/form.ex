@@ -2903,7 +2903,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                       phx-value-url={result.url}
                       phx-value-label={result.label}
                       disabled={@downloading}
-                      style="color:var(--accent);border:none;background:none;font-size:0.75rem;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:0.5rem"
+                      style="color:var(--accent-ink, var(--accent));border:none;background:none;font-size:0.75rem;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:0.5rem"
                     >Download</button>
                   </div>
                 <% end %>
@@ -3779,7 +3779,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                         <span style="color:var(--border-strong);margin:0 0.35rem">|</span>
                         <span style="width:60px;text-align:center;display:inline-block">
                           <%= if v.active do %>
-                            <span style="color:var(--accent);font-weight:600;font-size:0.65rem">active</span>
+                            <span style="color:var(--accent-ink, var(--accent));font-weight:600;font-size:0.65rem">active</span>
                           <% else %>
                             <button
                               type="button"
@@ -3984,13 +3984,13 @@ defmodule RuleMavenWeb.GameLive.Form do
         "background:var(--bg-subtle);color:var(--text-muted)"
 
       "compact" ->
-        "background:var(--accent-subtle);color:var(--accent)"
+        "background:var(--accent-subtle);color:var(--accent-ink, var(--accent))"
 
       "standard" ->
         "background:var(--bg-surface);color:var(--accent-dark);border:1px solid var(--accent);font-weight:700"
 
       "detailed" ->
-        "background:var(--accent-subtle);color:var(--accent);border:1px solid var(--accent-light)"
+        "background:var(--accent-subtle);color:var(--accent-ink, var(--accent));border:1px solid var(--accent-light)"
 
       "full" ->
         "background:var(--bg);color:var(--text-secondary);border:1px solid var(--border-strong)"

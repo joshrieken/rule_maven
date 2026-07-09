@@ -803,7 +803,7 @@ defmodule RuleMavenWeb.GameLive.Community do
               />
               <span
                 :if={MapSet.member?(@asker_confirmed, @q.id)}
-                style="font-size:0.6rem;color:var(--accent);border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
+                style="font-size:0.6rem;color:var(--accent-ink, var(--accent));border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
                 title="Count includes the asker, who confirmed this answered their question"
               >✓ asker</span>
             </span>
@@ -815,7 +815,7 @@ defmodule RuleMavenWeb.GameLive.Community do
             </span>
             <span
               :if={@show_status_badge && @status == "community"}
-              style="font-size:0.6rem;font-weight:600;color:var(--accent);background:color-mix(in srgb, var(--accent) 14%, var(--bg-surface));padding:0.1rem 0.4rem;border-radius:1rem"
+              style="font-size:0.6rem;font-weight:600;color:var(--accent-ink, var(--accent));background:color-mix(in srgb, var(--accent) 14%, var(--bg-surface));padding:0.1rem 0.4rem;border-radius:1rem"
             >
               🌐 Community
             </span>
@@ -827,7 +827,7 @@ defmodule RuleMavenWeb.GameLive.Community do
             </span>
             <span
               :if={@q.canonical_question}
-              style="font-size:0.6rem;font-weight:600;color:var(--accent);background:color-mix(in srgb, var(--accent) 14%, var(--bg-surface));padding:0.1rem 0.4rem;border-radius:1rem"
+              style="font-size:0.6rem;font-weight:600;color:var(--accent-ink, var(--accent));background:color-mix(in srgb, var(--accent) 14%, var(--bg-surface));padding:0.1rem 0.4rem;border-radius:1rem"
             >
               ★ Curated
             </span>

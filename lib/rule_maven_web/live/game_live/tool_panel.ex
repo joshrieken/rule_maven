@@ -508,7 +508,7 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
         <% end %>
 
         <%= for {exp, delta} <- @expansion_deltas do %>
-          <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--accent);margin:0.8rem 0 0.3rem">
+          <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;color:var(--accent-ink, var(--accent));margin:0.8rem 0 0.3rem">
             ➕ {exp.name}
           </div>
           <%= for {item, i} <- Enum.with_index(delta["components"]) do %>

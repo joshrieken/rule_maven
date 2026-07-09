@@ -141,7 +141,7 @@ defmodule RuleMavenWeb.GameLive.Review do
                   {String.slice(q.canonical_answer || q.answer || "", 0, 180)}
                 </div>
                 <%= if q.canonical_question do %>
-                  <span style="font-size:0.65rem;color:var(--accent);margin-top:0.25rem;display:block">★ curated</span>
+                  <span style="font-size:0.65rem;color:var(--accent-ink, var(--accent));margin-top:0.25rem;display:block">★ curated</span>
                 <% end %>
               </div>
               <%= if @is_admin do %>

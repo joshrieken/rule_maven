@@ -798,7 +798,7 @@ a { color: inherit; text-decoration: inherit; }
 [data-on-accent] ::selection,
 [data-on-accent]::selection {
   background: var(--accent-text, #fff);
-  color: var(--accent);
+  color: var(--accent-ink, var(--accent));
 }
 
 /* ===== Global UI Polish ===== */
@@ -2890,8 +2890,11 @@ textarea {
   width: min(30rem, calc(100vw - 2rem));
   max-height: 80vh;
   /* The body scrolls, not the panel: the resize handles are absolutely
-     positioned against the panel and must not scroll away from its edges. */
-  overflow: hidden;
+     positioned against the panel and must not scroll away from its edges.
+     `visible`, not `hidden`, so the handles can straddle the border and be
+     grabbed from just outside it — the bar and body round their own corners
+     instead (see below). */
+  overflow: visible;
   display: flex;
   flex-direction: column;
   /* Above the site header (z:100). A window dragged up used to slide *under*
@@ -2908,38 +2911,53 @@ textarea {
 }
 
 /* Eight drag targets (four edges, four corners) driven by the FloatingPanel
-   hook. They sit *inside* the border — the panel clips its overflow to keep the
-   rounded corners, so a handle hanging outside would be invisible and dead. The
-   corners are laid out after the edges and so win the overlap. */
+   hook. Each straddles the border — half outside, half in — so the 1px border
+   itself, and a few forgiving pixels beyond it, all start a resize. The corners
+   are laid out after the edges and so win the overlap.
+
+   `--rm-grab` is the full thickness; the edges are offset by half of it to
+   centre them on the border. The panel must stay `overflow: visible` for the
+   outside half to be hittable. */
 .tool-panel__resize {
   position: absolute;
   z-index: 2;
   touch-action: none;
+  --rm-grab: 12px;
+  --rm-grab-half: -6px;
 }
 .tool-panel__resize--n,
-.tool-panel__resize--s { left: 0; right: 0; height: 6px; }
-.tool-panel__resize--n { top: 0; cursor: ns-resize; }
-.tool-panel__resize--s { bottom: 0; cursor: ns-resize; }
+.tool-panel__resize--s {
+  left: var(--rm-grab-half);
+  right: var(--rm-grab-half);
+  height: var(--rm-grab);
+}
+.tool-panel__resize--n { top: var(--rm-grab-half); cursor: ns-resize; }
+.tool-panel__resize--s { bottom: var(--rm-grab-half); cursor: ns-resize; }
 .tool-panel__resize--e,
-.tool-panel__resize--w { top: 0; bottom: 0; width: 6px; }
-.tool-panel__resize--e { right: 0; cursor: ew-resize; }
-.tool-panel__resize--w { left: 0; cursor: ew-resize; }
+.tool-panel__resize--w {
+  top: var(--rm-grab-half);
+  bottom: var(--rm-grab-half);
+  width: var(--rm-grab);
+}
+.tool-panel__resize--e { right: var(--rm-grab-half); cursor: ew-resize; }
+.tool-panel__resize--w { left: var(--rm-grab-half); cursor: ew-resize; }
 .tool-panel__resize--ne,
 .tool-panel__resize--nw,
 .tool-panel__resize--se,
-.tool-panel__resize--sw { width: 16px; height: 16px; }
-.tool-panel__resize--ne { top: 0; right: 0; cursor: nesw-resize; }
-.tool-panel__resize--sw { bottom: 0; left: 0; cursor: nesw-resize; }
-.tool-panel__resize--nw { top: 0; left: 0; cursor: nwse-resize; }
-.tool-panel__resize--se { bottom: 0; right: 0; cursor: nwse-resize; }
+.tool-panel__resize--sw { width: 22px; height: 22px; }
+.tool-panel__resize--ne { top: var(--rm-grab-half); right: var(--rm-grab-half); cursor: nesw-resize; }
+.tool-panel__resize--sw { bottom: var(--rm-grab-half); left: var(--rm-grab-half); cursor: nesw-resize; }
+.tool-panel__resize--nw { top: var(--rm-grab-half); left: var(--rm-grab-half); cursor: nwse-resize; }
+.tool-panel__resize--se { bottom: var(--rm-grab-half); right: var(--rm-grab-half); cursor: nwse-resize; }
 
 /* The bottom-right corner keeps a visible grip, drawn as two diagonal ticks
    that follow the theme instead of the OS's default grey grill. */
 .tool-panel__resize--se::after {
   content: "";
   position: absolute;
-  right: 5px;
-  bottom: 5px;
+  /* The handle now hangs 6px past the corner; keep the grip inside the panel. */
+  right: 11px;
+  bottom: 11px;
   width: 9px;
   height: 9px;
   border-right: 2px solid var(--text-muted);
@@ -2958,6 +2976,10 @@ body.tool-panel-resizing { user-select: none; }
 .tool-panel__bar {
   position: sticky;
   top: 0;
+  /* The panel is `overflow: visible` now (so the resize handles can hang past
+     its border), so the bar and body round their own outer corners rather than
+     being clipped to the panel's radius. */
+  border-radius: 0.75rem 0.75rem 0 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2985,6 +3007,7 @@ body.tool-panel-resizing { user-select: none; }
   overflow: auto;
   flex: 1 1 auto;
   min-height: 0;
+  border-radius: 0 0 0.75rem 0.75rem;
 }
 
 /* Mobile: bottom sheet, chat visible above. Height is chosen from three snap
@@ -3005,6 +3028,10 @@ body.tool-panel-resizing { user-select: none; }
    desktop grab targets would only be finger traps. */
 .tool-panel--sheet .tool-panel__resize { display: none; }
 .tool-panel--sheet .tool-panel__bar { cursor: default; }
+/* The sheet has a bigger top radius and a square, viewport-flush bottom, so the
+   children's desktop corners don't apply. */
+.tool-panel--sheet .tool-panel__bar { border-radius: 0.9rem 0.9rem 0 0; }
+.tool-panel--sheet .tool-panel__body { border-radius: 0; }
 .tool-panel--sheet .tool-panel__bar::before {
   content: "";
   position: absolute;
@@ -3496,7 +3523,7 @@ body:has([data-phx-main].phx-connected)::after {
   text-transform: uppercase; color: var(--text-muted);
   padding: 0.5rem 0.5rem 0.2rem;
 }
-.persona-modal__section--game { color: var(--accent); }
+.persona-modal__section--game { color: var(--accent-ink, var(--accent)); }
 .persona-card {
   display: flex; align-items: flex-start; gap: 0.55rem; width: 100%;
   text-align: left; background: none; border: 1px solid transparent;
@@ -3517,14 +3544,14 @@ body:has([data-phx-main].phx-connected)::after {
   display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;
 }
 .persona-card__badge {
-  font-size: 0.55rem; font-weight: 700; color: var(--accent);
+  font-size: 0.55rem; font-weight: 700; color: var(--accent-ink, var(--accent));
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   padding: 0.05rem 0.3rem; border-radius: 999px;
 }
 .persona-card__badge--star { color: #e0a83a; background: none; padding: 0; }
 .persona-card__desc { font-size: 0.7rem; color: var(--text-secondary); line-height: 1.3; overflow-wrap: anywhere; }
 .persona-card__sample { font-size: 0.68rem; color: var(--text-muted); font-style: italic; line-height: 1.3; overflow-wrap: anywhere; }
-.persona-card__check { color: var(--accent); font-weight: 800; flex-shrink: 0; }
+.persona-card__check { color: var(--accent-ink, var(--accent)); font-weight: 800; flex-shrink: 0; }
 @media (max-width: 640px) {
   .persona-modal-backdrop { padding: 3vh 0.75rem 0.75rem; }
   .persona-modal { max-width: none; max-height: 90vh; }
@@ -3982,7 +4009,7 @@ body:has([data-phx-main].phx-connected)::after {
   color: var(--text-muted);
 }
 .voice-loader__persona-star {
-  color: var(--accent);
+  color: var(--accent-ink, var(--accent));
 }
 .voice-loader__row {
   display: flex;
@@ -3996,7 +4023,7 @@ body:has([data-phx-main].phx-connected)::after {
   display: inline-block;
   width: 1ch;
   text-align: center;
-  color: var(--accent);
+  color: var(--accent-ink, var(--accent));
 }
 .voice-loader__spinner::before {
   content: "⠋";

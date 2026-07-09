@@ -718,7 +718,7 @@ defmodule RuleMavenWeb.GameLive.Index do
           style="display:block;margin-top:0.75rem;padding:0.6rem 0.75rem;border:1px solid var(--border);border-radius:0.5rem;background:var(--bg-subtle);text-decoration:none;color:var(--text)"
           title={"Open #{@rule_of_day.game.name}"}
         >
-          <span style="font-size:0.62rem;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--accent)">
+          <span style="font-size:0.62rem;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--accent-ink, var(--accent))">
             📅 Rule of the day · {@rule_of_day.game.name}
           </span>
           <span style="display:block;font-size:0.78rem;line-height:1.5;margin-top:0.2rem">
@@ -889,7 +889,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                     type="button"
                     phx-click="toggle_expansions"
                     phx-value-id={game.id}
-                    style="background:none;border:none;padding:0;color:var(--accent);font-weight:600;font-size:0.8rem;cursor:pointer;line-height:1.2"
+                    style="background:none;border:none;padding:0;color:var(--accent-ink, var(--accent));font-weight:600;font-size:0.8rem;cursor:pointer;line-height:1.2"
                   >{if expanded, do: "▲", else: "▼"} {expansion_count} expansion(s)</button>
                   <% exp_to_pull = Map.get(@expansion_pull_counts, game.id, 0) %>
                   <% exp_syncing = Map.has_key?(@expansion_sync, game.id) %>
@@ -1005,7 +1005,7 @@ defmodule RuleMavenWeb.GameLive.Index do
               <div class="exp-reveal">
                 <div
                   :if={sync}
-                  style="margin-left:2rem;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;color:var(--accent);font-weight:600"
+                  style="margin-left:2rem;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;color:var(--accent-ink, var(--accent));font-weight:600"
                 >
                   <% {done, total} = sync %>
                   <span class="animate-pulse">⟳ Syncing expansions {done}/{total}…</span>

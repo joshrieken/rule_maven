@@ -726,7 +726,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
       <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
         <%= if @auto? && (is_nil(@pause_reason) || @pause_reason == "") do %>
-          <span style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.85rem;font-weight:600;color:var(--accent)">
+          <span style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.85rem;font-weight:600;color:var(--accent-ink, var(--accent))">
             <span style="display:inline-block;width:0.55rem;height:0.55rem;border-radius:50%;background:var(--accent)"></span>
             Running…
           </span>
@@ -848,7 +848,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           <button
             type="button"
             data-prepare-all="expand"
-            style="background:none;border:none;color:var(--accent);font-size:0.78rem;font-weight:600;cursor:pointer;padding:0"
+            style="background:none;border:none;color:var(--accent-ink, var(--accent));font-size:0.78rem;font-weight:600;cursor:pointer;padding:0"
           >
             Expand all
           </button>
@@ -925,7 +925,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           <.link
             :if={@action}
             navigate={@action.href}
-            style="font-size:0.72rem;font-weight:600;color:var(--accent);margin-left:0.4rem;white-space:nowrap"
+            style="font-size:0.72rem;font-weight:600;color:var(--accent-ink, var(--accent));margin-left:0.4rem;white-space:nowrap"
           >
             {@action.label} &rarr;
           </.link>
@@ -1447,7 +1447,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       </button>
       <span
         :if={@cleaning?}
-        style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.74rem;font-weight:600;color:var(--accent)"
+        style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.74rem;font-weight:600;color:var(--accent-ink, var(--accent))"
       >
         <span style="display:inline-block;width:0.5rem;height:0.5rem;border-radius:50%;background:var(--accent)"></span>
         Cleaning…
@@ -1463,7 +1463,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       </button>
       <span
         :if={@embedding?}
-        style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.74rem;font-weight:600;color:var(--accent)"
+        style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.74rem;font-weight:600;color:var(--accent-ink, var(--accent))"
       >
         <span style="display:inline-block;width:0.5rem;height:0.5rem;border-radius:50%;background:var(--accent)"></span>
         Embedding…
@@ -1488,7 +1488,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       </button>
       <span
         :if={@running}
-        style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.74rem;font-weight:600;color:var(--accent)"
+        style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.74rem;font-weight:600;color:var(--accent-ink, var(--accent))"
       >
         <span style="display:inline-block;width:0.5rem;height:0.5rem;border-radius:50%;background:var(--accent)"></span>
         Running…
@@ -1516,7 +1516,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       <.link
         :if={@link}
         navigate={@link.href}
-        style="font-size:0.74rem;font-weight:600;color:var(--accent);text-decoration:none"
+        style="font-size:0.74rem;font-weight:600;color:var(--accent-ink, var(--accent));text-decoration:none"
       >
         {@link.label} &rarr;
       </.link>
@@ -1578,7 +1578,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   defp run_state_style("done"), do: "color:var(--green);font-weight:700"
   defp run_state_style("failed"), do: "color:var(--red);font-weight:700"
-  defp run_state_style("running"), do: "color:var(--accent);font-weight:700"
+  defp run_state_style("running"), do: "color:var(--accent-ink, var(--accent));font-weight:700"
   defp run_state_style(_), do: "color:var(--text-muted);font-weight:700"
 
   defp event_style("error"), do: "color:var(--red)"
@@ -1675,7 +1675,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     ~H"""
     BoardGameGeek data must be pulled first — set a BGG ID on the <.link
       navigate={~p"/games/#{@game}/edit?#{%{tab: "details"}}"}
-      style="color:var(--accent);font-weight:600"
+      style="color:var(--accent-ink, var(--accent));font-weight:600"
     >
       edit page
     </.link>, then click Run remaining to resume.
@@ -1686,7 +1686,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     ~H"""
     Upload a rulebook source first — <.link
       navigate={~p"/games/#{@game}/edit"}
-      style="color:var(--accent);font-weight:600"
+      style="color:var(--accent-ink, var(--accent));font-weight:600"
     >
       go to the edit page
     </.link>.
@@ -1703,7 +1703,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     ~H"""
     {fmt_int(@review_pages)} low-confidence {ngettext("page needs", "pages need", @review_pages)} review — <.link
       navigate={~p"/games/#{@game}/edit"}
-      style="color:var(--accent);font-weight:600"
+      style="color:var(--accent-ink, var(--accent));font-weight:600"
     >
       review them on the edit page
     </.link>, then click Run remaining to resume.
@@ -1768,7 +1768,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # while a regenerate job is in flight for it, so `running` must win over
   # `:done` or the chip lies about a job that's actively running.
   defp chip_style(_state, true),
-    do: "background:color-mix(in srgb,var(--accent) 20%,var(--bg-surface));color:var(--accent)"
+    do: "background:color-mix(in srgb,var(--accent) 20%,var(--bg-surface));color:var(--accent-ink, var(--accent))"
 
   defp chip_style(:done, _running),
     do: "background:color-mix(in srgb,var(--green) 20%,var(--bg-surface));color:var(--green)"
@@ -1784,6 +1784,6 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   defp chip_label(:blocked, _running), do: "Blocked"
   defp chip_label(_state, _running), do: "Pending"
 
-  defp tag_style(:required), do: "color:var(--accent)"
+  defp tag_style(:required), do: "color:var(--accent-ink, var(--accent))"
   defp tag_style(_), do: "color:var(--text-muted)"
 end

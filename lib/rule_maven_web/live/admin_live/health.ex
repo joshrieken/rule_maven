@@ -163,7 +163,7 @@ defmodule RuleMavenWeb.AdminLive.Health do
         Deep job inspection lives in the <.link
           href="/oban"
           target="_blank"
-          style="color:var(--accent)"
+          style="color:var(--accent-ink, var(--accent))"
         >Oban dashboard ↗</.link>.
       </p>
 
