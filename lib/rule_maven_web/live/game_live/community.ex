@@ -16,7 +16,12 @@ defmodule RuleMavenWeb.GameLive.Community do
 
   alias RuleMaven.Games
   alias RuleMaven.Games.QuestionLog
+  alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
   alias RuleMavenWeb.ReportModal
+
+  # Table-tool events (sub-bar Play/Learn, window chrome) are shared with the
+  # game page via ToolHost.
+  @tool_events RuleMavenWeb.GameLive.ToolHost.events()
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -38,6 +43,12 @@ defmodule RuleMavenWeb.GameLive.Community do
         game: game,
         is_admin: is_admin,
         categories: categories,
+        sources: Games.list_documents(game),
+        community_count: RuleMaven.Faq.community_count(game),
+        # Mount-only: connect params are unreadable from handle_params, so the
+        # phone/desktop split is stashed here for the tool machinery.
+        coarse_pointer:
+          connected?(socket) and get_connect_params(socket)["coarse_pointer"] == true,
         # Report-reason modal: nil, or the question id being reported.
         report_target: nil,
         filter_category: nil,
@@ -49,6 +60,8 @@ defmodule RuleMavenWeb.GameLive.Community do
         expanded: MapSet.new(),
         page_title: "Community Q&A — #{game.name}"
       )
+
+    socket = ToolHost.mount_tools(socket, game)
 
     {:ok, load_questions(socket)}
   end
@@ -146,6 +159,9 @@ defmodule RuleMavenWeb.GameLive.Community do
   end
 
   @impl true
+  def handle_event(event, params, socket) when event in @tool_events,
+    do: ToolHost.handle_tool_event(event, params, socket)
+
   def handle_event("switch_tab", %{"tab" => tab}, socket)
       when tab in ["verified", "community", "unverified"] do
     # Patch ?tab= so the explicit choice survives refresh/back; also drops any
@@ -386,18 +402,19 @@ defmodule RuleMavenWeb.GameLive.Community do
     <%!-- Report-reason modal: pick why the answer is being reported. --%>
     <ReportModal.report_modal :if={@report_target} />
     <div style="max-width:52rem;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index:1">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+      <%!-- Same tool sub-bar as the game page: every game screen keeps the
+            table tools one tap away. Admin Review lives in the More menu. --%>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">
         <.link navigate={~p"/games/#{@game}"} class="back-link" style="margin-bottom:0">
           &larr; Back to {@game.name}
         </.link>
-        <.link
-          :if={@is_admin}
-          navigate={~p"/games/#{@game}/review"}
-          class="back-link"
-          style="margin-bottom:0"
-        >
-          Admin Review →
-        </.link>
+        <SubBar.sub_bar
+          game={@game}
+          sources={@sources}
+          community_count={@community_count}
+          is_admin={@is_admin}
+          on_game_page={false}
+        />
       </div>
 
       <h1 style="font-size:1.25rem;font-weight:700;margin-bottom:0.25rem">
@@ -651,6 +668,11 @@ defmodule RuleMavenWeb.GameLive.Community do
         <% end %>
       <% end %>
     </div>
+
+    <%!-- Floating tool windows + minimized dock, same machinery as the game
+          page. This page has no fixed .chat-layout, so no stacking-context
+          trap — but keep them at the root for symmetry. --%>
+    <ToolPanel.tool_panel {assigns} />
     """
   end
 
