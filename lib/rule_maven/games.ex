@@ -3850,6 +3850,24 @@ defmodule RuleMaven.Games do
     end
   end
 
+  # Category-name vs question-phrasing embeddings rarely land below 0.5, so a
+  # 0.5 bar left many questions untagged. 0.62 still rejects unrelated
+  # categories while catching genuine-but-loose matches. Up to two categories
+  # may clear it.
+  @category_match_distance 0.62
+
+  # When nothing clears the strict bar, fall back to the single nearest
+  # category if it's at least loosely related. Broad questions ("How many
+  # players can play?" — nearest category 0.695) otherwise land nowhere and
+  # never earn a filter pill. Only ever one tag, so a loose match can't stack.
+  @category_fallback_distance 0.75
+
+  @doc """
+  Tag one question against its game's category taxonomy. Pure pgvector — no LLM
+  call — so it is cheap enough to run inline over a whole game.
+
+  Returns `{:ok, tag_count}`, or `:skipped` when the question has no embedding.
+  """
   def tag_question(question_log_id, game_id) do
     q = Repo.get!(QuestionLog, question_log_id)
 
@@ -3858,7 +3876,7 @@ defmodule RuleMaven.Games do
     else
       q_vec = q.question_embedding
 
-      top2 =
+      ranked =
         Repo.all(
           from c in GameCategory,
             where: c.game_id == ^game_id and not is_nil(c.name_embedding),
@@ -3866,12 +3884,19 @@ defmodule RuleMaven.Games do
             limit: 2,
             select: {c.id, fragment("cosine_distance(?, ?::vector)", c.name_embedding, ^q_vec)}
         )
-        # Category-name vs question-phrasing embeddings rarely land below 0.5, so
-        # that bar left many questions untagged. 0.62 still rejects unrelated
-        # categories while catching genuine-but-loose matches.
-        |> Enum.filter(fn {_, dist} -> dist <= 0.62 end)
 
-      Enum.each(top2, fn {cat_id, _} ->
+      matches =
+        case Enum.filter(ranked, fn {_, d} -> d <= @category_match_distance end) do
+          [] ->
+            ranked
+            |> Enum.take(1)
+            |> Enum.filter(fn {_, d} -> d <= @category_fallback_distance end)
+
+          strict ->
+            strict
+        end
+
+      Enum.each(matches, fn {cat_id, _} ->
         %QuestionCategoryTag{}
         |> QuestionCategoryTag.changeset(%{
           question_log_id: question_log_id,
@@ -3887,11 +3912,22 @@ defmodule RuleMaven.Games do
         {:question_tagged, question_log_id}
       )
 
-      :ok
+      {:ok, length(matches)}
     end
   end
 
+  @doc """
+  Re-tag every embedded question in the game against the current taxonomy.
+
+  A true re-tag: this game's existing question tags are dropped first, so a
+  threshold or taxonomy change can *remove* now-invalid tags rather than only
+  adding new ones. Runs inline (no LLM), returning `{tagged, total}` so callers
+  can report what actually happened instead of a silent no-op.
+  """
   def retag_all_questions(%Game{} = game) do
+    cat_ids = Repo.all(from c in GameCategory, where: c.game_id == ^game.id, select: c.id)
+    Repo.delete_all(from t in QuestionCategoryTag, where: t.game_category_id in ^cat_ids)
+
     ids =
       Repo.all(
         from q in QuestionLog,
@@ -3900,11 +3936,12 @@ defmodule RuleMaven.Games do
           select: q.id
       )
 
-    Enum.each(ids, fn id ->
-      RuleMaven.Workers.TagQuestionWorker.enqueue(id, game.id)
-    end)
+    tagged =
+      Enum.count(ids, fn id ->
+        match?({:ok, n} when n > 0, tag_question(id, game.id))
+      end)
 
-    length(ids)
+    {tagged, length(ids)}
   end
 
   def categories_for_questions([]), do: %{}

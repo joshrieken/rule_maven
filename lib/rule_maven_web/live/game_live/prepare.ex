@@ -434,8 +434,14 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   def handle_event("retag_categories", _params, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
-      count = Games.retag_all_questions(socket.assigns.game)
-      {:noreply, put_flash(socket, :info, "Re-tagging #{count} question(s) in the background.")}
+      game = socket.assigns.game
+
+      # Pure pgvector, no LLM — but a big game is still thousands of queries, so
+      # keep it off the LiveView process. The async result carries real counts:
+      # "Re-tagging N question(s)" alone couldn't tell an admin that zero of
+      # them actually matched a category.
+      {:noreply,
+       start_async(socket, :retag_categories, fn -> Games.retag_all_questions(game) end)}
     else
       {:noreply, socket}
     end
@@ -557,6 +563,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     Settings.delete("turn_flow_#{g.id}")
     Workers.TurnFlowWorker.enqueue(g.id)
   end
+
   defp regen_step(:theme, g), do: Workers.ThemePaletteWorker.enqueue(g)
   defp regen_step(:bgg, g), do: %{game_id: g.id} |> Workers.BggEnrichWorker.new() |> Oban.insert()
   defp regen_step(_, _), do: :ok
@@ -623,6 +630,22 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       end
     end)
     |> MapSet.new()
+  end
+
+  @impl true
+  def handle_async(:retag_categories, {:ok, {tagged, total}}, socket) do
+    msg =
+      cond do
+        total == 0 -> "No questions to tag yet."
+        tagged == 0 -> "Tagged 0 of #{total} question(s) — none matched a category."
+        true -> "Tagged #{tagged} of #{total} question(s)."
+      end
+
+    {:noreply, put_flash(socket, :info, msg)}
+  end
+
+  def handle_async(:retag_categories, {:exit, reason}, socket) do
+    {:noreply, put_flash(socket, :error, "Re-tag failed: #{inspect(reason)}")}
   end
 
   @impl true
@@ -1237,9 +1260,21 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           </ol>
         <% :teach -> %>
           <dl style="margin:0;display:flex;flex-direction:column;gap:0.4rem">
-            <div :for={{k, lbl} <- [{"goal", "Goal"}, {"loop", "On your turn"}, {"win", "Winning"}, {"trap", "Don't forget"}]}>
-              <div :if={@preview[k]} style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.4rem 0.55rem">
-                <dt style="font-size:0.65rem;font-weight:800;text-transform:uppercase;color:var(--text-muted)">{lbl}</dt>
+            <div :for={
+              {k, lbl} <- [
+                {"goal", "Goal"},
+                {"loop", "On your turn"},
+                {"win", "Winning"},
+                {"trap", "Don't forget"}
+              ]
+            }>
+              <div
+                :if={@preview[k]}
+                style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.4rem 0.55rem"
+              >
+                <dt style="font-size:0.65rem;font-weight:800;text-transform:uppercase;color:var(--text-muted)">
+                  {lbl}
+                </dt>
                 <dd style="margin:0.1rem 0 0;font-size:0.82rem">{@preview[k]}</dd>
               </div>
             </div>
