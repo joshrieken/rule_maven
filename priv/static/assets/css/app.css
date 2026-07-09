@@ -2715,6 +2715,11 @@ textarea {
 .card-menu__pop--right {
   right: 0;
 }
+/* Wider pop for menus with long single-line items (sub-bar "More": the
+   "💬 Community Q&A (N)" link wraps at the default 160px). */
+.card-menu__pop--wide {
+  min-width: 13.5rem;
+}
 /* Open upward. Used by the answer action-row menus (voice, overflow) so they
    never drop into and get hidden behind the chat input composer below. */
 .card-menu__pop--up {
