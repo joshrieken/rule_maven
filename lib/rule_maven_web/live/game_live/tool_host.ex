@@ -35,8 +35,8 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
              toggle_step reset_checklist checklist_restore
              toggle_house_rules_card toggle_house_rule_form add_house_rule
              start_edit_house_rule cancel_edit_house_rule edit_house_rule
-             delete_house_rule toggle_house_rule_visibility recheck_house_rule
-             block_house_rule toggle_expansion)
+             delete_house_rule toggle_house_rule_visibility toggle_house_rule_enabled
+             recheck_house_rule block_house_rule toggle_expansion)
 
   def events, do: @events
   def session_keys, do: @session_keys
@@ -485,6 +485,16 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
          true <- owner?(socket, hr) do
       new_vis = if hr.visibility == "community", do: "private", else: "community"
       {:ok, _} = RuleMaven.HouseRules.update(hr, %{"visibility" => new_vis})
+    end
+
+    {:noreply, refresh_house_rules(socket)}
+  end
+
+  # `set_enabled/3` does its own ownership check and returns {:error, :unauthorized},
+  # so a forged phx-value-id for someone else's rule is a no-op.
+  def handle_tool_event("toggle_house_rule_enabled", %{"id" => id}, socket) do
+    with %{} = hr <- get_house_rule(id) do
+      RuleMaven.HouseRules.set_enabled(socket.assigns.current_user, hr, !hr.enabled)
     end
 
     {:noreply, refresh_house_rules(socket)}

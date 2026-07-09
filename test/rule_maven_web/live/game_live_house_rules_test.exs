@@ -85,6 +85,45 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     assert HouseRules.get(hr.id) == nil
   end
 
+  test "owner can turn a rule off and back on", %{conn: conn} do
+    user = create_user("hr_toggler")
+    game = published_game_fixture(%{name: "Toggle Game"})
+
+    {:ok, hr} =
+      HouseRules.submit(user, game.id, %{"title" => "Switchable", "body" => "Do this instead."})
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    # The row lives inside the house-rules tool, which is closed at mount.
+    html = render_click(view, "open_tool", %{"tool" => "house_rules"})
+    assert html =~ ~s|data-testid="hr-enabled-toggle"|
+    assert html =~ ~s|data-testid="hr-visibility-toggle"|
+    assert html =~ "Private"
+    assert HouseRules.get(hr.id).enabled == true
+
+    render_click(view, "toggle_house_rule_enabled", %{"id" => hr.id})
+    assert HouseRules.get(hr.id).enabled == false
+
+    render_click(view, "toggle_house_rule_enabled", %{"id" => hr.id})
+    assert HouseRules.get(hr.id).enabled == true
+  end
+
+  test "a stranger cannot toggle someone else's rule", %{conn: conn} do
+    owner = create_user("hr_victim")
+    stranger = create_user("hr_stranger")
+    game = published_game_fixture(%{name: "Forge Game"})
+
+    {:ok, hr} = HouseRules.submit(owner, game.id, %{"body" => "Owner's rule."})
+
+    conn = login(conn, stranger)
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    # A forged phx-value-id naming the owner's rule must not flip it.
+    render_click(view, "toggle_house_rule_enabled", %{"id" => hr.id})
+    assert HouseRules.get(hr.id).enabled == true
+  end
+
   # 768-dim unit basis vector — cosine similarity 1.0 with itself, so the rule
   # lands cleanly inside the overlay threshold against the question embedding.
   defp basis_vec, do: for(i <- 0..767, do: if(i == 0, do: 1.0, else: 0.0))

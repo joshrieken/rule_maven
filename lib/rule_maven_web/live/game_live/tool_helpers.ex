@@ -51,7 +51,10 @@ defmodule RuleMavenWeb.GameLive.ToolHelpers do
 
   def house_rule_row(assigns) do
     ~H"""
-    <div style="border-top:1px solid var(--border-subtle);padding:0.5rem 0;font-size:0.82rem">
+    <div style={
+      "border-top:1px solid var(--border-subtle);padding:0.5rem 0;font-size:0.82rem" <>
+        if(@owner? and not @hr.enabled, do: ";opacity:0.55", else: "")
+    }>
       <%= if @editing do %>
         <form
           phx-submit="edit_house_rule"
@@ -143,17 +146,41 @@ defmodule RuleMavenWeb.GameLive.ToolHelpers do
 
           <div style="display:flex;align-items:center;gap:0.3rem;flex-shrink:0">
             <%= if @owner? do %>
+              <%!-- Three separate axes, so three separate controls. `On/Off` is
+                    whether the rule applies at this user's table; the sharing
+                    pill is who else can see it. Both carry a visible word — a
+                    bare icon's meaning lived only in `title`, which a touch
+                    device never shows. --%>
+              <button
+                type="button"
+                phx-click="toggle_house_rule_enabled"
+                phx-value-id={@hr.id}
+                aria-pressed={to_string(@hr.enabled)}
+                data-testid="hr-enabled-toggle"
+                title={
+                  if @hr.enabled,
+                    do: "On — applies to your answers. Click to turn off.",
+                    else: "Off — ignored in your answers. Click to turn on."
+                }
+                class="btn-xs"
+                style={hr_toggle_style(@hr.enabled)}
+              >{if @hr.enabled, do: "On", else: "Off"}</button>
               <button
                 type="button"
                 phx-click="toggle_house_rule_visibility"
                 phx-value-id={@hr.id}
+                data-testid="hr-visibility-toggle"
                 title={
                   if @hr.visibility == "community",
-                    do: "Community — click to make private",
-                    else: "Private — click to share"
+                    do: "Shared with the community — click to make it private",
+                    else: "Private to you — click to share it"
                 }
-                class="btn-icon btn-xs"
-              >{if @hr.visibility == "community", do: "🌐", else: "🔒"}</button>
+                class="btn-xs"
+                style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.62rem;font-weight:600"
+              >
+                <span aria-hidden="true">{if @hr.visibility == "community", do: "🌐", else: "🔒"}</span>
+                <span>{if @hr.visibility == "community", do: "Shared", else: "Private"}</span>
+              </button>
               <button
                 type="button"
                 phx-click="start_edit_house_rule"
@@ -185,6 +212,19 @@ defmodule RuleMavenWeb.GameLive.ToolHelpers do
     </div>
     """
   end
+
+  # On uses the accent/accent-text pair — the one pairing every theme is
+  # contrast-tested on. Off stays --text-secondary (not --text-muted, which
+  # fails the floor against --bg-subtle).
+  defp hr_toggle_style(true),
+    do:
+      "font-size:0.62rem;font-weight:700;background:var(--accent);" <>
+        "color:var(--accent-text,#fff);border-color:var(--accent-ink,var(--accent))"
+
+  defp hr_toggle_style(false),
+    do:
+      "font-size:0.62rem;font-weight:700;background:var(--bg-subtle);" <>
+        "color:var(--text-secondary);border:1px solid var(--border)"
 
   # Verdict → {emoji, label} stamp for a house rule's RAW relationship.
   def house_rule_stamp("matches"), do: {"✅", "Matches RAW"}
