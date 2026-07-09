@@ -409,7 +409,7 @@ defmodule RuleMavenWeb.GameLive.Community do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
-        on_game_page={false}
+        current={:community}
       />
 
       <h1 style="font-size:1.25rem;font-weight:700;margin-bottom:0.25rem">

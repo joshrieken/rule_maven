@@ -83,7 +83,7 @@ defmodule RuleMavenWeb.GameLive.Review do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
-        on_game_page={false}
+        current={:review}
       />
 
       <h1 class="text-xl font-bold mb-6">Review — {@game.name}</h1>

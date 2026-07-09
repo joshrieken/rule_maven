@@ -2603,7 +2603,7 @@ defmodule RuleMavenWeb.GameLive.Form do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
-        on_game_page={false}
+        current={:edit}
       />
 
       <div :if={!@game} class="mb-4 flex items-center justify-between">

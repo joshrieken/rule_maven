@@ -14,9 +14,10 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, default: []
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
-  # False when rendered on another LiveView (community): Overview must then be
-  # a full navigate — patching across LiveViews crashes.
-  attr :on_game_page, :boolean, default: true
+  # Which page the bar is being rendered on. Drives two things: the Overview
+  # link patches on :show and navigates elsewhere (patching across LiveViews
+  # crashes), and a pill pointing at the current page renders inert.
+  attr :current, :atom, default: :show, values: [:show, :community, :prepare, :review, :edit]
   slot :inner_block, doc: "page-specific controls, right-aligned (e.g. the Q&A sidebar toggle)"
 
   @doc """
@@ -37,7 +38,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         <%!-- Same patch-here / navigate-elsewhere split the More menu's
               Overview item uses: patching across LiveViews crashes. --%>
         <.link
-          :if={@on_game_page}
+          :if={@current == :show}
           patch={~p"/games/#{@game}?start=1"}
           title="Game overview"
           class="chat-header__title"
@@ -48,7 +49,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           </h1>
         </.link>
         <.link
-          :if={!@on_game_page}
+          :if={@current != :show}
           navigate={~p"/games/#{@game}?start=1"}
           title="Game overview"
           class="chat-header__title"
@@ -63,7 +64,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           sources={@sources}
           community_count={@community_count}
           is_admin={@is_admin}
-          on_game_page={@on_game_page}
+          current={@current}
         />
       </div>
       <div :if={@inner_block != []} class="game-header-row__right">{render_slot(@inner_block)}</div>
@@ -75,7 +76,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, default: []
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
-  attr :on_game_page, :boolean, default: true
+  attr :current, :atom, default: :show
 
   @doc """
   Renders the three group menus (Play / Learn / More) inline. Meant to sit in
@@ -97,7 +98,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
-        on_game_page={@on_game_page}
+        current={@current}
       />
     </div>
     """
@@ -140,7 +141,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, required: true
   attr :community_count, :integer, required: true
   attr :is_admin, :boolean, required: true
-  attr :on_game_page, :boolean, required: true
+  attr :current, :atom, required: true
 
   defp more_menu(assigns) do
     ~H"""
@@ -156,10 +157,14 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         <span class="pill-caret" style="font-size:0.6rem;opacity:0.6">▾</span>
       </summary>
       <div class="card-menu__pop card-menu__pop--right card-menu__pop--wide">
-        <.link :if={@on_game_page} patch={~p"/games/#{@game}?start=1"} class="card-menu__item">
+        <.link :if={@current == :show} patch={~p"/games/#{@game}?start=1"} class="card-menu__item">
           🔍 Overview
         </.link>
-        <.link :if={!@on_game_page} navigate={~p"/games/#{@game}?start=1"} class="card-menu__item">
+        <.link
+          :if={@current != :show}
+          navigate={~p"/games/#{@game}?start=1"}
+          class="card-menu__item"
+        >
           🔍 Overview
         </.link>
         <.link

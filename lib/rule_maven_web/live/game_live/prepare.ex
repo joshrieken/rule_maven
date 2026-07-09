@@ -693,7 +693,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
-        on_game_page={false}
+        current={:prepare}
       />
 
       <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:0.25rem 0 0.35rem">

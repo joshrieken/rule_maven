@@ -2297,6 +2297,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           sources={@sources}
           community_count={@community_count}
           is_admin={@is_admin}
+          current={:show}
         >
           <%!-- Sidebar toggle: kept first so it is the leftmost control on
                   whichever row this group wraps onto on narrow screens. --%>
