@@ -37,6 +37,17 @@ defmodule RuleMaven.LLM do
     # Canonical sorted form — cache rows store and match this exact set.
     expansion_ids = Enum.sort(expansion_ids)
 
+    # Every retry/escalation mechanism below caps ITSELF at one retry, but they
+    # nest: a truncation retry inside a stalled-stream retry inside a bad-answer
+    # retry, then a narrowed critic, a full-context critic, an ungrounded-answer
+    # retry (which re-enters the whole answer path), and a refusal escalation
+    # (which re-enters the critic path). Nothing counted the total, so one
+    # question could fan out to dozens of calls. `run_bounded/2`'s 180s cap
+    # bounds wall-clock, not spend — and the cost cap only blocks the NEXT ask,
+    # since it reads llm_logs rows already written. This is the only ask-wide
+    # ceiling on how many calls a single question can buy.
+    start_call_budget()
+
     broadcast_ask_stage(game.id, :understanding)
 
     # Step 0: normalize the question to a standalone canonical form FIRST, then
@@ -1633,16 +1644,70 @@ defmodule RuleMaven.LLM do
     {:error, "Rate limited after #{attempt - 1} attempts"}
   end
 
-  defp do_request(body, attempt, opts) do
-    # Test-mode mock injection point. Set via Application.put_env(:rule_maven, :llm_mock, fn body -> ... end)
-    result =
-      if mock = Application.get_env(:rule_maven, :llm_mock) do
-        do_request_mock(body, opts, mock)
-      else
-        do_request_real(body, attempt, opts)
-      end
+  # Every LLM HTTP call in the app funnels through here (mock included), so it
+  # is the one place a per-ask ceiling can be enforced without threading a
+  # counter through the whole retry/escalation cascade.
+  @call_budget_key :rm_llm_calls_remaining
 
-    maybe_retry_truncated(result, body, attempt, opts)
+  # Enough headroom for a legitimately bad ask — normalize, a tiebreaker, an
+  # answer with one retry, both critic passes, an ungrounded retry, a refusal
+  # escalation — while cutting the pathological cascade off long before it can
+  # blow through a daily cost cap in a single question.
+  @max_llm_calls_per_ask 12
+
+  @doc """
+  Arms the per-ask LLM call budget for the calling process.
+
+  Only `ask/5` arms it. Other callers (categories, suggestions, extraction)
+  run unbudgeted: `spend_call/0` treats an unarmed process as unlimited, so
+  nothing outside the ask path changes behavior.
+  """
+  def start_call_budget(limit \\ @max_llm_calls_per_ask) do
+    Process.put(@call_budget_key, limit)
+    :ok
+  end
+
+  @doc false
+  def __calls_remaining__, do: Process.get(@call_budget_key)
+
+  # Returns :ok and decrements, or {:error, reason} once the budget is spent.
+  # An unarmed process (nil) is unlimited.
+  defp spend_call do
+    case Process.get(@call_budget_key) do
+      nil ->
+        :ok
+
+      n when n > 0 ->
+        Process.put(@call_budget_key, n - 1)
+        :ok
+
+      _ ->
+        {:error, :call_budget_exhausted}
+    end
+  end
+
+  defp do_request(body, attempt, opts) do
+    case spend_call() do
+      {:error, :call_budget_exhausted} ->
+        require Logger
+
+        Logger.error(
+          "ask exhausted its LLM call budget (operation=#{opts[:operation]}, game_id=#{opts[:game_id]}) — refusing further calls"
+        )
+
+        {:error, "ask exceeded its LLM call budget"}
+
+      :ok ->
+        # Test-mode mock injection point. Set via Application.put_env(:rule_maven, :llm_mock, fn body -> ... end)
+        result =
+          if mock = Application.get_env(:rule_maven, :llm_mock) do
+            do_request_mock(body, opts, mock)
+          else
+            do_request_real(body, attempt, opts)
+          end
+
+        maybe_retry_truncated(result, body, attempt, opts)
+    end
   end
 
   # Reasoning models spend completion budget thinking; a cap sized for the
