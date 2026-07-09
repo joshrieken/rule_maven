@@ -927,16 +927,19 @@ defmodule RuleMaven.LLM do
             cached
 
           :miss ->
-            # Only a real rewrite is cached: caching the raw-text fallback
-            # (transient 429, rejected rewrite) would pin the un-normalized
-            # form as this question's canonical shape for the full 24h TTL,
-            # silently degrading pool convergence for every user of the game.
+            # A real rewrite is cached for the full TTL. The raw-text fallback
+            # (transient 429, rejected rewrite) gets a SHORT TTL instead:
+            # caching it for a day pinned the un-normalized form as this
+            # question's canonical shape for every user of the game, while not
+            # caching it at all re-paid the normalize call on every ask
+            # whenever the rejection was deterministic.
             case do_normalize(game, raw, [], user_id) do
               {:ok, cleaned} ->
                 RuleMaven.LLM.NormalizeCache.put(key, cleaned)
                 cleaned
 
               {:fallback, cleaned} ->
+                RuleMaven.LLM.NormalizeCache.put_fallback(key, cleaned)
                 cleaned
             end
         end
@@ -1018,12 +1021,35 @@ defmodule RuleMaven.LLM do
 
   # Meta-language a model uses to introduce (or refuse) a rewrite rather than
   # produce one. Matched on the kept first line only.
+  #
+  # Every prefix here must be refusal/preamble SHAPED, never a bare word a real
+  # question could open with: a bare "sorry" rejected every question about the
+  # game *Sorry!* ("Sorry! card — can I split the move?"), permanently falling
+  # back to the raw text for that whole game. Same trap as the game names
+  # Fuse/Risk/Clue in strip_game_name.
   defp preamble_line?(line) do
     down = String.downcase(line)
 
-    String.starts_with?(down, ["sure,", "sure!", "sure —", "sure -", "here is ", "here's ", "certainly", "okay,", "ok,"]) or
+    String.starts_with?(down, [
+      "sure,",
+      "sure!",
+      "sure —",
+      "sure -",
+      "here is ",
+      "here's ",
+      "certainly",
+      "okay,",
+      "ok,"
+    ]) or
       String.contains?(down, ["canonical form", "rewritten", "normalized"]) or
-      String.starts_with?(down, ["i can't", "i cannot", "i'm sorry", "i am sorry", "sorry"])
+      String.starts_with?(down, [
+        "i can't",
+        "i cannot",
+        "i'm sorry",
+        "i am sorry",
+        "sorry, i",
+        "sorry, but"
+      ])
   end
 
   # Existing canonical questions this game already has a pooled/community
@@ -1072,6 +1098,9 @@ defmodule RuleMaven.LLM do
 
   @doc false
   def __strip_game_name__(text, game_name), do: strip_game_name(text, game_name)
+
+  @doc false
+  def __strip_verdict_prefix__(answer, verdict), do: strip_verdict_prefix(answer, verdict)
 
   @doc false
   def __normalize_prompt_version__, do: normalize_prompt_version()
@@ -2146,12 +2175,25 @@ defmodule RuleMaven.LLM do
 
         Process.put(:llm_sse_state, state)
 
-        if String.length(state.content) > @answer_content_cap do
+        if runaway_answer?(state.content) do
           abort_stream(:runaway_answer, {req, resp})
         else
           {:cont, {req, resp}}
         end
     end
+  end
+
+  # Measure the VISIBLE answer text, not the whole streamed JSON. `state.content`
+  # also carries the verdict, every citation quote, followups, also_asked, JSON
+  # escaping — and on the persona path a `styled_answer` that duplicates the
+  # prose. Capping the envelope aborted healthy long persona answers as
+  # `:runaway_answer`, which then bought one nonce retry that regenerated the
+  # same size and aborted again: a real answer, billed twice, shown as an error.
+  defp runaway_answer?(content) do
+    plain = String.length(partial_answer(content) || "")
+    styled = String.length(partial_styled_answer(content) || "")
+
+    max(plain, styled) > @answer_content_cap
   end
 
   defp abort_stream(reason, acc) do
@@ -2342,8 +2384,15 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  # Separator between a "Yes"/"No" lead and the answer body. A bare hyphen only
+  # counts when whitespace precedes it: without that guard "No-one may look at
+  # another player's cards" parsed as the lead "No" + the separator "-" and
+  # shipped as "One may look at another player's cards" — the ruling inverted,
+  # in the stream as well as the final text. Same class for "No-frills".
+  @lead_separator "(?:\\s*[—–:;,.!]+|\\s+-+)"
+
   # Same prefix shape strip_verdict_prefix/2 targets — keep the two in sync.
-  @yes_no_lead ~r/\A(?:\*\*)?(?:Yes|No)(?:\*\*)?[\s]*[—–:;,.!-]+/su
+  @yes_no_lead ~r/\A(?:\*\*)?(?:Yes|No)(?:\*\*)?#{@lead_separator}/su
 
   # A leading "**Yes** —"/"No." gets dropped by decode_answer when the verdict
   # is "info" (and the remainder can stand alone). Until that strip decision
@@ -2748,7 +2797,7 @@ defmodule RuleMaven.LLM do
   @min_stripped_answer_len 25
 
   defp strip_verdict_prefix(answer, "info") when is_binary(answer) do
-    case Regex.run(~r/\A(?:\*\*)?(?:Yes|No)(?:\*\*)?[\s]*[—–:;,.!-]+\s*(.+)\z/su, answer) do
+    case Regex.run(~r/\A(?:\*\*)?(?:Yes|No)(?:\*\*)?#{@lead_separator}\s*(.+)\z/su, answer) do
       [_, rest] when byte_size(rest) >= @min_stripped_answer_len ->
         {first, tail} = String.split_at(rest, 1)
         String.upcase(first) <> tail
@@ -2779,6 +2828,12 @@ defmodule RuleMaven.LLM do
     end)
     |> Enum.reject(&(&1["quote"] == nil and &1["page"] == nil and &1["source"] == nil))
   end
+
+  # A model that emits a single citation as a bare object instead of a
+  # one-element list used to lose the citation entirely — which then flunked
+  # the `citation_valid` gate and forfeited pooling and the trust bonus for an
+  # answer that carried a perfectly real quote.
+  defp parse_citations(%{} = citation), do: parse_citations([citation])
 
   defp parse_citations(_), do: []
 

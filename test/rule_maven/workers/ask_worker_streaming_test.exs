@@ -164,12 +164,20 @@ defmodule RuleMaven.Workers.AskWorkerStreamingTest do
     assert req["provider"] == %{"sort" => "throughput"}
     assert req["stream_options"] == %{"include_usage" => true}
 
-    # At least one partial arrived, and it's a prefix of the final answer
-    # (verdict-prefix stripping happens only at final parse, so compare
-    # against the raw streamed answer text).
+    # At least one partial arrived, and it's a prefix of the answer as the
+    # reader sees it. WHICH form depends on how the transport coalesced the
+    # chunks: `resolve_yes_no_lead` strips the "**Yes** —" lead mid-stream as
+    # soon as that decision is stable (an "info" verdict plus a long enough
+    # tail), so a partial delivered in one fat chunk is already stripped, while
+    # an early sliver still carries the raw lead. Both are correct — accept
+    # either rather than depending on chunk timing (this assertion used to fail
+    # only under parallel test load).
     assert_received {:ask_partial, %{question_log_id: ql_id, text: partial}}
     assert ql_id == ql.id
-    assert String.starts_with?(@answer, partial)
+    stripped = RuleMaven.LLM.__strip_verdict_prefix__(@answer, "info")
+
+    assert String.starts_with?(@answer, partial) or String.starts_with?(stripped, partial),
+           "partial #{inspect(partial)} is a prefix of neither the raw nor the stripped answer"
 
     # The re-assembled stream flowed through the normal completion pipeline.
     assert_received {:ask_complete, %{question_log_id: ql_id2, refused: false}}

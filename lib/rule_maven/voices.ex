@@ -705,16 +705,31 @@ defmodule RuleMaven.Voices do
 
   @doc """
   Marks the given slugs of a game's generated voices as vetted (style judged a
-  pure tone description, safe for the single-call ask prompt). Slugs that
+  pure tone description, safe for the single-call ask prompt) — but only where
+  the row's `style` is still the exact string that was vetted. Slugs that
   failed the vet are simply left `vetted: false` — they keep the restyle path.
-  """
-  def mark_vetted(_game_id, []), do: :ok
 
-  def mark_vetted(game_id, slugs) do
-    Repo.update_all(
-      from(gv in GameVoice, where: gv.game_id == ^game_id and gv.slug in ^slugs),
-      set: [vetted: true]
-    )
+  The style check closes a TOCTOU: the vet is a slow LLM call and the `:llm`
+  queue runs several jobs at once, so `VoiceSuggestionsWorker.replace_generated`
+  can rewrite the SAME slug with a brand-new, never-vetted style while the vet
+  is in flight. Marking by slug alone would flip that unreviewed string to
+  `vetted: true`, and `LLM.voice_style_block/2` interpolates a vetted style into
+  the full-rulebook-access ask prompt — the exact trust boundary the vet exists
+  to enforce. Losing the race leaves the voice unvetted: the safe steady state.
+  """
+  def mark_vetted(_game_id, [], _vetted_input), do: :ok
+
+  def mark_vetted(game_id, slugs, vetted_input) do
+    styles = Map.new(vetted_input, fn v -> {v.slug, v.style} end)
+
+    for slug <- slugs, style = styles[slug] do
+      Repo.update_all(
+        from(gv in GameVoice,
+          where: gv.game_id == ^game_id and gv.slug == ^slug and gv.style == ^style
+        ),
+        set: [vetted: true]
+      )
+    end
 
     :ok
   end

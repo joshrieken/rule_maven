@@ -626,30 +626,45 @@ defmodule RuleMaven.Workers.AskWorker do
   # everything it renders, so the payload only needs the routing fields.
   defp rebroadcast_completed(game_id, question_log_id) do
     if ql = get_question_log!(question_log_id) do
-      Phoenix.PubSub.broadcast(
-        RuleMaven.PubSub,
-        "game:#{game_id}",
-        {:ask_complete,
-         %{
-           question_log_id: question_log_id,
-           faq_hit: false,
-           pool_hit: false,
-           tier: nil,
-           verified: ql.verified || false,
-           source_question_log_id: ql.pool_source_id,
-           followups: ql.followups || [],
-           also_asked: ql.also_asked || [],
-           cited_page: ql.cited_page,
-           refused: ql.refused,
-           verdict: ql.verdict,
-           raw_response: nil,
-           styled_voice: nil,
-           styled_answer: nil
-         }}
-      )
+      # `answered_already?` treats a persisted ⚠️ row as "answered", so the
+      # duplicate-execution path can land here holding an ERROR row. Replaying
+      # it as :ask_complete would run the LiveView's success path over error
+      # boilerplate: a paid VoiceWorker restyle of "⚠️ Please retry." (the
+      # voice filter skips only `refused` rows, and error rows are not refused)
+      # and possibly the answer-anatomy tour. Route it as the error it is.
+      payload =
+        if failed_row?(ql) do
+          {:ask_error,
+           %{question_log_id: question_log_id, question: ql.question, error: ql.answer}}
+        else
+          {:ask_complete,
+           %{
+             question_log_id: question_log_id,
+             faq_hit: false,
+             pool_hit: false,
+             tier: nil,
+             verified: ql.verified || false,
+             source_question_log_id: ql.pool_source_id,
+             followups: ql.followups || [],
+             also_asked: ql.also_asked || [],
+             cited_page: ql.cited_page,
+             refused: ql.refused,
+             verdict: ql.verdict,
+             raw_response: nil,
+             styled_voice: nil,
+             styled_answer: nil
+           }}
+        end
+
+      Phoenix.PubSub.broadcast(RuleMaven.PubSub, "game:#{game_id}", payload)
     end
 
     :ok
+  end
+
+  defp failed_row?(ql) do
+    not is_nil(ql.error_kind) or
+      (is_binary(ql.answer) and String.starts_with?(ql.answer, "⚠️"))
   end
 
   # Mirrors handle_disabled/4: persist a friendly ⚠️ answer so the LiveView

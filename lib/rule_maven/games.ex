@@ -266,7 +266,12 @@ defmodule RuleMaven.Games do
         on: l.expansion_id == g.id,
         join: d in Document,
         on: d.game_id == g.id,
-        where: l.base_game_id == ^base_game.id and d.status == "published",
+        # A taken-down expansion must stop being offered AND stop being
+        # retrieved: AskWorker's takedown gate only checks the BASE game, so a
+        # selection made before the takedown would keep quoting its rulebook.
+        where:
+          l.base_game_id == ^base_game.id and d.status == "published" and
+            is_nil(g.taken_down_at),
         distinct: true,
         select: g
     )
@@ -1354,11 +1359,23 @@ defmodule RuleMaven.Games do
   failed answer that has used up its retries.
   """
   def auto_flag_error(%QuestionLog{} = q) do
-    if q.error_kind && q.error_kind not in ["paused"] && q.user_id &&
-         q.error_retries >= @error_retry_limit do
-      flag_question(q.id, q.user_id, "auto: answer failed repeatedly (#{q.error_kind})")
-    else
-      :noop
+    cond do
+      is_nil(q.error_kind) or q.error_kind in ["paused"] or is_nil(q.user_id) ->
+        :noop
+
+      # A "budget" failure means one question burned the whole per-ask call
+      # ceiling. It is deliberately NOT retryable (`error_retryable?`), so its
+      # `error_retries` can never climb to the retry limit — gating on that
+      # limit meant the pathological question the moderation queue most wants
+      # to see could never reach it. Flag on sight.
+      q.error_kind == "budget" ->
+        flag_question(q.id, q.user_id, "auto: exhausted the per-ask LLM call budget")
+
+      q.error_retries >= @error_retry_limit ->
+        flag_question(q.id, q.user_id, "auto: answer failed repeatedly (#{q.error_kind})")
+
+      true ->
+        :noop
     end
   end
 
@@ -1400,9 +1417,26 @@ defmodule RuleMaven.Games do
   """
   def report_answer(question_log_id, user, reason \\ nil) do
     with :ok <- reject_admin_report(user),
+         :ok <- reject_self_report(question_log_id, user),
          :ok <- check_flag_quota(user),
          {:ok, _flag} <- flag_question(question_log_id, user.id, reason) do
       {:ok, %{pulled: maybe_auto_pull(question_log_id)}}
+    end
+  end
+
+  # An author reporting their own answer pulls it on the first flag (a
+  # provisional row needs only one) and sets `needs_review`, which `under_review?`
+  # then uses to block re-pooling of the whole matching topic cluster for every
+  # user — the same griefing lever the mismatch path already closes. On a trusted
+  # row the author would instead supply one of the quorum flags themselves.
+  # Regenerate and "not my question" already cover an author's own bad answer.
+  defp reject_self_report(question_log_id, user) do
+    case Repo.get(QuestionLog, question_log_id) do
+      %QuestionLog{user_id: author_id} when author_id == user.id ->
+        {:error, "This is your own answer — regenerate it instead of reporting it."}
+
+      _ ->
+        :ok
     end
   end
 
@@ -1494,9 +1528,18 @@ defmodule RuleMaven.Games do
 
   # Distinct, non-suspended users with an open flag on this answer. Suspended
   # accounts are excluded so a banned griefer (or a ring of them) can't push a
-  # trusted answer over quorum.
+  # trusted answer over quorum. The ANSWER'S AUTHOR is excluded too: the system
+  # files `auto_flag_error` flags under the asker's own id, so counting them let
+  # a trusted row reach a 3-flag quorum on 2 real reporters (or 1, once the
+  # author also reported by hand).
   defp open_flagger_count(question_log_id) do
-    Repo.one(
+    author_id =
+      case Repo.get(QuestionLog, question_log_id) do
+        %QuestionLog{user_id: uid} -> uid
+        _ -> nil
+      end
+
+    base =
       from f in QuestionFlag,
         join: u in RuleMaven.Users.User,
         on: u.id == f.user_id,
@@ -1504,7 +1547,15 @@ defmodule RuleMaven.Games do
           f.question_log_id == ^question_log_id and f.resolved == false and
             is_nil(u.suspended_at),
         select: count(f.user_id, :distinct)
-    ) || 0
+
+    # Composed in Elixir rather than as `is_nil(^author_id) or ...` — a nil pin
+    # leaves Postgres unable to infer the parameter's type (42P18).
+    query =
+      if author_id,
+        do: from(f in base, where: f.user_id != ^author_id),
+        else: base
+
+    Repo.one(query) || 0
   end
 
   defp set_needs_review(question_log_id) do
@@ -1888,19 +1939,32 @@ defmodule RuleMaven.Games do
   end
 
   # Counts a user's *billable* asks since `since` — fresh LLM generations only.
-  # Cache/pool hits (rows carrying a `pool_source_id`) are cheap and explicitly
-  # don't count against rate limits or quotas. Failed answers (`error_kind`
-  # set) don't count either: the user shouldn't pay quota for our errors, and
-  # their retries are bounded by `error_retry_limit/0` so this can't be farmed.
+  #
+  # Counted from `llm_logs`, NOT from surviving questions_log rows. Row deletion
+  # is user-driven (regenerate deletes-and-reinserts; a user can delete a thread
+  # outright), so counting live rows made quota refundable: ask → delete → ask
+  # advanced the counter by zero while every cycle bought a real answer call.
+  # `llm_logs` rows carry `question_log_id` as a plain integer precisely so they
+  # outlive the question (see LLM.Log), which makes them the only append-only
+  # record of "this user bought an answer".
+  #
+  # One ask can fire several "ask" calls (escalation, ungrounded retry), hence
+  # DISTINCT. Cache/pool hits never issue an "ask" call at all, so they stay
+  # exempt for free. Failed answers stay exempt via the surviving-row check —
+  # the user shouldn't pay quota for our errors, and a *deleted* error row
+  # can't be used to launder a successful ask, since the ids differ.
   def recent_question_count(user_id, since) do
-    Repo.aggregate(
-      from(q in QuestionLog,
+    failed_ids =
+      from(q in QuestionLog, where: not is_nil(q.error_kind), select: q.id)
+
+    Repo.one(
+      from(l in RuleMaven.LLM.Log,
         where:
-          q.user_id == ^user_id and q.inserted_at >= ^since and is_nil(q.pool_source_id) and
-            is_nil(q.error_kind)
-      ),
-      :count
-    )
+          l.user_id == ^user_id and l.operation == "ask" and l.inserted_at >= ^since and
+            not is_nil(l.question_log_id) and l.question_log_id not in subquery(failed_ids),
+        select: count(l.question_log_id, :distinct)
+      )
+    ) || 0
   end
 
   # Billable units for rate limiting: fresh asks (questions_log rows without a
@@ -2130,6 +2194,14 @@ defmodule RuleMaven.Games do
       # Skip the re-embed enqueue under manual Oban (tests); enqueue in prod.
       unless Application.get_env(:rule_maven, Oban)[:testing] == :manual do
         RuleMaven.Workers.EmbedQuestionWorker.enqueue(updated.id)
+      end
+
+      # VoiceWorker restyles `canonical_answer || answer` and caches per
+      # (question_log_id, voice). Without this, a moderator correcting a wrong
+      # answer fixes it only for neutral readers — every persona reader keeps
+      # hitting the cached restyle of the old, wrong text forever.
+      if q.canonical_answer != updated.canonical_answer do
+        RuleMaven.Voices.clear_for_question(updated.id)
       end
 
       {:ok, updated}
@@ -3688,7 +3760,7 @@ defmodule RuleMaven.Games do
               on: g.id == d.game_id,
               where:
                 d.game_id in ^game_ids and d.status == "published" and
-                  not is_nil(c.embedding),
+                  is_nil(g.taken_down_at) and not is_nil(c.embedding),
               order_by:
                 fragment(
                   "cosine_distance(?, ?::vector)",
@@ -3850,7 +3922,9 @@ defmodule RuleMaven.Games do
           on: c.document_id == d.id,
           join: g in Game,
           on: g.id == d.game_id,
-          where: d.game_id in ^game_ids and d.status == "published",
+          # Taken-down games (base or expansion) must never be retrieved from.
+          where:
+            d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
           select: %{
             id: c.id,
             content: c.content,
@@ -3928,7 +4002,9 @@ defmodule RuleMaven.Games do
         from d in Document,
           join: g in Game,
           on: g.id == d.game_id,
-          where: d.game_id in ^game_ids and d.status == "published",
+          # Taken-down games (base or expansion) must never be retrieved from.
+          where:
+            d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
           order_by: [asc: d.game_id, asc: d.id],
           select: %{
             full_text:
@@ -3970,7 +4046,9 @@ defmodule RuleMaven.Games do
           on: c.document_id == d.id,
           join: g in Game,
           on: g.id == d.game_id,
-          where: d.game_id in ^game_ids and d.status == "published",
+          # Taken-down games (base or expansion) must never be retrieved from.
+          where:
+            d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
           select: %{
             id: c.id,
             content: c.content,
@@ -4111,7 +4189,7 @@ defmodule RuleMaven.Games do
             on: g.id == d.game_id,
             where:
               d.game_id in ^game_ids and d.status == "published" and
-                c.section_label in ^referenced_labels,
+                is_nil(g.taken_down_at) and c.section_label in ^referenced_labels,
             select: %{
               id: c.id,
               content: c.content,
@@ -4200,50 +4278,55 @@ defmodule RuleMaven.Games do
   Returns `{:ok, tag_count}`, or `:skipped` when the question has no embedding.
   """
   def tag_question(question_log_id, game_id) do
-    q = Repo.get!(QuestionLog, question_log_id)
+    q = Repo.get(QuestionLog, question_log_id)
 
-    if is_nil(q.question_embedding) do
-      :skipped
-    else
-      q_vec = q.question_embedding
+    # Rows are deleted as NORMAL flow (resubmit replaces the row; AskWorker
+    # deletes on same-user/answer dedup redirects), so a queued tag job for a
+    # vanished row is routine, not an error. `Repo.get!` raised and burned all
+    # three Oban attempts on it.
+    cond do
+      is_nil(q) -> :skipped
+      is_nil(q.question_embedding) -> :skipped
+      true ->
+        q_vec = q.question_embedding
 
-      ranked =
-        Repo.all(
-          from c in GameCategory,
-            where: c.game_id == ^game_id and not is_nil(c.name_embedding),
-            order_by: fragment("cosine_distance(?, ?::vector)", c.name_embedding, ^q_vec),
-            limit: 2,
-            select: {c.id, fragment("cosine_distance(?, ?::vector)", c.name_embedding, ^q_vec)}
+        ranked =
+          Repo.all(
+            from c in GameCategory,
+              where: c.game_id == ^game_id and not is_nil(c.name_embedding),
+              order_by: fragment("cosine_distance(?, ?::vector)", c.name_embedding, ^q_vec),
+              limit: 2,
+              select: {c.id, fragment("cosine_distance(?, ?::vector)", c.name_embedding, ^q_vec)}
+          )
+
+        matches =
+          case Enum.filter(ranked, fn {_, d} -> d <= @category_match_distance end) do
+            [] ->
+              ranked
+              |> Enum.take(1)
+              |> Enum.filter(fn {_, d} -> d <= @category_fallback_distance end)
+
+            strict ->
+              strict
+          end
+
+        Enum.each(matches, fn {cat_id, _} ->
+          %QuestionCategoryTag{}
+          |> QuestionCategoryTag.changeset(%{
+            question_log_id: question_log_id,
+            game_category_id: cat_id
+          })
+          |> Repo.insert(on_conflict: :nothing)
+        end)
+
+        # Let an open Q&A page show the new pills without a remount.
+        Phoenix.PubSub.broadcast(
+          RuleMaven.PubSub,
+          "game:#{game_id}",
+          {:question_tagged, question_log_id}
         )
 
-      matches =
-        case Enum.filter(ranked, fn {_, d} -> d <= @category_match_distance end) do
-          [] ->
-            ranked
-            |> Enum.take(1)
-            |> Enum.filter(fn {_, d} -> d <= @category_fallback_distance end)
-
-          strict ->
-            strict
-        end
-
-      Enum.each(matches, fn {cat_id, _} ->
-        %QuestionCategoryTag{}
-        |> QuestionCategoryTag.changeset(%{
-          question_log_id: question_log_id,
-          game_category_id: cat_id
-        })
-        |> Repo.insert(on_conflict: :nothing)
-      end)
-
-      # Let an open Q&A page show the new pills without a remount.
-      Phoenix.PubSub.broadcast(
-        RuleMaven.PubSub,
-        "game:#{game_id}",
-        {:question_tagged, question_log_id}
-      )
-
-      {:ok, length(matches)}
+        {:ok, length(matches)}
     end
   end
 
@@ -4325,7 +4408,23 @@ defmodule RuleMaven.Games do
       # negative case. Admins may cast either for seeding/curation.
       q.user_id == user_id and value == "down" and not admin? -> {:error, :self_vote}
       not votable?(q) -> {:error, :not_votable}
+      settled_vote?(question_log_id, user_id) -> {:error, :settled}
       true -> do_set_community_vote(q, user_id, value, admin?)
+    end
+  end
+
+  # A settled vote is immutable. `settle_votes/3` awards a curator point per
+  # correct-settled vote and skips already-settled rows, so a mutable settled
+  # vote is a point-farming lever: settle (+1 point), un-vote (row deleted,
+  # point kept), re-vote (fresh unsettled row), let the row's next terminal
+  # event settle it again (+1)… Flipping instead of deleting is just as bad —
+  # `QuestionVote.changeset` doesn't cast the settlement fields, so a
+  # settled-"correct" up-vote flipped to "down" keeps crediting the voter for
+  # a vote that now points the other way.
+  defp settled_vote?(question_log_id, user_id) do
+    case get_user_community_vote(question_log_id, user_id) do
+      %QuestionVote{settled_at: %DateTime{}} -> true
+      _ -> false
     end
   end
 

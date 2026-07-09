@@ -319,6 +319,10 @@ defmodule RuleMavenWeb.GameLive.Community do
 
   defp vote_error_message(:self_vote), do: "You can't downvote your own answer."
   defp vote_error_message(:not_votable), do: "This answer isn't open for voting."
+
+  defp vote_error_message(:settled),
+    do: "This answer has been settled — its votes are final."
+
   defp vote_error_message(_), do: "Couldn't record your vote."
 
   # Favorited questions float to the top within whatever list they're
