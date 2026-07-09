@@ -63,4 +63,25 @@ defmodule RuleMavenWeb.GameLiveToolPersistenceTest do
     assert html2 =~ ~s(data-dock-pill="turn")
     assert has_element?(view2, "#tool-tray")
   end
+
+  test "windows survive navigating from game page to community and back", %{conn: conn} do
+    {conn, _user, game} = setup_game(conn)
+    {:ok, view, _html} = live(conn, ~p"/games/#{token(game)}")
+
+    render_click(view, "open_tool", %{"tool" => "timer"})
+    render_click(view, "open_tool", %{"tool" => "turn"})
+    render_click(view, "turn_next", %{})
+
+    # Different LiveView: state must come from TableSession, not the socket.
+    {:ok, cview, chtml} = live(conn, ~p"/games/#{token(game)}/community")
+    assert chtml =~ ~s(id="tool-panel-timer")
+    assert chtml =~ ~s(id="tool-panel-turn")
+
+    # Mutations on community carry back to the game page.
+    render_click(cview, "minimize_tool", %{"tool" => "timer"})
+
+    {:ok, _view2, html2} = live(conn, ~p"/games/#{token(game)}")
+    assert html2 =~ ~s(id="tool-panel-turn")
+    assert html2 =~ ~s(data-dock-pill="timer")
+  end
 end
