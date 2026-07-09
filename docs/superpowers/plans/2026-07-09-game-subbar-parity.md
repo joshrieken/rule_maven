@@ -483,22 +483,14 @@ Add this private component below `game_header/1`:
       </div>
     </details>
 
-    <span
-      :if={@community_count > 0 and @current == :community}
-      class="btn btn-primary btn-xs hide-mobile"
-      aria-current="page"
-      style="flex-shrink:0"
-    >
-      <span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})
-    </span>
-    <.link
-      :if={@community_count > 0 and @current != :community}
+    <.pill_link
+      :if={@community_count > 0}
       navigate={~p"/games/#{@game}/community"}
+      current={@current == :community}
       class="btn btn-primary btn-xs hide-mobile"
-      style="flex-shrink:0"
     >
       <span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})
-    </.link>
+    </.pill_link>
 
     <%!-- The cheat sheet is a standalone printable document, never "the current
           page", so it is always a plain link. --%>
@@ -510,6 +502,25 @@ Add this private component below `game_header/1`:
       style="flex-shrink:0"
     >
       Cheat Sheet
+    </.link>
+    """
+  end
+
+  attr :navigate, :string, required: true
+  attr :current, :boolean, required: true
+  attr :class, :string, required: true
+  slot :inner_block, required: true
+
+  # A pill that points at the page you are already on renders inert rather than
+  # linking to itself — but it keeps its place, so the bar's shape never shifts
+  # between pages. Label and count live here once; only the element changes.
+  defp pill_link(assigns) do
+    ~H"""
+    <span :if={@current} class={@class} aria-current="page" style="flex-shrink:0">
+      {render_slot(@inner_block)}
+    </span>
+    <.link :if={!@current} navigate={@navigate} class={@class} style="flex-shrink:0">
+      {render_slot(@inner_block)}
     </.link>
     """
   end
