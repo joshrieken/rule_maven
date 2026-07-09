@@ -68,17 +68,115 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           current={@current}
         />
       </div>
-      <div :if={@inner_block != []} class="game-header-row__right">{render_slot(@inner_block)}</div>
+      <div class="game-header-row__right">
+        {render_slot(@inner_block)}
+        <.header_pills
+          game={@game}
+          sources={@sources}
+          community_count={@community_count}
+          is_admin={@is_admin}
+          has_cheatsheet={@has_cheatsheet}
+          current={@current}
+        />
+      </div>
     </div>
     """
   end
 
   attr :game, :map, required: true
-  attr :sources, :list, default: []
-  attr :community_count, :integer, default: 0
-  attr :is_admin, :boolean, default: false
-  attr :has_cheatsheet, :boolean, default: false
-  attr :current, :atom, default: :show
+  attr :sources, :list, required: true
+  attr :community_count, :integer, required: true
+  attr :is_admin, :boolean, required: true
+  attr :has_cheatsheet, :boolean, required: true
+  attr :current, :atom, required: true
+
+  # The right-hand shortcuts. Every destination here is also a More-menu item —
+  # deliberately: these are `hide-mobile` desktop shortcuts and the More menu is
+  # the mobile path to the same places. A pill pointing at the current page
+  # renders inert rather than vanishing, so the bar keeps its shape between pages.
+  defp header_pills(assigns) do
+    ~H"""
+    <details
+      :if={@sources != []}
+      class="sources-dropdown hide-mobile"
+      style="flex-shrink:0;position:relative;display:inline-flex;align-items:center"
+    >
+      <summary class="pill-link" style="cursor:pointer;list-style:none;gap:0.2rem;user-select:none">
+        <span aria-hidden="true">📖</span>
+        <span>Rulebooks</span>
+        <span style="font-size:0.6rem;opacity:0.6">▾</span>
+      </summary>
+      <div style="position:absolute;right:0;top:calc(100% + 0.35rem);z-index:200;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;box-shadow:0 6px 20px rgba(0,0,0,0.18);min-width:200px;max-width:min(320px,calc(100vw - 2rem));overflow:hidden">
+        <%= for {src, i} <- Enum.with_index(@sources) do %>
+          <div style={"padding:0.5rem 0.75rem;#{if i > 0, do: "border-top:1px solid var(--border-subtle)"}"}>
+            <div style="font-size:0.78rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+              {src.label}
+            </div>
+            <%!-- Rulebooks may be copyrighted, so regular users see only the
+                  source name — no PDF, no full text. Admins get the extracted
+                  HTML view. `↻ Regen` posts `regenerate_html`, a handler that
+                  exists only on the game page, so it is gated to :show. --%>
+            <div :if={@is_admin and src.html_path} style="display:flex;gap:0.5rem">
+              <.link
+                href={~p"/rulebooks/#{src}/html"}
+                target="_blank"
+                style="display:inline-flex;align-items:center;gap:0.2rem;color:var(--blue);font-size:0.7rem;font-weight:600;text-decoration:none;padding:0.15rem 0.4rem;border:1px solid var(--blue);border-radius:0.25rem;opacity:0.85"
+              >🔗 HTML</.link>
+              <button
+                :if={@current == :show}
+                type="button"
+                phx-click="regenerate_html"
+                phx-value-id={src.id}
+                title="Re-render the HTML view from the current text"
+                class="btn-xs"
+              >↻ Regen</button>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    </details>
+
+    <.pill_link
+      :if={@community_count > 0}
+      navigate={~p"/games/#{@game}/community"}
+      current={@current == :community}
+      class="btn btn-primary btn-xs hide-mobile"
+    >
+      <span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})
+    </.pill_link>
+
+    <%!-- The cheat sheet is a standalone printable document, never "the current
+          page", so it is always a plain link. --%>
+    <.link
+      :if={@has_cheatsheet}
+      href={~p"/games/#{@game}/cheatsheet"}
+      target="_blank"
+      class="btn btn-xs hide-mobile"
+      style="flex-shrink:0"
+    >
+      Cheat Sheet
+    </.link>
+    """
+  end
+
+  attr :navigate, :string, required: true
+  attr :current, :boolean, required: true
+  attr :class, :string, required: true
+  slot :inner_block, required: true
+
+  # A pill that points at the page you are already on renders inert rather than
+  # linking to itself — but it keeps its place, so the bar's shape never shifts
+  # between pages. Label and count live here once; only the element changes.
+  defp pill_link(assigns) do
+    ~H"""
+    <span :if={@current} class={@class} aria-current="page" style="flex-shrink:0">
+      {render_slot(@inner_block)}
+    </span>
+    <.link :if={!@current} navigate={@navigate} class={@class} style="flex-shrink:0">
+      {render_slot(@inner_block)}
+    </.link>
+    """
+  end
 
   @doc """
   Renders the three group menus (Play / Learn / More) inline. Meant to sit in
