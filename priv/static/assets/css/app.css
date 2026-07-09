@@ -2828,9 +2828,32 @@ textarea {
   padding-top: 0;
 }
 
+/* .main-content's remaining 1.5rem left/right padding would inset the bar
+   ~24px on each side, breaking full-bleed. Cancel exactly that padding, same
+   pattern as `.tool-dock`'s negative bottom margin below. This has to be a
+   plain descendant selector, not a direct-child chain: root.html.heex wraps
+   @inner_content in <div class="container">, and LiveView itself wraps the
+   rendered page in its own `data-phx-main` container div, so on the four
+   hoisted pages (Community, Prepare, Review, Edit) the bar actually sits
+   .main-content > .container > div[data-phx-main] > .game-bar — three levels
+   down, not two. The Show page's bar is a descendant too (nested one level
+   deeper still, inside the fixed .chat-layout), so it is pulled back out
+   below: .chat-layout is `position: fixed; left: 0; right: 0`, already
+   spanning the viewport on its own, and shifting it would misalign it. */
+.main-content .game-bar {
+  margin-inline: -1.5rem;
+}
+
 /* Inside the fixed chat shell the bar does not scroll, so sticky is inert —
-   but the flex column still needs it to hold its height. */
-.chat-layout .game-bar { flex-shrink: 0; }
+   but the flex column still needs it to hold its height. It also already
+   spans the viewport via the shell's own fixed positioning, so the full-bleed
+   margin above must not apply here. Same specificity as `.main-content
+   .game-bar` (two classes each) — this rule must stay below it in source
+   order to win the tiebreak. */
+.chat-layout .game-bar {
+  flex-shrink: 0;
+  margin-inline: 0;
+}
 
 .game-header-row__left,
 .game-header-row__right {
