@@ -122,7 +122,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        hr_delta_pending: MapSet.new(),
        hr_delta_failed: MapSet.new(),
        # Set on the first handle_params load; false until then.
-       tour_autostart: false
+       tour_autostart: false,
+       coarse_pointer: coarse_pointer?(socket)
      )}
   end
 
@@ -134,6 +135,8 @@ defmodule RuleMavenWeb.GameLive.Show do
   # Phones get one bottom sheet at a time instead of a window stack. The dead
   # render has no connect params; assume a stack and let the connected mount
   # correct it (a sheet can't be dragged anyway, so nothing is lost).
+  # Mount-only: connect params are unreadable from handle_params, so the result
+  # is stashed in the :coarse_pointer assign for later reads.
   defp coarse_pointer?(socket) do
     connected?(socket) and get_connect_params(socket)["coarse_pointer"] == true
   end
@@ -312,7 +315,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         quiz_score: {0, 0},
         tool_states: %{},
         tool_order: [],
-        single_panel?: coarse_pointer?(socket),
+        single_panel?: socket.assigns.coarse_pointer,
         house_rules: load_own_house_rules(game, socket.assigns.current_user),
         community_house_rules:
           RuleMaven.HouseRules.community_for_game(game.id, socket.assigns.current_user.id)
