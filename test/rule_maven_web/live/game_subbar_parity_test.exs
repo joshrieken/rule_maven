@@ -104,7 +104,8 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
     end
   end
 
-  test "the Community pill is inert on the Community page", %{conn: conn, game: game} do
+  test "on the Community page the pill becomes My Q&A, pointing back at the game page",
+       %{conn: conn, game: game} do
     {:ok, _q} =
       RuleMaven.Games.log_question(%{
         game_id: game.id,
@@ -113,29 +114,34 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
         visibility: "community"
       })
 
-    {:ok, _view, html} = live(conn, ~p"/games/#{game}/community")
-    assert html =~ ~s(aria-current="page")
-
-    # The inert pill must not also be a link to the page you are already on.
     # Parse structurally with LazyHTML (the HTML engine LiveViewTest already
-    # ships with in this project) instead of matching a literal attribute
-    # string: Phoenix.Component.link/1 controls attribute emission order, so
+    # ships with in this project) rather than matching literal attribute
+    # strings: Phoenix.Component.link/1 controls attribute emission order, so
     # a hardcoded `href="..." data-phx-link="redirect" ... class="..."`
-    # sequence is a dead `refute` waiting to happen the moment a Phoenix
-    # upgrade reorders them — it would then never match and this coverage
-    # would silently vanish. Instead assert on the actual contract: the
-    # element carrying `btn-primary` on this page is a <span>, not an <a>,
-    # and it carries no href at all.
-    pill = html |> LazyHTML.from_document() |> LazyHTML.query(".btn-primary")
+    # sequence is a dead assertion waiting to happen the moment a Phoenix
+    # upgrade reorders them.
+    pill = fn html -> html |> LazyHTML.from_document() |> LazyHTML.query(".btn-primary") end
 
-    assert LazyHTML.tag(pill) == ["span"],
-           "the inert Community pill must render as a <span>, not a link"
+    {:ok, _view, community_html} = live(conn, ~p"/games/#{game}/community")
+    on_community = pill.(community_html)
 
-    assert LazyHTML.attribute(pill, "aria-current") == ["page"],
-           "the Community pill on the Community page should be marked current"
+    assert LazyHTML.text(on_community) =~ "My Q&A",
+           "the pill on the Community page must offer the way back to your own Q&A"
 
-    assert LazyHTML.attribute(pill, "href") == [],
-           "the inert Community pill must not carry an href"
+    refute LazyHTML.text(on_community) =~ "Community Q&A",
+           "the pill must not still advertise the page you are already on"
+
+    assert LazyHTML.attribute(on_community, "href") == [~p"/games/#{game}"],
+           "My Q&A must link to the game page, not to Community"
+
+    # ...and the same slot still reads "Community Q&A" everywhere else.
+    {:ok, _view, show_html} = live(conn, ~p"/games/#{game}")
+    on_show = pill.(show_html)
+
+    assert LazyHTML.text(on_show) =~ "Community Q&A",
+           "the game page keeps the Community Q&A pill"
+
+    assert LazyHTML.attribute(on_show, "href") == [~p"/games/#{game}/community"]
   end
 
   test "the admin Regen button renders only on the game page", %{conn: conn, game: game} do
