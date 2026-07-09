@@ -253,6 +253,11 @@ defmodule RuleMavenWeb.GameLive.Show do
     dyk_facts = load_did_you_know(game, sources, connected?(socket))
     {setup_status, setup_checklist} = load_setup(game, sources)
 
+    # ?t navigation that lands on a different thread than the one on screen
+    # (browser back/forward, a pasted link). Event handlers that assign the new
+    # thread before patching push scroll_top themselves, so this never doubles.
+    prev_thread_id = socket.assigns[:active_thread_id]
+
     socket =
       assign(socket,
         game: game,
@@ -308,6 +313,11 @@ defmodule RuleMavenWeb.GameLive.Show do
     # threads, ?t navigation, reload). No-op on first mount where the default is
     # still neutral — the VoiceDefault hook then fires default_voice_restore.
     socket = socket |> apply_default_voice(socket.assigns.default_voice) |> load_hr_overlay()
+
+    socket =
+      if not is_nil(prev_thread_id) and prev_thread_id != active_thread_id,
+        do: push_event(socket, "scroll_top", %{}),
+        else: socket
 
     # Onboarding: first-ever game page → the Tour hook auto-starts the tour
     # (via the data-tour-autostart attribute). Only computed on the initial
@@ -1091,6 +1101,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:noreply,
      socket
      |> assign(active_thread_id: id, sidebar_open: false)
+     |> push_event("scroll_top", %{})
      |> push_patch(to: ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(id)}")}
   end
 
@@ -1170,6 +1181,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                    stash_reask(socket.assigns.reask_typed, cross_thread_dup.id, question)
                )
                |> put_flash(:info, "You already asked this — here's your answer.")
+               |> push_event("scroll_top", %{})
                |> push_patch(
                  to:
                    ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(cross_thread_dup.id)}"
@@ -1994,6 +2006,7 @@ defmodule RuleMavenWeb.GameLive.Show do
          ask_stage: Map.delete(socket.assigns.ask_stage, prov_id)
        )
        |> put_flash(:info, "You already asked this — here's your answer.")
+       |> push_event("scroll_top", %{})
        |> push_patch(
          to: ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(source_id)}"
        )}
