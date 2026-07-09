@@ -87,6 +87,7 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
     for path <- [
           ~p"/games/#{game}",
           ~p"/games/#{game}/community",
+          ~p"/games/#{game}/prepare",
           ~p"/games/#{game}/review",
           ~p"/games/#{game}/edit"
         ] do
@@ -116,13 +117,25 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
     assert html =~ ~s(aria-current="page")
 
     # The inert pill must not also be a link to the page you are already on.
-    # Narrowed to the pill's own markup (its distinctive "btn-primary" class):
-    # the page's More menu also links to /community unconditionally (it is
-    # not gated by `current`, by design — see sub_bar.ex's `more_menu/1`), so
-    # a bare `href=".../community"` check would false-positive on that menu
-    # item regardless of whether the pill itself is correctly inert.
-    refute html =~
-             ~s(href="/games/#{RuleMaven.Hashid.encode(game.id)}/community" data-phx-link="redirect" data-phx-link-state="push" class="btn btn-primary btn-xs hide-mobile")
+    # Parse structurally with LazyHTML (the HTML engine LiveViewTest already
+    # ships with in this project) instead of matching a literal attribute
+    # string: Phoenix.Component.link/1 controls attribute emission order, so
+    # a hardcoded `href="..." data-phx-link="redirect" ... class="..."`
+    # sequence is a dead `refute` waiting to happen the moment a Phoenix
+    # upgrade reorders them — it would then never match and this coverage
+    # would silently vanish. Instead assert on the actual contract: the
+    # element carrying `btn-primary` on this page is a <span>, not an <a>,
+    # and it carries no href at all.
+    pill = html |> LazyHTML.from_document() |> LazyHTML.query(".btn-primary")
+
+    assert LazyHTML.tag(pill) == ["span"],
+           "the inert Community pill must render as a <span>, not a link"
+
+    assert LazyHTML.attribute(pill, "aria-current") == ["page"],
+           "the Community pill on the Community page should be marked current"
+
+    assert LazyHTML.attribute(pill, "href") == [],
+           "the inert Community pill must not carry an href"
   end
 
   test "the admin Regen button renders only on the game page", %{conn: conn, game: game} do
@@ -147,6 +160,7 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
     for path <- [
           ~p"/games/#{game}",
           ~p"/games/#{game}/community",
+          ~p"/games/#{game}/prepare",
           ~p"/games/#{game}/review",
           ~p"/games/#{game}/edit"
         ] do
