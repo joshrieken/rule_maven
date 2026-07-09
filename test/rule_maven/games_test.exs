@@ -982,13 +982,31 @@ defmodule RuleMaven.GamesTest do
     end
   end
 
-  describe "record_pool_mismatch/1" do
+  describe "record_pool_mismatch/2" do
     alias RuleMaven.Games.QuestionLog
 
-    test "increments the pool source row when the served row is a pool-hit copy" do
-      {:ok, game} = Games.create_game(%{name: "Mismatch #{System.unique_integer([:positive])}"})
+    defp reporter(name) do
+      Repo.insert!(%RuleMaven.Users.User{
+        username: "#{name}_#{System.unique_integer([:positive])}",
+        email: "#{name}_#{System.unique_integer([:positive])}@test.com",
+        password_hash: "x"
+      })
+    end
 
-      {:ok, source} = Games.log_question(%{game_id: game.id, question: "src q", answer: "a"})
+    defp mismatch_game,
+      do: elem(Games.create_game(%{name: "MM #{System.unique_integer([:positive])}"}), 1)
+
+    test "counts the pool source row when the served row is a pool-hit copy" do
+      game = mismatch_game()
+      author = reporter("author")
+
+      {:ok, source} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "src q",
+          answer: "a",
+          user_id: author.id
+        })
 
       {:ok, copy} =
         Games.log_question(%{
@@ -998,53 +1016,103 @@ defmodule RuleMaven.GamesTest do
           pool_source_id: source.id
         })
 
-      assert :ok = Games.record_pool_mismatch(copy)
-      assert :ok = Games.record_pool_mismatch(copy)
+      assert :ok = Games.record_pool_mismatch(copy, reporter("r1").id)
+      assert :ok = Games.record_pool_mismatch(copy, reporter("r2").id)
 
       assert Repo.get!(QuestionLog, source.id).mismatch_count == 2
       assert Repo.get!(QuestionLog, copy.id).mismatch_count == 0
     end
 
-    test "increments the row itself when there is no pool source (same-user hit)" do
-      {:ok, game} = Games.create_game(%{name: "Mismatch #{System.unique_integer([:positive])}"})
-      {:ok, q} = Games.log_question(%{game_id: game.id, question: "own q", answer: "a"})
+    test "one account cannot demote a row by reporting it repeatedly" do
+      # The griefing case: pool-hit asks are quota-exempt, so repeated clicks
+      # would otherwise be a free un-pool button aimed at anyone's answer.
+      game = mismatch_game()
+      author = reporter("author")
+      griefer = reporter("griefer")
 
-      assert :ok = Games.record_pool_mismatch(q)
-      assert Repo.get!(QuestionLog, q.id).mismatch_count == 1
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "popular q",
+          answer: "a",
+          user_id: author.id,
+          visibility: "private",
+          pooled: true
+        })
+
+      for _ <- 1..(Games.pool_mismatch_limit() + 2) do
+        Games.record_pool_mismatch(q, griefer.id)
+      end
+
+      reloaded = Repo.get!(QuestionLog, q.id)
+      assert reloaded.pooled, "one reporter must never reach the limit"
+      assert reloaded.mismatch_count == 1
     end
 
-    test "a private row that keeps being mis-matched is demoted out of the pool" do
-      {:ok, game} = Games.create_game(%{name: "Mismatch #{System.unique_integer([:positive])}"})
+    test "a row's own author cannot report it" do
+      game = mismatch_game()
+      author = reporter("author")
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "own q",
+          answer: "a",
+          user_id: author.id,
+          visibility: "private",
+          pooled: true
+        })
+
+      for _ <- 1..(Games.pool_mismatch_limit() + 1) do
+        Games.record_pool_mismatch(q, author.id)
+      end
+
+      reloaded = Repo.get!(QuestionLog, q.id)
+      assert reloaded.pooled
+      assert reloaded.mismatch_count == 0
+    end
+
+    test "distinct reporters past the limit demote a private pooled row" do
+      game = mismatch_game()
+      author = reporter("author")
 
       {:ok, q} =
         Games.log_question(%{
           game_id: game.id,
           question: "magnet q",
           answer: "a",
+          user_id: author.id,
           visibility: "private",
           pooled: true
         })
 
-      for _ <- 1..(Games.pool_mismatch_limit() - 1), do: Games.record_pool_mismatch(q)
+      for i <- 1..(Games.pool_mismatch_limit() - 1) do
+        Games.record_pool_mismatch(q, reporter("r#{i}").id)
+      end
+
       assert Repo.get!(QuestionLog, q.id).pooled, "must survive below the limit"
 
-      Games.record_pool_mismatch(q)
+      Games.record_pool_mismatch(q, reporter("last").id)
       refute Repo.get!(QuestionLog, q.id).pooled
     end
 
     test "a community row is flagged for review rather than silently un-pooled" do
-      {:ok, game} = Games.create_game(%{name: "Mismatch #{System.unique_integer([:positive])}"})
+      game = mismatch_game()
+      author = reporter("author")
 
       {:ok, q} =
         Games.log_question(%{
           game_id: game.id,
           question: "curated q",
           answer: "a",
+          user_id: author.id,
           visibility: "community",
           pooled: true
         })
 
-      for _ <- 1..Games.pool_mismatch_limit(), do: Games.record_pool_mismatch(q)
+      for i <- 1..Games.pool_mismatch_limit() do
+        Games.record_pool_mismatch(q, reporter("c#{i}").id)
+      end
 
       reloaded = Repo.get!(QuestionLog, q.id)
       assert reloaded.needs_review, "moderator decides; we don't un-pool curated content"
@@ -1055,19 +1123,80 @@ defmodule RuleMaven.GamesTest do
       RuleMaven.Settings.put("pool_mismatch_limit", "1")
       on_exit(fn -> RuleMaven.Settings.delete("pool_mismatch_limit") end)
 
-      {:ok, game} = Games.create_game(%{name: "Mismatch #{System.unique_integer([:positive])}"})
+      game = mismatch_game()
+      author = reporter("author")
 
       {:ok, q} =
         Games.log_question(%{
           game_id: game.id,
           question: "one strike",
           answer: "a",
+          user_id: author.id,
           visibility: "private",
           pooled: true
         })
 
-      Games.record_pool_mismatch(q)
+      Games.record_pool_mismatch(q, reporter("solo").id)
       refute Repo.get!(QuestionLog, q.id).pooled
+    end
+  end
+
+  describe "has_votes?/1" do
+    test "a weight-0 self-confirmation does not count as a community vote" do
+      # Otherwise a free self-upvote permanently exempts the row from the
+      # regenerate-and-delete path, pinning a bad pooled answer for everyone.
+      {:ok, game} = Games.create_game(%{name: "Votes #{System.unique_integer([:positive])}"})
+
+      author =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "selfvoter_#{System.unique_integer([:positive])}",
+          email: "sv_#{System.unique_integer([:positive])}@test.com",
+          password_hash: "x"
+        })
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "q",
+          answer: "a",
+          user_id: author.id,
+          pooled: true
+        })
+
+      Games.set_community_vote(q.id, author.id, "up")
+
+      refute Games.has_votes?(q.id)
+    end
+
+    test "a real community vote does count" do
+      {:ok, game} = Games.create_game(%{name: "Votes #{System.unique_integer([:positive])}"})
+
+      author =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "auth_#{System.unique_integer([:positive])}",
+          email: "auth_#{System.unique_integer([:positive])}@test.com",
+          password_hash: "x"
+        })
+
+      voter =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "voter_#{System.unique_integer([:positive])}",
+          email: "voter_#{System.unique_integer([:positive])}@test.com",
+          password_hash: "x"
+        })
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: "q",
+          answer: "a",
+          user_id: author.id,
+          pooled: true
+        })
+
+      Games.set_community_vote(q.id, voter.id, "up")
+
+      assert Games.has_votes?(q.id)
     end
   end
 end
