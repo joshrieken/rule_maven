@@ -24,7 +24,11 @@ defmodule RuleMaven.Embed do
   end
 
   defp cached_embed(text) do
-    case RuleMaven.Embed.Cache.get(text) do
+    # `embedding_model` is a live setting, so the vector a text maps to is only
+    # stable per model — the cache key has to carry it.
+    model = model()
+
+    case RuleMaven.Embed.Cache.get(model, text) do
       {:ok, vec} ->
         {:ok, vec}
 
@@ -32,7 +36,7 @@ defmodule RuleMaven.Embed do
         text
         |> embed_real()
         |> tap(fn
-          {:ok, vec} -> RuleMaven.Embed.Cache.put(text, vec)
+          {:ok, vec} -> RuleMaven.Embed.Cache.put(model, text, vec)
           {:error, _} -> :ok
         end)
     end

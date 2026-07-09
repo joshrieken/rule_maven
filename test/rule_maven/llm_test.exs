@@ -897,6 +897,24 @@ defmodule RuleMaven.LLMTest do
       assert LLM.__strip_game_name__("Does Catan use dice?", "Catan") == "Does Catan use dice?"
     end
 
+    test "a game name ending in punctuation still strips" do
+      # `\b` after an escaped "Sorry!" never matches — "!" is not a word char,
+      # so the trailing strip silently did nothing for exactly the name the
+      # docstring cites.
+      assert LLM.__strip_game_name__("How many cards do you draw in Sorry!", "Sorry!") ==
+               "How many cards do you draw"
+    end
+
+    test "the trailing strip does not reach into a longer word" do
+      assert LLM.__strip_game_name__("Is the bomb in Fused state?", "Fuse") ==
+               "Is the bomb in Fused state?"
+    end
+
+    test "a game name with regex metacharacters is escaped" do
+      assert LLM.__strip_game_name__("How many players in D.V.A. (2e)?", "D.V.A. (2e)") ==
+               "How many players?"
+    end
+
     test "handles a nil game name" do
       assert LLM.__strip_game_name__("How many players?", nil) == "How many players?"
     end
@@ -924,6 +942,8 @@ defmodule RuleMaven.LLMTest do
   describe "normalize_question repeat handling" do
     alias RuleMaven.LLM.NormalizeCache
 
+    defp cache_key(game_id, raw), do: {game_id, LLM.__normalize_prompt_version__(), raw}
+
     test "an identical re-ask is normalized standalone (text-cached)" do
       {:ok, game} = Games.create_game(%{name: "RepeatGame"})
 
@@ -932,7 +952,7 @@ defmodule RuleMaven.LLMTest do
       ])
 
       # Standalone branch populates the per-raw cache; followup branch never does.
-      assert {:ok, _} = NormalizeCache.get({game.id, "how many dice do i roll?"})
+      assert {:ok, _} = NormalizeCache.get(cache_key(game.id, "how many dice do i roll?"))
     end
 
     test "a genuine followup is NOT text-cached (stays context-sensitive)" do
@@ -942,7 +962,21 @@ defmodule RuleMaven.LLMTest do
         {"How many dice do I roll?", "You roll 3 dice."}
       ])
 
-      assert NormalizeCache.get({game.id, "what about on a road?"}) == :miss
+      assert NormalizeCache.get(cache_key(game.id, "what about on a road?")) == :miss
+    end
+
+    test "editing the normalize prompt does not serve the old rewrite" do
+      {:ok, game} = Games.create_game(%{name: "PromptVersionGame"})
+
+      LLM.normalize_question(game, "How many dice do I roll?")
+      assert {:ok, _} = NormalizeCache.get(cache_key(game.id, "how many dice do i roll?"))
+
+      # An admin edits the live prompt (a `prompt_<key>` Settings override):
+      # the old entry must no longer be reachable.
+      RuleMaven.Settings.put("prompt_normalize_question_system", "Rewrite differently.")
+      on_exit(fn -> RuleMaven.Settings.delete("prompt_normalize_question_system") end)
+
+      assert NormalizeCache.get(cache_key(game.id, "how many dice do i roll?")) == :miss
     end
   end
 

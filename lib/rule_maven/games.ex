@@ -854,11 +854,25 @@ defmodule RuleMaven.Games do
   def reject_document(%Document{} = doc, approver \\ nil) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    update_document(doc, %{
-      status: "rejected",
-      reviewed_by_id: approver && approver.id,
-      reviewed_at: now
-    })
+    result =
+      update_document(doc, %{
+        status: "rejected",
+        reviewed_by_id: approver && approver.id,
+        reviewed_at: now
+      })
+
+    # Mirror image of `approve_document/2`: `update_document/2` only invalidates
+    # when `full_text` changed, which a pure status change never does. Rejecting
+    # an already-PUBLISHED document (the Review page allows it) drops its chunks
+    # out of retrieval immediately, but every answer cached while it was live
+    # would keep serving under `stale == false` forever. Un-publishing changes
+    # what's servable just as much as publishing does.
+    case result do
+      {:ok, updated} -> invalidate_pool(updated.game_id)
+      _ -> :ok
+    end
+
+    result
   end
 
   @doc """
@@ -2404,7 +2418,15 @@ defmodule RuleMaven.Games do
     |> String.replace("_", "\\_")
   end
 
-  @default_pool_candidates 10
+  # Trust is ranked within this window, not across every row inside the
+  # threshold, because the SQL LIMIT is what lets pgvector use the HNSW index.
+  # That is a real semantic difference from the old trust-first query: a
+  # verified row that ranks outside the nearest N by distance loses to a nearer
+  # provisional one. Set wide enough that it takes N near-identical pooled rows
+  # for the same canonical question before a trusted answer can fall out of the
+  # window — and `Singleflight` plus the same-user dedup tiers now stop those
+  # duplicates from accumulating in the first place.
+  @default_pool_candidates 25
 
   @doc """
   The `opts[:limit]` (default 10) pool rows nearest `question_embedding`,

@@ -217,5 +217,39 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
       {:ok, _} = Games.update_document(doc, %{full_text: "totally different text now"})
       refute Repo.get!(QuestionLog, q.id).pooled
     end
+
+    test "rejecting a published document invalidates the pool" do
+      game = game()
+
+      {:ok, doc} =
+        Games.create_document(%{game_id: game.id, label: "R", full_text: "alpha beta gamma"})
+
+      q = pooled_q(game, %{pooled: true})
+
+      # A status-only change never touches full_text, so update_document/2's
+      # own invalidation guard does not fire — un-publishing a live source has
+      # to invalidate explicitly, exactly as approving one does.
+      {:ok, _} = Games.reject_document(doc)
+
+      refute Repo.get!(QuestionLog, q.id).pooled
+    end
+
+    test "approving a document invalidates the pool" do
+      game = game()
+
+      {:ok, doc} =
+        Games.create_document(%{
+          game_id: game.id,
+          label: "R",
+          full_text: "alpha beta gamma",
+          status: "pending_review"
+        })
+
+      q = pooled_q(game, %{pooled: true})
+
+      {:ok, _} = Games.approve_document(doc)
+
+      refute Repo.get!(QuestionLog, q.id).pooled
+    end
   end
 end
