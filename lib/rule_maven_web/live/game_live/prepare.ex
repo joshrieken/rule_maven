@@ -19,6 +19,9 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   alias RuleMaven.Games.Chunk
   alias RuleMaven.Readiness.Estimator
+  alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
+
+  @tool_events ToolHost.events()
 
   # Map a readiness step to the llm_logs operation name(s) whose logged spend
   # represents that step's actual cost. Steps absent here have no tracked spend.
@@ -120,6 +123,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         {:ok,
          socket
          |> assign(game: game, page_title: "Prepare — #{game.name}", renaming_doc_id: nil)
+         |> ToolHost.mount_header(game)
+         |> ToolHost.mount_tools(game)
          |> load()}
     end
   end
@@ -176,6 +181,11 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       question_count: Games.question_count(game)
     )
   end
+
+  # Table tools (sub-bar → floating windows) are shared by every game screen.
+  @impl true
+  def handle_event(event, params, socket) when event in @tool_events,
+    do: ToolHost.handle_tool_event(event, params, socket)
 
   @impl true
   def handle_event("prepare", _params, socket) do
@@ -678,11 +688,19 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
     <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
     <div style="max-width:52rem;margin:0 auto;padding:0 1.5rem 1.25rem;position:relative;z-index:1">
-      <div class="mb-4 flex items-center justify-between">
-        <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">
-          &larr; Back to games
-        </.link>
-        <div style="display:flex;align-items:center;gap:1rem">
+      <SubBar.game_header
+        game={@game}
+        sources={@sources}
+        community_count={@community_count}
+        is_admin={@is_admin}
+        on_game_page={false}
+      >
+        <:back>
+          <.link navigate={~p"/"} class="back-link" style="margin-bottom:0">
+            &larr; Back to games
+          </.link>
+        </:back>
+        <:actions>
           <.link navigate={~p"/games/#{@game}/edit"} class="back-link" style="margin-bottom:0">
             Edit game &rarr;
           </.link>
@@ -694,8 +712,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           >
             Ask questions &rarr;
           </.link>
-        </div>
-      </div>
+        </:actions>
+      </SubBar.game_header>
 
       <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:0.25rem 0 0.35rem">
         <div style="display:flex;align-items:center;gap:0.75rem">
@@ -872,6 +890,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         </div>
       </div>
     </div>
+
+    <%!-- Floating tool windows + minimized dock, same machinery as the game
+          and community pages. --%>
+    <ToolPanel.tool_panel {assigns} />
     """
   end
 
