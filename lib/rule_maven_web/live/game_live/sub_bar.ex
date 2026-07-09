@@ -49,11 +49,13 @@ defmodule RuleMavenWeb.GameLive.SubBar do
     <details class="card-menu" style="flex-shrink:0">
       <summary
         class="pill-link"
+        title={@label}
+        aria-label={@label}
         style="cursor:pointer;list-style:none;gap:0.25rem;user-select:none;font-weight:600"
       >
         <span aria-hidden="true">{@emoji}</span>
-        <span>{@label}</span>
-        <span style="font-size:0.6rem;opacity:0.6">▾</span>
+        <span class="pill-label">{@label}</span>
+        <span class="pill-caret" style="font-size:0.6rem;opacity:0.6">▾</span>
       </summary>
       <div class="card-menu__pop">
         <button
@@ -81,11 +83,13 @@ defmodule RuleMavenWeb.GameLive.SubBar do
     <details class="card-menu" style="flex-shrink:0">
       <summary
         class="pill-link"
+        title="More"
+        aria-label="More"
         style="cursor:pointer;list-style:none;gap:0.25rem;user-select:none;font-weight:600"
       >
         <span aria-hidden="true">💬</span>
-        <span>More</span>
-        <span style="font-size:0.6rem;opacity:0.6">▾</span>
+        <span class="pill-label">More</span>
+        <span class="pill-caret" style="font-size:0.6rem;opacity:0.6">▾</span>
       </summary>
       <div class="card-menu__pop card-menu__pop--right">
         <.link patch={~p"/games/#{@game}?start=1"} class="card-menu__item">🔍 Overview</.link>
@@ -119,6 +123,19 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           rel="noopener"
           class="card-menu__item"
         >🔗 View on BGG</.link>
+        <%!-- Admin actions live here too: on phones the header collapses to one
+              row and the separate "Admin ▾" pill is hidden, so this menu is the
+              only way in. --%>
+        <%= if @is_admin do %>
+          <div class="card-menu__divider"></div>
+          <.link navigate={~p"/games/#{@game}/edit"} class="card-menu__item">✏️ Edit</.link>
+          <.link navigate={~p"/games/#{@game}/review"} class="card-menu__item">🔍 Review</.link>
+          <.link
+            :if={RuleMaven.Games.bgg_synced?(@game)}
+            href={~p"/games/#{@game}/prepare"}
+            class="card-menu__item"
+          >🚀 Prepare</.link>
+        <% end %>
       </div>
     </details>
     """

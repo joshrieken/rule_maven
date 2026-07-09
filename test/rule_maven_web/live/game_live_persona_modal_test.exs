@@ -44,7 +44,7 @@ defmodule RuleMavenWeb.GameLivePersonaModalTest do
     refute has_element?(lv, "#persona-modal")
 
     lv
-    |> element("button[phx-click=open_persona_modal][phx-value-target=default]")
+    |> element("#persona-default-btn")
     |> render_click()
 
     assert has_element?(lv, "#persona-modal")
