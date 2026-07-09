@@ -1022,6 +1022,17 @@ Hooks.FloatingPanel = {
     this._ro.observe(this.el);
   },
 
+  // The sheet is anchored to the viewport bottom, so the tray must sit above
+  // it, not behind it. Publish the sheet's height for `.tool-dock` to read.
+  initSheetHeightVar() {
+    var self = this;
+    this._sheetRO = new ResizeObserver(function() {
+      var h = self.el.getBoundingClientRect().height;
+      document.documentElement.style.setProperty("--rm-sheet-h", h + "px");
+    });
+    this._sheetRO.observe(this.el);
+  },
+
   mounted() {
     var coarse = this.isCoarse();
     this.el.classList.toggle("tool-panel--sheet", coarse);
@@ -1029,6 +1040,7 @@ Hooks.FloatingPanel = {
     this.applySaved();
     if (coarse) {
       this.initSheet();
+      this.initSheetHeightVar();
     } else {
       this.initDrag();
       this.initResizeWatch();
@@ -1043,6 +1055,10 @@ Hooks.FloatingPanel = {
     }
     if (this._activeDragCleanup) this._activeDragCleanup();
     if (this._ro) this._ro.disconnect();
+    if (this._sheetRO) {
+      this._sheetRO.disconnect();
+      document.documentElement.style.removeProperty("--rm-sheet-h");
+    }
     clearTimeout(this._sizeT);
     ToolLayout.release();
   }
