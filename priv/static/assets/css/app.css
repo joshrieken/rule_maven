@@ -2990,7 +2990,9 @@ body.tool-panel-resizing { user-select: none; }
   bottom: -4rem;
   margin-bottom: -4rem;
   z-index: 20;
-  padding: 0.35rem 0;
+  /* Most of the strip's vertical breathing room lives on __inner, which needs
+     it to avoid clipping the pills (see there). */
+  padding: 0.1rem 0;
   background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
   backdrop-filter: blur(6px);
   border-top: 1px solid var(--border);
@@ -3004,19 +3006,23 @@ body.tool-panel-resizing { user-select: none; }
   bottom: auto;
   margin-bottom: 0;
   z-index: auto;
-  padding: 0.3rem 0;
+  padding: 0.05rem 0;
 }
 .tool-dock--flow .tool-dock__inner {
   max-width: none;
-  padding: 0 1rem;
 }
+/* Horizontal scroller for when the pills outnumber the width. `overflow-x`
+   alone is a lie: a box that scrolls on one axis computes `overflow-y: auto`
+   too, so anything crossing the padding box's top edge gets clipped. The pill
+   lifts 1px on hover and casts a shadow, so the strip needs vertical padding
+   or the hovered pill loses its top border. */
 .tool-dock__inner {
   display: flex;
   gap: 0.4rem;
   align-items: center;
   max-width: 48rem;
   margin: 0 auto;
-  padding: 0 1rem;
+  padding: 0.3rem 1rem;
   overflow-x: auto;
   scrollbar-width: none;
   pointer-events: auto;
@@ -3106,7 +3112,7 @@ body.tool-panel-resizing { user-select: none; }
   .tool-dock__restore { padding-right: 0.7rem; border-radius: 999px; }
 }
 @media (max-width: 640px) {
-  .tool-dock__inner { padding: 0 0.5rem; }
+  .tool-dock__inner { padding: 0.3rem 0.5rem; }
   .tool-dock__restore { padding-top: 0.3rem; padding-bottom: 0.3rem; }
 }
 
