@@ -124,35 +124,48 @@ defmodule RuleMaven.LLM do
   end
 
   # Cross-user pool lookup, widened to also surface near-miss candidates
-  # (0.85-0.92 similarity) gated by an LLM equivalence tiebreaker. Pooled/
+  # (0.80-0.92 similarity) gated by an LLM equivalence tiebreaker. Pooled/
   # community answers are rulebook-derived, so any asker may be served a
   # match — the lookup intentionally doesn't filter by user (no user_id
-  # passed to find_similar_question_in_pool/2).
+  # passed to find_pool_candidates/3).
+  #
+  # Ranking happens HERE rather than in SQL because the widened threshold makes
+  # trust-first ordering actively wrong: across a 0.80-1.0 band a distant
+  # trusted row outranks a near-exact provisional one, so the lookup would
+  # return the wrong row, spend a tiebreaker call rejecting it, and then miss
+  # the near-exact match entirely (the old query returned only that one row).
+  # Direct hits (>= the 0.92 floor) are settled by trust; only if there are
+  # none do we pay the tiebreaker, and then on the NEAREST candidates first.
+  @max_tiebreaker_calls 2
+
   defp find_pool_hit(_game, nil, _expansion_ids, _skip_pool, _match_text, _user_id), do: nil
   defp find_pool_hit(_game, _embedding, _expansion_ids, true, _match_text, _user_id), do: nil
 
   defp find_pool_hit(game, question_embedding, expansion_ids, false, match_text, user_id) do
-    case RuleMaven.Games.find_similar_question_in_pool(game.id, question_embedding,
-           expansion_ids: expansion_ids,
-           threshold: RuleMaven.Games.pool_tiebreaker_distance_threshold()
-         ) do
+    candidates =
+      RuleMaven.Games.find_pool_candidates(game.id, question_embedding,
+        expansion_ids: expansion_ids,
+        threshold: RuleMaven.Games.pool_tiebreaker_distance_threshold()
+      )
+
+    floor = RuleMaven.Games.pool_similarity_floor()
+    {direct, ambiguous} = Enum.split_with(candidates, fn {_row, sim} -> sim >= floor end)
+
+    case RuleMaven.Games.best_by_trust(direct) do
+      {_row, _tier} = hit ->
+        hit
+
       nil ->
-        nil
-
-      {row, _tier} = hit ->
-        similarity =
-          RuleMaven.Games.cosine_sim(row.question_embedding, Pgvector.new(question_embedding))
-
-        cond do
-          similarity >= RuleMaven.Games.pool_similarity_floor() ->
-            hit
-
-          paraphrase_equivalent?(row, match_text, game, user_id) ->
-            hit
-
-          true ->
-            nil
-        end
+        # Nearest-first, capped: each tiebreaker is a cheap ~600-token call, but
+        # an unbounded walk down a 0.80-floor candidate list could fire ten of
+        # them and still miss.
+        ambiguous
+        |> Enum.take(@max_tiebreaker_calls)
+        |> Enum.find_value(fn {row, _sim} ->
+          if paraphrase_equivalent?(row, match_text, game, user_id) do
+            {row, RuleMaven.Games.pool_tier(row)}
+          end
+        end)
     end
   end
 

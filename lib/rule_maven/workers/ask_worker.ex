@@ -109,368 +109,398 @@ defmodule RuleMaven.Workers.AskWorker do
           "Answering against the rulebook#{if expansion_ids != [], do: " (+#{length(expansion_ids)} expansion(s))", else: ""}…"
         )
 
-        case run_bounded(fn ->
-               RuleMaven.LLM.ask(game, question, expansion_ids, recent_context,
-                 user_id: user_id,
-                 skip_pool: skip_pool,
-                 skip_normalize: skip_normalize,
-                 voice: voice
-               )
-             end) do
-          {:ok, %{answer: raw_answer} = llm_result} ->
-            {answer, error_kind} =
-              cond do
-                is_nil(raw_answer) || String.trim(raw_answer) == "" ->
-                  {"⚠️ The AI returned an empty response. Please retry.", "empty"}
+        # Collapse concurrent identical asks onto one answer call. The lock has
+        # to span the persist, not just `LLM.ask` — a follower woken before the
+        # leader's row is written and `mark_pooled`'d would still see nothing
+        # in the pool and pay for its own answer. `Singleflight` monitors the
+        # leader, so a crash or `run_bounded` brutal-kill releases the key
+        # instead of stranding followers.
+        #
+        # Keyed on the RAW question, since the normalized form only exists
+        # inside `LLM.ask`. Literal duplicates (double-submit, two players
+        # typing the same thing) collapse; concurrent paraphrases still race,
+        # and are caught after the fact by the pool.
+        #
+        # A fresh ask (`skip_pool`) must neither wait on nor be served by
+        # another asker's answer, so it bypasses the lock.
+        sf_key =
+          unless skip_pool do
+            RuleMaven.LLM.Singleflight.ask_key(game_id, expansion_ids, question)
+          end
 
-                suspicious_output?(raw_answer) ->
-                  {"⚠️ The AI returned an unexpected response format. Please retry.", "format"}
+        if sf_key, do: RuleMaven.LLM.Singleflight.acquire(sf_key)
+
+        result =
+          case run_bounded(fn ->
+                 RuleMaven.LLM.ask(game, question, expansion_ids, recent_context,
+                   user_id: user_id,
+                   skip_pool: skip_pool,
+                   skip_normalize: skip_normalize,
+                   voice: voice
+                 )
+               end) do
+            {:ok, %{answer: raw_answer} = llm_result} ->
+              {answer, error_kind} =
+                cond do
+                  is_nil(raw_answer) || String.trim(raw_answer) == "" ->
+                    {"⚠️ The AI returned an empty response. Please retry.", "empty"}
+
+                  suspicious_output?(raw_answer) ->
+                    {"⚠️ The AI returned an unexpected response format. Please retry.", "format"}
+
+                  true ->
+                    stripped = strip_question_echo(raw_answer, question)
+                    {if(String.trim(stripped) == "", do: raw_answer, else: stripped), nil}
+                end
+
+              ql = get_question_log!(question_log_id)
+              source_id = llm_result[:source_question_log_id]
+
+              # Answer-side dedup: a fresh answer (not a cache hit) that is identical
+              # to one of the asker's own prior answers — two differently-worded
+              # questions that produced the same ruling. Redirect there instead of
+              # persisting a duplicate. Own rows only, so no cross-user exposure.
+              answer_dup =
+                ql && !llm_result[:pool_hit] && !refused?(answer) &&
+                  Games.find_user_answer_duplicate(
+                    game_id,
+                    user_id,
+                    answer,
+                    question_log_id,
+                    Enum.sort(expansion_ids)
+                  )
+
+              cond do
+                is_nil(ql) ->
+                  # Question row vanished (deleted by a retry) — close the run so it
+                  # doesn't linger as running.
+                  Jobs.finish_run(run, "done", "Question no longer exists.")
+
+                # Same-user duplicate: the asker already has this exact answer, so
+                # redirect them to it and drop this provisional row instead of
+                # persisting a second copy. Only when the source still exists; cross-
+                # user pool/community hits fall through and keep the anonymized copy.
+                llm_result[:same_user_hit] && source_id && get_question_log!(source_id) ->
+                  Games.delete_question(ql)
+
+                  Phoenix.PubSub.broadcast(
+                    RuleMaven.PubSub,
+                    "game:#{game_id}",
+                    {:ask_redirect,
+                     %{
+                       question_log_id: question_log_id,
+                       source_question_log_id: source_id,
+                       asked_as: question
+                     }}
+                  )
+
+                  Jobs.finish_run(
+                    run,
+                    "done",
+                    "Duplicate of your prior question — redirected to ##{source_id}."
+                  )
+
+                answer_dup ->
+                  Games.delete_question(ql)
+
+                  Phoenix.PubSub.broadcast(
+                    RuleMaven.PubSub,
+                    "game:#{game_id}",
+                    {:ask_redirect,
+                     %{
+                       question_log_id: question_log_id,
+                       source_question_log_id: answer_dup.id,
+                       asked_as: question
+                     }}
+                  )
+
+                  Jobs.finish_run(
+                    run,
+                    "done",
+                    "Duplicate answer — redirected to ##{answer_dup.id}."
+                  )
 
                 true ->
-                  stripped = strip_question_echo(raw_answer, question)
-                  {if(String.trim(stripped) == "", do: raw_answer, else: stripped), nil}
-              end
+                  {valid_citations, citation_valid} =
+                    if llm_result[:pool_hit] do
+                      # Cache/pool hit: this answer was already validated once,
+                      # when it was first created (against real retrieved
+                      # chunks). There's no retrieval on a cache serve — no
+                      # `source_chunks` to re-validate against — so trust the
+                      # pooled values and pass them through unchanged instead
+                      # of re-running validation against zero chunks (which
+                      # would always fail and silently drop the citation).
+                      {llm_result[:citations] || [], llm_result[:citation_valid] || false}
+                    else
+                      raw_citations =
+                        case llm_result[:citations] do
+                          list when is_list(list) and list != [] ->
+                            list
 
-            ql = get_question_log!(question_log_id)
-            source_id = llm_result[:source_question_log_id]
+                          _ ->
+                            # Legacy/mock path: only the singular scalar fields were
+                            # supplied. Wrap them so downstream processing is uniform.
+                            if llm_result[:cited_passage] || llm_result[:cited_page] ||
+                                 llm_result[:cited_source] do
+                              [
+                                %{
+                                  "quote" => llm_result[:cited_passage],
+                                  "page" => llm_result[:cited_page],
+                                  "source" => llm_result[:cited_source]
+                                }
+                              ]
+                            else
+                              []
+                            end
+                        end
 
-            # Answer-side dedup: a fresh answer (not a cache hit) that is identical
-            # to one of the asker's own prior answers — two differently-worded
-            # questions that produced the same ruling. Redirect there instead of
-            # persisting a duplicate. Own rows only, so no cross-user exposure.
-            answer_dup =
-              ql && !llm_result[:pool_hit] && !refused?(answer) &&
-                Games.find_user_answer_duplicate(
-                  game_id,
-                  user_id,
-                  answer,
-                  question_log_id,
-                  Enum.sort(expansion_ids)
-                )
+                      processed_citations =
+                        Enum.map(raw_citations, &process_citation(&1, llm_result[:source_chunks]))
 
-            cond do
-              is_nil(ql) ->
-                # Question row vanished (deleted by a retry) — close the run so it
-                # doesn't linger as running.
-                Jobs.finish_run(run, "done", "Question no longer exists.")
+                      valid =
+                        RuleMaven.Games.Citations.valid_citations(
+                          processed_citations,
+                          llm_result[:source_chunks]
+                        )
 
-              # Same-user duplicate: the asker already has this exact answer, so
-              # redirect them to it and drop this provisional row instead of
-              # persisting a second copy. Only when the source still exists; cross-
-              # user pool/community hits fall through and keep the anonymized copy.
-              llm_result[:same_user_hit] && source_id && get_question_log!(source_id) ->
-                Games.delete_question(ql)
+                      {valid, valid != []}
+                    end
 
-                Phoenix.PubSub.broadcast(
-                  RuleMaven.PubSub,
-                  "game:#{game_id}",
-                  {:ask_redirect,
-                   %{
-                     question_log_id: question_log_id,
-                     source_question_log_id: source_id,
-                     asked_as: question
-                   }}
-                )
+                  primary =
+                    List.first(valid_citations) ||
+                      %{"quote" => nil, "page" => nil, "source" => nil}
 
-                Jobs.finish_run(
-                  run,
-                  "done",
-                  "Duplicate of your prior question — redirected to ##{source_id}."
-                )
+                  passage = primary["quote"]
+                  cited_page = primary["page"]
+                  cited_source = primary["source"]
 
-              answer_dup ->
-                Games.delete_question(ql)
+                  refused? = refused?(answer)
 
-                Phoenix.PubSub.broadcast(
-                  RuleMaven.PubSub,
-                  "game:#{game_id}",
-                  {:ask_redirect,
-                   %{
-                     question_log_id: question_log_id,
-                     source_question_log_id: answer_dup.id,
-                     asked_as: question
-                   }}
-                )
+                  cleaned =
+                    llm_result[:cleaned_question]
+                    |> to_string()
+                    |> String.trim()
+                    |> strip_game_name(game.name)
 
-                Jobs.finish_run(
-                  run,
-                  "done",
-                  "Duplicate answer — redirected to ##{answer_dup.id}."
-                )
+                  # Sanity check: cleaned must be shorter than the answer and
+                  # not exceed a reasonable question length, else the LLM put
+                  # answer content in the CLEANED block — discard it.
+                  cleaned =
+                    if cleaned != "" and
+                         String.length(cleaned) <= 250 and
+                         String.length(cleaned) <= String.length(answer) * 2 do
+                      cleaned
+                    else
+                      ""
+                    end
 
-              true ->
-                {valid_citations, citation_valid} =
-                  if llm_result[:pool_hit] do
-                    # Cache/pool hit: this answer was already validated once,
-                    # when it was first created (against real retrieved
-                    # chunks). There's no retrieval on a cache serve — no
-                    # `source_chunks` to re-validate against — so trust the
-                    # pooled values and pass them through unchanged instead
-                    # of re-running validation against zero chunks (which
-                    # would always fail and silently drop the citation).
-                    {llm_result[:citations] || [], llm_result[:citation_valid] || false}
-                  else
-                    raw_citations =
-                      case llm_result[:citations] do
-                        list when is_list(list) and list != [] ->
-                          list
+                  update_attrs = %{
+                    answer: answer,
+                    error_kind: error_kind,
+                    # Preserve the raw question as typed; the normalized form is stored
+                    # separately in cleaned_question and is what gets displayed.
+                    question: question,
+                    cited_passage: passage,
+                    cited_page: cited_page,
+                    cited_source: cited_source,
+                    citations: valid_citations,
+                    citation_valid: citation_valid,
+                    refused: refused?,
+                    verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
+                    followups: if(refused?, do: [], else: llm_result[:followups] || []),
+                    also_asked: if(refused?, do: [], else: llm_result[:also_asked] || []),
+                    cleaned_question: if(cleaned != "", do: cleaned, else: nil),
+                    raw_response: llm_result[:raw_response],
+                    llm_provider: llm_result[:provider],
+                    llm_model: llm_result[:model],
+                    pool_source_id: llm_result[:source_question_log_id],
+                    question_embedding: llm_result[:question_embedding]
+                  }
 
-                        _ ->
-                          # Legacy/mock path: only the singular scalar fields were
-                          # supplied. Wrap them so downstream processing is uniform.
-                          if llm_result[:cited_passage] || llm_result[:cited_page] ||
-                               llm_result[:cited_source] do
-                            [
-                              %{
-                                "quote" => llm_result[:cited_passage],
-                                "page" => llm_result[:cited_page],
-                                "source" => llm_result[:cited_source]
-                              }
-                            ]
+                  case Games.log_question_update(ql, update_attrs) do
+                    {:ok, updated} ->
+                      pool_hit? = llm_result[:pool_hit] || false
+
+                      if error_kind, do: maybe_auto_flag(updated, run)
+
+                      unless refused? or error_kind do
+                        RuleMaven.Workers.TagQuestionWorker.enqueue(question_log_id, game_id)
+
+                        # Fresh, citation-backed answers become cache-eligible. Pool hits
+                        # are duplicates of an existing pooled row — don't re-pool them.
+                        # `never_pool` is set for a private one-off (regenerate/report
+                        # redo of an already-voted answer) that must never leak into the
+                        # shared pool. And a topic still under moderation review must not
+                        # silently re-pool via the very next ask that happens to match it
+                        # — that would undo the pull with zero review of the replacement.
+                        unless pool_hit? or never_pool do
+                          if Games.under_review?(
+                               game_id,
+                               expansion_ids,
+                               updated.question_embedding
+                             ) do
+                            :ok
                           else
-                            []
+                            Games.mark_pooled(updated)
                           end
-                      end
-
-                    processed_citations =
-                      Enum.map(raw_citations, &process_citation(&1, llm_result[:source_chunks]))
-
-                    valid =
-                      RuleMaven.Games.Citations.valid_citations(
-                        processed_citations,
-                        llm_result[:source_chunks]
-                      )
-
-                    {valid, valid != []}
-                  end
-
-                primary =
-                  List.first(valid_citations) || %{"quote" => nil, "page" => nil, "source" => nil}
-
-                passage = primary["quote"]
-                cited_page = primary["page"]
-                cited_source = primary["source"]
-
-                refused? = refused?(answer)
-
-                cleaned =
-                  llm_result[:cleaned_question]
-                  |> to_string()
-                  |> String.trim()
-                  |> strip_game_name(game.name)
-
-                # Sanity check: cleaned must be shorter than the answer and
-                # not exceed a reasonable question length, else the LLM put
-                # answer content in the CLEANED block — discard it.
-                cleaned =
-                  if cleaned != "" and
-                       String.length(cleaned) <= 250 and
-                       String.length(cleaned) <= String.length(answer) * 2 do
-                    cleaned
-                  else
-                    ""
-                  end
-
-                update_attrs = %{
-                  answer: answer,
-                  error_kind: error_kind,
-                  # Preserve the raw question as typed; the normalized form is stored
-                  # separately in cleaned_question and is what gets displayed.
-                  question: question,
-                  cited_passage: passage,
-                  cited_page: cited_page,
-                  cited_source: cited_source,
-                  citations: valid_citations,
-                  citation_valid: citation_valid,
-                  refused: refused?,
-                  verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
-                  followups: if(refused?, do: [], else: llm_result[:followups] || []),
-                  also_asked: if(refused?, do: [], else: llm_result[:also_asked] || []),
-                  cleaned_question: if(cleaned != "", do: cleaned, else: nil),
-                  raw_response: llm_result[:raw_response],
-                  llm_provider: llm_result[:provider],
-                  llm_model: llm_result[:model],
-                  pool_source_id: llm_result[:source_question_log_id],
-                  question_embedding: llm_result[:question_embedding]
-                }
-
-                case Games.log_question_update(ql, update_attrs) do
-                  {:ok, updated} ->
-                    pool_hit? = llm_result[:pool_hit] || false
-
-                    if error_kind, do: maybe_auto_flag(updated, run)
-
-                    unless refused? or error_kind do
-                      RuleMaven.Workers.TagQuestionWorker.enqueue(question_log_id, game_id)
-
-                      # Fresh, citation-backed answers become cache-eligible. Pool hits
-                      # are duplicates of an existing pooled row — don't re-pool them.
-                      # `never_pool` is set for a private one-off (regenerate/report
-                      # redo of an already-voted answer) that must never leak into the
-                      # shared pool. And a topic still under moderation review must not
-                      # silently re-pool via the very next ask that happens to match it
-                      # — that would undo the pull with zero review of the replacement.
-                      unless pool_hit? or never_pool do
-                        if Games.under_review?(game_id, expansion_ids, updated.question_embedding) do
-                          :ok
-                        else
-                          Games.mark_pooled(updated)
                         end
                       end
-                    end
 
-                    # Persona-direct path: the single ask call already produced the
-                    # styled answer, so cache it now instead of enqueueing a
-                    # separate VoiceWorker restyle for this (question, voice) pair.
-                    styled_answer = llm_result[:styled_answer]
-                    styled_voice = llm_result[:styled_voice]
+                      # Persona-direct path: the single ask call already produced the
+                      # styled answer, so cache it now instead of enqueueing a
+                      # separate VoiceWorker restyle for this (question, voice) pair.
+                      styled_answer = llm_result[:styled_answer]
+                      styled_voice = llm_result[:styled_voice]
 
-                    # `styled_voice != "neutral"` is defense-in-depth: a neutral ask
-                    # never produces a styled_answer in the first place (voice_style_block
-                    # returns "" for "neutral"), so this branch of the guard can't
-                    # currently be reached — kept in case that ever changes.
-                    store_direct? =
-                      styled_answer && styled_voice && styled_voice != "neutral" &&
-                        not refused?
+                      # `styled_voice != "neutral"` is defense-in-depth: a neutral ask
+                      # never produces a styled_answer in the first place (voice_style_block
+                      # returns "" for "neutral"), so this branch of the guard can't
+                      # currently be reached — kept in case that ever changes.
+                      store_direct? =
+                        styled_answer && styled_voice && styled_voice != "neutral" &&
+                          not refused?
 
-                    if store_direct? do
-                      case RuleMaven.Voices.store_direct(
-                             question_log_id,
-                             styled_voice,
-                             styled_answer
-                           ) do
-                        :ok ->
-                          :ok
+                      if store_direct? do
+                        case RuleMaven.Voices.store_direct(
+                               question_log_id,
+                               styled_voice,
+                               styled_answer
+                             ) do
+                          :ok ->
+                            :ok
 
-                        {:error, reason} ->
-                          require Logger
+                          {:error, reason} ->
+                            require Logger
 
-                          Logger.warning(
-                            "AskWorker: failed to cache styled answer for question #{question_log_id} voice #{styled_voice}: #{inspect(reason)}"
-                          )
-                      end
-                    end
-
-                    # Voices the single-call path can't cover — generated (g:)
-                    # personas (whose LLM-derived style string must not enter the
-                    # rulebook-access ask prompt — see LLM.voice_style_block/2)
-                    # and pool hits (no fresh ask call at all) — are deliberately
-                    # NOT restyled here: an inline restyle held the finished
-                    # answer hostage behind a second ~20s LLM call. Broadcast the
-                    # canonical answer immediately instead; the LiveView's
-                    # :ask_complete handler (apply_default_voice) enqueues the
-                    # on-demand VoiceWorker restyle, renders the plain answer
-                    # with a "voicing…" indicator meanwhile, and swaps the
-                    # persona text in on {:voice_ready, ...}.
-                    {bcast_styled_voice, bcast_styled_answer} =
-                      if store_direct?, do: {styled_voice, styled_answer}, else: {nil, nil}
-
-                    Phoenix.PubSub.broadcast(
-                      RuleMaven.PubSub,
-                      "game:#{game_id}",
-                      {:ask_complete,
-                       %{
-                         question_log_id: question_log_id,
-                         faq_hit: llm_result[:faq_hit] || false,
-                         pool_hit: pool_hit?,
-                         tier: llm_result[:tier],
-                         verified: llm_result[:verified] || false,
-                         source_question_log_id: llm_result[:source_question_log_id],
-                         followups: if(refused?, do: [], else: llm_result[:followups] || []),
-                         also_asked: if(refused?, do: [], else: llm_result[:also_asked] || []),
-                         cited_page: cited_page,
-                         refused: refused?,
-                         verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
-                         raw_response: llm_result[:raw_response],
-                         # Only ever carry a styled answer that was actually cached
-                         # above (store_direct or inline restyle) — a refused
-                         # question must not broadcast a styled answer even if the
-                         # model ignored the "don't style a refusal" framing.
-                         styled_voice: bcast_styled_voice,
-                         styled_answer: bcast_styled_answer
-                       }}
-                    )
-
-                    summary =
-                      cond do
-                        refused? ->
-                          "Refused — not in rulebook."
-
-                        pool_hit? ->
-                          "Answered from cache — #{String.length(answer)} chars, page #{cited_page || "—"}."
-
-                        true ->
-                          "Answered — #{String.length(answer)} chars, page #{cited_page || "—"}#{if citation_valid, do: "", else: " (citation unverified)"}."
+                            Logger.warning(
+                              "AskWorker: failed to cache styled answer for question #{question_log_id} voice #{styled_voice}: #{inspect(reason)}"
+                            )
+                        end
                       end
 
-                    Jobs.finish_run(run, "done", summary)
+                      # Voices the single-call path can't cover — generated (g:)
+                      # personas (whose LLM-derived style string must not enter the
+                      # rulebook-access ask prompt — see LLM.voice_style_block/2)
+                      # and pool hits (no fresh ask call at all) — are deliberately
+                      # NOT restyled here: an inline restyle held the finished
+                      # answer hostage behind a second ~20s LLM call. Broadcast the
+                      # canonical answer immediately instead; the LiveView's
+                      # :ask_complete handler (apply_default_voice) enqueues the
+                      # on-demand VoiceWorker restyle, renders the plain answer
+                      # with a "voicing…" indicator meanwhile, and swaps the
+                      # persona text in on {:voice_ready, ...}.
+                      {bcast_styled_voice, bcast_styled_answer} =
+                        if store_direct?, do: {styled_voice, styled_answer}, else: {nil, nil}
 
-                  {:error, changeset} ->
-                    require Logger
+                      Phoenix.PubSub.broadcast(
+                        RuleMaven.PubSub,
+                        "game:#{game_id}",
+                        {:ask_complete,
+                         %{
+                           question_log_id: question_log_id,
+                           faq_hit: llm_result[:faq_hit] || false,
+                           pool_hit: pool_hit?,
+                           tier: llm_result[:tier],
+                           verified: llm_result[:verified] || false,
+                           source_question_log_id: llm_result[:source_question_log_id],
+                           followups: if(refused?, do: [], else: llm_result[:followups] || []),
+                           also_asked: if(refused?, do: [], else: llm_result[:also_asked] || []),
+                           cited_page: cited_page,
+                           refused: refused?,
+                           verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
+                           raw_response: llm_result[:raw_response],
+                           # Only ever carry a styled answer that was actually cached
+                           # above (store_direct or inline restyle) — a refused
+                           # question must not broadcast a styled answer even if the
+                           # model ignored the "don't style a refusal" framing.
+                           styled_voice: bcast_styled_voice,
+                           styled_answer: bcast_styled_answer
+                         }}
+                      )
 
-                    Logger.error(
-                      "AskWorker DB update failed for question #{question_log_id}: #{inspect(changeset.errors)}"
-                    )
+                      summary =
+                        cond do
+                          refused? ->
+                            "Refused — not in rulebook."
+
+                          pool_hit? ->
+                            "Answered from cache — #{String.length(answer)} chars, page #{cited_page || "—"}."
+
+                          true ->
+                            "Answered — #{String.length(answer)} chars, page #{cited_page || "—"}#{if citation_valid, do: "", else: " (citation unverified)"}."
+                        end
+
+                      Jobs.finish_run(run, "done", summary)
+
+                    {:error, changeset} ->
+                      require Logger
+
+                      Logger.error(
+                        "AskWorker DB update failed for question #{question_log_id}: #{inspect(changeset.errors)}"
+                      )
+
+                      Phoenix.PubSub.broadcast(
+                        RuleMaven.PubSub,
+                        "game:#{game_id}",
+                        {:ask_error,
+                         %{
+                           question_log_id: question_log_id,
+                           question: question,
+                           error: "Failed to save answer"
+                         }}
+                      )
+
+                      Jobs.finish_run(run, "failed", "Failed to save answer.")
+                  end
+              end
+
+              :ok
+
+            {:error, reason} ->
+              require Logger
+              Logger.error("AskWorker failed for game #{game_id}: #{reason}")
+
+              {friendly, error_kind} =
+                cond do
+                  is_binary(reason) && String.contains?(reason, "timeout") ->
+                    {"⚠️ The AI took too long to respond. Please retry.", "timeout"}
+
+                  is_binary(reason) && String.contains?(reason, "rate") ->
+                    {"⚠️ Too many requests — please wait a moment and retry.", "rate_limited"}
+
+                  is_binary(reason) && String.contains?(reason, "context") ->
+                    {"⚠️ Question too long for the AI to process. Try a shorter question.",
+                     "too_long"}
+
+                  true ->
+                    {"⚠️ Something went wrong. Please retry.", "unknown"}
+                end
+
+              if ql = get_question_log!(question_log_id) do
+                case Games.log_question_update(ql, %{answer: friendly, error_kind: error_kind}) do
+                  {:ok, updated} ->
+                    maybe_auto_flag(updated, run)
 
                     Phoenix.PubSub.broadcast(
                       RuleMaven.PubSub,
                       "game:#{game_id}",
                       {:ask_error,
-                       %{
-                         question_log_id: question_log_id,
-                         question: question,
-                         error: "Failed to save answer"
-                       }}
+                       %{question_log_id: question_log_id, question: question, error: reason}}
                     )
 
-                    Jobs.finish_run(run, "failed", "Failed to save answer.")
+                  {:error, changeset} ->
+                    Logger.error(
+                      "AskWorker error DB update failed for question #{question_log_id}: #{inspect(changeset.errors)}"
+                    )
                 end
-            end
-
-            :ok
-
-          {:error, reason} ->
-            require Logger
-            Logger.error("AskWorker failed for game #{game_id}: #{reason}")
-
-            {friendly, error_kind} =
-              cond do
-                is_binary(reason) && String.contains?(reason, "timeout") ->
-                  {"⚠️ The AI took too long to respond. Please retry.", "timeout"}
-
-                is_binary(reason) && String.contains?(reason, "rate") ->
-                  {"⚠️ Too many requests — please wait a moment and retry.", "rate_limited"}
-
-                is_binary(reason) && String.contains?(reason, "context") ->
-                  {"⚠️ Question too long for the AI to process. Try a shorter question.",
-                   "too_long"}
-
-                true ->
-                  {"⚠️ Something went wrong. Please retry.", "unknown"}
               end
 
-            if ql = get_question_log!(question_log_id) do
-              case Games.log_question_update(ql, %{answer: friendly, error_kind: error_kind}) do
-                {:ok, updated} ->
-                  maybe_auto_flag(updated, run)
+              Jobs.finish_run(run, "failed", to_string(reason))
+              :ok
+          end
 
-                  Phoenix.PubSub.broadcast(
-                    RuleMaven.PubSub,
-                    "game:#{game_id}",
-                    {:ask_error,
-                     %{question_log_id: question_log_id, question: question, error: reason}}
-                  )
-
-                {:error, changeset} ->
-                  Logger.error(
-                    "AskWorker error DB update failed for question #{question_log_id}: #{inspect(changeset.errors)}"
-                  )
-              end
-            end
-
-            Jobs.finish_run(run, "failed", to_string(reason))
-            :ok
-        end
+        if sf_key, do: RuleMaven.LLM.Singleflight.release(sf_key)
+        result
     end
   end
 

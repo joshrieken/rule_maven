@@ -13,15 +13,24 @@ defmodule RuleMaven.Embed do
   @expected_dim 768
 
   def embed(text) when is_binary(text) do
+    case Application.get_env(:rule_maven, :embed_mock) do
+      # The cache wraps the real API call only. A mock exists precisely to avoid
+      # that call, so caching it buys nothing — and the ETS table outlives a
+      # single test, so a cached mock vector would leak into the next test that
+      # embeds the same text behind a different mock.
+      nil -> cached_embed(text)
+      mock when is_function(mock) -> mock.(text)
+    end
+  end
+
+  defp cached_embed(text) do
     case RuleMaven.Embed.Cache.get(text) do
       {:ok, vec} ->
         {:ok, vec}
 
       :miss ->
-        case Application.get_env(:rule_maven, :embed_mock) do
-          nil -> embed_real(text)
-          mock when is_function(mock) -> mock.(text)
-        end
+        text
+        |> embed_real()
         |> tap(fn
           {:ok, vec} -> RuleMaven.Embed.Cache.put(text, vec)
           {:error, _} -> :ok
