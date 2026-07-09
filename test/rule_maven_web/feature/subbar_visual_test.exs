@@ -88,7 +88,7 @@ defmodule RuleMavenWeb.Feature.SubBarVisualTest do
   var r = bar.getBoundingClientRect();
   var cs = window.getComputedStyle(bar);
   var mc = document.querySelector('.main-content');
-  var pill = bar.querySelector('.btn-primary, .sources-dropdown');
+  var pill = bar.querySelector('.btn-primary');
   var pillVisible = pill ? window.getComputedStyle(pill).display !== 'none' : false;
   return {
     missing: false,

@@ -1426,17 +1426,6 @@ a:not([class]):hover {
   display: inline-flex;
 }
 
-/* ===== Sources Dropdown ===== */
-.sources-dropdown > summary::-webkit-details-marker { display: none; }
-.sources-dropdown > summary::marker { display: none; content: ""; }
-
-@media (max-width: 480px) {
-  .sources-dropdown > div {
-    right: auto;
-    left: 0;
-  }
-}
-
 .user-dropdown-toggle {
   display: flex;
   align-items: center;
