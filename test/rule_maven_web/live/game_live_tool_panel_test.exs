@@ -36,26 +36,78 @@ defmodule RuleMavenWeb.GameLiveToolPanelTest do
     )
   end
 
-  defp open_view(conn) do
+  defp open_view(conn, connect_params \\ %{}) do
     u = user()
     game = published_game_fixture(%{name: "Tool Panel Game"})
     seed_tools(game)
-    conn = login(conn, u)
+
+    conn =
+      conn
+      |> login(u)
+      |> Phoenix.LiveViewTest.put_connect_params(connect_params)
+
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
     view
   end
 
-  test "opening a second tool demotes the first to minimized", %{conn: conn} do
+  # Render order is paint order: the tool appearing last in the markup is the
+  # window on top.
+  defp stack(html) do
+    Regex.scan(~r/data-tool-panel="([a-z_]+)"/, html) |> Enum.map(fn [_, id] -> id end)
+  end
+
+  test "desktop stacks windows, newest on top", %{conn: conn} do
+    view = open_view(conn)
+
+    render_click(view, "open_tool", %{"tool" => "turn"})
+    html = render_click(view, "open_tool", %{"tool" => "quiz"})
+
+    # Both stay expanded; neither is demoted to the tray.
+    assert stack(html) == ["turn", "quiz"]
+    refute html =~ ~s(data-dock-pill=)
+  end
+
+  test "clicking a window brings it to the front of the stack", %{conn: conn} do
     view = open_view(conn)
 
     render_click(view, "open_tool", %{"tool" => "turn"})
     render_click(view, "open_tool", %{"tool" => "quiz"})
+    html = render_click(view, "focus_tool", %{"tool" => "turn"})
 
-    # Both present; exactly one expanded panel, one dock pill.
-    html = render(view)
-    assert html =~ ~s(data-tool-state="expanded")
-    assert html =~ ~s(data-tool-panel="quiz")
-    # turn is now a dock pill
+    assert stack(html) == ["quiz", "turn"]
+  end
+
+  test "focusing a minimized or unknown tool does not change the stack", %{conn: conn} do
+    view = open_view(conn)
+
+    render_click(view, "open_tool", %{"tool" => "turn"})
+    render_click(view, "open_tool", %{"tool" => "quiz"})
+    render_click(view, "minimize_tool", %{"tool" => "turn"})
+
+    html = render_click(view, "focus_tool", %{"tool" => "turn"})
+    assert stack(html) == ["quiz"]
+
+    html = render_click(view, "focus_tool", %{"tool" => "bogus"})
+    assert stack(html) == ["quiz"]
+  end
+
+  test "a closed window leaves the stack", %{conn: conn} do
+    view = open_view(conn)
+
+    render_click(view, "open_tool", %{"tool" => "turn"})
+    render_click(view, "open_tool", %{"tool" => "quiz"})
+    html = render_click(view, "close_tool", %{"tool" => "quiz"})
+
+    assert stack(html) == ["turn"]
+  end
+
+  test "a phone shows one sheet at a time: opening a second demotes the first", %{conn: conn} do
+    view = open_view(conn, %{"coarse_pointer" => true})
+
+    render_click(view, "open_tool", %{"tool" => "turn"})
+    html = render_click(view, "open_tool", %{"tool" => "quiz"})
+
+    assert stack(html) == ["quiz"]
     assert html =~ ~s(data-dock-pill="turn")
   end
 

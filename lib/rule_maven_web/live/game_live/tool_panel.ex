@@ -15,15 +15,16 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
   alias RuleMavenWeb.GameLive.ToolRegistry
 
   # `assigns` is the full LiveView assigns map (needs every tool's state).
+  # `@tool_order` is the window stack, back to front — render order *is* paint
+  # order, so a freshly opened tool lands on top without any z-index of its own.
   def tool_panel(assigns) do
-    expanded = Enum.find_value(assigns.tool_states, fn {id, s} -> s == :expanded && id end)
     minimized = for {id, :minimized} <- assigns.tool_states, do: id
-    assigns = assign(assigns, expanded: expanded, minimized: minimized)
+    assigns = assign(assigns, minimized: minimized)
 
     ~H"""
-    <div :if={@expanded} data-tool-panel={@expanded} data-tool-state="expanded">
-      <.panel_frame id={@expanded}>
-        {render_tool(assign(assigns, :tool, @expanded))}
+    <div :for={id <- @tool_order} data-tool-panel={id} data-tool-state="expanded">
+      <.panel_frame id={id}>
+        {render_tool(assign(assigns, :tool, id))}
       </.panel_frame>
     </div>
 

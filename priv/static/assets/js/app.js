@@ -876,11 +876,39 @@ Hooks.ToolTray = {
 
 // Floating table-tool panel. Fine-pointer (desktop): a draggable, resizable
 // card, no backdrop, chat stays interactive; drag by [data-drag-handle],
-// position and size saved to localStorage per tool. Coarse-pointer (mobile): a
-// bottom sheet with three snap heights, cycled by tapping the handle.
+// position and size saved to localStorage per tool. Several may be open at once
+// and stack like desktop windows. Coarse-pointer (mobile): a single bottom sheet
+// with three snap heights, cycled by tapping the handle.
 // Minimize/close/expand are server events (phx-click in the markup); this hook
-// only owns geometry.
+// only owns geometry and stacking.
 var SNAP_COUNT = 3;
+
+// Window stacking. `.tool-panel`'s CSS z-index sits above the site header, and
+// every panel that gets focus is lifted above its siblings from there. Focus is
+// applied client-side so it feels instant; the matching `focus_tool` event keeps
+// the server's render order in step (a re-render would otherwise repaint the old
+// stack). Cascade offsets keep a brand-new window from landing exactly on top of
+// an existing one.
+var ZStack = {
+  base: 120,
+  top: 120,
+  z: {}, // tool -> z-index, so a LiveView re-render can restore it
+  raise(tool) {
+    this.top += 1;
+    this.z[tool] = this.top;
+    return this.top;
+  },
+  zFor(tool) {
+    return this.z[tool] || this.raise(tool);
+  },
+  drop(tool) {
+    delete this.z[tool];
+    if (Object.keys(this.z).length === 0) this.top = this.base;
+  },
+  count() {
+    return document.querySelectorAll(".tool-panel").length;
+  }
+};
 
 Hooks.FloatingPanel = {
   isCoarse() {
@@ -903,6 +931,42 @@ Hooks.FloatingPanel = {
     }
     this._snap = i;
     this.write(this.snapKey(), i);
+  },
+
+  tool() { return this.el.dataset.tool; },
+
+  bringToFront(push) {
+    this.el.style.zIndex = ZStack.raise(this.tool());
+    if (push) this.pushEvent("focus_tool", { tool: this.tool() });
+  },
+
+  isFront() {
+    return ZStack.z[this.tool()] === ZStack.top;
+  },
+
+  initFocus() {
+    var self = this;
+    this._focus = function() {
+      if (!self.isFront()) self.bringToFront(true);
+    };
+    // Capture: a click on a button inside the panel must still raise it, and
+    // pointerdown (not click) so the window is in front before a drag starts.
+    this.el.addEventListener("pointerdown", this._focus, true);
+  },
+
+  // A new window offset from the ones already on screen, so it doesn't land
+  // exactly on top of its predecessor. Only when nothing was saved for it.
+  cascade() {
+    var n = ZStack.count() - 1; // this panel is already in the DOM
+    if (n <= 0) return;
+    var step = 26 * (n % 6);
+    var r = this.el.getBoundingClientRect();
+    var x = Math.max(8, Math.min(window.innerWidth - r.width - 8, r.left - step));
+    var y = Math.max(8, Math.min(window.innerHeight - 60, r.top + step));
+    this.el.style.left = x + "px";
+    this.el.style.top = y + "px";
+    this.el.style.right = "auto";
+    this.el.style.bottom = "auto";
   },
 
   // Restore saved size first (it changes the box), then position, clamping both
@@ -935,7 +999,9 @@ Hooks.FloatingPanel = {
       this.el.style.top = y + "px";
       this.el.style.right = "auto";
       this.el.style.bottom = "auto";
+      return true;
     }
+    return false;
   },
 
   saveSize() {
@@ -1037,17 +1103,30 @@ Hooks.FloatingPanel = {
     var coarse = this.isCoarse();
     this.el.classList.toggle("tool-panel--sheet", coarse);
     ToolLayout.acquire();
-    this.applySaved();
+    var restored = this.applySaved();
     if (coarse) {
       this.initSheet();
       this.initSheetHeightVar();
-    } else {
-      this.initDrag();
-      this.initResizeWatch();
+      return; // one sheet at a time: nothing to stack, nothing to focus
     }
+    // Newest window on top. The server already renders the stack back-to-front,
+    // so a fresh mount is by definition the newest.
+    this.el.style.zIndex = ZStack.raise(this.tool());
+    if (!restored) this.cascade();
+    this.initFocus();
+    this.initDrag();
+    this.initResizeWatch();
+  },
+
+  // LiveView may re-create the node on patch; re-assert this window's place in
+  // the stack rather than letting it fall back to the CSS base.
+  updated() {
+    if (!this.isCoarse()) this.el.style.zIndex = ZStack.zFor(this.tool());
   },
 
   destroyed() {
+    ZStack.drop(this.tool());
+    if (this._focus) this.el.removeEventListener("pointerdown", this._focus, true);
     if (this._handle && this._down) this._handle.removeEventListener("mousedown", this._down);
     if (this._handle && this._touchStart) {
       this._handle.removeEventListener("touchstart", this._touchStart);
@@ -1956,7 +2035,10 @@ let liveSocket = new LiveView.LiveSocket("/live", Phoenix.Socket, {
     reader_pages: localStorage.getItem("rm:reader:pages") || "",
     // Remembered default persona voice, so the server knows it at first render
     // and never flashes the plain answer before the restore round-trips.
-    default_voice: localStorage.getItem("rm:default_voice") || ""
+    default_voice: localStorage.getItem("rm:default_voice") || "",
+    // Phones show one tool sheet at a time; desktops stack tool windows. The
+    // server needs this at mount to know whether opening a tool demotes others.
+    coarse_pointer: !!(window.matchMedia && window.matchMedia("(pointer:coarse)").matches)
   }),
   hooks: Hooks
 });

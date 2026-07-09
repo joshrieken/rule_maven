@@ -2785,7 +2785,10 @@ textarea {
   width: min(30rem, calc(100vw - 2rem));
   max-height: 80vh;
   overflow: auto;
-  z-index: 60;
+  /* Above the site header (z:100). A window dragged up used to slide *under*
+     the header, which hid its title bar and left it unreachable. The hook
+     raises focused windows from this base. */
+  z-index: 120;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: 0.75rem;

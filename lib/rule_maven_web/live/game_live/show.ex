@@ -131,6 +131,13 @@ defmodule RuleMavenWeb.GameLive.Show do
   # isn't loaded yet); apply_default_voice/2 coerces an unknown/stale voice to
   # neutral once handle_params has the game. Falls back to neutral on the dead
   # render and whenever nothing is saved.
+  # Phones get one bottom sheet at a time instead of a window stack. The dead
+  # render has no connect params; assume a stack and let the connected mount
+  # correct it (a sheet can't be dragged anyway, so nothing is lost).
+  defp coarse_pointer?(socket) do
+    connected?(socket) and get_connect_params(socket)["coarse_pointer"] == true
+  end
+
   defp restore_default_voice(socket) do
     if connected?(socket) do
       case get_connect_params(socket) do
@@ -304,6 +311,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         quiz_choice: nil,
         quiz_score: {0, 0},
         tool_states: %{},
+        tool_order: [],
+        single_panel?: coarse_pointer?(socket),
         house_rules: load_own_house_rules(game, socket.assigns.current_user),
         community_house_rules:
           RuleMaven.HouseRules.community_for_game(game.id, socket.assigns.current_user.id)
@@ -726,7 +735,24 @@ defmodule RuleMavenWeb.GameLive.Show do
     states =
       if id, do: Map.delete(socket.assigns.tool_states, id), else: socket.assigns.tool_states
 
-    {:noreply, assign(socket, :tool_states, states)}
+    order = Enum.filter(socket.assigns.tool_order, &(states[&1] == :expanded))
+    {:noreply, assign(socket, tool_states: states, tool_order: order)}
+  end
+
+  # Click-to-front. The client raises z-index immediately (no round-trip), but
+  # the server keeps the order so a re-render doesn't resurrect the old stack.
+  def handle_event("focus_tool", %{"tool" => tool}, socket) do
+    case safe_tool_id(tool) do
+      nil ->
+        {:noreply, socket}
+
+      id ->
+        if socket.assigns.tool_states[id] == :expanded do
+          {:noreply, assign(socket, :tool_order, bump_order(socket.assigns.tool_order, id, :expanded))}
+        else
+          {:noreply, socket}
+        end
+    end
   end
 
   # Turn wizard: step through the cached turn phases (pure client-agnostic
@@ -4871,23 +4897,41 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp update_tool_state(socket, tool, state) do
     case safe_tool_id(tool) do
-      nil -> socket
-      id -> assign(socket, :tool_states, set_tool_state(socket.assigns.tool_states, id, state))
+      nil ->
+        socket
+
+      id ->
+        single? = socket.assigns.single_panel?
+        states = set_tool_state(socket.assigns.tool_states, id, state, single?)
+
+        # A demoted window leaves the stack too, not just the id we touched.
+        order =
+          socket.assigns.tool_order
+          |> bump_order(id, state)
+          |> Enum.filter(&(states[&1] == :expanded))
+
+        assign(socket, tool_states: states, tool_order: order)
     end
   end
 
-  # At most one tool may be :expanded. Demote whoever is currently expanded to
-  # :minimized, then set `id` to `state`. Invalid ids are ignored (defensive:
-  # events come from the client).
-  defp set_tool_state(states, id, state) do
+  # Desktop stacks tool windows: several may be :expanded at once. A phone has no
+  # room to stack bottom sheets, so there it stays one-at-a-time and opening a
+  # tool demotes whoever was expanded.
+  defp set_tool_state(states, id, state, single?) do
     states
     |> Enum.map(fn
-      {k, :expanded} when k != id -> {k, :minimized}
+      {k, :expanded} when k != id and single? -> {k, :minimized}
       other -> other
     end)
     |> Map.new()
     |> Map.put(id, state)
   end
+
+  # Front-to-back order of the expanded windows, back first: a freshly opened or
+  # focused tool goes to the end (on top). Minimized/closed tools drop out. The
+  # list is the render order; the client raises z-index on click from there.
+  defp bump_order(order, id, :expanded), do: (order -- [id]) ++ [id]
+  defp bump_order(order, id, _state), do: order -- [id]
 
   # Deltas for the currently-included expansions that have one stored, in
   # expansion-name order (the `expansions` assign is already name-sorted).
