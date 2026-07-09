@@ -4414,9 +4414,14 @@ defmodule RuleMavenWeb.GameLive.Show do
           </form>
         </div>
       </div>
-
-      <ToolPanel.tool_panel {assigns} />
     </div>
+
+    <%!-- Outside .chat-layout on purpose: that element is `position:fixed;
+          z-index:10`, which makes it a stacking context. A tool window nested
+          inside it could never paint above the site header (z:100) no matter how
+          high its own z-index went, so a window dragged to the top of the screen
+          slid under the header and lost its title bar. --%>
+    <ToolPanel.tool_panel {assigns} />
     """
   end
 
