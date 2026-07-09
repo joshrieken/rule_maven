@@ -695,7 +695,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       has_cheatsheet={@has_cheatsheet}
       current={:prepare}
     />
-    <div style="max-width:52rem;margin:0 auto;padding:0 1.5rem 1.25rem;position:relative;z-index:1">
+    <div style="max-width:52rem;margin:0 auto;padding:1.25rem 1.5rem 1.25rem;position:relative;z-index:1">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:0.25rem 0 0.35rem">
         <div style="display:flex;align-items:center;gap:0.75rem">
           <img
