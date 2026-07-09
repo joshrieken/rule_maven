@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.GameLive.Show do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Games, CheatSheet}
+  alias RuleMaven.Games
   alias RuleMaven.Games.QuestionLog
   alias RuleMavenWeb.ReportModal
   alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
@@ -2360,7 +2360,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             </.link>
           <% end %>
           <%!-- Cheat Sheet --%>
-          <%= if Enum.any?(@sources, &(CheatSheet.active_version(&1.id) != nil)) do %>
+          <%= if @has_cheatsheet do %>
             <.link
               href={~p"/games/#{@game}/cheatsheet"}
               target="_blank"

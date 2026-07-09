@@ -4,7 +4,23 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
 
+  alias RuleMaven.{CheatSheet, Games, Repo}
+
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
+
+  defp document_fixture(game) do
+    {:ok, doc} =
+      %Games.Document{}
+      |> Games.Document.changeset(%{
+        label: "Rulebook",
+        full_text: "Test rulebook text.",
+        game_id: game.id,
+        status: "published"
+      })
+      |> Repo.insert()
+
+    doc
+  end
 
   defp create_user(prefix, attrs \\ %{}) do
     {:ok, user} =
@@ -38,9 +54,18 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
     assert community_html =~ ~s(data-phx-link="redirect")
   end
 
-  test "has_cheatsheet?/1 is true only when some source has an active version" do
+  test "has_cheatsheet?/1 is true only when some source has an active version", %{game: game} do
     alias RuleMavenWeb.GameLive.ToolHost
 
     refute ToolHost.has_cheatsheet?([])
+
+    doc_without_version = document_fixture(game)
+    refute ToolHost.has_cheatsheet?([doc_without_version])
+
+    doc_with_version = document_fixture(game)
+    {:ok, _version} = CheatSheet.save_version(doc_with_version.id, "Cheat sheet content")
+    assert ToolHost.has_cheatsheet?([doc_with_version])
+
+    assert ToolHost.has_cheatsheet?([doc_without_version, doc_with_version])
   end
 end
