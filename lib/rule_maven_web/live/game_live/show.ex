@@ -2695,45 +2695,50 @@ defmodule RuleMavenWeb.GameLive.Show do
           class={"question-sidebar #{if @sidebar_open, do: "", else: "sidebar-closed"}"}
           style="flex-shrink:0;width:min(16rem,85vw);overflow-y:auto;border-right:1px solid var(--border);background:color-mix(in srgb,var(--bg-surface) 50%,transparent);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);padding:0.5rem 0;font-size:0.9rem;display:flex;flex-direction:column;position:relative;z-index:1"
         >
-          <div style="padding:0.35rem 0.75rem;font-size:0.78rem;font-weight:600;color:var(--text);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center">
-            <span>
-              Questions
-              <%= if @pending_count > 0 do %>
-                <span style="display:inline-flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-text,#fff);border-radius:9999px;font-size:0.55rem;font-weight:700;padding:0 0.3rem;min-width:1.1em;height:1.1em;vertical-align:middle;margin-left:0.25rem">{@pending_count}</span>
-              <% end %>
-            </span>
-            <button
-              type="button"
-              phx-click="toggle_sidebar"
-              class="sidebar-close-btn btn-icon"
-            >✕</button>
-          </div>
+          <%!-- Title + search ride along at the top of the scrolling list.
+                The drawer itself is the scroll container, so a sticky child
+                pins against it. --%>
+          <div class="sidebar-head">
+            <div style="padding:0.35rem 0.75rem;font-size:0.78rem;font-weight:600;color:var(--text);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center">
+              <span>
+                Questions
+                <%= if @pending_count > 0 do %>
+                  <span style="display:inline-flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-text,#fff);border-radius:9999px;font-size:0.55rem;font-weight:700;padding:0 0.3rem;min-width:1.1em;height:1.1em;vertical-align:middle;margin-left:0.25rem">{@pending_count}</span>
+                <% end %>
+              </span>
+              <button
+                type="button"
+                phx-click="toggle_sidebar"
+                class="sidebar-close-btn btn-icon"
+              >✕</button>
+            </div>
 
-          <!-- Search -->
-          <div style="padding:0.25rem 0.75rem 0.5rem">
-            <form
-              phx-change="search"
-              phx-submit="search"
-              style="position:relative;display:flex;align-items:center"
-            >
-              <input
-                type="text"
-                name="query"
-                value={@search_query}
-                placeholder="Search questions..."
-                phx-debounce="200"
-                style="width:100%;border:1px solid var(--border);border-radius:0.4rem;padding:0.3rem 1.6rem 0.3rem 0.5rem;font-size:0.72rem;background:var(--bg);color:var(--text)"
-                autocomplete="off"
-              />
-              <%= if @search_query != "" do %>
-                <button
-                  type="button"
-                  phx-click="clear_search"
-                  style="position:absolute;right:0.3rem;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0;font-size:0.75rem;line-height:1"
-                  title="Clear"
-                >✕</button>
-              <% end %>
-            </form>
+            <!-- Search -->
+            <div style="padding:0.25rem 0.75rem 0.5rem">
+              <form
+                phx-change="search"
+                phx-submit="search"
+                style="position:relative;display:flex;align-items:center"
+              >
+                <input
+                  type="text"
+                  name="query"
+                  value={@search_query}
+                  placeholder="Search questions..."
+                  phx-debounce="200"
+                  style="width:100%;border:1px solid var(--border);border-radius:0.4rem;padding:0.3rem 1.6rem 0.3rem 0.5rem;font-size:0.72rem;background:var(--bg);color:var(--text)"
+                  autocomplete="off"
+                />
+                <%= if @search_query != "" do %>
+                  <button
+                    type="button"
+                    phx-click="clear_search"
+                    style="position:absolute;right:0.3rem;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0;font-size:0.75rem;line-height:1"
+                    title="Clear"
+                  >✕</button>
+                <% end %>
+              </form>
+            </div>
           </div>
 
           <!-- Community questions -->
