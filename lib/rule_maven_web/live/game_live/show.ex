@@ -3755,9 +3755,10 @@ defmodule RuleMavenWeb.GameLive.Show do
         </div>
       </div>
 
-      <%!-- Minimized tools: on desktop a normal in-flow row above the composer
-            (the messages area shrinks instead of being overlaid); under 640px
-            the CSS keeps it a fixed strip so a bottom sheet can't bury it. --%>
+      <%!-- Minimized tools: a distinct in-flow bar directly above the composer
+            at every width (the messages area shrinks instead of being
+            overlaid). The chat shell already ends above the background-job
+            bar, so the pills always clear it. --%>
       <ToolPanel.tool_dock tool_states={@tool_states} flow={true} />
 
       <!-- Input -->
