@@ -117,7 +117,14 @@ defmodule RuleMaven.LLM do
 
       pool_hit =
           find_pool_hit(game, question_embedding, expansion_ids, skip_pool, match_text, user_id) ->
-        serve_from_cache(pool_hit, question_embedding, cleaned, game.id, user_id, false)
+        # The pool is user-agnostic, so the asker's OWN pooled row can land
+        # here (a paraphrase in the 0.92–0.95 band misses the stricter
+        # user_semantic tier but clears the pool floor). Flag it same-user so
+        # AskWorker redirects to the existing Q&A instead of keeping an
+        # anonymized duplicate copy.
+        {pool_row, _tier} = pool_hit
+        same_user? = user_id != nil and pool_row.user_id == user_id
+        serve_from_cache(pool_hit, question_embedding, cleaned, game.id, user_id, same_user?)
 
       true ->
         call_llm(
@@ -407,7 +414,9 @@ defmodule RuleMaven.LLM do
         {:ok, retried} ->
           retried = maybe_reground(retried, system_prompt, ctx, escalated)
 
-          if refused_answer?(retried),
+          # A blank retried answer is worse than the truthful refusal we
+          # already hold — it surfaces as a ⚠️ retry error to the user.
+          if refused_answer?(retried) or String.trim(to_string(retried[:answer])) == "",
             do: {llm_result, chunks},
             else: {retried, escalated}
 
@@ -752,9 +761,17 @@ defmodule RuleMaven.LLM do
   defp squish(text), do: text |> String.replace(~r/\s+/, " ") |> String.trim()
 
   defp retry_ungrounded_answer(original_result, flagged_clause, system_prompt, ctx, chunks) do
+    # The critic sometimes confirms :hallucinated without a parseable FLAGGED
+    # line — "do not repeat it: nil" is a useless instruction, so fall back to
+    # a generic re-grounding warning.
     warning =
-      "\n\nIMPORTANT: a previous answer attempt included this unsupported claim — " <>
-        "do not repeat it: #{inspect(flagged_clause)}. Base your answer strictly on the RULEBOOK text above."
+      if is_binary(flagged_clause) and flagged_clause != "" do
+        "\n\nIMPORTANT: a previous answer attempt included this unsupported claim — " <>
+          "do not repeat it: #{inspect(flagged_clause)}. Base your answer strictly on the RULEBOOK text above."
+      else
+        "\n\nIMPORTANT: a previous answer attempt included claims not supported by the " <>
+          "RULEBOOK text above. Base your answer strictly on it."
+      end
 
     case request_answer(
            system_prompt <> warning,
@@ -779,16 +796,28 @@ defmodule RuleMaven.LLM do
             {:ok, %{verdict: :grounded}}
           end
 
-        case recheck do
-          {:ok, %{verdict: :hallucinated, flagged_clause: clause}} ->
+        cond do
+          # A blank retry must not replace the substantive original —
+          # suspicious?("") never fires, so it would sail through the recheck.
+          String.trim(to_string(retried_result[:answer])) == "" ->
+            salvage_or_refuse(original_result, flagged_clause)
+
+          match?({:ok, %{verdict: :hallucinated}}, recheck) ->
+            {:ok, %{flagged_clause: clause}} = recheck
             salvage_or_refuse(retried_result, clause)
 
-          _ ->
+          true ->
             retried_result
         end
 
       {:error, _reason} ->
-        original_result
+        # The critic already CONFIRMED the original as hallucinated; serving
+        # it unchanged because the corrective retry errored (budget/429/
+        # transport — this is the deepest point in the pipeline, so budget
+        # exhaustion lands exactly here) would pool the one answer the whole
+        # grounding net exists to block. The strip is LLM-free, so it works
+        # even with an exhausted budget.
+        salvage_or_refuse(original_result, flagged_clause)
     end
   end
 
@@ -804,11 +833,17 @@ defmodule RuleMaven.LLM do
            flagged_clause
          ) do
       {:ok, stripped} ->
-        Map.put(retried_result, :answer, stripped)
+        # The styled (persona) answer restates the flagged clause in-voice —
+        # dropping it forces the on-demand restyle to regenerate from the
+        # stripped answer instead of caching the hallucination verbatim.
+        retried_result
+        |> Map.put(:answer, stripped)
+        |> Map.put(:styled_answer, nil)
 
       :error ->
         Map.merge(retried_result, %{
           answer: @refusal_answer,
+          styled_answer: nil,
           verdict: "silent",
           citations: [],
           followups: [],
@@ -877,7 +912,7 @@ defmodule RuleMaven.LLM do
 
       # Followups resolve against the conversation — not cacheable by raw text.
       recent_context != [] and not repeat? ->
-        do_normalize(game, raw, recent_context, user_id)
+        do_normalize(game, raw, recent_context, user_id) |> elem(1)
 
       true ->
         # The prompt fingerprint is part of the key: `normalize_question_system`
@@ -892,9 +927,18 @@ defmodule RuleMaven.LLM do
             cached
 
           :miss ->
-            cleaned = do_normalize(game, raw, [], user_id)
-            RuleMaven.LLM.NormalizeCache.put(key, cleaned)
-            cleaned
+            # Only a real rewrite is cached: caching the raw-text fallback
+            # (transient 429, rejected rewrite) would pin the un-normalized
+            # form as this question's canonical shape for the full 24h TTL,
+            # silently degrading pool convergence for every user of the game.
+            case do_normalize(game, raw, [], user_id) do
+              {:ok, cleaned} ->
+                RuleMaven.LLM.NormalizeCache.put(key, cleaned)
+                cleaned
+
+              {:fallback, cleaned} ->
+                cleaned
+            end
         end
     end
   end
@@ -952,18 +996,34 @@ defmodule RuleMaven.LLM do
           |> unglue_interrogative()
           |> String.trim()
 
-        if accept_normalized?(cleaned, raw), do: cleaned, else: raw
+        if accept_normalized?(cleaned, raw), do: {:ok, cleaned}, else: {:fallback, raw}
 
       {:error, _} ->
-        raw
+        {:fallback, raw}
     end
   end
 
   # A rewrite is kept only if it's a plausible question (non-empty, not absurdly
   # long): a model that dumped an answer or refusal here is discarded for the raw.
+  # The trailing-":" check catches the first-line split keeping a chatty
+  # preamble ("Sure — here's the canonical form:") instead of the question;
+  # such a line passes every length check and would drive the embedding, pool
+  # lookup, and answer prompt.
   defp accept_normalized?(cleaned, raw) do
     cleaned != "" and String.length(cleaned) <= 200 and
-      String.length(cleaned) <= max(String.length(raw) * 3, 80)
+      String.length(cleaned) <= max(String.length(raw) * 3, 80) and
+      not String.ends_with?(cleaned, ":") and
+      not preamble_line?(cleaned)
+  end
+
+  # Meta-language a model uses to introduce (or refuse) a rewrite rather than
+  # produce one. Matched on the kept first line only.
+  defp preamble_line?(line) do
+    down = String.downcase(line)
+
+    String.starts_with?(down, ["sure,", "sure!", "sure —", "sure -", "here is ", "here's ", "certainly", "okay,", "ok,"]) or
+      String.contains?(down, ["canonical form", "rewritten", "normalized"]) or
+      String.starts_with?(down, ["i can't", "i cannot", "i'm sorry", "i am sorry", "sorry"])
   end
 
   # Existing canonical questions this game already has a pooled/community
@@ -1181,7 +1241,13 @@ defmodule RuleMaven.LLM do
 
     case chat(user, "grounding_critic",
            system: RuleMaven.Prompts.template("grounding_critic"),
-           max_tokens: 300,
+           # `raw: true` — without it a JSON-wrapped critic reply decodes to ""
+           # (no "answer" key), which parse_grounding_verdict defaults to
+           # :grounded, silently failing the whole critic open. Ceiling, not
+           # spend: a reasoning cheap model can burn 300 tokens on thinking
+           # alone and emit empty content — same failure, same direction.
+           raw: true,
+           max_tokens: 2000,
            model: opts[:model] || model(:cheap),
            operation: "grounding_critic",
            game_id: opts[:game_id],

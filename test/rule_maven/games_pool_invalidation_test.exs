@@ -170,8 +170,14 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
       {:ok, q} =
         Games.log_question(%{game_id: game.id, question: "how to win", answer: "score points"})
 
+      # Promotion to community always sets `pooled` too — mirror that here,
+      # since the visibility-only pool branch now carries the citation gate.
       Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
-        set: [visibility: "community", question_embedding: Pgvector.new(embedding)]
+        set: [
+          visibility: "community",
+          pooled: true,
+          question_embedding: Pgvector.new(embedding)
+        ]
       )
 
       # Eligible before flagging...
@@ -180,6 +186,72 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
       # ...skipped once flagged for review.
       Games.invalidate_pool(game.id)
       assert Games.find_similar_question_in_pool(game.id, embedding) == nil
+    end
+
+    test "a failed (error_kind) answer is never served from any cache tier" do
+      game = game()
+      embedding = List.duplicate(0.1, 768)
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "err_cache_user",
+          email: "err_cache@test.com",
+          password_hash: "x"
+        })
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "how many cards",
+          cleaned_question: "how many cards",
+          answer: "⚠️ The AI returned an empty response. Please retry.",
+          visibility: "private"
+        })
+
+      Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
+        set: [
+          error_kind: "empty",
+          pooled: true,
+          question_embedding: Pgvector.new(embedding)
+        ]
+      )
+
+      # A repeat ask must NOT collapse onto the error row — the old code
+      # served the ⚠️ text as a cache hit and deleted the fresh row, leaving
+      # no way to re-ask out of it.
+      assert Games.find_user_duplicate(game.id, user.id, "how many cards", "x") == nil
+      assert Games.find_user_similar(game.id, user.id, embedding) == nil
+      assert Games.find_similar_question_in_pool(game.id, embedding) == nil
+    end
+
+    test "a legacy ⚠️ answer (pre-error_kind) is excluded too" do
+      game = game()
+      embedding = List.duplicate(0.1, 768)
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "legacy_err_user",
+          email: "legacy_err@test.com",
+          password_hash: "x"
+        })
+
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "how many dice",
+          cleaned_question: "how many dice",
+          answer: "⚠️ Something went wrong. Please retry.",
+          visibility: "private"
+        })
+
+      Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
+        set: [question_embedding: Pgvector.new(embedding)]
+      )
+
+      assert Games.find_user_duplicate(game.id, user.id, "how many dice", "x") == nil
+      assert Games.find_user_similar(game.id, user.id, embedding) == nil
     end
 
     test "rechunk_all_documents invalidates the pool for every affected game" do

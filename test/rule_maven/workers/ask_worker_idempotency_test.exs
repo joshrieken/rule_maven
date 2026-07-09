@@ -53,9 +53,13 @@ defmodule RuleMaven.Workers.AskWorkerIdempotencyTest do
 
     assert :ok = perform(args(game, ql, u))
 
-    # Answer untouched, no duplicate completion broadcast.
+    # Answer untouched. The duplicate execution DOES re-broadcast completion:
+    # the first run may have crashed after persisting but before its own
+    # broadcast, leaving the asker's LiveView on "Thinking..." forever. The
+    # handler re-reads the row, so the repeat is harmless.
     assert Repo.get!(QuestionLog, ql.id).answer == "Roll 3 dice."
-    refute_receive {:ask_complete, _}, 100
+    assert_receive {:ask_complete, %{question_log_id: qid}}, 100
+    assert qid == ql.id
     refute_receive {:ask_error, _}, 100
   end
 
