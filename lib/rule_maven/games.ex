@@ -8,6 +8,7 @@ defmodule RuleMaven.Games do
 
   alias RuleMaven.Games.Game
   alias RuleMaven.Games.QuestionLog
+  alias RuleMaven.Games.QuestionMismatchReport
   alias RuleMaven.Games.QuestionVote
   alias RuleMaven.Games.QuestionFlag
   alias RuleMaven.Games.GameCategory
@@ -2252,8 +2253,20 @@ defmodule RuleMaven.Games do
   end
 
   @doc "True if any votes have been cast on this question row."
+  @doc """
+  True when the row carries a real community vote — one that moved trust.
+
+  Weight-0 votes are excluded. An asker confirming their OWN answer is stored
+  at weight 0 precisely because it is display metadata, not review; counting it
+  here let a free self-upvote make the row permanently exempt from the
+  regenerate-and-delete path (`protect_existing?`), pinning a bad pooled answer
+  in place for every other user with no admin step.
+  """
   def has_votes?(question_log_id) do
-    Repo.exists?(from v in QuestionVote, where: v.question_log_id == ^question_log_id)
+    Repo.exists?(
+      from v in QuestionVote,
+        where: v.question_log_id == ^question_log_id and v.weight > 0.0
+    )
   end
 
   def recent_questions(%Game{} = game, limit \\ 20, opts \\ []) do
@@ -2825,41 +2838,91 @@ defmodule RuleMaven.Games do
   def mark_pooled(%QuestionLog{} = q), do: q
 
   @doc """
-  Records that a cache/pool serve of `q` was reported "not my question" by the
-  asker. The increment lands on the row the matcher actually surfaced — the
-  pool source when `q` is a pool-hit copy, else `q` itself (same-user semantic
-  hits serve the matched row directly).
+  Records that a cache/pool serve of `q` was reported "not my question" by
+  `reporter_id`. The report lands on the row the matcher actually surfaced —
+  the pool source when `q` is a pool-hit copy, else `q` itself (same-user
+  semantic hits serve the matched row directly).
 
   A mismatch means the MATCH was wrong for this asker's question, not that the
   answer is wrong for its own — so the answer is never edited or hidden. But a
   row that keeps getting matched wrongly is a magnet: it sits near a cluster of
   questions it doesn't answer, and every future asker in that cluster pays a
   tiebreaker call and risks being mis-served. Past `pool_mismatch_limit`
-  (default 3) reports, it stops being offered cross-user:
+  (default 3) reports from DISTINCT reporters, it stops being offered
+  cross-user:
 
     * a private pooled row is demoted (`pooled: false`) — its own asker keeps it
     * a community row is left pooled but flagged `needs_review`, because
       un-pooling curated content silently would erase a moderator's decision
 
+  Demotion counts distinct reporters, not clicks, and a reporter can never
+  report the same row twice (unique index). Without that, this was a free
+  griefing lever: pool-hit asks are exempt from the quota
+  (`recent_question_count/2` filters `is_nil(q.pool_source_id)`), so one
+  account clicking repeatedly — or a handful of throwaway accounts — could
+  un-pool a correct, popular answer at zero cost and with no moderator step.
+  A row's own author reporting it never counts, for the same reason
+  `Curation.settle_votes/3` ignores an author's votes on their own answer.
+
   Returns `:ok`.
   """
   @default_pool_mismatch_limit 3
 
-  def record_pool_mismatch(%QuestionLog{} = q) do
+  def record_pool_mismatch(%QuestionLog{} = q, reporter_id) do
     target_id = q.pool_source_id || q.id
 
-    {_n, [target]} =
-      from(x in QuestionLog, where: x.id == ^target_id, select: x)
-      |> Repo.update_all(inc: [mismatch_count: 1])
+    case Repo.get(QuestionLog, target_id) do
+      nil ->
+        :ok
 
-    maybe_demote_mismatched(target)
-
-    :ok
+      target ->
+        if is_nil(reporter_id) or target.user_id == reporter_id do
+          # Self-reports carry no signal about a cross-user mis-serve.
+          :ok
+        else
+          record_distinct_mismatch(target, reporter_id)
+        end
+    end
   end
 
-  defp maybe_demote_mismatched(%QuestionLog{} = q) do
-    # `update_all`'s RETURNING gives the post-increment row.
-    if (q.mismatch_count || 0) >= pool_mismatch_limit() do
+  defp record_distinct_mismatch(%QuestionLog{} = target, reporter_id) do
+    insert =
+      Repo.insert(
+        %QuestionMismatchReport{question_log_id: target.id, user_id: reporter_id},
+        on_conflict: :nothing,
+        conflict_target: [:question_log_id, :user_id]
+      )
+
+    case insert do
+      # A repeat report from the same user changes nothing.
+      {:ok, %{id: nil}} ->
+        :ok
+
+      {:ok, _} ->
+        reporters = distinct_mismatch_reporters(target.id)
+
+        # Keep the denormalized counter in step for the admin/tuning views.
+        Repo.update_all(from(x in QuestionLog, where: x.id == ^target.id),
+          set: [mismatch_count: reporters]
+        )
+
+        maybe_demote_mismatched(target, reporters)
+
+      {:error, _} ->
+        :ok
+    end
+  end
+
+  defp distinct_mismatch_reporters(question_log_id) do
+    Repo.aggregate(
+      from(r in QuestionMismatchReport, where: r.question_log_id == ^question_log_id),
+      :count,
+      :user_id
+    )
+  end
+
+  defp maybe_demote_mismatched(%QuestionLog{} = q, reporters) do
+    if reporters >= pool_mismatch_limit() do
       cond do
         q.visibility == "community" and not q.needs_review ->
           Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),

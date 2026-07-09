@@ -1392,7 +1392,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         metadata: %{"original" => q.question, "cleaned" => q.cleaned_question}
       )
 
-      Games.record_pool_mismatch(q)
+      Games.record_pool_mismatch(q, user.id)
 
       socket
       |> put_flash(:info, "Asking your exact wording — fetching a fresh answer.")
@@ -2298,76 +2298,76 @@ defmodule RuleMavenWeb.GameLive.Show do
           community_count={@community_count}
           is_admin={@is_admin}
         >
-            <%!-- Sidebar toggle: kept first so it is the leftmost control on
+          <%!-- Sidebar toggle: kept first so it is the leftmost control on
                   whichever row this group wraps onto on narrow screens. --%>
-            <button
-              type="button"
-              phx-click="toggle_sidebar"
-              class="sidebar-toggle btn-icon btn-sm"
-            >☰</button>
-            <%!-- Rulebook sources dropdown --%>
-            <details
-              :if={@sources != []}
-              class="sources-dropdown hide-mobile"
-              style="flex-shrink:0;position:relative;display:inline-flex;align-items:center"
+          <button
+            type="button"
+            phx-click="toggle_sidebar"
+            class="sidebar-toggle btn-icon btn-sm"
+          >☰</button>
+          <%!-- Rulebook sources dropdown --%>
+          <details
+            :if={@sources != []}
+            class="sources-dropdown hide-mobile"
+            style="flex-shrink:0;position:relative;display:inline-flex;align-items:center"
+          >
+            <summary
+              class="pill-link"
+              style="cursor:pointer;list-style:none;gap:0.2rem;user-select:none"
             >
-              <summary
-                class="pill-link"
-                style="cursor:pointer;list-style:none;gap:0.2rem;user-select:none"
-              >
-                <span>📖</span>
-                <span>Rulebooks</span>
-                <span style="font-size:0.6rem;opacity:0.6">▾</span>
-              </summary>
-              <div style="position:absolute;right:0;top:calc(100% + 0.35rem);z-index:200;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;box-shadow:0 6px 20px rgba(0,0,0,0.18);min-width:200px;max-width:min(320px,calc(100vw - 2rem));overflow:hidden">
-                <%= for {src, i} <- Enum.with_index(@sources) do %>
-                  <div style={"padding:0.5rem 0.75rem;#{if i > 0, do: "border-top:1px solid var(--border-subtle)"}"}>
-                    <div style="font-size:0.78rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                      {src.label}
-                    </div>
-                    <%!-- Rulebooks may be copyrighted, so regular users see
+              <span>📖</span>
+              <span>Rulebooks</span>
+              <span style="font-size:0.6rem;opacity:0.6">▾</span>
+            </summary>
+            <div style="position:absolute;right:0;top:calc(100% + 0.35rem);z-index:200;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;box-shadow:0 6px 20px rgba(0,0,0,0.18);min-width:200px;max-width:min(320px,calc(100vw - 2rem));overflow:hidden">
+              <%= for {src, i} <- Enum.with_index(@sources) do %>
+                <div style={"padding:0.5rem 0.75rem;#{if i > 0, do: "border-top:1px solid var(--border-subtle)"}"}>
+                  <div style="font-size:0.78rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                    {src.label}
+                  </div>
+                  <%!-- Rulebooks may be copyrighted, so regular users see
                             only the source name — no PDF, no full text. Admins
                             get the extracted-text HTML view. --%>
-                    <div :if={@is_admin and src.html_path} style="display:flex;gap:0.5rem">
-                      <.link
-                        href={~p"/rulebooks/#{src}/html"}
-                        target="_blank"
-                        style="display:inline-flex;align-items:center;gap:0.2rem;color:var(--blue);font-size:0.7rem;font-weight:600;text-decoration:none;padding:0.15rem 0.4rem;border:1px solid var(--blue);border-radius:0.25rem;opacity:0.85"
-                      >🔗 HTML</.link>
-                      <button
-                        type="button"
-                        phx-click="regenerate_html"
-                        phx-value-id={src.id}
-                        title="Re-render the HTML view from the current text"
-                        class="btn-xs"
-                      >↻ Regen</button>
-                    </div>
+                  <div :if={@is_admin and src.html_path} style="display:flex;gap:0.5rem">
+                    <.link
+                      href={~p"/rulebooks/#{src}/html"}
+                      target="_blank"
+                      style="display:inline-flex;align-items:center;gap:0.2rem;color:var(--blue);font-size:0.7rem;font-weight:600;text-decoration:none;padding:0.15rem 0.4rem;border:1px solid var(--blue);border-radius:0.25rem;opacity:0.85"
+                    >🔗 HTML</.link>
+                    <button
+                      type="button"
+                      phx-click="regenerate_html"
+                      phx-value-id={src.id}
+                      title="Re-render the HTML view from the current text"
+                      class="btn-xs"
+                    >↻ Regen</button>
                   </div>
-                <% end %>
-              </div>
-            </details>
-            <%!-- Community --%>
-            <%= if @community_count > 0 do %>
-              <.link
-                navigate={~p"/games/#{@game}/community"}
-                class="btn btn-primary btn-xs hide-mobile"
-                style="flex-shrink:0"
-              >
-                <span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})
-              </.link>
-            <% end %>
-            <%!-- Cheat Sheet --%>
-            <%= if Enum.any?(@sources, &(CheatSheet.active_version(&1.id) != nil)) do %>
-              <.link
-                href={~p"/games/#{@game}/cheatsheet"}
-                target="_blank"
-                class="btn btn-xs hide-mobile"
-                style="flex-shrink:0"
-              >
-                Cheat Sheet
-              </.link>
-            <% end %>
-            <%!-- Admin actions now live in the sub-bar's More menu, which is
+                </div>
+              <% end %>
+            </div>
+          </details>
+          <%!-- Community --%>
+          <%= if @community_count > 0 do %>
+            <.link
+              navigate={~p"/games/#{@game}/community"}
+              class="btn btn-primary btn-xs hide-mobile"
+              style="flex-shrink:0"
+            >
+              <span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})
+            </.link>
+          <% end %>
+          <%!-- Cheat Sheet --%>
+          <%= if Enum.any?(@sources, &(CheatSheet.active_version(&1.id) != nil)) do %>
+            <.link
+              href={~p"/games/#{@game}/cheatsheet"}
+              target="_blank"
+              class="btn btn-xs hide-mobile"
+              style="flex-shrink:0"
+            >
+              Cheat Sheet
+            </.link>
+          <% end %>
+          <%!-- Admin actions now live in the sub-bar's More menu, which is
                   reachable on every viewport. --%>
         </SubBar.game_header>
       </div>
