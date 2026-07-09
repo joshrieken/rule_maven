@@ -247,7 +247,16 @@ defmodule RuleMavenWeb.GameTableContextTest do
     %{user: user, base: base}
   end
 
-  test "base-game-only shows a muted base label", %{conn: conn, user: user, base: base} do
+  # The game must HAVE an expansion for the 🎲 half to render at all; the user
+  # simply hasn't selected it. A game with no expansions hides the half entirely
+  # — see the last test in this file.
+  test "an unselected expansion shows the muted base label",
+       %{conn: conn, user: user, base: base} do
+    exp = game_fixture(%{name: "Oceania", playable: true})
+    RuleMaven.Games.link_expansion(exp.id, base.id)
+
+    RuleMaven.Games.put_expansion_selection(user.id, base.id, [])
+
     {:ok, _view, html} = conn |> log_in_user(user) |> live(~p"/games/#{base}")
     assert html =~ "Base game"
   end
