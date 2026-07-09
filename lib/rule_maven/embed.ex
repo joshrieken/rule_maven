@@ -13,9 +13,19 @@ defmodule RuleMaven.Embed do
   @expected_dim 768
 
   def embed(text) when is_binary(text) do
-    case Application.get_env(:rule_maven, :embed_mock) do
-      nil -> embed_real(text)
-      mock when is_function(mock) -> mock.(text)
+    case RuleMaven.Embed.Cache.get(text) do
+      {:ok, vec} ->
+        {:ok, vec}
+
+      :miss ->
+        case Application.get_env(:rule_maven, :embed_mock) do
+          nil -> embed_real(text)
+          mock when is_function(mock) -> mock.(text)
+        end
+        |> tap(fn
+          {:ok, vec} -> RuleMaven.Embed.Cache.put(text, vec)
+          {:error, _} -> :ok
+        end)
     end
   end
 

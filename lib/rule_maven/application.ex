@@ -14,6 +14,8 @@ defmodule RuleMaven.Application do
       {Finch, name: RuleMaven.Finch},
       RuleMaven.Auth.LoginThrottle,
       RuleMaven.LLM.NormalizeCache,
+      RuleMaven.LLM.Singleflight,
+      RuleMaven.Embed.Cache,
       RuleMaven.TableSession,
       RuleMavenWeb.Endpoint
     ]
