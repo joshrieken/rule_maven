@@ -26,17 +26,30 @@ defmodule RuleMaven.Users.User do
     timestamps(type: :utc_datetime)
   end
 
-  @all_roles ["user", "admin"]
+  @all_roles ["user", "admin", "super_admin"]
+
+  # Roles the application may assign through any web path. "super_admin" is
+  # deliberately absent: it is grantable only by `mix rule_maven.grant_superadmin`
+  # run on the server, so a forged LiveView param or a compromised admin account
+  # can never mint one.
+  @assignable_roles ["user", "admin"]
 
   # Capabilities granted to each role. To add a role: add it to @all_roles and
   # give it an entry here. To grant/revoke a power: edit its capability list.
   # All authorization flows through can?/2 so nothing is tied to a role name.
   @role_capabilities %{
     "user" => [],
-    "admin" => [:admin]
+    "admin" => [:admin],
+    "super_admin" => [:admin, :superadmin]
   }
 
   def all_roles, do: @all_roles
+
+  @doc "Roles the admin UI may assign. Excludes super_admin (mix task only)."
+  def assignable_roles, do: @assignable_roles
+
+  @doc "True for the owner account: every capability, immune to admin moderation."
+  def super_admin?(user), do: can?(user, :superadmin)
 
   @doc "Whether the user's role grants the given capability."
   def can?(%{role: role}, capability),
@@ -53,11 +66,34 @@ defmodule RuleMaven.Users.User do
     user
     |> cast(attrs, [:username, :email, :role, :password_hash])
     |> validate_required([:username, :email, :role])
-    |> validate_inclusion(:role, @all_roles)
+    |> validate_inclusion(:role, @assignable_roles)
+    |> protect_super_admin_role()
     |> validate_length(:username, max: 80)
     |> validate_length(:email, max: 160)
     |> unique_constraint(:username)
     |> unique_constraint(:email)
+  end
+
+  # A super admin's role cannot be changed through the ordinary changeset —
+  # only `elevation_changeset/2` (mix task) may move a user in or out of it.
+  defp protect_super_admin_role(changeset) do
+    if super_admin?(changeset.data) and get_change(changeset, :role) do
+      add_error(changeset, :role, "a super admin's role can only be changed on the server")
+    else
+      changeset
+    end
+  end
+
+  @doc """
+  Sets a role with no assignable-role restriction. The ONLY changeset that can
+  grant or revoke "super_admin". Reserved for the server-side mix tasks; never
+  reachable from a controller, LiveView, or the raw DB editor.
+  """
+  def elevation_changeset(user, role) do
+    user
+    |> cast(%{role: role}, [:role])
+    |> validate_required([:role])
+    |> validate_inclusion(:role, @all_roles)
   end
 
   def registration_changeset(user, attrs) do

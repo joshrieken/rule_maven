@@ -4,19 +4,48 @@ defmodule RuleMavenWeb.AdminLive.Db do
   alias Ecto.Adapters.SQL
   alias RuleMaven.{Audit, Repo, Users}
 
-  # Tables that must never be mutated through this raw editor:
-  #   * audit_logs      — append-only by contract; editing here would void the
-  #                       forensic guarantee the whole audit story rests on.
-  #   * schema_migrations — corrupting it breaks migrations / the app.
-  #   * oban_*          — the job runtime owns these; hand-editing causes chaos.
-  # Reads stay allowed (browsing is useful); writes are refused.
   # Raw browse caps at this many rows; large tables truncate (newest-first).
   @row_limit 500
 
-  @protected_exact ~w(audit_logs schema_migrations)
-  defp writable?(table) do
-    table not in @protected_exact and not String.starts_with?(table, "oban")
+  # Writes through this raw editor are ALLOWLISTED, not denylisted. A denylist
+  # fails open: the next migration adds a credential-bearing table and it is
+  # silently hand-editable. Default-deny means a new table is read-only until
+  # someone adds it here on purpose.
+  #
+  # Deliberately absent, and never to be added:
+  #   * users, user_tokens — identity. Roles, password hashes and session
+  #                          cutoffs are not raw-editable; an admin who could
+  #                          UPDATE users.role could mint themselves a super
+  #                          admin and undo every guard in Users.
+  #   * audit_logs         — append-only by contract; editing here would void
+  #                          the forensic guarantee the audit story rests on.
+  #   * schema_migrations  — corrupting it breaks migrations / the app.
+  #   * oban_*             — the job runtime owns these.
+  #
+  # Reads stay allowed for every table (browsing is useful); only writes are
+  # gated. A super admin bypasses the allowlist entirely — the role exists
+  # precisely to have an unrestricted escape hatch, and it is grantable only by
+  # `mix rule_maven.grant_superadmin` on the server.
+  @writable_tables ~w(
+    answer_favorites answer_voices app_settings cheatsheet_versions chunks
+    documents expansion_selections extract_calibrations game_categories
+    game_expansion_links game_support_requests game_voices games
+    house_rule_deltas house_rules injection_patterns invite_codes job_events
+    job_runs llm_logs llm_savings persona_events question_category_tags
+    question_flags question_mismatch_reports question_votes questions_log
+    theme_events user_collections user_favorites
+  )
+
+  @doc false
+  def __writable_tables__, do: @writable_tables
+
+  defp writable?(table, user) do
+    Users.can?(user, :admin) and (Users.can?(user, :superadmin) or table in @writable_tables)
   end
+
+  # Re-fetch on every write: a role revoked mid-session must take effect on the
+  # already-open socket, not at the next mount.
+  defp live_user(socket), do: Users.get_user(socket.assigns.current_user.id)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -102,7 +131,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
     table = socket.assigns.table_name
     pk = socket.assigns.pk_col
 
-    if writable?(table) do
+    if writable?(table, live_user(socket)) do
       try do
         SQL.query!(Repo, "DELETE FROM #{safe(table)} WHERE #{safe(pk)} = $1", [id])
 
@@ -170,7 +199,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
     data = socket.assigns.form_data
     cols_map = Map.new(columns)
 
-    if writable?(table) do
+    if writable?(table, live_user(socket)) do
       do_save(socket, table, pk, columns, mode, data, cols_map)
     else
       {:noreply,
@@ -412,12 +441,12 @@ defmodule RuleMavenWeb.AdminLive.Db do
               {if @view_mode == :table, do: "☰ Extended", else: "⊞ Table"}
             </button>
             <span
-              :if={not writable?(@table_name)}
+              :if={not writable?(@table_name, @current_user)}
               title="audit_logs, schema_migrations and oban_* are read-only"
               style="font-size:0.7rem;font-weight:700;color:var(--text-muted);border:1px solid var(--border);border-radius:0.3rem;padding:0.25rem 0.5rem"
             >🔒 Read-only</span>
             <button
-              :if={writable?(@table_name)}
+              :if={writable?(@table_name, @current_user)}
               type="button"
               phx-click="new_row"
               class="btn-primary btn-xs"
@@ -520,9 +549,9 @@ defmodule RuleMavenWeb.AdminLive.Db do
                       </td>
                     <% end %>
                     <td style="padding:0.15rem 0.3rem;border-bottom:1px solid var(--border-subtle);white-space:nowrap">
-                      <span :if={not writable?(@table_name)} style="color:var(--text-muted)">—</span>
+                      <span :if={not writable?(@table_name, @current_user)} style="color:var(--text-muted)">—</span>
                       <div
-                        :if={writable?(@table_name)}
+                        :if={writable?(@table_name, @current_user)}
                         style="display:flex;gap:0.2rem;align-items:center"
                       >
                         <button
@@ -583,7 +612,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
                   <% end %>
                 </div>
                 <div
-                  :if={writable?(@table_name)}
+                  :if={writable?(@table_name, @current_user)}
                   style="display:flex;gap:0.25rem;margin-top:0.3rem;padding-top:0.3rem;border-top:1px solid var(--border-subtle)"
                 >
                   <button

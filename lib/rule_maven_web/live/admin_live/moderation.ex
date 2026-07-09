@@ -57,51 +57,49 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
   end
 
   defp do_event("force_logout", %{"id" => id}, socket) do
-    case fetch(id) do
-      {:ok, user} ->
-        {:ok, _} = Users.force_logout(user)
-        audit(socket, "user.force_logout", user)
+    with {:ok, user} <- fetch(id),
+         :ok <- guard_super_admin(user) do
+      {:ok, _} = Users.force_logout(user)
+      audit(socket, "user.force_logout", user)
 
-        {:noreply,
-         socket
-         |> put_flash(:info, "Revoked all of #{user.username}'s sessions.")
-         |> load()}
-
-      {:error, msg} ->
-        {:noreply, put_flash(socket, :error, msg)}
+      {:noreply,
+       socket
+       |> put_flash(:info, "Revoked all of #{user.username}'s sessions.")
+       |> load()}
+    else
+      {:error, msg} -> {:noreply, put_flash(socket, :error, msg)}
     end
   end
 
   defp do_event("demote_answers", %{"id" => id}, socket) do
-    case fetch(id) do
-      {:ok, user} ->
-        n = Games.demote_user_answers(user.id)
-        audit(socket, "user.demote_answers", user, %{count: n})
+    with {:ok, user} <- fetch(id),
+         :ok <- guard_super_admin(user) do
+      n = Games.demote_user_answers(user.id)
+      audit(socket, "user.demote_answers", user, %{count: n})
 
-        {:noreply,
-         socket
-         |> put_flash(:info, "Pulled #{n} answer(s) by #{user.username} from the pool.")
-         |> load()}
-
-      {:error, msg} ->
-        {:noreply, put_flash(socket, :error, msg)}
+      {:noreply,
+       socket
+       |> put_flash(:info, "Pulled #{n} answer(s) by #{user.username} from the pool.")
+       |> load()}
+    else
+      {:error, msg} -> {:noreply, put_flash(socket, :error, msg)}
     end
   end
 
   defp do_event("reset_reputation", %{"id" => id}, socket) do
-    case fetch(id) do
-      {:ok, user} ->
-        {:ok, _} = Users.reset_reputation(user)
-        audit(socket, "user.reset_reputation", user)
-        {:noreply, socket |> put_flash(:info, "Reset reputation for #{user.username}.") |> load()}
-
-      {:error, msg} ->
-        {:noreply, put_flash(socket, :error, msg)}
+    with {:ok, user} <- fetch(id),
+         :ok <- guard_super_admin(user) do
+      {:ok, _} = Users.reset_reputation(user)
+      audit(socket, "user.reset_reputation", user)
+      {:noreply, socket |> put_flash(:info, "Reset reputation for #{user.username}.") |> load()}
+    else
+      {:error, msg} -> {:noreply, put_flash(socket, :error, msg)}
     end
   end
 
   defp do_event("set_quota", %{"user_id" => id, "quota" => quota}, socket) do
     with {:ok, user} <- fetch(id),
+         :ok <- guard_super_admin(user),
          {q, _} <- Integer.parse(to_string(quota)),
          {:ok, updated} <- Users.set_quota(user, q) do
       audit(socket, "user.set_quota", user, %{quota: updated.monthly_quota})
@@ -201,6 +199,14 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
       Users.can?(user, :admin) -> {:error, "You can't suspend another admin. Demote them first."}
       true -> :ok
     end
+  end
+
+  # The owner account is out of reach of every moderation lever. Users enforces
+  # this too — this is the flash-friendly copy of the same rule.
+  defp guard_super_admin(user) do
+    if Users.super_admin?(user),
+      do: {:error, "Super admins can't be moderated."},
+      else: :ok
   end
 
   @impl true
