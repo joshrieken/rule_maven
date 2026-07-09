@@ -185,7 +185,7 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
       assert Settings.get("score_categories_#{game.id}") =~ "Longest Road"
     end
 
-    test "stores nothing when the game isn't decided by points" do
+    test "stores an empty list when the game isn't decided by points" do
       mock_llm("none")
       game = game_with_rulebook()
 
@@ -194,7 +194,9 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
                  args: %{"game_id" => game.id}
                })
 
-      assert Settings.get("score_categories_#{game.id}") == nil
+      # Persisting "[]" is what keeps the Score pad step from sitting on
+      # Pending forever (and re-billing the LLM) on every co-op game.
+      assert Settings.get("score_categories_#{game.id}") == "[]"
     end
   end
 
