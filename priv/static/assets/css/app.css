@@ -2959,8 +2959,12 @@ body.tool-panel-resizing { user-select: none; }
   /* Sticky pins against .main-content's content box, which keeps its 4rem
      bottom padding as a see-through band under the bar. The negative offset
      cancels exactly that padding so the bar rests flush on the scrollport's
-     bottom edge (still above the job bar — .app-shell reserves its height). */
+     bottom edge (still above the job bar — .app-shell reserves its height).
+     The matching negative margin swallows the same padding out of the scroll
+     height, so the bar's natural resting position at full scroll is flush
+     too — without it the bar "jumps up" 4rem when you reach the page end. */
   bottom: -4rem;
+  margin-bottom: -4rem;
   z-index: 20;
   padding: 0.35rem 0;
   background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
@@ -2974,6 +2978,7 @@ body.tool-panel-resizing { user-select: none; }
 .tool-dock--flow {
   position: static;
   bottom: auto;
+  margin-bottom: 0;
   z-index: auto;
   padding: 0.3rem 0;
 }
