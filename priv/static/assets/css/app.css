@@ -2790,7 +2790,11 @@ textarea {
   bottom: calc(var(--rm-tray-bottom, 5rem) + var(--rm-tray-h, 0px) + 0.5rem);
   width: min(30rem, calc(100vw - 2rem));
   max-height: 80vh;
-  overflow: auto;
+  /* The body scrolls, not the panel: the resize handles are absolutely
+     positioned against the panel and must not scroll away from its edges. */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   /* Above the site header (z:100). A window dragged up used to slide *under*
      the header, which hid its title bar and left it unreachable. The hook
      raises focused windows from this base. */
@@ -2799,12 +2803,59 @@ textarea {
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
-  /* Native corner grip. Turned off for the sheet below. */
-  resize: both;
   min-width: 18rem;
   min-height: 8rem;
   max-width: calc(100vw - 2rem);
 }
+
+/* Eight drag targets (four edges, four corners) driven by the FloatingPanel
+   hook. They sit *inside* the border — the panel clips its overflow to keep the
+   rounded corners, so a handle hanging outside would be invisible and dead. The
+   corners are laid out after the edges and so win the overlap. */
+.tool-panel__resize {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+.tool-panel__resize--n,
+.tool-panel__resize--s { left: 0; right: 0; height: 6px; }
+.tool-panel__resize--n { top: 0; cursor: ns-resize; }
+.tool-panel__resize--s { bottom: 0; cursor: ns-resize; }
+.tool-panel__resize--e,
+.tool-panel__resize--w { top: 0; bottom: 0; width: 6px; }
+.tool-panel__resize--e { right: 0; cursor: ew-resize; }
+.tool-panel__resize--w { left: 0; cursor: ew-resize; }
+.tool-panel__resize--ne,
+.tool-panel__resize--nw,
+.tool-panel__resize--se,
+.tool-panel__resize--sw { width: 16px; height: 16px; }
+.tool-panel__resize--ne { top: 0; right: 0; cursor: nesw-resize; }
+.tool-panel__resize--sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.tool-panel__resize--nw { top: 0; left: 0; cursor: nwse-resize; }
+.tool-panel__resize--se { bottom: 0; right: 0; cursor: nwse-resize; }
+
+/* The bottom-right corner keeps a visible grip, drawn as two diagonal ticks
+   that follow the theme instead of the OS's default grey grill. */
+.tool-panel__resize--se::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  border-bottom-right-radius: 2px;
+  opacity: 0.45;
+  transition: opacity 0.12s ease;
+}
+.tool-panel:hover .tool-panel__resize--se::after,
+.tool-panel__resize--se:hover::after { opacity: 0.9; }
+
+/* Any live resize: kill transitions and lock the cursor across the page so it
+   doesn't flicker as the pointer leaves the 8px handle. */
+.tool-panel--resizing { transition: none !important; user-select: none; }
+body.tool-panel-resizing { user-select: none; }
 .tool-panel__bar {
   position: sticky;
   top: 0;
@@ -2817,6 +2868,7 @@ textarea {
   background: var(--bg-surface);
   cursor: grab;
   user-select: none;
+  flex: 0 0 auto;
 }
 .tool-panel__title {
   font-size: 0.78rem;
@@ -2826,8 +2878,15 @@ textarea {
   color: var(--text);
 }
 .tool-panel__controls { display: flex; gap: 0.25rem; }
-/* Extra bottom padding keeps tool content clear of the native resize grip. */
-.tool-panel__body { padding: 0.85rem 1rem 1.6rem; }
+/* The scroll container. `min-height: 0` or a tall tool would push the flex
+   column past the panel instead of scrolling inside it. Extra bottom padding
+   keeps tool content clear of the corner grip. */
+.tool-panel__body {
+  padding: 0.85rem 1rem 1.6rem;
+  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 
 /* Mobile: bottom sheet, chat visible above. Height is chosen from three snap
    points rather than free resize — dragging to an arbitrary height is fiddly on
@@ -2841,9 +2900,11 @@ textarea {
   max-width: 100%;
   border-radius: 0.9rem 0.9rem 0 0;
   cursor: default;
-  resize: none;
   transition: height 0.18s ease;
 }
+/* The sheet resizes by dragging its handle bar between snap heights, so the
+   desktop grab targets would only be finger traps. */
+.tool-panel--sheet .tool-panel__resize { display: none; }
 .tool-panel--sheet .tool-panel__bar { cursor: default; }
 .tool-panel--sheet .tool-panel__bar::before {
   content: "";

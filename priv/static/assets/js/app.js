@@ -938,6 +938,10 @@ var ZStack = {
 // drops any inline `style` the hook set — a dragged window would jump back to
 // its CSS corner the next time the server re-rendered anything inside it. So JS
 // keeps the authoritative geometry per tool and re-applies it on every update.
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(Math.max(lo, hi), v));
+}
+
 var WinGeom = {
   g: {}, // tool -> {x, y, w, h}
   get(tool) { return this.g[tool] || (this.g[tool] = {}); },
@@ -1009,7 +1013,10 @@ Hooks.FloatingPanel = {
     if (typeof g.w === "number") {
       el.style.width = g.w + "px";
       el.style.height = g.h + "px";
+      // The CSS caps (80vh / 100vw - 2rem) would silently override a window the
+      // user sized past them.
       el.style.maxHeight = "none";
+      el.style.maxWidth = "none";
     }
     if (typeof g.x === "number") {
       el.style.left = g.x + "px";
@@ -1040,6 +1047,7 @@ Hooks.FloatingPanel = {
       this.el.style.width = g.w + "px";
       this.el.style.height = g.h + "px";
       this.el.style.maxHeight = "none";
+      this.el.style.maxWidth = "none";
     }
 
     var p = this.read(this.posKey());
@@ -1173,17 +1181,83 @@ Hooks.FloatingPanel = {
     this._handle = handle;
   },
 
-  // The native `resize: both` grip emits no event; a ResizeObserver is the only
-  // way to see it. Debounced so a drag writes once, not once per frame.
-  initResizeWatch() {
+  // Resize from any of the eight handles. Dragging a north/west edge moves the
+  // panel's origin as well as its size, so the geometry is switched to explicit
+  // left/top on the first pointerdown — until then the panel is anchored to the
+  // viewport's bottom-right by CSS and would grow the wrong way.
+  initResize() {
     var self = this;
-    var first = true;
-    this._ro = new ResizeObserver(function() {
-      if (first) { first = false; return; } // initial observation, not a user resize
-      clearTimeout(self._sizeT);
-      self._sizeT = setTimeout(function() { self.saveSize(); }, 250);
-    });
-    this._ro.observe(this.el);
+    var MIN_W = 288;
+    var MIN_H = 128;
+
+    // Delegated: a LiveView patch may swap the handle nodes, and a listener
+    // bound to the old ones would go with them.
+    this._resizeDown = function(e) {
+      var handle = e.target.closest("[data-resize]");
+      if (!handle || !self.el.contains(handle)) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      var dir = handle.dataset.resize;
+      var r0 = self.el.getBoundingClientRect();
+      var pid = e.pointerId;
+      var startX = e.clientX;
+      var startY = e.clientY;
+
+      self.el.classList.add("tool-panel--resizing");
+      document.body.classList.add("tool-panel-resizing");
+      try { handle.setPointerCapture(pid); } catch (_e) {}
+
+      function move(ev) {
+        if (ev.pointerId !== pid) return;
+        var dx = ev.clientX - startX;
+        var dy = ev.clientY - startY;
+        var l = r0.left, t = r0.top, w = r0.width, h = r0.height;
+
+        if (dir.indexOf("e") !== -1) {
+          w = clamp(r0.width + dx, MIN_W, window.innerWidth - r0.left - 8);
+        }
+        if (dir.indexOf("w") !== -1) {
+          w = clamp(r0.width - dx, MIN_W, r0.right - 8);
+          l = r0.right - w;
+        }
+        if (dir.indexOf("s") !== -1) {
+          h = clamp(r0.height + dy, MIN_H, window.innerHeight - r0.top - 8);
+        }
+        if (dir.indexOf("n") !== -1) {
+          h = clamp(r0.height - dy, MIN_H, r0.bottom - 8);
+          t = r0.bottom - h;
+        }
+
+        var g = WinGeom.get(self.tool());
+        g.x = l; g.y = t; g.w = w; g.h = h;
+        self.applyGeom();
+      }
+
+      function up(ev) {
+        if (ev && ev.pointerId !== pid) return;
+        cleanup();
+        self.saveSize();
+        var r = self.el.getBoundingClientRect();
+        self.write(self.posKey(), { x: r.left, y: r.top });
+      }
+
+      function cleanup() {
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", up);
+        document.removeEventListener("pointercancel", up);
+        self.el.classList.remove("tool-panel--resizing");
+        document.body.classList.remove("tool-panel-resizing");
+        self._activeResizeCleanup = null;
+      }
+
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", up);
+      document.addEventListener("pointercancel", up);
+      self._activeResizeCleanup = cleanup;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    this.el.addEventListener("pointerdown", this._resizeDown);
   },
 
   // The sheet is anchored to the viewport bottom, so the tray must sit above
@@ -1214,7 +1288,7 @@ Hooks.FloatingPanel = {
     this.applyGeom();
     this.initFocus();
     this.initDrag();
-    this.initResizeWatch();
+    this.initResize();
   },
 
   // A patch rewrites attributes from the template, dropping the inline style and
@@ -1241,8 +1315,9 @@ Hooks.FloatingPanel = {
       this._handle.removeEventListener("pointerup", this._sheetUp);
       this._handle.removeEventListener("pointercancel", this._sheetUp);
     }
+    if (this._resizeDown) this.el.removeEventListener("pointerdown", this._resizeDown);
     if (this._activeDragCleanup) this._activeDragCleanup();
-    if (this._ro) this._ro.disconnect();
+    if (this._activeResizeCleanup) this._activeResizeCleanup();
     if (this._sheetRO) {
       this._sheetRO.disconnect();
       document.documentElement.style.removeProperty("--rm-sheet-h");
