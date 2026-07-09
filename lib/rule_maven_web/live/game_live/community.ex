@@ -825,13 +825,13 @@ defmodule RuleMavenWeb.GameLive.Community do
               ★ Curated
             </span>
             <span
-              :if={@q.cited_page}
+              :if={citation_pages(@q) != []}
               style="font-size:0.6rem;font-weight:600;color:var(--text-secondary);background:var(--bg-subtle);padding:0.1rem 0.4rem;border-radius:1rem"
             >
-              📖 Rulebook p.{@q.cited_page}
+              📖 Rulebook p.{Enum.join(citation_pages(@q), ", ")}
             </span>
             <span
-              :if={!@q.cited_page && @q.citation_valid}
+              :if={citation_pages(@q) == [] && @q.citation_valid}
               style="font-size:0.6rem;font-weight:600;color:var(--text-secondary);background:var(--bg-subtle);padding:0.1rem 0.4rem;border-radius:1rem"
             >
               📖 Cited from rulebook
