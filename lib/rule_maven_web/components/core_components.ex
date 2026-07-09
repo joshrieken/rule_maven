@@ -626,6 +626,19 @@ defmodule RuleMavenWeb.CoreComponents do
     """
   end
 
+  @doc """
+  Every page cited by a question, ascending, deduped, pageless citations
+  dropped. Reads the same grouping the cards render from, so a summary chip
+  can't disagree with the cards it summarizes.
+  """
+  def citation_pages(q) do
+    q
+    |> grouped_citations()
+    |> Enum.map(& &1["page"])
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
   defp grouped_citations(q) do
     case Map.get(q, :citations) do
       list when is_list(list) and list != [] ->
