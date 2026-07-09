@@ -869,6 +869,58 @@ defmodule RuleMaven.LLMTest do
     end
   end
 
+  describe "strip_game_name/2" do
+    test "strips a leading or trailing echo of the game name" do
+      assert LLM.__strip_game_name__("Catan: how many players?", "Catan") == "how many players?"
+
+      assert LLM.__strip_game_name__("In Catan, how many players?", "Catan") ==
+               "how many players?"
+
+      assert LLM.__strip_game_name__("How many players in Catan?", "Catan") == "How many players?"
+
+      assert LLM.__strip_game_name__("How many players for Catan?", "Catan") ==
+               "How many players?"
+    end
+
+    test "keeps the word when the game is named after one of its own rules terms" do
+      # A blind whole-word strip turned this into "How long is the ?" and then
+      # embedded, retrieved and answered against that.
+      assert LLM.__strip_game_name__("How long is the fuse?", "Fuse") == "How long is the fuse?"
+
+      assert LLM.__strip_game_name__("When can I take a risk?", "Risk") ==
+               "When can I take a risk?"
+
+      assert LLM.__strip_game_name__("Who scores the clue?", "Clue") == "Who scores the clue?"
+    end
+
+    test "an interior mention survives even for an ordinary game name" do
+      assert LLM.__strip_game_name__("Does Catan use dice?", "Catan") == "Does Catan use dice?"
+    end
+
+    test "handles a nil game name" do
+      assert LLM.__strip_game_name__("How many players?", nil) == "How many players?"
+    end
+  end
+
+  describe "pool tiebreaker reply parsing" do
+    test "accepts only a bare yes" do
+      assert LLM.__affirmative__("yes")
+      assert LLM.__affirmative__("Yes")
+      assert LLM.__affirmative__("  yes\n")
+      assert LLM.__affirmative__("yes.")
+    end
+
+    test "a hedged or truncated reply fails closed" do
+      # max_tokens: 10 truncates rather than rejects, so a reversal can arrive
+      # cut off mid-sentence. Anything but a bare yes must read as "not a match".
+      refute LLM.__affirmative__("yes, but only in the base game")
+      refute LLM.__affirmative__("yes — wait, actually no")
+      refute LLM.__affirmative__("yes, though the second question")
+      refute LLM.__affirmative__("no")
+      refute LLM.__affirmative__("")
+    end
+  end
+
   describe "normalize_question repeat handling" do
     alias RuleMaven.LLM.NormalizeCache
 

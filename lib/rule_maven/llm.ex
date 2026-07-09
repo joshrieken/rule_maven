@@ -198,7 +198,7 @@ defmodule RuleMaven.LLM do
              user_id: user_id
            ) do
         {:ok, text} ->
-          text |> to_string() |> String.trim() |> String.downcase() |> String.starts_with?("yes")
+          affirmative?(text)
 
         {:error, _} ->
           false
@@ -211,6 +211,21 @@ defmodule RuleMaven.LLM do
     )
 
     result
+  end
+
+  # The tiebreaker prompt demands exactly "yes" or "no". Enforce that instead of
+  # `starts_with?("yes")`, which accepted a hedge ("yes, but only in the base
+  # game") and — because `max_tokens: 10` truncates rather than rejects — a reply
+  # cut off mid-reversal ("yes, though actually…"). A hedge means the two
+  # questions are NOT the same rule, so anything but a bare "yes" fails closed
+  # into a cache miss, which costs an answer call but never mis-serves.
+  defp affirmative?(text) do
+    text
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> String.trim_trailing(".")
+    |> Kernel.==("yes")
   end
 
   # Builds the cache-serving result from a `{row, tier}` and records the save.
@@ -599,13 +614,13 @@ defmodule RuleMaven.LLM do
   # pass itself falls back to the full set, exactly the old behavior.
   defp maybe_reground(llm_result, system_prompt, ctx, chunks) do
     quotes = citation_quotes(llm_result[:citations])
+    full_texts = chunk_texts(chunks)
 
-    case RuleMaven.Games.Citations.suspicion(llm_result[:answer], quotes) do
+    case RuleMaven.Games.Citations.suspicion(llm_result[:answer], quotes, full_texts) do
       nil ->
         llm_result
 
       reason ->
-        full_texts = chunk_texts(chunks)
         narrowed = narrowed_chunk_texts(chunks, quotes)
 
         verdict =
@@ -740,11 +755,12 @@ defmodule RuleMaven.LLM do
          ) do
       {:ok, retried_result} ->
         quotes = citation_quotes(retried_result[:citations])
+        sources = chunk_texts(chunks)
 
         recheck =
-          if RuleMaven.Games.Citations.suspicious?(retried_result[:answer], quotes) do
+          if RuleMaven.Games.Citations.suspicious?(retried_result[:answer], quotes, sources) do
             critique_grounding(quotes, retried_result[:answer],
-              sources: chunk_texts(chunks),
+              sources: sources,
               game_id: ctx.game_id,
               user_id: ctx.user_id
             )
@@ -968,17 +984,35 @@ defmodule RuleMaven.LLM do
   @doc false
   def __unglue_interrogative__(text), do: unglue_interrogative(text)
 
+  @doc false
+  def __strip_game_name__(text, game_name), do: strip_game_name(text, game_name)
+
+  @doc false
+  def __affirmative__(text), do: affirmative?(text)
+
   defp unglue_interrogative(text) do
     String.replace(text, @glued_re, "\\1 ")
   end
 
   # Drop the game name if the model echoed it despite the instruction not to,
   # so the canonical form stays game-agnostic (matches the answer-schema rule).
+  #
+  # Only ECHO positions are stripped — a leading "In Catan," / "Catan:" and a
+  # trailing "in Catan?". A blind whole-word strip deletes the name wherever it
+  # appears, and plenty of games are named after one of their own rules terms
+  # (Fuse, Risk, Clue, Coup, Patchwork, Sorry!). "How long is the fuse?" in the
+  # game Fuse would become "How long is the ?" — and that corrupted text drives
+  # the embedding, the retrieval AND the answer call, not just the display.
   defp strip_game_name(text, nil), do: text
 
   defp strip_game_name(text, game_name) do
+    name = Regex.escape(String.trim(game_name))
+
     text
-    |> String.replace(~r/\b#{Regex.escape(game_name)}\b/i, "")
+    # Leading: "Catan: ...", "In Catan, ...", "For Catan — ..."
+    |> String.replace(~r/\A\s*(?:in|for|playing)?\s*#{name}\s*[:,\-–—]\s*/i, "")
+    # Trailing: "... in Catan?", "... for Catan."
+    |> String.replace(~r/\s*\b(?:in|for)\s+#{name}\b\s*(?=[?.!]*\s*\z)/i, "")
     |> String.replace(~r/\s{2,}/, " ")
     |> String.trim()
   end

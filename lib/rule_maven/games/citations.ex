@@ -58,10 +58,40 @@ defmodule RuleMaven.Games.Citations do
     page_match = has_page and cited_page in chunk_pages(texts)
     page_bad = has_page and not page_match
 
-    grounded = passage_match or page_match
+    # A short passage can't ground on its own, and a bare page number is far too
+    # weak to ground it either: `chunk_pages/1` only asks whether the cited page
+    # appears ANYWHERE in the retrieved context, which with 10-25 chunks in play
+    # is nearly always true. That let a fabricated short quote ("Draw one card")
+    # ride a plausible page number to `citation_valid: true` — which is the sole
+    # gate on pooling and the citation trust bonus. So when a short passage IS
+    # given, require it to appear in a chunk carrying the cited page.
+    short_passage_match =
+      has_passage and not checkable_passage and page_match and
+        Enum.any?(page_scoped_chunks(texts, cited_page), &String.contains?(&1, needle))
+
+    grounded =
+      cond do
+        passage_match -> true
+        # Page-only citation (no passage offered): the page must exist.
+        not has_passage -> page_match
+        # Passage offered but unverifiable on its own: must land on the cited page.
+        not checkable_passage -> short_passage_match
+        true -> false
+      end
 
     grounded and not passage_bad and not page_bad
   end
+
+  # Normalized chunks that carry a `[Page N]` marker for `page`.
+  defp page_scoped_chunks(texts, page) when is_integer(page) do
+    texts
+    |> Enum.filter(fn text ->
+      is_binary(text) and Regex.match?(~r/\[Page\s+#{page}\]/i, text)
+    end)
+    |> normalize_chunks()
+  end
+
+  defp page_scoped_chunks(_texts, _page), do: []
 
   @doc """
   Normalizes a model-reported `cited_source` string against the actual
@@ -164,16 +194,27 @@ defmodule RuleMaven.Games.Citations do
   # either it uses a consequence/causal word the quotes never state, or it's
   # much longer than the quotes could support. Cheap (no LLM call) first-pass
   # gate — a true positive here gets escalated to `LLM.critique_grounding/3`.
-  def suspicious?(answer, quotes), do: suspicion(answer, quotes) != nil
+  def suspicious?(answer, quotes, sources \\ []), do: suspicion(answer, quotes, sources) != nil
 
   @doc """
   Like `suspicious?/2` but names WHICH heuristic fired: `:keyword`,
-  `:length_ratio`, or `nil` when the answer looks grounded. The reason is
-  logged alongside the critic verdict so the two triggers can be
+  `:numeric`, `:length_ratio`, or `nil` when the answer looks grounded. The
+  reason is logged alongside the critic verdict so the triggers can be
   recalibrated independently against real fire/confirm rates.
+
+  `sources` (the full retrieved chunk texts) enables the `:numeric` check. It
+  is deliberately judged against the whole context rather than the cited
+  quotes: quotes are condensed, so a grounded answer routinely states a number
+  that appears in the chunk but not in the snippet the model chose to quote.
+  Comparing against the quotes alone would fire the critic on a large fraction
+  of correct answers. A number present in NO retrieved chunk, by contrast, is
+  a number the model invented.
   """
-  def suspicion(answer, quotes) when is_binary(answer) do
+  def suspicion(answer, quotes, sources \\ [])
+
+  def suspicion(answer, quotes, sources) when is_binary(answer) do
     quotes = quotes |> List.wrap() |> Enum.filter(&is_binary/1)
+    sources = sources |> List.wrap() |> Enum.filter(&is_binary/1)
 
     answer_norm = normalize(answer)
     combined_quote_norm = quotes |> Enum.join(" ") |> normalize()
@@ -191,12 +232,59 @@ defmodule RuleMaven.Games.Citations do
 
     cond do
       keyword_hit? -> :keyword
+      numeric_hit?(answer_norm, sources) -> :numeric
       length_ratio_hit? -> :length_ratio
       true -> nil
     end
   end
 
-  def suspicion(_answer, _quotes), do: nil
+  def suspicion(_answer, _quotes, _sources), do: nil
+
+  # Spelled forms the model uses interchangeably with digits, so "3 cards" is
+  # not treated as ungrounded when the quote says "three cards".
+  @number_words %{
+    "one" => "1",
+    "two" => "2",
+    "three" => "3",
+    "four" => "4",
+    "five" => "5",
+    "six" => "6",
+    "seven" => "7",
+    "eight" => "8",
+    "nine" => "9",
+    "ten" => "10",
+    "twelve" => "12"
+  }
+
+  # A quantity asserted by the answer but present in NO retrieved chunk. Wrong
+  # numbers were the single largest hole in the grounding net: neither
+  # @trigger_words (no digits) nor the length ratio (a short, confident "You get
+  # 3 action points per turn." is not verbose) can fire, so a fabricated count
+  # reached the user, got pooled, and earned a citation trust bonus without any
+  # critic ever running.
+  #
+  # With no sources to check against there is nothing to judge, so the trigger
+  # stays silent rather than firing on every answer that mentions a number.
+  defp numeric_hit?(_answer_norm, []), do: false
+
+  defp numeric_hit?(answer_norm, sources) do
+    source_numbers = sources |> Enum.join(" ") |> normalize() |> numbers_in()
+
+    answer_norm
+    |> numbers_in()
+    |> Enum.any?(&(&1 not in source_numbers))
+  end
+
+  defp numbers_in(text) do
+    digits = Regex.scan(~r/\b\d+\b/, text) |> Enum.map(fn [n] -> n end)
+
+    words =
+      @number_words
+      |> Enum.filter(fn {word, _digit} -> contains_word?(text, word) end)
+      |> Enum.map(fn {_word, digit} -> digit end)
+
+    MapSet.new(digits ++ words)
+  end
 
   # Smallest normalized word count an answer may keep after a clause strip —
   # below this the salvage would gut the answer, so the caller should refuse.
