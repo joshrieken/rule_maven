@@ -2848,10 +2848,17 @@ textarea {
   bottom: max(var(--rm-tray-bottom, 5rem), var(--rm-sheet-h, 0px));
   z-index: 55;
   padding: 0.35rem 0;
-  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
-  backdrop-filter: blur(6px);
-  border-top: 1px solid var(--border);
   pointer-events: none;
+}
+/* The strip only earns its background on narrow screens, where it spans the
+   whole layout. On desktop a full-bleed bar would cut across the sidebar and
+   clip the composer's notices, so the pills float bare over the chat column. */
+@media (max-width: 640px) {
+  .tool-dock {
+    background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+    backdrop-filter: blur(6px);
+    border-top: 1px solid var(--border);
+  }
 }
 .tool-dock__inner {
   display: flex;
