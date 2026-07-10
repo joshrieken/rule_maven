@@ -11,8 +11,8 @@ defmodule RuleMavenWeb.AdminLive.Index do
          page_title: "Admin",
          review_backlog: Games.needs_review_count(),
          flag_backlog: Games.count_pending_flags(),
-         asks_disabled: Settings.asks_disabled?(),
-         email_disabled: Settings.email_disabled?(),
+         asks_disabled: not RuleMaven.Flags.enabled?(:asks),
+         email_disabled: not RuleMaven.Flags.enabled?(:outbound_email),
          mail_from: Settings.mail_from(),
          mail_dev_live: Settings.mail_dev_live?(),
          resend_key_set: System.get_env("RESEND_API_KEY") != nil,
@@ -27,11 +27,12 @@ defmodule RuleMavenWeb.AdminLive.Index do
   def handle_event("toggle_asks", _params, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
       disable? = not socket.assigns.asks_disabled
-      Settings.set_asks_disabled(disable?)
+      if disable?, do: RuleMaven.Flags.disable(:asks), else: RuleMaven.Flags.enable(:asks)
 
       Audit.log(
         socket.assigns.current_user,
-        if(disable?, do: "asks.disable", else: "asks.enable")
+        if(disable?, do: "flag.disable", else: "flag.enable"),
+        target_label: "asks"
       )
 
       {:noreply,
@@ -47,11 +48,15 @@ defmodule RuleMavenWeb.AdminLive.Index do
   def handle_event("toggle_email", _params, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
       disable? = not socket.assigns.email_disabled
-      Settings.set_email_disabled(disable?)
+
+      if disable?,
+        do: RuleMaven.Flags.disable(:outbound_email),
+        else: RuleMaven.Flags.enable(:outbound_email)
 
       Audit.log(
         socket.assigns.current_user,
-        if(disable?, do: "email.disable", else: "email.enable")
+        if(disable?, do: "flag.disable", else: "flag.enable"),
+        target_label: "outbound_email"
       )
 
       {:noreply,

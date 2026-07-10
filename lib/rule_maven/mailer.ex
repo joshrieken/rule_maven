@@ -3,7 +3,7 @@ defmodule RuleMaven.Mailer do
   Outbound mail. All sends go through `deliver_email/1`, the single choke point
   that applies the kill switch and picks the adapter:
 
-    * `Settings.email_disabled?` → skipped (email is best-effort; callers succeed)
+    * `:outbound_email` flag disabled → skipped (email is best-effort; callers succeed)
     * test → configured Test adapter (assert_email_sent keeps working)
     * dev without `mail_dev_live` → configured Local adapter (`/dev/mailbox`)
     * `RESEND_API_KEY` set → Resend
@@ -18,7 +18,7 @@ defmodule RuleMaven.Mailer do
   @doc "Delivers an email subject to the kill switch and adapter selection above."
   def deliver_email(%Swoosh.Email{} = email) do
     cond do
-      Settings.email_disabled?() ->
+      not RuleMaven.Flags.enabled?(:outbound_email) ->
         Logger.info("email disabled by kill switch: skipping #{describe(email)}")
         {:ok, :email_disabled}
 
