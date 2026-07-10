@@ -274,6 +274,12 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="Which themes users have selected."
         />
         <.card
+          navigate={~p"/admin/flags"}
+          icon="🚩"
+          title="Feature Flags"
+          desc="Toggle features on or off for everyone."
+        />
+        <.card
           navigate={~p"/settings"}
           icon="🔧"
           title="Settings"
