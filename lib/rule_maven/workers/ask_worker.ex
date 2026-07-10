@@ -84,7 +84,7 @@ defmodule RuleMaven.Workers.AskWorker do
       # (or is retrying) before an admin flipped the switch off, and it must not
       # spend after that. Persist a friendly answer and close the run gracefully
       # rather than leaving the question stuck on "Thinking...".
-      RuleMaven.Settings.asks_disabled?() ->
+      not RuleMaven.Flags.enabled?(:asks) ->
         handle_disabled(run, game_id, question_log_id, question)
 
       # The LiveView gates asks on takedown, but a job queued moments before the

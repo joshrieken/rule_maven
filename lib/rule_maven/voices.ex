@@ -485,8 +485,8 @@ defmodule RuleMaven.Voices do
   `%Game{}` or id and scopes which generated voices are valid.
 
   Fresh generation (a cache miss) is user-triggered spend, so it's gated by the
-  admin kill switch (`Settings.asks_disabled?`) — a cache hit is free and never
-  blocked. `opts[:user_id]`, when given, is attributed on the underlying
+  admin kill switch (the `:asks` flag via `RuleMaven.Flags`) — a cache hit is
+  free and never blocked. `opts[:user_id]`, when given, is attributed on the underlying
   `llm_logs` row so restyle spend counts toward that user's daily cost cap.
   """
   def restyle(question_log_id, voice, canonical, game, opts \\ [])
@@ -503,7 +503,7 @@ defmodule RuleMaven.Voices do
       cached = get(question_log_id, voice) ->
         {:ok, cached}
 
-      RuleMaven.Settings.asks_disabled?() ->
+      not RuleMaven.Flags.enabled?(:asks) ->
         {:error, :asks_disabled}
 
       true ->

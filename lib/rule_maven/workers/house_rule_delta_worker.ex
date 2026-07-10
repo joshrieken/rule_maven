@@ -13,7 +13,7 @@ defmodule RuleMaven.Workers.HouseRuleDeltaWorker do
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
-  alias RuleMaven.{Games, HouseRules, Jobs, LLM, Settings}
+  alias RuleMaven.{Games, HouseRules, Jobs, LLM}
 
   @impl Oban.Worker
   def perform(%Oban.Job{
@@ -29,7 +29,7 @@ defmodule RuleMaven.Workers.HouseRuleDeltaWorker do
       is_nil(hr) or is_nil(ql) ->
         :ok
 
-      Settings.asks_disabled?() ->
+      not RuleMaven.Flags.enabled?(:asks) ->
         broadcast(hr.game_id, hr.id, ql.id, :failed)
         :ok
 

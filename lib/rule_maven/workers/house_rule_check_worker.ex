@@ -13,7 +13,7 @@ defmodule RuleMaven.Workers.HouseRuleCheckWorker do
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
-  alias RuleMaven.{Games, HouseRules, Jobs, LLM, Settings}
+  alias RuleMaven.{Games, HouseRules, Jobs, LLM}
 
   @impl Oban.Worker
   def perform(%Oban.Job{
@@ -28,7 +28,7 @@ defmodule RuleMaven.Workers.HouseRuleCheckWorker do
       is_nil(hr) ->
         :ok
 
-      Settings.asks_disabled?() ->
+      not RuleMaven.Flags.enabled?(:asks) ->
         kill_switch_failure(hr, game_id, oban_id)
 
       true ->

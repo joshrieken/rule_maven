@@ -67,7 +67,8 @@ defmodule RuleMaven.Workers.VoiceWorkerTest do
 
   describe "kill switch" do
     test "a fresh (uncached) restyle does not call the LLM while asks_disabled is on" do
-      {:ok, _} = RuleMaven.Settings.set_asks_disabled(true)
+      {:ok, _} = RuleMaven.Flags.disable(:asks)
+      on_exit(fn -> FunWithFlags.clear(:asks) end)
 
       {:ok, game} = Games.create_game(%{name: "VW KillSwitch"})
 
