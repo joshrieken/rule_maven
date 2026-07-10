@@ -262,14 +262,96 @@ rewritten to call `Flags.enable/disable`, keeping the dashboard banner working.
 
 ## Out of scope
 
-- **The 33 Oban workers.** Own spec. Decided policy, recorded here so it is not relitigated:
-  gate at **both** enqueue and `perform`, and a job whose flag is off returns `:discard`,
-  not an error — an error tuple makes Oban back off and retry for hours, which is precisely
-  the LLM spend a kill switch exists to stop. Accepted risk: work is silently dropped, so a
-  flag flipped by accident means those jobs must be re-enqueued by hand. Discards are
-  reported to the unified Jobs log (`job-log-convention`).
+- **The 33 Oban workers.** Own spec. Decided policy, recorded here so it is not relitigated —
+  see "Worker cancellation and restore" below.
 - **Any actual percentage rollout.** The gate ships; no flag declares `:experiment`.
 - Cross-cutting features (personas, community answers, votes, tours, cheat sheets).
+
+## Worker cancellation and restore (informs the follow-up worker spec)
+
+Not built in this spec, but decided, and the reasoning verified against the vendored Oban
+2.23 source so the worker spec does not have to rediscover it.
+
+### `{:cancel, reason}`, not `:discard`
+
+`executor.ex:256` and `:272` show that an explicit `:discard` return and a job that
+**exhausted its retries** both land in the same `discarded` database state. A restore that
+queried `state == "discarded"` would therefore resurrect genuinely-failed jobs alongside
+flag-cancelled ones. There is no way to separate them after the fact.
+
+`{:cancel, reason}` (`executor.ex:152`) instead maps to `state: :cancelled` with
+`cancelled_at` set — a state Oban never assigns on failure. So:
+
+```elixir
+def perform(%Oban.Job{} = job) do
+  if Flags.enabled?(:worker_quiz) do
+    # ...real work...
+  else
+    {:cancel, "feature_flag:worker_quiz disabled"}
+  end
+end
+```
+
+Like `:discard`, this does **not** retry — the LLM spend a kill switch exists to stop is
+stopped. Unlike `:discard`, it is unambiguously ours.
+
+### Retention is already free
+
+`config/config.exs:52` already sets `{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}`, and
+`Oban.Engines.Basic.prune_jobs/3` prunes cancelled jobs on
+`cancelled_at < now() - max_age`. **Cancelled jobs are retained for 7 days with no new
+code.** We do not need a holding table, a tombstone, or a custom reaper.
+
+### Do not gate at enqueue
+
+Gating at insert time means no job row exists, so there is **nothing to restore**. Insert is
+a cheap row write; the expensive thing is the LLM call inside `perform`. Cancelling at
+`perform` gives both spend protection *and* restorability. Enqueue gating buys a saved row
+insert and costs the entire recovery story. (This reverses the "gate at both enqueue and
+perform" note in an earlier draft of this spec.)
+
+### Restore
+
+`Oban.retry_all_jobs/1` retries jobs "in any state other than `available` or `executing`",
+so `cancelled` qualifies. The restore query is scoped three ways:
+
+```elixir
+from j in Oban.Job,
+  where: j.state == "cancelled",
+  where: j.worker in ^workers_for_flag(flag),
+  where: j.cancelled_at >= ^disabled_at
+```
+
+`disabled_at` comes from `RuleMaven.Audit` — every flag flip is logged (`Audit.log/3`,
+action `"flag.disable"` / `"flag.enable"`, `target_label` = the flag id), which gives both
+the timestamp and the actor. The `worker` and `cancelled_at` bounds together ensure a
+manual cancellation from Oban Web is never swept up.
+
+### Automatic vs. manual
+
+Auto-restoring on every re-enable would reintroduce exactly the thundering-herd spend spike
+that made us reject `{:snooze, n}`: a flag left off for three days re-enables into a
+three-day backlog firing at once.
+
+So the restore is **time-bounded, not unconditional**:
+
+- Flag was off for **less than `@auto_restore_window` (30 minutes)** → treat as an accidental
+  flip. Auto-restore on re-enable. A 30-minute backlog is small by construction, which is
+  what bounds the spend.
+- Flag was off **longer** → no auto-restore. The admin flags UI shows
+  *"142 jobs were cancelled while this was off. Restore?"* with a job count, and refuses a
+  restore above `@max_restore_batch` without an explicit typed confirmation.
+
+Both the flip and the restore are written to the audit log, and cancellations are reported
+to the unified Jobs log (`job-log-convention`).
+
+### Residual risk, stated plainly
+
+A restored job re-runs against **today's** data, not the data it was enqueued against. If
+the document it referenced was deleted or re-extracted while the flag was off, the job may
+fail or write a stale result. Workers whose args reference a deleted row must tolerate that
+— most already do, because Oban jobs can always outlive their subject. The worker spec must
+audit this per worker rather than assume it.
 
 ## Deploy notes
 
