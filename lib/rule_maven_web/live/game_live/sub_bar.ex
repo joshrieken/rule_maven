@@ -26,6 +26,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, default: []
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
+  attr :current_user, :map, default: nil
   attr :has_cheatsheet, :boolean, default: false
   attr :current, :atom, default: :show, values: [:show, :community, :prepare, :review, :edit]
   attr :expansions, :list, default: []
@@ -50,6 +51,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
+        current_user={@current_user}
         has_cheatsheet={@has_cheatsheet}
         current={@current}
         expansions={@expansions}
@@ -66,6 +68,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, default: []
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
+  attr :current_user, :map, default: nil
   attr :has_cheatsheet, :boolean, default: false
   # Which page the bar is being rendered on. Drives two things: the Overview
   # link patches on :show and navigates elsewhere (patching across LiveViews
@@ -115,6 +118,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           sources={@sources}
           community_count={@community_count}
           is_admin={@is_admin}
+          current_user={@current_user}
           has_cheatsheet={@has_cheatsheet}
           current={@current}
         />
@@ -128,6 +132,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           expansions={@expansions}
           included_expansions={@included_expansions}
           house_rule_count={@house_rule_count}
+          current_user={@current_user}
         />
       </div>
       <div class="game-header-row__right">
@@ -194,6 +199,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, default: []
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
+  attr :current_user, :map, default: nil
   attr :has_cheatsheet, :boolean, default: false
   attr :current, :atom, default: :show, values: [:show, :community, :prepare, :review, :edit]
 
@@ -210,8 +216,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       data-tour="tools-subbar"
       style="display:inline-flex;align-items:center;gap:0.3rem;flex-shrink:0;flex-wrap:wrap"
     >
-      <.group_menu emoji="🎲" label="Play" tools={ToolRegistry.group(:play)} />
-      <.group_menu emoji="📚" label="Learn" tools={ToolRegistry.group(:learn)} />
+      <.group_menu emoji="🎲" label="Play" tools={ToolRegistry.group(:play, @current_user)} />
+      <.group_menu emoji="📚" label="Learn" tools={ToolRegistry.group(:learn, @current_user)} />
       <.more_menu
         game={@game}
         sources={@sources}
@@ -228,6 +234,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :expansions, :list, default: []
   attr :included_expansions, :map, default: %{}
   attr :house_rule_count, :integer, default: 0
+  attr :current_user, :map, default: nil
 
   @doc """
   The table-context strip: what this user is actually playing with. Renders at
@@ -244,7 +251,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
     ~H"""
     <div class="table-context">
       <button
-        :if={@expansions != []}
+        :if={@expansions != [] and ToolRegistry.visible?(:expansions, @current_user)}
         type="button"
         data-tour="expansions"
         data-testid="table-context-expansions"
@@ -265,6 +272,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       </button>
 
       <button
+        :if={ToolRegistry.visible?(:house_rules, @current_user)}
         type="button"
         data-testid="table-context-house-rules"
         phx-click="open_tool"

@@ -94,6 +94,7 @@ defmodule RuleMavenWeb.Router do
       live "/admin/catalog", AdminLive.Catalog, :index
       live "/admin/themes", AdminLive.Themes, :index
       live "/admin/requests", AdminLive.Requests, :index
+      live "/admin/flags", AdminLive.Flags, :index
 
       live "/", GameLive.Index, :index
       live "/games/import", GameLive.Import, :index

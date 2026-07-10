@@ -308,7 +308,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         asker_confirmed_ids: cv_asker,
         favorited_answer_ids: favorited_answer_ids,
         flagged_ids: Games.user_flagged_ids(socket.assigns.current_user.id),
-        asks_disabled: RuleMaven.Settings.asks_disabled?(),
+        asks_disabled: not RuleMaven.Flags.enabled?(:asks, socket.assigns.current_user),
         question_categories: question_categories
       )
 
@@ -936,7 +936,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       not socket.assigns.game.playable and not socket.assigns.is_admin ->
         {:noreply, put_flash(socket, :error, "This game isn't ready yet — check back soon.")}
 
-      RuleMaven.Settings.asks_disabled?() and not socket.assigns.is_admin ->
+      not RuleMaven.Flags.enabled?(:asks, socket.assigns.current_user) ->
         {:noreply, put_flash(socket, :error, RuleMaven.Settings.asks_disabled_message())}
 
       String.length(question) < @min_question_length ->
@@ -1590,7 +1590,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         not socket.assigns.is_admin
 
     cond do
-      RuleMaven.Settings.asks_disabled?() and not socket.assigns.is_admin ->
+      not RuleMaven.Flags.enabled?(:asks, socket.assigns.current_user) ->
         {:noreply, put_flash(socket, :error, RuleMaven.Settings.asks_disabled_message())}
 
       question == "" ->
@@ -2416,6 +2416,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
+        current_user={@current_user}
         has_cheatsheet={@has_cheatsheet}
         current={:show}
         expansions={@expansions}

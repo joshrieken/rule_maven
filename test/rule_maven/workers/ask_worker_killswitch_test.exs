@@ -7,7 +7,7 @@ defmodule RuleMaven.Workers.AskWorkerKillSwitchTest do
 
   use RuleMaven.DataCase
 
-  alias RuleMaven.{Games, Repo, Settings}
+  alias RuleMaven.{Games, Repo}
   alias RuleMaven.Games.QuestionLog
   alias RuleMaven.Workers.AskWorker
 
@@ -23,7 +23,8 @@ defmodule RuleMaven.Workers.AskWorkerKillSwitchTest do
     do: AskWorker.perform(%Oban.Job{id: System.unique_integer([:positive]), args: args})
 
   test "no-ops without calling the LLM when the kill switch is on" do
-    {:ok, _} = Settings.set_asks_disabled(true)
+    {:ok, _} = RuleMaven.Flags.disable(:asks)
+    on_exit(fn -> FunWithFlags.clear(:asks) end)
 
     # No llm_mock configured: if AskWorker called through to LLM.ask it would
     # hit the real HTTP client and error/crash, not return :ok cleanly.

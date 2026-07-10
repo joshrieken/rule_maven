@@ -74,6 +74,16 @@ config :rule_maven, Oban,
     reextract: 1
   ]
 
+# Feature flags — Ecto persistence, ETS cache, PubSub cache-busting.
+config :fun_with_flags, :persistence,
+  adapter: FunWithFlags.Store.Persistent.Ecto,
+  repo: RuleMaven.Repo
+
+config :fun_with_flags, :cache_bust_notifications,
+  enabled: true,
+  adapter: FunWithFlags.Notifications.PhoenixPubSub,
+  client: RuleMaven.PubSub
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

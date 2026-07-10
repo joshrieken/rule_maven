@@ -46,12 +46,6 @@ defmodule RuleMaven.Settings do
 
   @default_asks_disabled_message "Question answering is paused for maintenance. Please try again shortly — existing answers are still available."
 
-  @doc """
-  Whether new LLM-backed asks are disabled (kill switch / maintenance mode).
-  Lets an operator stop spend or ride out a provider outage without a deploy.
-  """
-  def asks_disabled?, do: get("asks_disabled") == "true"
-
   @doc "Banner/flash message shown while asks are disabled."
   def asks_disabled_message do
     case get("asks_disabled_message") do
@@ -61,25 +55,9 @@ defmodule RuleMaven.Settings do
     end
   end
 
-  @doc "Enables/disables new asks."
-  def set_asks_disabled(disabled?) when is_boolean(disabled?) do
-    put("asks_disabled", to_string(disabled?))
-  end
-
   # --- Email -----------------------------------------------------------------
 
   @default_mail_from "no-reply@rulemaven.app"
-
-  @doc """
-  Whether outbound email is disabled (kill switch). Deliveries are skipped but
-  callers still succeed — email is best-effort.
-  """
-  def email_disabled?, do: get("email_disabled") == "true"
-
-  @doc "Enables/disables outbound email."
-  def set_email_disabled(disabled?) when is_boolean(disabled?) do
-    put("email_disabled", to_string(disabled?))
-  end
 
   @doc """
   Sender address for outbound mail. Resend rejects senders from unverified

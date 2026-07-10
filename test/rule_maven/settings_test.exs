@@ -14,6 +14,16 @@ defmodule RuleMaven.SettingsTest do
     assert Settings.get("dup_key") == "v2"
   end
 
+  test "asks_disabled_message falls back to a default, honors a custom value" do
+    assert Settings.asks_disabled_message() =~ "paused"
+
+    {:ok, _} = Settings.put("asks_disabled_message", "Back in 10.")
+    assert Settings.asks_disabled_message() == "Back in 10."
+
+    {:ok, _} = Settings.put("asks_disabled_message", "")
+    assert Settings.asks_disabled_message() =~ "paused"
+  end
+
   test "concurrent puts to the same key don't crash and last write is durably readable" do
     # Two processes racing to insert the same key would hit the unique_constraint
     # under the old get-then-insert_or_update implementation (both see `nil` from

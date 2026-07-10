@@ -2572,6 +2572,7 @@ defmodule RuleMavenWeb.GameLive.Form do
       sources={@sources}
       community_count={@community_count}
       is_admin={@is_admin}
+      current_user={@current_user}
       has_cheatsheet={@has_cheatsheet}
       current={:edit}
     />

@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.AdminEmailControlsTest do
   @moduledoc "Admin dashboard email controls: kill switch + sender address."
 
-  use RuleMavenWeb.ConnCase, async: true
+  use RuleMavenWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
 
@@ -22,12 +22,14 @@ defmodule RuleMavenWeb.AdminEmailControlsTest do
   end
 
   test "email kill switch toggles from the dashboard", %{conn: conn} do
+    on_exit(fn -> FunWithFlags.clear(:outbound_email) end)
+
     {:ok, view, html} = conn |> login(create_admin()) |> live(~p"/admin")
 
     assert html =~ "Email is on"
 
     view |> element("button[phx-click=toggle_email]") |> render_click()
-    assert Settings.email_disabled?()
+    assert not RuleMaven.Flags.enabled?(:outbound_email)
     assert render(view) =~ "Email is paused"
   end
 

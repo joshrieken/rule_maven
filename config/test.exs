@@ -60,6 +60,10 @@ config :phoenix,
 # Disable Oban in test — conflicts with Ecto Sandbox
 config :rule_maven, Oban, testing: :manual
 
+# The ETS cache is global; disabling it stops flag state leaking across
+# sandboxed tests and producing order-dependent failures.
+config :fun_with_flags, :cache, enabled: false
+
 # Capture sent emails in-process so tests can assert on them.
 config :rule_maven, RuleMaven.Mailer, adapter: Swoosh.Adapters.Test
 

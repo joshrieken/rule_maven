@@ -28,4 +28,29 @@ defmodule RuleMavenWeb.GameLive.ToolRegistry do
   def group(g), do: Enum.filter(@tools, &(&1.group == g))
   def tool(id), do: Enum.find(@tools, &(&1.id == id))
   def valid?(id), do: Enum.any?(@tools, &(&1.id == id))
+
+  @doc """
+  Whether a tool is both known and enabled for this user. A tool with no
+  matching `:tool_<id>` flag in the registry is always visible (fail-open for
+  tools we never chose to gate); a tool with a flag defers to `Flags`.
+  """
+  def visible?(id, user) do
+    valid?(id) and flag_allows?(id, user)
+  end
+
+  @doc "Tools visible to this user."
+  def tools(user), do: Enum.filter(@tools, &visible?(&1.id, user))
+
+  @doc "Tools in a group visible to this user."
+  def group(g, user), do: Enum.filter(group(g), &visible?(&1.id, user))
+
+  defp flag_allows?(id, user) do
+    flag = :"tool_#{id}"
+
+    if flag in RuleMaven.Flags.Registry.ids() do
+      RuleMaven.Flags.enabled?(flag, user)
+    else
+      true
+    end
+  end
 end

@@ -8,7 +8,7 @@ defmodule RuleMaven.Workers.AskWorkerErrorKindTest do
 
   use RuleMaven.DataCase
 
-  alias RuleMaven.{Games, Repo, Settings}
+  alias RuleMaven.{Games, Repo}
   alias RuleMaven.Games.{QuestionFlag, QuestionLog}
   alias RuleMaven.Workers.AskWorker
 
@@ -42,7 +42,8 @@ defmodule RuleMaven.Workers.AskWorkerErrorKindTest do
   end
 
   test "kill switch persists a ⚠️-prefixed answer with error_kind \"paused\"" do
-    {:ok, _} = Settings.set_asks_disabled(true)
+    {:ok, _} = RuleMaven.Flags.disable(:asks)
+    on_exit(fn -> FunWithFlags.clear(:asks) end)
     {:ok, game} = Games.create_game(%{name: "PausedKindGame"})
     u = user("paused_kind_u")
     prov = provisional!(game, u)

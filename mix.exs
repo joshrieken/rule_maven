@@ -66,7 +66,8 @@ defmodule RuleMaven.MixProject do
       {:swoosh, "~> 1.16"},
       {:resend, "~> 0.4.5"},
       {:finch, "~> 0.18"},
-      {:wallaby, "~> 0.30", only: :test, runtime: false}
+      {:wallaby, "~> 0.30", only: :test, runtime: false},
+      {:fun_with_flags, "~> 1.13"}
     ]
   end
 
@@ -79,7 +80,7 @@ defmodule RuleMaven.MixProject do
   defp aliases do
     [
       setup: ["deps.get", "ecto.setup"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
+      "ecto.setup": ["ecto.create", "ecto.migrate", "rule_maven.flags.sync", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       precommit: ["compile --warnings-as-errors", "format", "credo --strict", "test"]

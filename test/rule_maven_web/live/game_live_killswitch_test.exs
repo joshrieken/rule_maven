@@ -8,7 +8,7 @@ defmodule RuleMavenWeb.GameLiveKillSwitchTest do
   row / Oban job is produced.
   """
 
-  use RuleMavenWeb.ConnCase, async: true
+  use RuleMavenWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
 
@@ -16,6 +16,11 @@ defmodule RuleMavenWeb.GameLiveKillSwitchTest do
   alias RuleMaven.Games.QuestionLog
 
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
+
+  setup do
+    on_exit(fn -> FunWithFlags.clear(:asks) end)
+    :ok
+  end
 
   defp setup_thread(prefix) do
     {:ok, user} =
@@ -41,7 +46,7 @@ defmodule RuleMavenWeb.GameLiveKillSwitchTest do
 
   test "retry_question is blocked while asks_disabled is on", %{conn: conn} do
     {user, game, ql} = setup_thread("retry_ks")
-    {:ok, _} = Settings.set_asks_disabled(true)
+    {:ok, _} = RuleMaven.Flags.disable(:asks)
 
     conn = login(conn, user)
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
@@ -54,7 +59,7 @@ defmodule RuleMavenWeb.GameLiveKillSwitchTest do
 
   test "regenerate_answer is blocked while asks_disabled is on", %{conn: conn} do
     {user, game, ql} = setup_thread("regen_ks")
-    {:ok, _} = Settings.set_asks_disabled(true)
+    {:ok, _} = RuleMaven.Flags.disable(:asks)
 
     conn = login(conn, user)
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
