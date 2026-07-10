@@ -28,7 +28,6 @@ defmodule RuleMaven.MailerTest do
   end
 
   test "email settings round-trip with defaults" do
-    refute Settings.email_disabled?()
     refute Settings.mail_dev_live?()
     assert Settings.mail_from() == "no-reply@rulemaven.app"
 

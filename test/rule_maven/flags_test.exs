@@ -35,6 +35,24 @@ defmodule RuleMaven.FlagsTest do
     assert FunWithFlags.Actor.id(u) == "user:#{u.id}"
   end
 
+  test "every tool has a matching :tool_* flag and vice versa" do
+    tool_ids = RuleMavenWeb.GameLive.ToolRegistry.ids()
+    expected_flags_for_tools = Enum.map(tool_ids, &:"tool_#{&1}")
+
+    tool_flag_ids =
+      Registry.ids()
+      |> Enum.filter(&String.starts_with?(Atom.to_string(&1), "tool_"))
+
+    missing_flags = expected_flags_for_tools -- tool_flag_ids
+    orphaned_flags = tool_flag_ids -- expected_flags_for_tools
+
+    assert missing_flags == [],
+           "tool(s) with no matching flag (would ship ungated): #{inspect(missing_flags)}"
+
+    assert orphaned_flags == [],
+           "flag(s) with no matching tool: #{inspect(orphaned_flags)}"
+  end
+
   test "an admin group override beats a disabled boolean gate" do
     {:ok, _} = Flags.disable(:tool_quiz)
     {:ok, _} = Flags.enable_for_admins(:tool_quiz)
