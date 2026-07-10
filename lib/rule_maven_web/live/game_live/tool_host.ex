@@ -154,7 +154,7 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
 
     states =
       for {id, st} <- Map.get(snap, :tool_states, %{}),
-          ToolRegistry.valid?(id),
+          ToolRegistry.visible?(id, user),
           st in [:expanded, :minimized],
           into: %{},
           do: {id, st}
@@ -660,18 +660,32 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
       nil ->
         socket
 
+      id when state == :expanded ->
+        # Opening/expanding a flagged-off tool is rejected. Closing and
+        # minimizing must always pass, or a flag flipped while a panel is open
+        # would trap it on screen.
+        if ToolRegistry.visible?(id, socket.assigns.current_user) do
+          apply_tool_state(socket, id, state)
+        else
+          socket
+        end
+
       id ->
-        single? = socket.assigns.single_panel?
-        states = set_tool_state(socket.assigns.tool_states, id, state, single?)
-
-        # A demoted window leaves the stack too, not just the id we touched.
-        order =
-          socket.assigns.tool_order
-          |> bump_order(id, state)
-          |> Enum.filter(&(states[&1] == :expanded))
-
-        assign_persist(socket, tool_states: states, tool_order: order)
+        apply_tool_state(socket, id, state)
     end
+  end
+
+  defp apply_tool_state(socket, id, state) do
+    single? = socket.assigns.single_panel?
+    states = set_tool_state(socket.assigns.tool_states, id, state, single?)
+
+    # A demoted window leaves the stack too, not just the id we touched.
+    order =
+      socket.assigns.tool_order
+      |> bump_order(id, state)
+      |> Enum.filter(&(states[&1] == :expanded))
+
+    assign_persist(socket, tool_states: states, tool_order: order)
   end
 
   # Desktop stacks tool windows: several may be :expanded at once. A phone has

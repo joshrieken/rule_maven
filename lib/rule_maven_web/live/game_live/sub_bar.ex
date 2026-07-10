@@ -26,6 +26,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, default: []
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
+  attr :current_user, :map, default: nil
   attr :has_cheatsheet, :boolean, default: false
   attr :current, :atom, default: :show, values: [:show, :community, :prepare, :review, :edit]
   attr :expansions, :list, default: []
@@ -50,6 +51,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
+        current_user={@current_user}
         has_cheatsheet={@has_cheatsheet}
         current={@current}
         expansions={@expansions}
@@ -66,6 +68,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, default: []
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
+  attr :current_user, :map, default: nil
   attr :has_cheatsheet, :boolean, default: false
   # Which page the bar is being rendered on. Drives two things: the Overview
   # link patches on :show and navigates elsewhere (patching across LiveViews
@@ -115,6 +118,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           sources={@sources}
           community_count={@community_count}
           is_admin={@is_admin}
+          current_user={@current_user}
           has_cheatsheet={@has_cheatsheet}
           current={@current}
         />
@@ -194,6 +198,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :sources, :list, default: []
   attr :community_count, :integer, default: 0
   attr :is_admin, :boolean, default: false
+  attr :current_user, :map, default: nil
   attr :has_cheatsheet, :boolean, default: false
   attr :current, :atom, default: :show, values: [:show, :community, :prepare, :review, :edit]
 
@@ -210,8 +215,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       data-tour="tools-subbar"
       style="display:inline-flex;align-items:center;gap:0.3rem;flex-shrink:0;flex-wrap:wrap"
     >
-      <.group_menu emoji="🎲" label="Play" tools={ToolRegistry.group(:play)} />
-      <.group_menu emoji="📚" label="Learn" tools={ToolRegistry.group(:learn)} />
+      <.group_menu emoji="🎲" label="Play" tools={ToolRegistry.group(:play, @current_user)} />
+      <.group_menu emoji="📚" label="Learn" tools={ToolRegistry.group(:learn, @current_user)} />
       <.more_menu
         game={@game}
         sources={@sources}

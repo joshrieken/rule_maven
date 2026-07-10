@@ -2416,6 +2416,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         sources={@sources}
         community_count={@community_count}
         is_admin={@is_admin}
+        current_user={@current_user}
         has_cheatsheet={@has_cheatsheet}
         current={:show}
         expansions={@expansions}
