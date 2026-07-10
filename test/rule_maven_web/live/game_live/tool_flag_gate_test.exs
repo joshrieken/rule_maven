@@ -55,4 +55,36 @@ defmodule RuleMavenWeb.GameLive.ToolFlagGateTest do
   after
     FunWithFlags.clear(:tool_quiz)
   end
+
+  test "a flagged-off Expansions pill is absent from the table-context strip even with a linked expansion",
+       %{conn: conn} do
+    base = published_game_fixture(%{name: "Flag Base", bgg_id: System.unique_integer([:positive])})
+    exp = published_game_fixture(%{name: "Flag Expansion", bgg_id: System.unique_integer([:positive])})
+    RuleMaven.Games.link_expansion(exp.id, base.id)
+
+    {:ok, _} = RuleMaven.Flags.disable(:tool_expansions)
+    u = user("user")
+
+    {:ok, _view, html} = conn |> login(u) |> live(~p"/games/#{base}")
+
+    refute html =~ ~s(data-testid="table-context-expansions")
+    refute html =~ ~s(phx-value-tool="expansions")
+  after
+    FunWithFlags.clear(:tool_expansions)
+  end
+
+  test "a flagged-off House-rules pill is absent from the table-context strip", %{
+    conn: conn,
+    game: game
+  } do
+    {:ok, _} = RuleMaven.Flags.disable(:tool_house_rules)
+    u = user("user")
+
+    {:ok, _view, html} = conn |> login(u) |> live(~p"/games/#{game}")
+
+    refute html =~ ~s(data-testid="table-context-house-rules")
+    refute html =~ ~s(phx-value-tool="house_rules")
+  after
+    FunWithFlags.clear(:tool_house_rules)
+  end
 end

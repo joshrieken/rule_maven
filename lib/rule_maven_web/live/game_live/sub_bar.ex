@@ -132,6 +132,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           expansions={@expansions}
           included_expansions={@included_expansions}
           house_rule_count={@house_rule_count}
+          current_user={@current_user}
         />
       </div>
       <div class="game-header-row__right">
@@ -233,6 +234,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :expansions, :list, default: []
   attr :included_expansions, :map, default: %{}
   attr :house_rule_count, :integer, default: 0
+  attr :current_user, :map, default: nil
 
   @doc """
   The table-context strip: what this user is actually playing with. Renders at
@@ -249,7 +251,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
     ~H"""
     <div class="table-context">
       <button
-        :if={@expansions != []}
+        :if={@expansions != [] and ToolRegistry.visible?(:expansions, @current_user)}
         type="button"
         data-tour="expansions"
         data-testid="table-context-expansions"
@@ -270,6 +272,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       </button>
 
       <button
+        :if={ToolRegistry.visible?(:house_rules, @current_user)}
         type="button"
         data-testid="table-context-house-rules"
         phx-click="open_tool"
