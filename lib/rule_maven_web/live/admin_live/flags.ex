@@ -38,7 +38,7 @@ defmodule RuleMavenWeb.AdminLive.Flags do
   end
 
   @impl true
-  def handle_event("grant_actor", %{"id" => id, "username" => username}, socket) do
+  def handle_event("grant_actor", %{"_id" => id, "username" => username}, socket) do
     with_admin(socket, fn ->
       flag = String.to_existing_atom(id)
       _ = Registry.fetch!(flag)
@@ -59,39 +59,62 @@ defmodule RuleMavenWeb.AdminLive.Flags do
   end
 
   @impl true
-  def handle_event("revoke_actor", %{"id" => id, "user-id" => user_id}, socket) do
+  def handle_event("revoke_actor", %{"flag" => id, "user-id" => user_id}, socket) do
     with_admin(socket, fn ->
       flag = String.to_existing_atom(id)
       _ = Registry.fetch!(flag)
 
-      case Users.get_user(String.to_integer(user_id)) do
-        nil ->
-          socket
+      case Integer.parse(user_id) do
+        {int, ""} ->
+          case Users.get_user(int) do
+            nil ->
+              socket
 
-        user ->
-          Flags.revoke_actor(flag, user)
-          Audit.log(socket.assigns.current_user, "flag.revoke_actor", target_label: id)
+            user ->
+              Flags.revoke_actor(flag, user)
+              Audit.log(socket.assigns.current_user, "flag.revoke_actor", target_label: id)
 
+              socket
+              |> assign(flags: load_flags())
+              |> put_flash(:info, "Revoked #{id} from #{user.username}.")
+          end
+
+        _ ->
           socket
-          |> assign(flags: load_flags())
-          |> put_flash(:info, "Revoked #{id} from #{user.username}.")
       end
     end)
   end
 
   @impl true
-  def handle_event("set_percentage", %{"id" => id, "percentage" => pct}, socket) do
+  def handle_event("set_percentage", %{"_id" => id, "percentage" => pct}, socket) do
+    do_set_percentage(socket, id, pct)
+  end
+
+  @impl true
+  def handle_event("set_percentage", %{"flag" => id, "percentage" => pct}, socket) do
+    do_set_percentage(socket, id, pct)
+  end
+
+  defp do_set_percentage(socket, id, pct) do
     with_admin(socket, fn ->
       flag = String.to_existing_atom(id)
       _ = Registry.fetch!(flag)
-      n = String.to_integer(pct)
 
-      Flags.set_percentage(flag, n / 100)
-      Audit.log(socket.assigns.current_user, "flag.set_percentage", target_label: "#{id}=#{n}")
+      case Integer.parse(pct) do
+        {n, ""} when n in 0..99 ->
+          Flags.set_percentage(flag, n / 100)
 
-      socket
-      |> assign(flags: load_flags())
-      |> put_flash(:info, "#{id} set to #{n}%.")
+          Audit.log(socket.assigns.current_user, "flag.set_percentage",
+            target_label: "#{id}=#{n}"
+          )
+
+          socket
+          |> assign(flags: load_flags())
+          |> put_flash(:info, "#{id} set to #{n}%.")
+
+        _ ->
+          put_flash(socket, :error, "Invalid percentage.")
+      end
     end)
   end
 
@@ -171,13 +194,13 @@ defmodule RuleMavenWeb.AdminLive.Flags do
 
               <div style="display:flex;flex-wrap:wrap;gap:1rem;margin-top:0.5rem;font-size:0.85rem">
                 <form id={"grant-#{f.id}"} phx-submit="grant_actor" style="display:flex;gap:0.35rem;align-items:center">
-                  <input type="hidden" name="id" value={f.id} />
+                  <input type="hidden" name="_id" value={f.id} />
                   <input type="text" name="username" placeholder="username" />
                   <button type="submit" class="btn-xs btn-outline">Grant</button>
                 </form>
 
                 <form id={"pct-#{f.id}"} phx-submit="set_percentage" style="display:flex;gap:0.35rem;align-items:center">
-                  <input type="hidden" name="id" value={f.id} />
+                  <input type="hidden" name="_id" value={f.id} />
                   <input type="number" name="percentage" min="1" max="99" value={pct_value(f)} style="width:4rem" />
                   <span>%</span>
                   <button type="submit" class="btn-xs btn-outline">Set</button>
@@ -186,7 +209,7 @@ defmodule RuleMavenWeb.AdminLive.Flags do
                     type="button"
                     class="btn-xs btn-secondary"
                     phx-click="set_percentage"
-                    phx-value-id={f.id}
+                    phx-value-flag={f.id}
                     phx-value-percentage="0"
                   >Clear</button>
                 </form>
@@ -200,7 +223,7 @@ defmodule RuleMavenWeb.AdminLive.Flags do
                     type="button"
                     class="btn-xs btn-remove"
                     phx-click="revoke_actor"
-                    phx-value-id={f.id}
+                    phx-value-flag={f.id}
                     phx-value-user-id={a.id}
                     title={"Revoke #{a.username}"}
                   >×</button>

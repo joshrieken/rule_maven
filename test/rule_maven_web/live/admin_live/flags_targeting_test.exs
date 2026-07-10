@@ -60,4 +60,90 @@ defmodule RuleMavenWeb.AdminLive.FlagsTargetingTest do
   after
     FunWithFlags.clear(:tool_quiz)
   end
+
+  test "forged percentage >= 100 is rejected instead of crashing", %{conn: conn} do
+    admin = user("admin")
+    {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/flags")
+
+    html =
+      view
+      |> form("#pct-tool_quiz", %{"percentage" => "150"})
+      |> render_submit()
+
+    assert html =~ "Invalid percentage."
+    assert RuleMaven.Flags.gates(:tool_quiz).percentage == nil
+  after
+    FunWithFlags.clear(:tool_quiz)
+  end
+
+  test "forged non-numeric percentage is rejected instead of crashing", %{conn: conn} do
+    admin = user("admin")
+    {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/flags")
+
+    html =
+      view
+      |> form("#pct-tool_quiz", %{"percentage" => "not-a-number"})
+      |> render_submit()
+
+    assert html =~ "Invalid percentage."
+  after
+    FunWithFlags.clear(:tool_quiz)
+  end
+
+  test "forged non-numeric revoke user-id is a no-op instead of crashing", %{conn: conn} do
+    admin = user("admin")
+    target = user("user")
+    {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/flags")
+
+    view
+    |> form("#grant-tool_quiz", %{"username" => target.username})
+    |> render_submit()
+
+    assert view
+           |> element("button[phx-value-flag=tool_quiz][phx-value-user-id='#{target.id}']")
+           |> render_click(%{"user-id" => "not-a-number"}) =~ target.username
+
+    assert RuleMaven.Flags.enabled?(:tool_quiz, target)
+  after
+    FunWithFlags.clear(:tool_quiz)
+  end
+
+  test "phx-value-id uniquely identifies the toggle even with an actor grant and a percentage set",
+       %{conn: conn} do
+    admin = user("admin")
+    target = user("user")
+    {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/flags")
+
+    view
+    |> form("#grant-tool_quiz", %{"username" => target.username})
+    |> render_submit()
+
+    view
+    |> form("#pct-tool_quiz", %{"percentage" => "30"})
+    |> render_submit()
+
+    assert view |> has_element?("button[phx-value-id=tool_quiz]")
+
+    was_on = RuleMaven.Flags.enabled?(:tool_quiz, nil)
+
+    view
+    |> element("button[phx-value-id=tool_quiz]")
+    |> render_click()
+
+    assert RuleMaven.Flags.enabled?(:tool_quiz, nil) == not was_on
+
+    assert view
+           |> has_element?("button[phx-value-flag=tool_quiz][phx-value-user-id='#{target.id}']")
+
+    view
+    |> element("button[phx-value-flag=tool_quiz][phx-value-user-id='#{target.id}']")
+    |> render_click()
+
+    # Assert on the gate directly rather than `enabled?/2`: a percentage gate is
+    # still active (30%), so `enabled?/2` can randomly return true for this user
+    # by percentage bucketing even with the actor gate cleared.
+    refute "user:#{target.id}" in RuleMaven.Flags.gates(:tool_quiz).actors
+  after
+    FunWithFlags.clear(:tool_quiz)
+  end
 end
