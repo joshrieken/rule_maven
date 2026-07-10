@@ -36,6 +36,15 @@ defmodule Mix.Tasks.RuleMaven.Flags.Sync do
 
     Enum.each(orphans, fn id -> Mix.shell().info("ORPHAN #{id} (not in registry)") end)
 
+    unless check_only? do
+      Registry.all()
+      |> Enum.filter(&Map.get(&1, :admin_bypass, false))
+      |> Enum.each(fn flag ->
+        FunWithFlags.enable(flag.id, for_group: "admin")
+        Mix.shell().info("granted admin bypass: #{flag.id}")
+      end)
+    end
+
     if check_only? and (unsynced != [] or orphans != []) do
       Mix.raise("feature-flag drift detected")
     end

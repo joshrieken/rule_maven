@@ -3,6 +3,18 @@ defmodule Mix.Tasks.RuleMaven.Flags.SyncTest do
 
   alias RuleMaven.Flags.Registry
 
+  defp create_user(prefix, attrs \\ %{}) do
+    {:ok, user} =
+      RuleMaven.Users.create_user(
+        Map.merge(
+          %{username: "#{prefix}_user", email: "#{prefix}_user@test.com", password: "password1234"},
+          attrs
+        )
+      )
+
+    user
+  end
+
   test "seeds missing flags at their defaults and is idempotent" do
     # nothing persisted yet
     {:ok, before} = FunWithFlags.all_flag_names()
@@ -26,5 +38,19 @@ defmodule Mix.Tasks.RuleMaven.Flags.SyncTest do
     assert_raise Mix.Error, fn ->
       Mix.Tasks.RuleMaven.Flags.Sync.run(["--check"])
     end
+  end
+
+  test "sync grants the :asks admin bypass declaratively" do
+    admin = create_user("fs_admin", %{role: "admin"})
+    regular = create_user("fs_regular")
+
+    {:ok, _} = RuleMaven.Flags.disable(:asks)
+
+    Mix.Tasks.RuleMaven.Flags.Sync.run([])
+
+    assert RuleMaven.Flags.enabled?(:asks, admin)
+    refute RuleMaven.Flags.enabled?(:asks, regular)
+  after
+    FunWithFlags.clear(:asks)
   end
 end

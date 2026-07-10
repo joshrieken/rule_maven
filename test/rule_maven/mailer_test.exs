@@ -1,5 +1,5 @@
 defmodule RuleMaven.MailerTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: false
 
   import Swoosh.TestAssertions
 
@@ -20,7 +20,8 @@ defmodule RuleMaven.MailerTest do
   end
 
   test "kill switch skips delivery but succeeds" do
-    {:ok, _} = Settings.set_email_disabled(true)
+    {:ok, _} = RuleMaven.Flags.disable(:outbound_email)
+    on_exit(fn -> FunWithFlags.clear(:outbound_email) end)
 
     assert {:ok, :email_disabled} = Mailer.deliver_email(email())
     assert_no_email_sent()

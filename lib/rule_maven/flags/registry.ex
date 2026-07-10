@@ -30,7 +30,13 @@ defmodule RuleMaven.Flags.Registry do
                   do: %{id: :"tool_#{t}", label: @tool_labels[t], kind: :ops, default: true}
 
   @kill_switches [
-    %{id: :asks, label: "Question answering (LLM asks)", kind: :ops, default: true},
+    %{
+      id: :asks,
+      label: "Question answering (LLM asks)",
+      kind: :ops,
+      default: true,
+      admin_bypass: true
+    },
     %{id: :outbound_email, label: "Outbound email", kind: :ops, default: true}
   ]
 
