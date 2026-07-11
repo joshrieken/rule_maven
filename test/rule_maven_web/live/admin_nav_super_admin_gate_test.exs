@@ -21,10 +21,16 @@ defmodule RuleMavenWeb.AdminNavSuperAdminGateTest do
     user
   end
 
+  @superadmin_paths ~w(
+    /admin/llm /admin/bgg /admin/security /admin/flags
+    /admin/embeddings /admin/automation /admin/prompts /admin/db
+    /oban
+  )
+
   test "regular admin's nav omits super-admin-only pages", %{conn: conn} do
     {:ok, _lv, html} = login(conn, admin()) |> live(~p"/admin/health")
 
-    for path <- ~w(/admin/llm /admin/bgg /admin/security /admin/flags) do
+    for path <- @superadmin_paths do
       refute html =~ ~s|href="#{path}"|, "#{path} should not be linked for a regular admin"
     end
   end
