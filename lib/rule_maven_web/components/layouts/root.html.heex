@@ -109,7 +109,7 @@
               <.link href={~p"/admin"} class="nav-link">Dashboard</.link>
               <details class="user-dropdown">
                 <summary class="user-dropdown-toggle nav-link">Admin</summary>
-                <div class="user-dropdown-menu" style="left:0;right:auto;min-width:160px">
+                <div class="user-dropdown-menu" style="left:0;right:auto;min-width:160px;max-height:22rem;overflow-y:auto">
                   <div class="user-dropdown-section">Review</div>
                   <.link href={~p"/admin/questions"} class="user-dropdown-link">Questions</.link>
                   <.link href={~p"/admin/moderation"} class="user-dropdown-link">Moderation</.link>
@@ -120,7 +120,7 @@
                   <.link href={~p"/admin/invites"} class="user-dropdown-link">Invites</.link>
                   <.link href={~p"/admin/catalog"} class="user-dropdown-link">Catalog</.link>
                   <.link href={~p"/admin/requests"} class="user-dropdown-link">Requests</.link>
-                  <div class="user-dropdown-section">AI &amp; Integrations</div>
+                  <div :if={RuleMaven.Users.can?(me, :superadmin)} class="user-dropdown-section">AI &amp; Integrations</div>
                   <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/llm"} class="user-dropdown-link">LLM Provider</.link>
                   <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/embeddings"} class="user-dropdown-link">Embeddings &amp; Proxy</.link>
                   <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/automation"} class="user-dropdown-link">Automation</.link>
@@ -268,7 +268,7 @@
             <.link href={~p"/admin/invites"} class="drawer-link">Invite Codes</.link>
             <.link href={~p"/admin/catalog"} class="drawer-link">Game Catalog</.link>
             <.link href={~p"/admin/requests"} class="drawer-link">Support Requests</.link>
-            <div class="drawer-section">AI &amp; Integrations</div>
+            <div :if={RuleMaven.Users.can?(me, :superadmin)} class="drawer-section">AI &amp; Integrations</div>
             <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/llm"} class="drawer-link">LLM Provider</.link>
             <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/embeddings"} class="drawer-link">Embeddings &amp; Proxy</.link>
             <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/automation"} class="drawer-link">Automation</.link>
