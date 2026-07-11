@@ -37,6 +37,8 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:ok,
      assign(socket,
        is_admin: RuleMaven.Users.can?(socket.assigns.current_user, :admin),
+       my_groups: [],
+       active_group_id: nil,
        # Per-page-load seed (set by the :put_dyk_seed plug). Identical across the
        # dead render and the connected mount, so the "Did you know?" card picks
        # the same fact on both; re-rolls on a real refresh.
@@ -315,6 +317,25 @@ defmodule RuleMavenWeb.GameLive.Show do
     # Tool data + window state load once per mount (seeded_before gates first
     # vs later handle_params) — a thread patch must not reset open windows.
     socket = if seeded_before, do: socket, else: ToolHost.mount_tools(socket, game)
+
+    # Active-group selector (sticky per {user, game}): loaded once per mount,
+    # same seeded_before gate as the tool windows above — a thread patch must
+    # not re-derive it. Stickiness only honors a stashed group the user is
+    # still a member of (they may have been removed since the last visit).
+    socket =
+      if seeded_before do
+        socket
+      else
+        my_groups = RuleMaven.Groups.list_for_user(socket.assigns.current_user)
+
+        sticky =
+          RuleMaven.TableSession.get(socket.assigns.current_user.id, game.id)[:active_group_id]
+
+        active_group_id =
+          if sticky && Enum.any?(my_groups, &(&1.id == sticky)), do: sticky, else: nil
+
+        assign(socket, my_groups: my_groups, active_group_id: active_group_id)
+      end
 
     # Restyle the just-loaded thread's answers to the current voice (switching
     # threads, ?t navigation, reload). No-op on first mount where the default is
@@ -662,6 +683,32 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def handle_event("toggle_refused", _params, socket) do
     {:noreply, assign(socket, show_refused: !socket.assigns.show_refused)}
+  end
+
+  # Sticky active-group selector in the sub-bar: "" (or a missing/garbage/
+  # not-a-member token) always resolves to nil ("Just me") — `phx-value-*` is
+  # client-controlled, so the group must be re-verified server-side via
+  # `member?/2` rather than trusted from the token alone.
+  def handle_event("set_active_group", %{"group" => token}, socket) do
+    user = socket.assigns.current_user
+
+    group_id =
+      case token do
+        "" ->
+          nil
+
+        t ->
+          case RuleMaven.Groups.get_group_by_token(t) do
+            %{} = group -> if RuleMaven.Groups.member?(user, group), do: group.id, else: nil
+            nil -> nil
+          end
+      end
+
+    game = socket.assigns.game
+    snap = RuleMaven.TableSession.get(user.id, game.id)
+    RuleMaven.TableSession.put(user.id, game.id, Map.put(snap, :active_group_id, group_id))
+
+    {:noreply, assign(socket, :active_group_id, group_id)}
   end
 
   # Table tools (window state, quiz, turn wizard, checklist, house rules) are
@@ -2426,6 +2473,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         expansions={@expansions}
         included_expansions={@included_expansions}
         house_rule_count={length(@house_rules)}
+        my_groups={@my_groups}
+        active_group_id={@active_group_id}
       >
         <%!-- Sidebar toggle: kept first so it is the leftmost control on
               whichever row this group wraps onto on narrow screens. The
