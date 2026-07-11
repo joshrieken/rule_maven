@@ -99,4 +99,24 @@ defmodule RuleMaven.Settings do
 
   @doc "Sets the Resend API key. Blank clears the DB override, falling back to env."
   def set_resend_api_key(key) when is_binary(key), do: put("resend_api_key", String.trim(key))
+
+  @doc """
+  Base URL used to build links in outbound email (password reset,
+  confirmation, group invites sent by mail, etc). DB value (admin-editable)
+  takes priority over the `:public_url` app config (PUBLIC_URL env var /
+  PHX_HOST fallback in prod) so ops can repoint mail links without a deploy.
+  No trailing slash.
+  """
+  def public_url do
+    case get("public_url") do
+      nil -> Application.fetch_env!(:rule_maven, :public_url)
+      "" -> Application.fetch_env!(:rule_maven, :public_url)
+      url -> url
+    end
+  end
+
+  @doc "Sets the public URL. Blank clears the DB override, falling back to app config."
+  def set_public_url(url) when is_binary(url) do
+    put("public_url", url |> String.trim() |> String.trim_trailing("/"))
+  end
 end

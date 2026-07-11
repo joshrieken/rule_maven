@@ -101,11 +101,12 @@ defmodule RuleMavenWeb do
 
   @doc """
   Builds an absolute URL for links sent in outbound email (password reset,
-  confirmation, etc). Backed by its own `:public_url` config so mail links
-  can point at a different host than the one the app is served on.
+  confirmation, etc). Backed by `RuleMaven.Settings.public_url/0` (admin-
+  editable, falls back to the `:public_url` app config) so mail links can
+  point at a different host than the one the app is served on.
   """
   def public_url(path) do
-    Application.fetch_env!(:rule_maven, :public_url) <> path
+    RuleMaven.Settings.public_url() <> path
   end
 
   def verified_routes do

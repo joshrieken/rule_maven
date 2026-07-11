@@ -14,6 +14,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
          asks_disabled: not RuleMaven.Flags.enabled?(:asks),
          email_disabled: not RuleMaven.Flags.enabled?(:outbound_email),
          mail_from: Settings.mail_from(),
+         public_url: Settings.public_url(),
          mail_dev_live: Settings.mail_dev_live?(),
          resend_key_set: Settings.resend_api_key() != nil,
          dev_routes: Application.get_env(:rule_maven, :dev_routes, false)
@@ -116,6 +117,27 @@ defmodule RuleMavenWeb.AdminLive.Index do
   end
 
   @impl true
+  def handle_event("save_public_url", %{"public_url" => url}, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      url = String.trim(url)
+
+      if url =~ ~r"^https?://[^\s]+$" do
+        Settings.set_public_url(url)
+        Audit.log(socket.assigns.current_user, "email.set_public_url", metadata: %{public_url: url})
+
+        {:noreply,
+         socket
+         |> assign(public_url: Settings.public_url())
+         |> put_flash(:info, "Public URL saved.")}
+      else
+        {:noreply, put_flash(socket, :error, "Enter a valid URL (http:// or https://).")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
+  @impl true
   def handle_event("save_mail_from", %{"mail_from" => from}, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
       from = String.trim(from)
@@ -202,6 +224,25 @@ defmodule RuleMavenWeb.AdminLive.Index do
             name="mail_from"
             type="email"
             value={@mail_from}
+            style="flex:1;min-width:12rem;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--bg);color:var(--text)"
+          />
+          <button type="submit" class="btn-sm btn-outline" style="flex-shrink:0">Save</button>
+        </form>
+
+        <form
+          id="public-url-form"
+          phx-submit="save_public_url"
+          style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.6rem"
+        >
+          <label for="public_url" style="font-size:0.75rem;color:var(--text-muted);flex-shrink:0">
+            Public URL (email links)
+          </label>
+          <input
+            id="public_url"
+            name="public_url"
+            type="text"
+            value={@public_url}
+            placeholder="https://rulemaven.app"
             style="flex:1;min-width:12rem;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--bg);color:var(--text)"
           />
           <button type="submit" class="btn-sm btn-outline" style="flex-shrink:0">Save</button>
