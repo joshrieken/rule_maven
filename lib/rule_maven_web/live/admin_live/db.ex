@@ -427,8 +427,13 @@ defmodule RuleMavenWeb.AdminLive.Db do
   # text that is never user prose, PII, or a secret. Keep this tight — when in
   # doubt, leave a column out and let it mask (fail closed); superadmin can still
   # read it.
+  # NB: `name` is deliberately NOT here. It reads safe (game/category titles) until
+  # you hit `groups.name` — a user-authored crew name that routinely embeds real
+  # people ("Dave & Mike's Catan Night"). A bare column-name allowlist can't tell
+  # the two apart, so `name` masks for a plain admin like any other free text; a
+  # game title is one superadmin (or dedicated Games panel) away.
   @always_safe_columns ~w(
-    id name slug username role status kind type action target_type
+    id slug username role status kind type action target_type
     visibility verdict error_kind stage llm_provider llm_model provider model voice
   )
 

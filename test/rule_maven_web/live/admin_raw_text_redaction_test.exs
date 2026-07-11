@@ -43,10 +43,13 @@ defmodule RuleMavenWeb.AdminRawTextRedactionTest do
       assert ^rows = Db.__redact_for_test__(rows, "questions_log", true)
     end
 
-    test "a non-sensitive table is untouched for a plain admin" do
+    test "scalar columns show for a plain admin; free-text ones mask (default-deny)" do
+      # `id` (integer) is shown by type; `name` (text) masks — a game title reads
+      # harmless but the same bare column name is `groups.name`, a crew name that
+      # can carry real people, so default-deny masks all `name` columns.
       rows = [%{"id" => 1, "name" => "Catan"}]
 
-      assert ^rows = Db.__redact_for_test__(rows, "games", false)
+      assert [%{"id" => 1, "name" => "«redacted»"}] = Db.__redact_for_test__(rows, "games", false)
     end
 
     test "a nil value is left nil, not masked" do
@@ -100,11 +103,12 @@ defmodule RuleMavenWeb.AdminRawTextRedactionTest do
     end
 
     test "masks groups.invite_code — reading it lets an admin join the crew" do
-      rows = [%{"id" => 1, "name" => "Poker Night", "invite_code" => "SECRETJOINCODE"}]
+      rows = [%{"id" => 1, "name" => "Dave & Mike's Catan Night", "invite_code" => "SECRETJOINCODE"}]
 
       masked = Db.__redact_for_test__(rows, "groups", false)
 
-      assert [%{"invite_code" => "«redacted»", "name" => "Poker Night", "id" => 1}] = masked
+      # Both the join secret AND the crew name (which can carry real people) mask.
+      assert [%{"invite_code" => "«redacted»", "name" => "«redacted»", "id" => 1}] = masked
     end
 
     test "masks question_flags.reason — reporter free-text can name real people" do
