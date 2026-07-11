@@ -258,24 +258,28 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
 
   test "Ask exactly this cannot launder a crew question into the public pool", ctx do
     # The laundering path: the re-ask took its TEXT from the old crew row but its
-    # group_id from the socket's CURRENT selector. So: ask in the crew, flip the
-    # selector back to "Just me", click "Ask exactly this" on your own answer —
-    # and the crew's unscreened wording lands in a group_id: nil, browsable: true
-    # row that the public Unverified tab lists verbatim.
+    # group_id from the socket's CURRENT context. Once the asker has LEFT the crew
+    # the group_id cannot be carried across at all, so the new row lands
+    # group_id: nil while still carrying the crew's raw, never-screened wording.
+    #
+    # The crew is owned by someone else here precisely so the asker can be removed
+    # from it — that is what makes group_id un-carryable and arms the bug.
+    crew = group_fixture(ctx.outsider)
+    {:ok, _} = RuleMaven.Groups.join_by_code(ctx.member, crew.invite_code)
+
     start_supervised!(
       {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
     )
 
-    q = group_row!(ctx.game, ctx.member, ctx.group, %{})
+    q = group_row!(ctx.game, ctx.member, crew, %{})
+
+    {:ok, _} = RuleMaven.Groups.remove_member(ctx.outsider, crew, ctx.member.id)
 
     {:ok, view, _html} =
       live(
         login(build_conn(), ctx.member),
         ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
       )
-
-    # Back to "Just me" — the crew is no longer the active ask context.
-    view |> element("[phx-value-group='']") |> render_click()
 
     render_click(view, "ask_exactly", %{"id" => to_string(q.id)})
 
@@ -284,10 +288,72 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
       |> Repo.get_by(question: @raw, answer: "Thinking...")
 
     assert reasked, "precondition: the verbatim re-ask row was created"
+    assert is_nil(reasked.group_id), "precondition: the crew could not be carried across"
 
     refute reasked.browsable,
-           "a re-ask carrying the crew's raw wording was published as browsable"
+           "a re-ask carrying the crew's raw wording was inserted as browsable"
 
-    assert QuestionLog.listed_question(reasked) == "(question withheld)"
+    # Asserting on the "Thinking..." row is NOT enough, and an earlier version of
+    # this test made exactly that mistake: AskWorker rewrites `browsable` when the
+    # answer lands, and its unconditional `browsable: is_nil(group_id)` re-opened
+    # the row moments later — the insert-time gate above passed while the shipped
+    # behaviour still published the crew's raw wording. Run the worker.
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      {:ok, %{answer: "Yes, on a failed roll.", finish_reason: "stop"}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    RuleMaven.Workers.AskWorker.perform(%Oban.Job{
+      id: nil,
+      args: %{
+        "game_id" => ctx.game.id,
+        "question_log_id" => reasked.id,
+        "question" => reasked.question,
+        "user_id" => ctx.member.id,
+        "skip_normalize" => true,
+        "skip_pool" => true
+      }
+    })
+
+    answered = Repo.get(RuleMaven.Games.QuestionLog, reasked.id)
+
+    refute answered.browsable,
+           "AskWorker re-opened the laundered row when the answer landed"
+
+    assert QuestionLog.listed_question(answered) == "(question withheld)"
+  end
+
+  test "a CLEARED crew row's raw wording still cannot be re-asked into the pool", ctx do
+    # browsable: true means the screen passed the row's SCRUBBED text. The raw
+    # column is precisely what the scrub removed — so inheriting `browsable` from
+    # the source row (rather than its crew provenance) would wave through exactly
+    # the wording a screen has already judged unsafe to publish.
+    crew = group_fixture(ctx.outsider)
+    {:ok, _} = RuleMaven.Groups.join_by_code(ctx.member, crew.invite_code)
+
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
+    q = group_row!(ctx.game, ctx.member, crew, %{browsable: true})
+
+    {:ok, _} = RuleMaven.Groups.remove_member(ctx.outsider, crew, ctx.member.id)
+
+    {:ok, view, _html} =
+      live(
+        login(build_conn(), ctx.member),
+        ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
+      )
+
+    render_click(view, "ask_exactly", %{"id" => to_string(q.id)})
+
+    reasked = Repo.get_by(RuleMaven.Games.QuestionLog, question: @raw, answer: "Thinking...")
+
+    assert reasked
+    assert is_nil(reasked.group_id), "precondition: the crew could not be carried across"
+
+    refute reasked.browsable,
+           "the raw wording behind a CLEARED crew row was published verbatim"
   end
 end

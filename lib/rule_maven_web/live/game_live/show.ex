@@ -1832,10 +1832,18 @@ defmodule RuleMavenWeb.GameLive.Show do
             do: source_group_id,
             else: live_group_id(socket)
 
-        # Belt and braces: even where the group_id can't be carried over (the
-        # user has since left the crew), text derived from an uncleared row stays
-        # uncleared.
-        browsable = is_nil(group_id) and (is_nil(old_q) or old_q.browsable)
+        # Even where the group_id can't be carried over (the user has since left
+        # the crew), text derived from a crew row stays unpublished.
+        #
+        # The inherited axis is crew PROVENANCE (`old_q.group_id`), not crew
+        # CLEARANCE (`old_q.browsable`). A cleared crew row is browsable because
+        # the screen passed its SCRUBBED text — while a verbatim re-ask copies the
+        # RAW column, which is precisely what the scrub removed. Inheriting
+        # `browsable` would therefore wave through exactly the rows whose raw text
+        # a screen has already judged unsafe to publish.
+        browsable =
+          is_nil(group_id) and
+            (is_nil(old_q) or (is_nil(old_q.group_id) and old_q.browsable))
 
         case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
                game_id: game.id,

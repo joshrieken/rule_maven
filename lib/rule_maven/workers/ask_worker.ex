@@ -374,7 +374,17 @@ defmodule RuleMaven.Workers.AskWorker do
                     # PublishCheckWorker clears it. A non-group row is browsable, as
                     # it always has been. `group_id` folds in the ROW's column, so a
                     # re-queue with no "group_id" arg can't publish a group row.
-                    browsable: is_nil(group_id)
+                    #
+                    # `and ql.browsable` — this worker may only ever NARROW the flag,
+                    # never widen it. The insert already decided publishability with
+                    # context this worker does not have: a verbatim re-ask carries the
+                    # crew's RAW text into a row whose group_id could not be carried
+                    # across (the asker left the crew), and `retract_contributions/1`
+                    # closes rows whose group_id is then nilified. In both cases
+                    # `is_nil(group_id)` is true here, and an unconditional write
+                    # would re-open the row the moment the answer landed — silently
+                    # undoing the insert-time gate and every retraction.
+                    browsable: is_nil(group_id) and ql.browsable
                   }
 
                   case Games.log_question_update(ql, update_attrs) do

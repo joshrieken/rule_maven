@@ -100,8 +100,18 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
   end
 
   defp promote(best) do
+    # The `browsable` filter is re-asserted HERE, not just in the candidate read.
+    # `retract_contributions/1` (set_contribute(false), delete_group/2) can commit
+    # between the two, and a bare update would then land the row in
+    # `visibility: "community"` with `browsable: false` — a state every other gate
+    # exists to prevent, and one the community browse surfaces (which list on
+    # visibility alone) would happily publish.
     Repo.update_all(
-      from(q in QuestionLog, where: q.id == ^best.id),
+      from(q in QuestionLog,
+        where: q.id == ^best.id,
+        where: q.browsable == true,
+        where: q.visibility != "community"
+      ),
       set: [visibility: "community", pooled: true]
     )
 

@@ -45,12 +45,19 @@ defmodule RuleMaven.Groups do
   @doc """
   Whether a group contributes its answers to the community cache. `true` for a
   nil group_id — a non-group ask always contributes, as it always has.
+
+  A group_id that no longer resolves means the crew was DELETED while this ask
+  was in flight (AskWorker's `group_id` can come from the Oban arg, which
+  outlives the row's nilified column). That must fail CLOSED: defaulting to
+  `true` there would pool the answer of a crew that had contribution switched
+  off, seconds after `delete_group/2` explicitly retracted everything it had
+  ever shared.
   """
   def contribute_to_community?(nil), do: true
 
   def contribute_to_community?(group_id) do
     case Repo.get(Group, group_id) do
-      nil -> true
+      nil -> false
       group -> group.contribute_to_community
     end
   end
@@ -550,6 +557,10 @@ defmodule RuleMaven.Groups do
 
       case candidates do
         [] ->
+          # Same retraction delete_group/2 does, and for the same reason: the
+          # delete nilifies questions_log.group_id, so the rows must be closed
+          # while they can still be found.
+          retract_contributions(%Group{id: group_id})
           Repo.delete_all(from g in Group, where: g.id == ^group_id)
 
         [heir | _] ->

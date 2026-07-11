@@ -124,6 +124,13 @@ defmodule RuleMavenWeb.GroupLive.Show do
            :error,
            "You don't have permission to change the community contribution setting."
          )}
+
+      # set_contribute/3 runs in a transaction and can roll back with a changeset;
+      # matching only {:ok, _} and :forbidden killed the LiveView with a
+      # CaseClauseError.
+      {:error, _changeset} ->
+        {:noreply,
+         put_flash(socket, :error, "Couldn't change the community contribution setting.")}
     end
   end
 

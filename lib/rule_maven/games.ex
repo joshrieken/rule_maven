@@ -4493,7 +4493,7 @@ defmodule RuleMaven.Games do
       # may not self-downvote: regen and "not my question" already cover the
       # negative case. Admins may cast either for seeding/curation.
       q.user_id == user_id and value == "down" and not admin? -> {:error, :self_vote}
-      not votable?(q) -> {:error, :not_votable}
+      not votable?(q, user_id) -> {:error, :not_votable}
       settled_vote?(question_log_id, user_id) -> {:error, :settled}
       true -> do_set_community_vote(q, user_id, value, admin?)
     end
@@ -4514,15 +4514,34 @@ defmodule RuleMaven.Games do
     end
   end
 
-  # A row is votable only if it can actually surface to other users: community
+  # A row is votable only if it can actually surface to the VOTER: community
   # rows (browse/FAQ) or pooled rows (served as fast-path answers). This blocks
-  # voting on rows that never surface — e.g. arbitrary private rows by id (IDOR).
+  # voting on rows that never surface to them — e.g. arbitrary private rows by
+  # id (IDOR).
   #
   # A pooled row must also be `browsable`: an unbrowsable GROUP row is pooled
   # (its answer feeds the cache anonymously) but its question text is not
-  # public, so a non-member must not be able to vote on it by id.
-  defp votable?(%QuestionLog{} = q) do
-    q.visibility == "community" or (q.pooled and q.browsable)
+  # public, so a STRANGER must not be able to vote on it by id.
+  #
+  # The two people who can already see such a row may still vote on it, and must
+  # — the Helpful thumb renders on every answer, and a crew row is unbrowsable by
+  # construction, so gating them out made the crew's most common interaction a
+  # button that always errored ("This answer isn't open for voting"):
+  #
+  #   * the ASKER, whose thumb is a weight-0 self-confirmation (it never moves
+  #     trust, reputation or promotion quorum — see do_set_community_vote/4);
+  #   * a fellow CREW MEMBER, who reads that row in the crew feed already. This
+  #     opens no farming vector a crew doesn't have without one: promotion needs
+  #     `browsable`, and colluding upvotes are the vote-ring problem moderation
+  #     already handles, crew or no crew.
+  defp votable?(%QuestionLog{} = q, user_id) do
+    cond do
+      q.visibility == "community" -> true
+      q.pooled and q.browsable -> true
+      not is_nil(q.user_id) and q.user_id == user_id -> true
+      not is_nil(q.group_id) -> RuleMaven.Groups.member_of_group_id?(user_id, q.group_id)
+      true -> false
+    end
   end
 
   defp do_set_community_vote(%QuestionLog{id: question_log_id} = q, user_id, value, admin?) do

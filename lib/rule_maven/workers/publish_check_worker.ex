@@ -27,8 +27,24 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
   alias RuleMaven.Games.QuestionLog
   alias RuleMaven.{Jobs, LLM, Prompts, Repo}
 
+  @doc """
+  Queue the publish screen for a crew row.
+
+  Skipped when no Oban instance is actually RUNNING — not when
+  `config[:testing] == :manual`. That config value is set for the whole test env
+  regardless of whether a given test starts its own named instance, so the
+  config-keyed guard made this a no-op in EVERY test: the one seam the entire
+  gate hangs from (a crew question can only ever become browsable through here)
+  could have been deleted outright with the suite still green. Keyed on the live
+  instance instead, a test that starts Oban exercises the real enqueue and one
+  that doesn't still skips it.
+
+  Note `Oban.Registry.whereis/1`, not `Process.whereis/1` — Oban registers
+  through its own Registry, so the plain process lookup is always nil and would
+  disable this call everywhere.
+  """
   def enqueue(question_log_id) do
-    if Application.get_env(:rule_maven, Oban)[:testing] == :manual do
+    if is_nil(Oban.Registry.whereis(Oban)) do
       :ok
     else
       %{question_log_id: question_log_id} |> new() |> Oban.insert()
@@ -82,6 +98,13 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
         system: system,
         operation: "publish_check",
         question_log_id: ql.id,
+        # Attributed to the asker so the call shows up in cost reporting. It is
+        # the one recurring LLM charge this feature adds, and with a nil user_id
+        # it was billed to nobody and invisible to every per-user cost view.
+        # (It stays exempt from the ASK quota, which counts operation == "ask" —
+        # the user didn't buy this call, we did.)
+        user_id: ql.user_id,
+        game_id: ql.game_id,
         raw: true
       )
 
