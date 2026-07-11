@@ -17,7 +17,7 @@ defmodule RuleMavenWeb.RoleBadgeTest do
       Users.create_user(%{
         username: "rb#{n}",
         email: "rb#{n}@example.com",
-        password: "password",
+        password: "password1234",
         role: "user"
       })
 

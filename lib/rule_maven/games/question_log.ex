@@ -123,5 +123,8 @@ defmodule RuleMaven.Games.QuestionLog do
     ])
     |> validate_required([:question, :answer, :game_id])
     |> validate_inclusion(:visibility, ~w(private community))
+    |> validate_length(:question, max: 5_000)
+    |> validate_length(:answer, max: 20_000)
+    |> validate_length(:cited_passage, max: 20_000)
   end
 end

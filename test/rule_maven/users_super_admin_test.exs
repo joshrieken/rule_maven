@@ -11,7 +11,7 @@ defmodule RuleMaven.UsersSuperAdminTest do
       Users.create_user(%{
         username: "u#{n}",
         email: "u#{n}@example.com",
-        password: "password",
+        password: "password1234",
         role: "user"
       })
 
@@ -51,7 +51,7 @@ defmodule RuleMaven.UsersSuperAdminTest do
                Users.create_user(%{
                  username: "x#{n}",
                  email: "x#{n}@example.com",
-                 password: "password",
+                 password: "password1234",
                  role: "super_admin"
                })
 

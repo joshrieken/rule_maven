@@ -544,6 +544,56 @@ defmodule RuleMaven.RulebookDownloader do
   end
 
   defp fetch_pdf(url) do
+    with :ok <- validate_fetch_url(url) do
+      do_fetch_pdf(url)
+    end
+  end
+
+  # Admins can point the downloader at any URL, and it runs server-side with
+  # redirects on — without a scheme/host check that's an SSRF primitive
+  # (internal services, cloud metadata endpoints). Restrict to plain http(s)
+  # and reject loopback/private/link-local targets up front. Req still
+  # follows redirects after this check, so a public host that redirects
+  # internally is not covered — acceptable residual risk for an admin-only tool.
+  defp validate_fetch_url(url) do
+    uri = URI.parse(url)
+
+    cond do
+      uri.scheme not in ["http", "https"] ->
+        {:error, "URL must use http or https"}
+
+      is_nil(uri.host) or uri.host == "" ->
+        {:error, "URL must include a host"}
+
+      private_or_loopback_host?(uri.host) ->
+        {:error, "URL host is not allowed"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp private_or_loopback_host?(host) do
+    host = String.downcase(host)
+
+    host in ["localhost", "0.0.0.0"] or
+      String.ends_with?(host, ".local") or
+      case :inet.parse_address(String.to_charlist(host)) do
+        {:ok, ip} -> private_or_loopback_ip?(ip)
+        {:error, _} -> false
+      end
+  end
+
+  defp private_or_loopback_ip?({127, _, _, _}), do: true
+  defp private_or_loopback_ip?({10, _, _, _}), do: true
+  defp private_or_loopback_ip?({169, 254, _, _}), do: true
+  defp private_or_loopback_ip?({192, 168, _, _}), do: true
+  defp private_or_loopback_ip?({172, b, _, _}) when b >= 16 and b <= 31, do: true
+  defp private_or_loopback_ip?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
+  defp private_or_loopback_ip?(ip) when tuple_size(ip) == 8, do: elem(ip, 0) in [0xFC00, 0xFD00, 0xFE80]
+  defp private_or_loopback_ip?(_), do: false
+
+  defp do_fetch_pdf(url) do
     opts = [
       max_retries: 1,
       connect_options: [timeout: @fetch_connect_timeout],
