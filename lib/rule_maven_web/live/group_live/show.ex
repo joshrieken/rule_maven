@@ -94,7 +94,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
     group = socket.assigns.group
 
     if Groups.role_at_least?(actor, group, :admin) do
-      case Groups.set_invite_active(group, !group.invite_active) do
+      case Groups.set_invite_active(actor, group, !group.invite_active) do
         {:ok, _group} ->
           {:noreply, load_group(socket)}
 
@@ -168,7 +168,10 @@ defmodule RuleMavenWeb.GroupLive.Show do
 
     with {:ok, id} <- parse_user_id(user_id),
          {:ok, :removed} <- Groups.remove_member(actor, group, id) do
-      {:noreply, socket |> put_flash(:info, "Member removed.") |> load_group()}
+      {:noreply,
+       socket
+       |> put_flash(:info, "Member removed. The invite link has been reset — share the new one.")
+       |> load_group()}
     else
       {:error, reason} -> {:noreply, put_flash(socket, :error, error_message(reason))}
     end
@@ -359,7 +362,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
                 type="button"
                 phx-click="remove_member"
                 phx-value-user_id={m.user_id}
-                data-confirm={"Remove #{m.username} from #{@group.name}?"}
+                data-confirm={"Remove #{m.username} from #{@group.name}?\n\nThis also resets the invite link — otherwise they could just use it again. You'll need to re-share the new link with everyone else."}
                 class="btn-danger-outline btn-xs"
               >
                 Remove

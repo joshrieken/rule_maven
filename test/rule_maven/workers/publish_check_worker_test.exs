@@ -232,5 +232,103 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
     test "a nonexistent row is a no-op" do
       assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => -1})
     end
+
+    # `pooled` is not consent. It is a flag the ask pipeline rewrites — AskWorker
+    # re-pools a row off a `never_pool` value it read minutes earlier, so a
+    # retraction could land, be undone, and this worker would find `pooled: true`
+    # and publish the text of a question the crew had explicitly withdrawn. The
+    # gate asks the group directly now.
+    test "a row whose crew has stopped contributing does not publish" do
+      stub_llm("no")
+
+      owner = user_fixture()
+      group = group_fixture(owner)
+
+      ql =
+        question_fixture(
+          group_id: group.id,
+          pooled: true,
+          browsable: false,
+          cleaned_question: "May a player retract a move?"
+        )
+
+      {:ok, _} = RuleMaven.Groups.set_contribute(group, owner, false)
+
+      # Put the row back into the state the OLD guard would have published on:
+      # pooled, unbrowsable, no retraction stamp. Only the group's live consent
+      # flag now stands between it and the public browse.
+      Repo.update_all(
+        from(q in RuleMaven.Games.QuestionLog, where: q.id == ^ql.id),
+        set: [pooled: true, browsable: false, retracted_at: nil]
+      )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+
+      refute Repo.reload!(ql).browsable,
+             "published a crew question after the crew turned contribution off"
+    end
+
+    # The withdrawal stamp is checked before the LLM call, so a row retracted while
+    # the job sat in the queue costs nothing to reject.
+    test "a retracted row does not publish, and is not even screened" do
+      Application.put_env(:rule_maven, :llm_mock, fn _body ->
+        flunk("paid for a privacy screen on a row the crew had already withdrawn")
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      owner = user_fixture()
+      group = group_fixture(owner)
+
+      ql =
+        question_fixture(
+          group_id: group.id,
+          pooled: true,
+          browsable: false,
+          cleaned_question: "May a player retract a move?"
+        )
+
+      {:ok, _} = RuleMaven.Groups.set_contribute(group, owner, false)
+
+      # Retracted, but still flagged pooled — the pre-round-6 shape.
+      Repo.update_all(
+        from(q in RuleMaven.Games.QuestionLog, where: q.id == ^ql.id),
+        set: [pooled: true]
+      )
+
+      assert Repo.reload!(ql).retracted_at
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      refute Repo.reload!(ql).browsable
+    end
+
+    # `also_asked` is the asker's VERBATIM prose — the answer prompt asks for "the
+    # exact text of the additional questions". It sits outside the
+    # question/cleaned/canonical triad every other gate mediates, and nothing had
+    # ever screened it. A row could clear this check on a scrubbed primary question
+    # while its raw secondary one went straight to the public browse.
+    test "a name in also_asked withholds the row even when the primary text is clean" do
+      # "yes" for anything mentioning a person — the real prompt's job. The stub
+      # answers on the blob the worker actually submits.
+      Application.put_env(:rule_maven, :llm_mock, fn body ->
+        text = inspect(body)
+        reply = if String.contains?(text, "Persephone"), do: "yes", else: "no"
+        {:ok, %{answer: "", raw_response: reply, finish_reason: "stop"}}
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "May a player retract a move?",
+          also_asked: ["and does Persephone's house rule break the endgame?"],
+          browsable: false
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+
+      refute Repo.reload!(ql).browsable,
+             "published a row whose also_asked names someone — the screen never saw it"
+    end
   end
 end

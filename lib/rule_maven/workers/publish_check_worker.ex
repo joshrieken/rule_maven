@@ -76,6 +76,11 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
       String.trim(cleaned) == "" ->
         :ok
 
+      # Withdrawn while this job sat in the queue — don't pay for a screen whose
+      # result the update guard would throw away anyway.
+      not is_nil(ql.retracted_at) ->
+        :ok
+
       # The normalize step FALLS BACK to the raw question on any failure — a 429,
       # a timeout, or a rewrite `accept_normalized?/2` rejects — and that fallback
       # is what lands in `cleaned_question` (see LLM.normalize_question/4). So a
@@ -106,7 +111,19 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
       )
 
     system = Prompts.template("publish_check_system")
-    prompt = Prompts.render("publish_check", %{question: cleaned})
+
+    # `also_asked` is screened WITH the primary text, and one "yes" anywhere
+    # withholds the whole row.
+    #
+    # The answer prompt asks the model for "the exact text of the additional
+    # questions" when a message contains more than one — so `also_asked` is a
+    # second copy of the asker's VERBATIM prose, living outside the
+    # question/cleaned/canonical triad that every other gate mediates. Nothing
+    # scrubbed it and nothing screened it, and the conversation renders it to
+    # any reader of the row as "Related questions" chips. A crew question could
+    # clear this screen on its sanitized primary text while shipping the raw
+    # secondary one — names and all — straight to the public browse.
+    prompt = Prompts.render("publish_check", %{question: screen_text(ql, cleaned)})
 
     # raw: true — chat/3 decodes a JSON "answer" key and returns "" otherwise, and
     # this prompt returns a bare word.
@@ -140,6 +157,21 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
     end
   end
 
+  @doc """
+  Everything on the row a reader could see, as one screened blob. The prompt asks
+  "does it contain a person's name", so multiple questions concatenated still
+  answer the question the screen is actually asking, and one "yes" anywhere
+  withholds the whole row.
+
+  Public so the gate's input can be asserted on directly: the bug this closes was
+  that `also_asked` never reached the screen at all.
+  """
+  def screen_text(%QuestionLog{also_asked: also}, cleaned) when is_list(also) and also != [] do
+    Enum.join([cleaned | Enum.filter(also, &is_binary/1)], "\n")
+  end
+
+  def screen_text(_ql, cleaned), do: cleaned
+
   # Fail closed: ONLY a bare "no" publishes. Anything else — "yes", a hedge, a
   # sentence, empty — leaves the row unbrowsable.
   defp maybe_publish(ql, reply, run) do
@@ -152,13 +184,23 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
       # delete, owner account deletion) can commit inside that window, and this is
       # the ONLY writer in the system that opens the gate — a stale write here
       # would re-publish a row the crew just explicitly withdrew.
+      #
+      # `pooled` is NOT a proxy for consent, which is what this guard used to
+      # assume. AskWorker re-pools a row off a `never_pool` value it read minutes
+      # earlier, so a retraction could land, be undone, and this worker would find
+      # `pooled: true` sitting there and publish the text of a withdrawn question.
+      # Consent is asked for directly now: the row's own retraction stamp, and the
+      # group's live `contribute_to_community` flag joined in at update time.
       {published, _} =
         Repo.update_all(
           from(q in QuestionLog,
+            join: g in RuleMaven.Groups.Group,
+            on: g.id == q.group_id,
             where: q.id == ^ql.id,
             where: q.browsable == false,
             where: q.pooled == true,
-            where: not is_nil(q.group_id)
+            where: is_nil(q.retracted_at),
+            where: g.contribute_to_community == true
           ),
           set: [browsable: true]
         )

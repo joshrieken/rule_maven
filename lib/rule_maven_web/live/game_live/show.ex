@@ -491,6 +491,25 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp own_raw_question(_q, _current_user_id), do: nil
 
+  # `also_asked` is the asker's VERBATIM prose — the answer prompt asks the model
+  # for "the exact text of the additional questions" when one message carries more
+  # than one. It is a second copy of the raw wording, sitting outside the
+  # question/cleaned_question/canonical_question triad that `display_question/1`
+  # and `listed_question/1` mediate, and the conversation rendered it to every
+  # reader of the row as clickable "Related questions" chips.
+  #
+  # That made it an end-run around every gate: a crew question could clear the
+  # publish screen on its scrubbed primary text and still show a stranger the raw
+  # secondary one. It is not a group-only hole either — an ordinary promoted
+  # community row displays a mediated `canonical_question` in its bubble while
+  # these chips showed the asker's unedited words right underneath.
+  #
+  # Same rule as the raw question, then: only ever hand it to the person who
+  # typed it.
+  defp own_also_asked(%{user_id: uid, also_asked: also}, uid) when not is_nil(uid), do: also || []
+
+  defp own_also_asked(_q, _current_user_id), do: []
+
   # The question text to DISPLAY for a row in the thread list / conversation.
   #
   # Your own row shows your own wording (display_question's raw fallback is your
@@ -552,7 +571,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         favorited: g.primary.favorited,
         raw_response: g.primary.raw_response,
         followups: g.primary.followups,
-        also_asked: g.primary.also_asked,
+        also_asked: own_also_asked(g.primary, current_user_id),
         error_kind: g.primary.error_kind,
         error_retries: g.primary.error_retries,
         timestamp: g.primary.inserted_at
@@ -575,7 +594,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             refused: h.refused,
             raw_response: h.raw_response,
             followups: h.followups,
-            also_asked: h.also_asked,
+            also_asked: own_also_asked(h, current_user_id),
             timestamp: h.inserted_at,
             history: true
           }
@@ -1791,8 +1810,16 @@ defmodule RuleMavenWeb.GameLive.Show do
         # A promoted (community) row gets the same protection even with zero
         # votes yet: it is shared content the moment it is promoted, and its
         # author regenerating must not delete it out from under other viewers.
+        # A crew row that isn't the actor's own is protected too. Regenerating
+        # DELETES the source row when it isn't protected, and admins pass
+        # `foreign_row?` by design — so one click on an admin's view of a crew
+        # member's question removed that Q&A from the crew's feed permanently, for
+        # everyone, with no trace and no way back. The crew's shared history is not
+        # the admin's to rewrite; the regen goes to a fresh private copy instead.
         protect_existing? =
-          old_q && (Games.has_votes?(old_q.id) or old_q.visibility == "community")
+          old_q &&
+            (Games.has_votes?(old_q.id) or old_q.visibility == "community" or
+               (not is_nil(old_q.group_id) and old_q.user_id != socket.assigns.current_user.id))
 
         # Drop cached persona restyles only when the row's answer is actually
         # going away. A PROTECTED row keeps its answer (the regen goes to a
@@ -1840,10 +1867,25 @@ defmodule RuleMavenWeb.GameLive.Show do
         source_group_id = old_q && old_q.group_id
         uid = socket.assigns.current_user.id
 
+        # A row that CAME from a crew falls back to no crew at all — never to the
+        # actor's own. `foreign_row?` lets admins through by design, and an admin's
+        # thread list carries every user's rows, so regenerating a crew member's
+        # question re-homed it into whatever crew the ADMIN happened to have
+        # selected: the victim crew's wording, rendered in a different crew's feed,
+        # readable by people who were never in the room. Falling through to
+        # `live_group_id/1` is only correct when the source row had no crew of its
+        # own to inherit.
         group_id =
-          if source_group_id && RuleMaven.Groups.member_of_group_id?(uid, source_group_id),
-            do: source_group_id,
-            else: live_group_id(socket)
+          cond do
+            source_group_id && RuleMaven.Groups.member_of_group_id?(uid, source_group_id) ->
+              source_group_id
+
+            source_group_id ->
+              nil
+
+            true ->
+              live_group_id(socket)
+          end
 
         # Even where the group_id can't be carried over (the user has since left
         # the crew), text derived from a crew row stays unpublished.
@@ -2107,7 +2149,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                 |> Map.put(:citations, ql.citations)
                 |> Map.put(:verdict, data[:verdict] || ql.verdict)
                 |> Map.put(:followups, data[:followups] || ql.followups)
-                |> Map.put(:also_asked, data[:also_asked] || ql.also_asked)
+                # Re-gated on every live update, not just at build_conversation
+                # time — otherwise the broadcast quietly puts the raw text back.
+                |> Map.put(:also_asked, own_also_asked(ql, socket.assigns.current_user.id))
                 |> Map.put(:refused, ql.refused)
                 |> Map.put(:raw_response, ql.raw_response)
                 |> Map.put(:llm_provider, ql.llm_provider)

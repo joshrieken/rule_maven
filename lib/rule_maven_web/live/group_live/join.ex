@@ -77,7 +77,9 @@ defmodule RuleMavenWeb.GroupLive.Join do
           <% end %>
         </h1>
         <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 1.25rem 0">
-          You'll see this group's shared feed on any game you both play.
+          You'll see this group's shared feed on any game you both play —
+          <strong>including questions asked before you joined</strong>. Everyone in the
+          group can see what you ask in it.
         </p>
         <.link navigate={~p"/groups/#{@group}"} class="btn-primary btn-sm">
           Go to {@group.name}

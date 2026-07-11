@@ -27,6 +27,10 @@ defmodule RuleMaven.Groups.Group do
     ])
     |> validate_required([:name, :owner_id, :invite_code])
     |> validate_length(:name, min: 1, max: 60)
+    # A cap of 0 or below is not a smaller crew, it is a broken one: `do_join/2`
+    # rejects on `member_count >= cap`, so nobody — not even the owner's first
+    # invitee — can ever join again.
+    |> validate_number(:member_cap, greater_than: 0)
     |> unique_constraint(:invite_code)
   end
 end

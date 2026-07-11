@@ -34,8 +34,8 @@ defmodule RuleMaven.GroupsJoinTest do
     assert {:error, :invalid_code} = Groups.join_by_code(joiner, "NOPE-NOPE")
   end
 
-  test "join_by_code rejects an inactive invite", %{group: group} do
-    {:ok, group} = Groups.set_invite_active(group, false)
+  test "join_by_code rejects an inactive invite", %{owner: owner, group: group} do
+    {:ok, group} = Groups.set_invite_active(owner, group, false)
     joiner = create_user("j3")
     assert {:error, :inactive} = Groups.join_by_code(joiner, group.invite_code)
   end
@@ -44,13 +44,13 @@ defmodule RuleMaven.GroupsJoinTest do
     assert {:error, :already_member} = Groups.join_by_code(owner, group.invite_code)
   end
 
-  test "set_invite_active flips the flag", %{group: group} do
-    assert {:ok, updated} = Groups.set_invite_active(group, false)
+  test "set_invite_active flips the flag", %{owner: owner, group: group} do
+    assert {:ok, updated} = Groups.set_invite_active(owner, group, false)
     refute updated.invite_active
   end
 
-  test "set_member_cap updates the cap", %{group: group} do
-    assert {:ok, updated} = Groups.set_member_cap(group, 3)
+  test "set_member_cap updates the cap", %{owner: owner, group: group} do
+    assert {:ok, updated} = Groups.set_member_cap(owner, group, 3)
     assert updated.member_cap == 3
   end
 
@@ -61,7 +61,7 @@ defmodule RuleMaven.GroupsJoinTest do
   test "join_by_code enforces the member cap sequentially" do
     owner = create_user("capowner")
     {:ok, group} = Groups.create_group(owner, %{name: "Small Crew"})
-    {:ok, group} = Groups.set_member_cap(group, 2)
+    {:ok, group} = Groups.set_member_cap(owner, group, 2)
 
     joiner = create_user("capj1")
     assert {:ok, _} = Groups.join_by_code(joiner, group.invite_code)

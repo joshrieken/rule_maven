@@ -102,18 +102,37 @@ defmodule RuleMaven.Groups do
     Repo.aggregate(from(m in Membership, where: m.group_id == ^group_id), :count)
   end
 
-  @doc "Flips whether the group's invite code currently accepts new joins."
-  def set_invite_active(%Group{} = group, active?) when is_boolean(active?) do
-    group
-    |> Group.changeset(%{invite_active: active?})
-    |> Repo.update()
+  @doc """
+  Flips whether the group's invite code currently accepts new joins.
+  Requires the actor to be at least an admin.
+
+  Every other mutator in this module takes an actor and gates on
+  `role_at_least?/3`; these two did not, and were safe only because the one
+  caller happened to check the role at the call site. That is not a property the
+  next caller inherits — a gate that lives in the LiveView is a gate the context
+  does not have.
+  """
+  def set_invite_active(actor, %Group{} = group, active?) when is_boolean(active?) do
+    if role_at_least?(actor, group, :admin) do
+      group
+      |> Group.changeset(%{invite_active: active?})
+      |> Repo.update()
+    else
+      {:error, :forbidden}
+    end
   end
 
-  @doc "Sets the maximum number of members the group may hold."
-  def set_member_cap(%Group{} = group, cap) when is_integer(cap) do
-    group
-    |> Group.changeset(%{member_cap: cap})
-    |> Repo.update()
+  @doc """
+  Sets the maximum number of members the group may hold. Admin or owner only.
+  """
+  def set_member_cap(actor, %Group{} = group, cap) when is_integer(cap) do
+    if role_at_least?(actor, group, :admin) do
+      group
+      |> Group.changeset(%{member_cap: cap})
+      |> Repo.update()
+    else
+      {:error, :forbidden}
+    end
   end
 
   @doc """
@@ -293,12 +312,22 @@ defmodule RuleMaven.Groups do
   #
   # Rows already promoted to `visibility: "community"` are left alone: those
   # passed a community vote and belong to the commons, not to the crew.
+  # `retracted_at` is the DURABLE record of the withdrawal. Clearing `pooled` and
+  # `browsable` states what the row looks like NOW; it says nothing about intent,
+  # and both flags are writable by the ask pipeline. An ask already in flight
+  # re-pooled the row seconds later (`never_pool` is read once, ~180s earlier),
+  # and toggling contribution back on made every previously-withdrawn row
+  # eligible again — against a UI that calls the withdrawal permanent. AskWorker
+  # and PublishCheckWorker both refuse a row carrying this stamp, so neither the
+  # race nor the re-toggle can resurrect it.
   defp retract_contributions(%Group{id: group_id}) do
     from(q in RuleMaven.Games.QuestionLog,
       where: q.group_id == ^group_id,
       where: q.visibility != "community"
     )
-    |> Repo.update_all(set: [pooled: false, browsable: false])
+    |> Repo.update_all(
+      set: [pooled: false, browsable: false, retracted_at: DateTime.utc_now()]
+    )
   end
 
   @doc """
@@ -456,7 +485,24 @@ defmodule RuleMaven.Groups do
             {:error, :cannot_remove_owner}
 
           membership ->
-            Repo.delete!(membership)
+            # Rotate the invite code in the same breath. The invite URL is shown
+            # to EVERY member, not just admins, so a removed member is holding a
+            # working key to the door they were just shown out of: `join_by_code/2`
+            # checks only that the code exists and the link is active, and there is
+            # no blocklist. Deleting the membership row alone bought nothing — they
+            # re-open the link and they are back in, with full feed access and no
+            # signal to the admin, as many times as they like.
+            #
+            # Rotating costs the crew a re-share of the link; not rotating makes
+            # removal decorative.
+            Repo.transaction(fn ->
+              Repo.delete!(membership)
+
+              group
+              |> Group.changeset(%{invite_code: generate_code()})
+              |> Repo.update!()
+            end)
+
             {:ok, :removed}
         end
     end

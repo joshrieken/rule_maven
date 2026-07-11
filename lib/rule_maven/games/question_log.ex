@@ -34,6 +34,13 @@ defmodule RuleMaven.Games.QuestionLog do
     # the asker's wording or identity). Group rows are written false and are
     # flipped true only by PublishCheckWorker, which fails closed.
     field :browsable, :boolean, default: true
+    # Set when a crew explicitly WITHDREW this row (contribute-off, group delete,
+    # sole-owner account deletion). Durable, and deliberately never cleared:
+    # turning contribution back on governs future asks, not ones already pulled
+    # back. Withdrawal used to be INFERRED from `is_nil(group_id) and not
+    # browsable`, which could not see a row retracted by a crew that still
+    # exists, and which a re-pool racing the retraction erased outright.
+    field :retracted_at, :utc_datetime_usec
     field :pool_source_id, :integer
     # Set when a rulebook content change may have invalidated a community answer.
     # The pool lookup skips flagged rows so they stop serving until re-approved.

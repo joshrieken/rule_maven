@@ -3171,8 +3171,17 @@ defmodule RuleMaven.Games do
             set: [needs_review: true]
           )
 
-        q.visibility != "community" and q.pooled ->
-          Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id), set: [pooled: false])
+        # `needs_review` as well as `pooled`. Clearing `pooled` retires an answer
+        # from the CROSS-USER cache, but the crew branch of `find_pool_candidates/3`
+        # deliberately does not require `pooled` (so a "keep this in the crew" row
+        # still feeds its own crew's cache) — so demotion was a no-op inside the
+        # crew, and the answer went on being served, as a labelled cache hit, to
+        # exactly the members who had just reported it wrong. `needs_review` is a
+        # base filter on that query and stops all three branches at once.
+        q.visibility != "community" and (q.pooled or not is_nil(q.group_id)) ->
+          Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
+            set: [pooled: false, needs_review: true]
+          )
 
         true ->
           :ok

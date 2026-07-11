@@ -413,4 +413,74 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
     refute Repo.reload!(ql).pooled,
            "an answer the crew withdrew was put back into the commons"
   end
+
+  # `never_pool` is read at the TOP of the job; `mark_pooled/1` runs after an ask
+  # that can take 180 seconds. A retraction landing inside that window was simply
+  # undone — the row was re-pooled off the stale consent value, and the publish
+  # check (which only ever inspected `pooled`) then published the question text of
+  # a crew that had explicitly withdrawn it.
+  #
+  # The retraction is driven from INSIDE the stubbed LLM call, which is exactly
+  # where the real one lands.
+  test "contribution turned off DURING the ask does not pool the answer" do
+    game = seeded_game(9210)
+    owner = user("pgw_race")
+    grp = GroupsFixtures.group_fixture(owner)
+
+    Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, List.duplicate(0.1, 768)} end)
+
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      # The owner flips "contribute to the community" off while the ask is in
+      # flight. retract_contributions/1 closes the row; the job must notice.
+      {:ok, _} = RuleMaven.Groups.set_contribute(grp, owner, false)
+
+      {:ok,
+       %{
+         answer: "You roll the die to start.",
+         citations: [
+           %{"quote" => "Roll the die to start.", "page" => 1, "source" => "Core rules"}
+         ],
+         verdict: "info",
+         followups: [],
+         also_asked: []
+       }}
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:rule_maven, :embed_mock)
+      Application.delete_env(:rule_maven, :llm_mock)
+    end)
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: owner.id,
+        question: "How do I start?",
+        answer: "Thinking...",
+        visibility: "private",
+        group_id: grp.id
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => owner.id,
+               "group_id" => grp.id,
+               "skip_pool" => true
+             })
+
+    row = Repo.reload!(ql)
+
+    refute row.pooled,
+           "the ask re-pooled an answer the crew withdrew while it was still running"
+
+    refute row.browsable
+    assert row.retracted_at, "the retraction left no durable mark on the row"
+
+    refute_enqueued(worker: PublishCheckWorker, args: %{"question_log_id" => ql.id})
+  end
+
 end

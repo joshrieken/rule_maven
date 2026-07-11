@@ -374,5 +374,45 @@ defmodule RuleMaven.GroupsManageTest do
       assert Groups.role_of(o, g) == "owner"
       refute Groups.member?(m, g)
     end
+
+    # Every other test in this describe deletes a QUESTION-LESS user, and that is
+    # the only reason they pass. `questions_log.user_id` was `ON DELETE NO ACTION`
+    # and `do_delete_user/1` never cleared the user's rows, so `Repo.delete(user)`
+    # raised a foreign-key violation for any user who had ever asked anything —
+    # rolling back the whole transaction, INCLUDING the ownership handoff above.
+    # A crew owner who had used the product could not be deleted at all, and there
+    # is no GDPR delete path without this.
+    #
+    # The rows are nilified, not cascaded: a pooled answer already serves the
+    # commons anonymously. Deleting the account anonymizes its questions; it does
+    # not retract them.
+    test "an owner who has actually ASKED something can still be deleted", %{
+      owner: o,
+      member: m,
+      group: g
+    } do
+      game = RuleMaven.GamesFixtures.game_fixture(bgg_id: System.unique_integer([:positive]))
+
+      {:ok, q} =
+        RuleMaven.Games.log_question(%{
+          game_id: game.id,
+          user_id: o.id,
+          group_id: g.id,
+          question: "How do I start?",
+          answer: "Roll the die.",
+          visibility: "private"
+        })
+
+      assert {:ok, _} = RuleMaven.Users.delete_user(o)
+
+      # The handoff still ran — the rollback used to take it with it.
+      assert owner_count(g) == 1
+      assert Groups.role_of(m, g) == "owner"
+
+      # The question survives, anonymized.
+      row = RuleMaven.Repo.get(RuleMaven.Games.QuestionLog, q.id)
+      assert row, "the question was destroyed rather than anonymized"
+      assert is_nil(row.user_id)
+    end
   end
 end

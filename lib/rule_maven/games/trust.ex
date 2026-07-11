@@ -150,6 +150,20 @@ defmodule RuleMaven.Games.Trust do
         on: u.id == v.user_id,
         where: v.question_log_id == ^question_log_id,
         where: v.user_id != ^exclude,
+        # A zero-weight vote must not pad the quorum. `do_set_community_vote/4`
+        # writes weight 0.0 for a vote nobody outside could have reviewed — a
+        # self-vote, or a crew voting on its own row while it is still
+        # unbrowsable. Those votes correctly buy no trust and no curator points
+        # (`Curation.settle_votes/3` already filters on this), but the promotion
+        # gate counts DISTINCT VOTERS separately, and it was counting them.
+        #
+        # So a crew could still self-certify: two crewmates thumb the row while
+        # it is private (weight 0, trust unmoved), the publish check later clears
+        # it, and then ONE outside high-rep vote carries the trust floor while the
+        # crew's two inert votes silently supply the quorum. The quorum exists to
+        # guarantee "at least N independent people reviewed this" — a vote that
+        # was worth nothing cannot be one of them.
+        where: v.weight > 0.0,
         where: not is_nil(u.email_confirmed_at),
         where: u.inserted_at <= ^cutoff,
         select: count(v.user_id, :distinct)

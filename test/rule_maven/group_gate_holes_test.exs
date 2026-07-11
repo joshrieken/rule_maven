@@ -27,6 +27,14 @@ defmodule RuleMaven.GroupGateHolesTest do
     user
   end
 
+  # A voter the promotion quorum will actually count: confirmed email, and old
+  # enough (vote_min_age_hours is 0 outside prod, so creation time is fine).
+  defp confirmed(user) do
+    user
+    |> Ecto.Changeset.change(%{email_confirmed_at: DateTime.utc_now(:second)})
+    |> Repo.update!()
+  end
+
   defp group_question!(game, member, grp, attrs \\ %{}) do
     {:ok, q} =
       Games.log_question(
@@ -610,6 +618,96 @@ defmodule RuleMaven.GroupGateHolesTest do
       vote = Repo.get_by(RuleMaven.Games.QuestionVote, question_log_id: q.id, user_id: mate.id)
 
       assert vote.weight > 0.0
+    end
+
+    # Round 5 zeroed the WEIGHT of a crew's votes on its own invisible row, which
+    # stopped them moving trust. It did not stop them being COUNTED. The promotion
+    # gate is two independent conditions — a trust floor AND a distinct-voter
+    # quorum — and `eligible_voter_count/2` counted every voter regardless of
+    # weight. So the crew could still supply the quorum with votes worth nothing,
+    # leaving one outside high-rep upvote to carry the floor on its own.
+    test "zero-weight crew votes do not count toward the promotion quorum", ctx do
+      # Both voters must be ELIGIBLE on every other axis the quorum checks
+      # (confirmed email, account age), or this test passes for the wrong reason:
+      # eligible_voter_count would return 0 whether or not it filters on weight.
+      mate1 = confirmed(create_user("quorum1"))
+      mate2 = confirmed(create_user("quorum2"))
+      {:ok, _} = Groups.join_by_code(mate1, ctx.grp.invite_code)
+      {:ok, _} = Groups.join_by_code(mate2, ctx.grp.invite_code)
+
+      q = group_question!(ctx.game, ctx.member, ctx.grp)
+
+      assert "up" = Games.set_community_vote(q.id, mate1.id, "up", false)
+      assert "up" = Games.set_community_vote(q.id, mate2.id, "up", false)
+
+      # Both votes exist and both are weightless.
+      assert Repo.aggregate(
+               from(v in RuleMaven.Games.QuestionVote, where: v.question_log_id == ^q.id),
+               :count
+             ) == 2
+
+      assert RuleMaven.Games.Trust.eligible_voter_count(q.id, ctx.member.id) == 0,
+             "an invisible crew row reached the promotion quorum on votes nobody outside could see"
+    end
+  end
+
+  describe "also_asked — the second copy of the raw question" do
+    # The answer prompt asks the model for "the exact text of the additional
+    # questions" when one message carries more than one, so `also_asked` holds the
+    # asker's VERBATIM prose — outside the question/cleaned/canonical triad that
+    # every gate mediates, and rendered to readers as "Related questions" chips.
+    test "the publish screen sees also_asked, so a name in it withholds the row", ctx do
+      q =
+        group_question!(ctx.game, ctx.member, ctx.grp, %{
+          also_asked: ["and does Dave's house rule break the endgame?"]
+        })
+
+      # The worker screens question + also_asked as one blob; assert the blob it
+      # actually submits carries the secondary text.
+      assert RuleMaven.Workers.PublishCheckWorker.screen_text(q, q.cleaned_question) =~
+               "Dave's house rule",
+             "also_asked never reached the privacy screen"
+    end
+  end
+
+  describe "retraction is durable" do
+    # `retract_contributions/1` used to write only pooled/browsable — flags the ask
+    # pipeline itself rewrites. Turning contribution off and back on made every
+    # withdrawn row eligible again, against a UI that calls the withdrawal permanent.
+    test "turning contribute off stamps retracted_at, and turning it back on does not clear it",
+         ctx do
+      q = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
+
+      {:ok, _} = Groups.set_contribute(ctx.grp, ctx.member, false)
+
+      q = Repo.get!(QuestionLog, q.id)
+      assert q.retracted_at, "the withdrawal left no durable trace"
+      refute q.pooled
+      refute q.browsable
+
+      {:ok, _} = Groups.set_contribute(ctx.grp, ctx.member, true)
+
+      q = Repo.get!(QuestionLog, q.id)
+
+      assert q.retracted_at,
+             "re-enabling contribution un-withdrew a row the crew had already pulled back"
+    end
+  end
+
+  describe "removing a member actually removes them" do
+    # The invite URL is rendered to EVERY member, and join_by_code checks only that
+    # the code exists and is active — there is no blocklist. Deleting the membership
+    # row alone left the removed member holding a working key.
+    test "remove_member rotates the invite code so the old link is dead", ctx do
+      mate = create_user("removed")
+      {:ok, _} = Groups.join_by_code(mate, ctx.grp.invite_code)
+
+      stale_code = ctx.grp.invite_code
+
+      assert {:ok, :removed} = Groups.remove_member(ctx.member, ctx.grp, mate.id)
+
+      assert {:error, :invalid_code} = Groups.join_by_code(mate, stale_code),
+             "a removed member walked straight back in with the link they already had"
     end
   end
 end

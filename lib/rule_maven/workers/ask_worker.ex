@@ -47,7 +47,7 @@ defmodule RuleMaven.Workers.AskWorker do
     # answers "yes, contribute" — so an admin re-queue (AdminLive.Security's
     # unblock) would put an answer the crew explicitly withdrew straight back into
     # the commons. The row's own closed flag is the only surviving marker.
-    withdrawn? = is_nil(group_id) and not row_browsable?(question_log_id)
+    withdrawn? = retracted?(question_log_id) or (is_nil(group_id) and not row_browsable?(question_log_id))
 
     # Folds in the per-group community-contribution switch (Task 6's composer
     # toggle sets `never_pool` directly for a one-off "keep this in the crew"
@@ -412,7 +412,20 @@ defmodule RuleMaven.Workers.AskWorker do
                         # shared pool. And a topic still under moderation review must not
                         # silently re-pool via the very next ask that happens to match it
                         # — that would undo the pull with zero review of the replacement.
-                        unless pool_hit? or never_pool do
+                        # `never_pool` was computed at the TOP of this job, before an
+                        # ask that can run for 180 seconds. Consent is not a constant
+                        # over that window: `retract_contributions/1` (contribute-off,
+                        # group delete, sole-owner account deletion) can land inside
+                        # it, and it clears exactly the flags this block is about to
+                        # re-set. The retraction was simply undone — `mark_pooled/1`
+                        # put the answer back in the commons and the publish check,
+                        # which only ever looked at `pooled`, then published the text.
+                        #
+                        # So ask again, now: the row's own retraction stamp, plus the
+                        # group's LIVE contribute flag (re-resolved through the row, so
+                        # a group deleted mid-ask reads as gone rather than as the
+                        # stale id captured at line 41).
+                        unless pool_hit? or never_pool or consent_withdrawn?(question_log_id) do
                           if Games.under_review?(
                                game_id,
                                expansion_ids,
@@ -799,6 +812,41 @@ defmodule RuleMaven.Workers.AskWorker do
     case get_question_log(id) do
       %QuestionLog{browsable: browsable} -> browsable
       _ -> true
+    end
+  end
+
+  # Durable withdrawal stamp. Unlike the browsable/pooled flags it cannot be
+  # erased by the very pipeline it is meant to stop, and unlike `group_id` it
+  # survives the group being deleted out from under the row.
+  defp retracted?(id) do
+    case get_question_log(id) do
+      %QuestionLog{retracted_at: nil} -> false
+      %QuestionLog{retracted_at: _} -> true
+      _ -> false
+    end
+  end
+
+  # Re-asked immediately before the row is pooled, against the CURRENT row and
+  # the CURRENT group — not the snapshot taken before the LLM call. Resolving the
+  # group through the row (rather than the `group_id` captured from the args) is
+  # what makes a group deleted mid-ask read as withdrawn: the FK nilifies, and a
+  # row that was a crew row but no longer resolves to a consenting crew has no
+  # standing consent to pool on.
+  defp consent_withdrawn?(id) do
+    case get_question_log(id) do
+      nil ->
+        true
+
+      %QuestionLog{retracted_at: stamp} when not is_nil(stamp) ->
+        true
+
+      %QuestionLog{group_id: nil} ->
+        # Never a crew row (or its crew is gone and it was never retracted) —
+        # an ordinary personal ask, which pools as it always has.
+        false
+
+      %QuestionLog{group_id: gid} ->
+        not RuleMaven.Groups.contribute_to_community?(gid)
     end
   end
 
