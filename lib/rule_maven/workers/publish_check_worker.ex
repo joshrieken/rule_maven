@@ -43,12 +43,14 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
     end
   end
 
-  # Only a group row that is still unbrowsable and actually has cleaned text is
-  # a candidate. Everything else is a no-op — including a non-group row, which
-  # must never be touched by this worker, and a skip_normalize row, whose
-  # cleaned_question is nil.
+  # Only a POOLED group row that is still unbrowsable and actually has cleaned
+  # text is a candidate. Everything else is a no-op — including a non-group row,
+  # which must never be touched by this worker; a skip_normalize row, whose
+  # cleaned_question is nil; and an unpooled row (ungrounded citation), which
+  # never surfaces cross-user and so must never be published or billed for.
   defp screen(
-         %QuestionLog{group_id: gid, browsable: false, cleaned_question: cleaned} = ql,
+         %QuestionLog{group_id: gid, browsable: false, pooled: true, cleaned_question: cleaned} =
+           ql,
          oban_id
        )
        when not is_nil(gid) and is_binary(cleaned) do

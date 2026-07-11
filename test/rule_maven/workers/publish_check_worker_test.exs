@@ -48,6 +48,10 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
     attrs
     |> Map.new()
     |> Map.put_new(:group_id, group.id)
+    # AskWorker only enqueues the check for rows it actually pooled, and the
+    # worker's guard head now requires it — an unpooled row never surfaces
+    # cross-user, so there is nothing to publish and no call worth paying for.
+    |> Map.put_new(:pooled, true)
     |> then(&question_fixture(&1))
   end
 
@@ -202,6 +206,27 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
 
       assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
       assert Repo.reload!(ql).browsable == true
+    end
+
+    test "an unpooled group row is never screened (no LLM call, stays unbrowsable)" do
+      # mark_pooled/1 no-ops on an ungrounded citation, so a group ask can reach
+      # this worker having never entered the pool. It never surfaces cross-user,
+      # so screening it would be a wasted LLM call — and must never publish it.
+      Application.put_env(:rule_maven, :llm_mock, fn _body ->
+        raise "LLM should not be called for an unpooled row"
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "May a player retract a move?",
+          browsable: false,
+          pooled: false
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == false
     end
 
     test "a nonexistent row is a no-op" do

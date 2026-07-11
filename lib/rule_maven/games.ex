@@ -2445,6 +2445,14 @@ defmodule RuleMaven.Games do
           # Own questions, community questions, plus other users' pooled answers
           # this user upvoted from the Community Q&A browse page — an upvote is
           # the explicit "add this to my list" gesture (viewing alone never adds).
+          #
+          # The upvoted-pooled branch additionally requires `browsable`: a GROUP
+          # row is pooled by design (its answer feeds the shared cache), and an
+          # upvote on it is a normal flow — the Helpful thumb on a pool hit
+          # targets the pool source, which may be a group member's row. Without
+          # this gate a non-member would pull that row into their own sidebar
+          # and read the asker's raw wording. `browsable` stays false until
+          # PublishCheckWorker clears the scrubbed text.
           upvoted =
             from v in QuestionVote,
               where: v.user_id == ^user_id and v.value == "up",
@@ -2454,7 +2462,7 @@ defmodule RuleMaven.Games do
             where:
               q.user_id == ^user_id or q.visibility == "community" or
                 (q.pooled == true and q.refused == false and q.blocked == false and
-                   q.id in subquery(upvoted))
+                   q.browsable == true and q.id in subquery(upvoted))
         else
           base
         end
@@ -2560,36 +2568,6 @@ defmodule RuleMaven.Games do
       end
 
     Repo.all(query)
-  end
-
-  @doc """
-  Searches questions by text match for a game. User input is escaped before
-  being interpolated into the ILIKE pattern so literal `%`/`_`/`\\` in the
-  search box are matched literally instead of acting as SQL wildcards
-  (Postgres's LIKE/ILIKE default escape character is `\\`, so no explicit
-  `ESCAPE` clause is needed as long as we escape with it).
-  """
-  def search_questions(%Game{} = game, query_text) do
-    search_term = "%#{escape_like(query_text)}%"
-
-    Repo.all(
-      from q in QuestionLog,
-        where: q.game_id == ^game.id,
-        where: ilike(q.question, ^search_term),
-        order_by: [desc: q.inserted_at],
-        limit: 50
-    )
-  end
-
-  # Escapes the three characters ILIKE treats specially — `\` (the escape
-  # character itself, must go first so we don't double-escape the escapes we
-  # just inserted), `%` (zero-or-more wildcard), and `_` (single-char
-  # wildcard) — so user-supplied search text is matched literally.
-  defp escape_like(text) do
-    text
-    |> String.replace("\\", "\\\\")
-    |> String.replace("%", "\\%")
-    |> String.replace("_", "\\_")
   end
 
   # Trust is ranked within this window, not across every row inside the
@@ -4487,8 +4465,12 @@ defmodule RuleMaven.Games do
   # A row is votable only if it can actually surface to other users: community
   # rows (browse/FAQ) or pooled rows (served as fast-path answers). This blocks
   # voting on rows that never surface — e.g. arbitrary private rows by id (IDOR).
+  #
+  # A pooled row must also be `browsable`: an unbrowsable GROUP row is pooled
+  # (its answer feeds the cache anonymously) but its question text is not
+  # public, so a non-member must not be able to vote on it by id.
   defp votable?(%QuestionLog{} = q) do
-    q.visibility == "community" or q.pooled
+    q.visibility == "community" or (q.pooled and q.browsable)
   end
 
   defp do_set_community_vote(%QuestionLog{id: question_log_id} = q, user_id, value, admin?) do

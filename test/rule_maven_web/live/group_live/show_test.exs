@@ -85,7 +85,7 @@ defmodule RuleMavenWeb.GroupLive.ShowTest do
     assert Groups.contribute_to_community?(grp.id)
   end
 
-  test "a plain member calling Groups.set_contribute/3 directly gets :unauthorized", %{
+  test "a plain member calling Groups.set_contribute/3 directly gets :forbidden", %{
     conn: _conn
   } do
     owner = create_user("cont_direct_owner")
@@ -93,6 +93,6 @@ defmodule RuleMavenWeb.GroupLive.ShowTest do
     member = create_user("cont_direct_member")
     {:ok, _} = Groups.join_by_code(member, grp.invite_code)
 
-    assert {:error, :unauthorized} = Groups.set_contribute(grp, member, false)
+    assert {:error, :forbidden} = Groups.set_contribute(grp, member, false)
   end
 end

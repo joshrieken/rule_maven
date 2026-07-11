@@ -6,7 +6,11 @@ defmodule RuleMaven.GroupsManageTest do
     {:ok, user} =
       RuleMaven.Users.create_user(
         Map.merge(
-          %{username: "#{prefix}_user", email: "#{prefix}_user@test.com", password: "password1234"},
+          %{
+            username: "#{prefix}_user",
+            email: "#{prefix}_user@test.com",
+            password: "password1234"
+          },
           attrs
         )
       )
@@ -114,13 +118,13 @@ defmodule RuleMaven.GroupsManageTest do
     end
 
     test "a plain member cannot change the contribution setting", %{member: m, group: g} do
-      assert {:error, :unauthorized} = Groups.set_contribute(g, m, false)
+      assert {:error, :forbidden} = Groups.set_contribute(g, m, false)
       assert Groups.contribute_to_community?(g.id) == true
     end
 
     test "a non-member cannot change the contribution setting", %{group: g} do
       stranger = create_user("u9")
-      assert {:error, :unauthorized} = Groups.set_contribute(g, stranger, false)
+      assert {:error, :forbidden} = Groups.set_contribute(g, stranger, false)
     end
   end
 

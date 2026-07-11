@@ -28,8 +28,17 @@ defmodule RuleMaven.Workers.AskWorker do
     question = args["question"]
     expansion_ids = args["expansion_ids"] || []
     user_id = args["user_id"]
-    group_id = args["group_id"]
     skip_pool = args["skip_pool"] || false
+
+    # The ROW is the source of truth for group membership, not the args (Oban
+    # args are untrusted, and a re-queue — e.g. the admin unblock path in
+    # AdminLive.Security — can omit "group_id" entirely). A row whose
+    # `group_id` column is set is a group row no matter what the args say; the
+    # args may only ever ADD a group_id, never drop one. Getting this wrong
+    # writes `browsable: true` on a group row (only PublishCheckWorker may do
+    # that) and pools a crew that opted out of contributing.
+    row_group_id = row_group_id(question_log_id)
+    group_id = args["group_id"] || row_group_id
 
     # Folds in the per-group community-contribution switch (Task 6's composer
     # toggle sets `never_pool` directly for a one-off "keep this in the crew"
@@ -37,7 +46,7 @@ defmodule RuleMaven.Workers.AskWorker do
     # it never_pool, with no per-ask opt-in needed).
     never_pool =
       (args["never_pool"] || false) or
-        not RuleMaven.Groups.contribute_to_community?(args["group_id"])
+        not RuleMaven.Groups.contribute_to_community?(group_id)
 
     skip_normalize = args["skip_normalize"] || false
     voice = args["voice"] || "neutral"
@@ -363,7 +372,8 @@ defmodule RuleMaven.Workers.AskWorker do
                     question_embedding: llm_result[:question_embedding],
                     # A group row's question text is unbrowsable until
                     # PublishCheckWorker clears it. A non-group row is browsable, as
-                    # it always has been.
+                    # it always has been. `group_id` folds in the ROW's column, so a
+                    # re-queue with no "group_id" arg can't publish a group row.
                     browsable: is_nil(group_id)
                   }
 
@@ -391,13 +401,18 @@ defmodule RuleMaven.Workers.AskWorker do
                              ) do
                             :ok
                           else
-                            Games.mark_pooled(updated)
+                            # `mark_pooled/1` silently no-ops when the citation isn't
+                            # grounded, so check what it actually did: an unpooled row
+                            # never surfaces cross-user, and running the publish check
+                            # on it would burn an LLM call and could flip `browsable`
+                            # true on a row that isn't even in the pool.
+                            pooled_row = Games.mark_pooled(updated)
 
                             # A group row's canonical text must clear the publish
                             # check before it may be listed publicly. `skip_normalize`
                             # rows are excluded outright: on that path the canonical
                             # text IS the raw user text, which must never publish.
-                            if group_id && not skip_normalize do
+                            if pooled_row.pooled && group_id && not skip_normalize do
                               RuleMaven.Workers.PublishCheckWorker.enqueue(question_log_id)
                             end
                           end
@@ -748,6 +763,14 @@ defmodule RuleMaven.Workers.AskWorker do
     import Ecto.Query
 
     RuleMaven.Repo.one(from q in QuestionLog, where: q.id == ^id)
+  end
+
+  # The group the row itself belongs to, independent of the job args.
+  defp row_group_id(id) do
+    case get_question_log(id) do
+      %QuestionLog{group_id: gid} -> gid
+      _ -> nil
+    end
   end
 
   defp get_question_log!(id) do

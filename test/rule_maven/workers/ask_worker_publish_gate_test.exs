@@ -194,6 +194,130 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
     refute_enqueued(worker: PublishCheckWorker)
   end
 
+  test "a re-queue with NO group_id arg still treats a group row as a group row" do
+    # The admin unblock path (AdminLive.Security) re-enqueues AskWorker from the
+    # row, and used to send no "group_id" / "never_pool" / "skip_normalize". Oban
+    # args are untrusted: the ROW's group_id column decides. Otherwise the re-run
+    # writes browsable: true (only PublishCheckWorker may do that) and skips the
+    # publish check entirely.
+    game = seeded_game(9205)
+    owner = user("pgw_requeue")
+    grp = GroupsFixtures.group_fixture(owner)
+    stub_ask("You roll the die to start.")
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: owner.id,
+        question: "How do I start?",
+        answer: "Thinking...",
+        visibility: "private",
+        group_id: grp.id
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "recent_context" => [],
+               "user_id" => owner.id,
+               "skip_pool" => true
+             })
+
+    assert Repo.reload!(ql).browsable == false
+    assert_enqueued(worker: PublishCheckWorker, args: %{"question_log_id" => ql.id})
+  end
+
+  test "a re-queue with no group_id arg honors the group's contribute_to_community: false" do
+    game = seeded_game(9206)
+    owner = user("pgw_requeue_noshare")
+    grp = GroupsFixtures.group_fixture(owner, %{contribute_to_community: false})
+    stub_ask("You roll the die to start.")
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: owner.id,
+        question: "How do I start?",
+        answer: "Thinking...",
+        visibility: "private",
+        group_id: grp.id
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => owner.id,
+               "skip_pool" => true
+             })
+
+    updated = Repo.reload!(ql)
+    assert updated.pooled == false
+    assert updated.browsable == false
+  end
+
+  test "an ungrounded group ask is not pooled and runs no publish check" do
+    # mark_pooled/1 no-ops when the citation isn't grounded in the source, so the
+    # row never surfaces cross-user — screening it would burn an LLM call and
+    # could flip browsable on a row that isn't even in the pool.
+    game = seeded_game(9207)
+    owner = user("pgw_ungrounded")
+    grp = GroupsFixtures.group_fixture(owner)
+
+    Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, List.duplicate(0.1, 768)} end)
+
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      {:ok,
+       %{
+         answer: "You roll the die to start.",
+         # A quote that appears nowhere in the chunk => citation_valid == false.
+         citations: [
+           %{"quote" => "Dragons always fly at dawn.", "page" => 1, "source" => "Core rules"}
+         ],
+         verdict: "info",
+         followups: [],
+         also_asked: []
+       }}
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:rule_maven, :embed_mock)
+      Application.delete_env(:rule_maven, :llm_mock)
+    end)
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: owner.id,
+        question: "How do I start?",
+        answer: "Thinking...",
+        visibility: "private",
+        group_id: grp.id
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => owner.id,
+               "group_id" => grp.id,
+               "skip_pool" => true
+             })
+
+    updated = Repo.reload!(ql)
+    assert updated.citation_valid == false
+    assert updated.pooled == false
+    assert updated.browsable == false
+    refute_enqueued(worker: PublishCheckWorker)
+  end
+
   test "a group with contribute_to_community: false does not pool its asks" do
     game = seeded_game(9204)
     owner = user("pgw_noshare")

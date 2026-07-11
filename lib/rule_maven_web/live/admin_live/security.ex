@@ -56,6 +56,11 @@ defmodule RuleMavenWeb.AdminLive.Security do
                 "question" => updated.question,
                 "question_log_id" => updated.id,
                 "user_id" => updated.user_id,
+                # Carry the row's group across the re-queue. AskWorker also reads
+                # the row's own group_id (args are untrusted), so this is belt and
+                # braces — without either, the re-run would write browsable: true
+                # on a group row and skip the publish check.
+                "group_id" => updated.group_id,
                 "expansion_ids" => expansion_ids,
                 "recent_context" => recent_context
               })

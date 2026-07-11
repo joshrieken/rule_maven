@@ -17,10 +17,10 @@ defmodule RuleMaven.Faq do
       from(q in QuestionLog,
         where:
           q.game_id == ^game.id and q.refused == false and
-            ((q.visibility == "community") or
-               (q.pooled == true and q.needs_review == false and q.blocked == false and
-                  q.stale == false and is_nil(q.error_kind) and is_nil(q.pool_source_id) and
-                  q.trust_score > -1.0))
+            (q.visibility == "community" or
+               (q.pooled == true and q.browsable == true and q.needs_review == false and
+                  q.blocked == false and q.stale == false and is_nil(q.error_kind) and
+                  is_nil(q.pool_source_id) and q.trust_score > -1.0))
       ),
       :count
     )

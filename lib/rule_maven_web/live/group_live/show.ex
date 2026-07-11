@@ -112,7 +112,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
       {:ok, _group} ->
         {:noreply, load_group(socket)}
 
-      {:error, :unauthorized} ->
+      {:error, :forbidden} ->
         {:noreply,
          put_flash(
            socket,

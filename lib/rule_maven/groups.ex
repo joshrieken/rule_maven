@@ -247,8 +247,9 @@ defmodule RuleMaven.Groups do
   @doc """
   Sets whether the group's answers contribute to the community cache
   (`contribute_to_community`). Requires the actor to be at least an admin —
-  same authorization shape as `rename/3`, via `role_at_least?/3`. Unlike
-  `rename/3`, a caller without permission gets `{:error, :unauthorized}`.
+  same authorization shape as `rename/3`, via `role_at_least?/3`. A caller
+  without permission gets `{:error, :forbidden}`, like every other function in
+  this module.
 
   When off, `AskWorker` forces `never_pool` for every ask made under this
   group (see `contribute_to_community?/1`); the group's questions stay
@@ -261,7 +262,7 @@ defmodule RuleMaven.Groups do
       |> Group.changeset(%{contribute_to_community: contribute?})
       |> Repo.update()
     else
-      {:error, :unauthorized}
+      {:error, :forbidden}
     end
   end
 
