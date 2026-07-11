@@ -385,10 +385,12 @@ defmodule RuleMavenWeb.GroupLive.Show do
           <span class="crew-toggle__text">
             <span class="crew-toggle__label">Contribute answers to the community</span>
             <span class="crew-toggle__hint">
-              Your crew's questions stay private either way — only the answers are shared,
-              and only after a privacy check. Turning this off also withdraws the answers
-              you've already shared, unless the community has voted them in — permanently.
-              Turning it back on shares future answers only; the withdrawn ones stay out.
+              On: your crew's answers feed the community's shared cache, and your questions
+              can be listed publicly — but only reworded to remove names and personal
+              details, and only after an automatic privacy check clears them. Off: neither
+              happens. Turning it off also withdraws what you've already shared (unless the
+              community voted it in), permanently — turning it back on shares future
+              answers only.
             </span>
           </span>
         </label>

@@ -1736,15 +1736,14 @@ defmodule RuleMavenWeb.GameLive.Show do
     cooldowns = socket.assigns.retry_cooldowns
     now = System.system_time(:second)
 
-    question =
-      socket.assigns.conversation
-      |> Enum.find(&(&1.id == id && &1.role == :user))
-      |> case do
-        nil -> ""
-        m -> m.content
-      end
-
     existing = find_question_log(socket.assigns.game, id)
+
+    # Sourced from the ROW, not from the rendered bubble. The bubble's `content`
+    # is `shown_question/2`, which withholds a foreign crew row's text — and an
+    # admin's conversation carries every user's rows. Re-asking the bubble text
+    # would therefore delete a crew member's question and pay an LLM call to
+    # answer the literal string "(question withheld)".
+    question = if existing, do: QuestionLog.display_question(existing), else: ""
 
     # LiveView events are forgeable, and `grouped_questions/1` puts every
     # community row into every viewer's conversation — so without this a user
@@ -1770,8 +1769,8 @@ defmodule RuleMavenWeb.GameLive.Show do
 
         old_q = existing
 
-        # Verbatim re-ask uses the raw text as stored, bypassing the cleaned
-        # bubble content captured above.
+        # Verbatim re-ask uses the raw text as stored, rather than the
+        # canonical/cleaned text `display_question/1` prefers above.
         question = if verbatim && old_q, do: old_q.question, else: question
 
         # Resubmitting a failed (or stuck-"Thinking...") answer consumes one of

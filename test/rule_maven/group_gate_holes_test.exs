@@ -510,4 +510,106 @@ defmodule RuleMaven.GroupGateHolesTest do
       refute QuestionLog.listed_question(q) =~ "SECRETWORDING"
     end
   end
+
+  describe "the normalize FALLBACK is not a scrub" do
+    # normalize_question/4 falls back to the RAW question on any failure (a 429, a
+    # timeout, a rewrite accept_normalized?/2 rejects), and that fallback is what
+    # lands in cleaned_question. Screening it and publishing it would hand the
+    # asker's verbatim prose to the public browse under the scrubbed column's name.
+    test "a cleaned_question identical to the raw question is never published", ctx do
+      raw = "SECRETWORDING can Dave's smuggler cheat here?"
+
+      q =
+        group_question!(ctx.game, ctx.member, ctx.grp, %{
+          question: raw,
+          cleaned_question: raw
+        })
+
+      Application.put_env(:rule_maven, :llm_mock, fn _body ->
+        flunk("the publish screen was called on un-normalized text")
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      assert :ok =
+               RuleMaven.Workers.PublishCheckWorker.perform(%Oban.Job{
+                 id: nil,
+                 args: %{"question_log_id" => q.id}
+               })
+
+      refute Repo.get(QuestionLog, q.id).browsable
+    end
+
+    test "a genuinely rewritten question still publishes", ctx do
+      q = group_question!(ctx.game, ctx.member, ctx.grp)
+
+      Application.put_env(:rule_maven, :llm_mock, fn _body ->
+        {:ok, %{answer: "no", finish_reason: "stop"}}
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      assert :ok =
+               RuleMaven.Workers.PublishCheckWorker.perform(%Oban.Job{
+                 id: nil,
+                 args: %{"question_log_id" => q.id}
+               })
+
+      assert Repo.get(QuestionLog, q.id).browsable
+    end
+
+    test "a row withdrawn during the LLM call is not re-published", ctx do
+      q = group_question!(ctx.game, ctx.member, ctx.grp)
+
+      # Simulate retract_contributions committing inside the screen's LLM window.
+      Application.put_env(:rule_maven, :llm_mock, fn _body ->
+        {:ok, _} = Groups.set_contribute(ctx.grp, ctx.member, false)
+        {:ok, %{answer: "no", finish_reason: "stop"}}
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      assert :ok =
+               RuleMaven.Workers.PublishCheckWorker.perform(%Oban.Job{
+                 id: nil,
+                 args: %{"question_log_id" => q.id}
+               })
+
+      refute Repo.get(QuestionLog, q.id).browsable,
+             "the screen re-opened a row the crew had just withdrawn"
+    end
+  end
+
+  describe "crew votes on an invisible row buy nothing" do
+    test "a fellow crew member's vote on an unbrowsable row carries zero weight", ctx do
+      # The promotion quorum means INDEPENDENT review. An unbrowsable crew row has
+      # no public surface, so the only possible voters are the crew — three of whom
+      # would otherwise clear both the trust floor and the quorum between them, on a
+      # row no outsider can see.
+      mate = create_user("crewmate")
+      {:ok, _} = Groups.join_by_code(mate, ctx.grp.invite_code)
+
+      q = group_question!(ctx.game, ctx.member, ctx.grp)
+
+      assert "up" = Games.set_community_vote(q.id, mate.id, "up", false)
+
+      vote = Repo.get_by(RuleMaven.Games.QuestionVote, question_log_id: q.id, user_id: mate.id)
+
+      assert vote, "the vote was recorded (the thumb still works)"
+      assert vote.weight == 0.0, "a crew vote on an invisible row moved trust"
+    end
+
+    test "the same vote carries real weight once the row is published", ctx do
+      mate = create_user("crewmate2")
+      {:ok, _} = Groups.join_by_code(mate, ctx.grp.invite_code)
+
+      q = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
+
+      assert "up" = Games.set_community_vote(q.id, mate.id, "up", false)
+
+      vote = Repo.get_by(RuleMaven.Games.QuestionVote, question_log_id: q.id, user_id: mate.id)
+
+      assert vote.weight > 0.0
+    end
+  end
 end

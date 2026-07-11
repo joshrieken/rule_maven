@@ -3156,7 +3156,16 @@ defmodule RuleMaven.LLM do
     |> Enum.sort_by(& &1.cost, :desc)
   end
 
-  @doc "USD cost estimate of a single user's LLM usage since UTC midnight today."
+  @doc """
+  USD cost estimate of a single user's LLM usage since UTC midnight today.
+
+  This backs the per-user daily cost CAP (`check_rate_limit/1`), so it counts
+  only what the user actually asked for. `publish_check` is excluded: it is the
+  crew privacy screen, which the platform runs on its own initiative — billing it
+  to the asker would let a crew ask spend down a cap the user never chose to
+  spend, and could lock them out of asking entirely. It stays attributed to them
+  in the cost REPORTING views (that is why it carries a user_id at all).
+  """
   def user_cost_today(user_id) when is_integer(user_id) do
     alias RuleMaven.Repo
     alias RuleMaven.LLM.Pricing
@@ -3167,6 +3176,7 @@ defmodule RuleMaven.LLM do
     Repo.all(
       from l in RuleMaven.LLM.Log,
         where: l.user_id == ^user_id and l.inserted_at >= ^since,
+        where: l.operation != "publish_check",
         group_by: l.model,
         select: {l.model, sum(l.prompt_tokens), sum(l.completion_tokens)}
     )

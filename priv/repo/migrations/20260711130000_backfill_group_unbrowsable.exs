@@ -18,6 +18,20 @@ defmodule RuleMaven.Repo.Migrations.BackfillGroupUnbrowsable do
 
   def up do
     execute("UPDATE questions_log SET browsable = false WHERE group_id IS NOT NULL")
+
+    # Closing `browsable` is not enough on its own. Every browse surface lists a
+    # row on `visibility == "community"` ALONE (community_questions/2,
+    # faq_questions/2, Faq.community_count/1) — and between CreateGroups and
+    # AddPublishGates there was no gate at all, so DirectPromotionWorker could
+    # already have promoted a crew row whose text nothing ever screened. Those
+    # rows would stay publicly listed with `browsable: false` underneath them.
+    # Send them back to private; they can earn their way out through the gate.
+    execute("""
+    UPDATE questions_log
+       SET visibility = 'private', pooled = false
+     WHERE group_id IS NOT NULL
+       AND visibility = 'community'
+    """)
   end
 
   def down do

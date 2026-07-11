@@ -4557,8 +4557,22 @@ defmodule RuleMaven.Games do
     # A non-admin asker's vote on their own row is pure display metadata
     # ("asker confirmed") — weight 0 keeps it out of trust_score. Reputation
     # and promotion quorum already exclude self-votes independently.
+    #
+    # A vote on an UNBROWSABLE GROUP row is weight 0 for the same reason: such a
+    # row has no public surface at all, so the only people who can vote on it are
+    # the crew itself. The promotion quorum exists to mean INDEPENDENT review ("a
+    # single (or sybil) vote can't auto-promote"), and full-weight crew votes
+    # defeat that outright: three crew members clear both the 3.0 trust floor and
+    # the 2-voter quorum between themselves, on a row no outsider can see — and
+    # the votes are still sitting there when PublishCheckWorker later flips
+    # `browsable`, so the next promotion tick ships it to the public FAQ on a
+    # quorum nobody outside the crew ever saw form. The thumb still works; it just
+    # doesn't buy trust, reputation or curator points until the row is public.
+    self_vote? = q.user_id == user_id and not admin?
+    unreviewable? = not is_nil(q.group_id) and not q.browsable
+
     weight =
-      if q.user_id == user_id and not admin? do
+      if self_vote? or unreviewable? do
         0.0
       else
         RuleMaven.Games.Trust.vote_weight(Repo.get(RuleMaven.Users.User, user_id))

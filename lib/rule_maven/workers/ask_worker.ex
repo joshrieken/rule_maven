@@ -40,12 +40,21 @@ defmodule RuleMaven.Workers.AskWorker do
     row_group_id = row_group_id(question_log_id)
     group_id = args["group_id"] || row_group_id
 
+    # A row that is unbrowsable while belonging to NO crew was closed on purpose:
+    # either `retract_contributions/1` withdrew it (which also nilifies group_id
+    # when the crew is deleted) or it is a re-ask carrying a crew's raw text. In
+    # both cases `contribute_to_community?/1` sees a nil group and cheerfully
+    # answers "yes, contribute" — so an admin re-queue (AdminLive.Security's
+    # unblock) would put an answer the crew explicitly withdrew straight back into
+    # the commons. The row's own closed flag is the only surviving marker.
+    withdrawn? = is_nil(group_id) and not row_browsable?(question_log_id)
+
     # Folds in the per-group community-contribution switch (Task 6's composer
     # toggle sets `never_pool` directly for a one-off "keep this in the crew"
     # ask; a group with `contribute_to_community: false` makes EVERY ask from
     # it never_pool, with no per-ask opt-in needed).
     never_pool =
-      (args["never_pool"] || false) or
+      (args["never_pool"] || false) or withdrawn? or
         not RuleMaven.Groups.contribute_to_community?(group_id)
 
     skip_normalize = args["skip_normalize"] || false
@@ -781,6 +790,15 @@ defmodule RuleMaven.Workers.AskWorker do
     case get_question_log(id) do
       %QuestionLog{group_id: gid} -> gid
       _ -> nil
+    end
+  end
+
+  # Defaults TRUE for a missing row: a brand-new ask is browsable unless its
+  # insert said otherwise, and only a row that actually exists can be withdrawn.
+  defp row_browsable?(id) do
+    case get_question_log(id) do
+      %QuestionLog{browsable: browsable} -> browsable
+      _ -> true
     end
   end
 

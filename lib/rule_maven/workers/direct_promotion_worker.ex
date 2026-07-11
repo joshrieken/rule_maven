@@ -106,15 +106,28 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
     # `visibility: "community"` with `browsable: false` — a state every other gate
     # exists to prevent, and one the community browse surfaces (which list on
     # visibility alone) would happily publish.
-    Repo.update_all(
-      from(q in QuestionLog,
-        where: q.id == ^best.id,
-        where: q.browsable == true,
-        where: q.visibility != "community"
-      ),
-      set: [visibility: "community", pooled: true]
-    )
+    {promoted, _} =
+      Repo.update_all(
+        from(q in QuestionLog,
+          where: q.id == ^best.id,
+          where: q.browsable == true,
+          where: q.visibility != "community"
+        ),
+        set: [visibility: "community", pooled: true]
+      )
 
+    # The rewards must hang off what the UPDATE actually did, not off the earlier
+    # SELECT. Settlement is ONE-SHOT and irreversible: it stamps every up-vote
+    # `settled_at` (making them permanently immutable) and pays each voter a
+    # curator point. Firing it on a promotion the guard above correctly blocked
+    # would pay out — and freeze the votes — for a row that was retracted out from
+    # under us and is not in the community at all.
+    if promoted == 1, do: finalize_promotion(best)
+
+    :ok
+  end
+
+  defp finalize_promotion(best) do
     # Re-embed the promoted canonical (skip in test — Oban not running).
     unless Application.get_env(:rule_maven, Oban)[:testing] == :manual do
       RuleMaven.Workers.EmbedQuestionWorker.enqueue(best.id)

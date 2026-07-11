@@ -349,4 +349,68 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
     assert updated.pooled == false
     assert updated.browsable == false
   end
+
+  test "a re-queue does NOT re-pool a row the crew withdrew" do
+    # Deleting the crew retracts its rows AND nilifies their group_id, so nothing
+    # on the row says "crew" any more except its closed `browsable` flag. Without
+    # reading that flag, contribute_to_community?(nil) answers "yes, contribute"
+    # and the admin unblock re-queue puts an answer the crew explicitly withdrew
+    # straight back into the shared cache.
+    game = seeded_game(9207)
+    owner = user("pgw_withdrawn")
+    grp = GroupsFixtures.group_fixture(owner)
+    stub_ask("You roll the die to start.")
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: owner.id,
+        question: "How do I start?",
+        answer: "Thinking...",
+        visibility: "private",
+        group_id: grp.id
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => owner.id,
+               "group_id" => grp.id,
+               "skip_pool" => true
+             })
+
+    # Precondition: a grounded crew answer really does pool (otherwise this test
+    # would pass for the wrong reason).
+    assert Repo.reload!(ql).pooled, "precondition: the grounded crew answer pooled"
+
+    {:ok, :deleted} = RuleMaven.Groups.delete_group(owner, grp)
+
+    withdrawn = Repo.reload!(ql)
+    assert is_nil(withdrawn.group_id)
+    refute withdrawn.pooled
+    refute withdrawn.browsable
+
+    # The admin unblock path proper: Security.unblock_question/1 resets the answer
+    # to "Thinking...", which is what lets AskWorker past `answered_already?` and
+    # re-run the ask for real. Without this the re-queue short-circuits and the
+    # test would pass for the wrong reason.
+    {:ok, _} = RuleMaven.Security.unblock_question(Repo.reload!(ql))
+
+    # Re-queue with no group_id — the column is nil now.
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => withdrawn.question,
+               "expansion_ids" => [],
+               "user_id" => owner.id,
+               "skip_pool" => true
+             })
+
+    refute Repo.reload!(ql).pooled,
+           "an answer the crew withdrew was put back into the commons"
+  end
 end

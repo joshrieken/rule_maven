@@ -24,6 +24,8 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
   """
   use Oban.Worker, queue: :default, max_attempts: 3
 
+  import Ecto.Query
+
   alias RuleMaven.Games.QuestionLog
   alias RuleMaven.{Jobs, LLM, Prompts, Repo}
 
@@ -70,10 +72,25 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
          oban_id
        )
        when not is_nil(gid) and is_binary(cleaned) do
-    if String.trim(cleaned) == "" do
-      :ok
-    else
-      decide(ql, cleaned, oban_id)
+    cond do
+      String.trim(cleaned) == "" ->
+        :ok
+
+      # The normalize step FALLS BACK to the raw question on any failure — a 429,
+      # a timeout, or a rewrite `accept_normalized?/2` rejects — and that fallback
+      # is what lands in `cleaned_question` (see LLM.normalize_question/4). So a
+      # `cleaned_question` identical to the raw column is not a scrub at all: it is
+      # the asker's verbatim prose wearing the scrubbed column's name.
+      #
+      # Publishing it would defeat the whole gate, which rests on the premise that
+      # what the screen cleared was the SCRUBBED text. A genuine rewrite that
+      # happens to equal the raw input is indistinguishable from a failed one here,
+      # so both are withheld: never publish text no normalizer actually rewrote.
+      String.trim(cleaned) == String.trim(ql.question || "") ->
+        :ok
+
+      true ->
+        decide(ql, cleaned, oban_id)
     end
   end
 
@@ -130,12 +147,26 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
       reply |> to_string() |> String.trim() |> String.downcase() |> String.trim_trailing(".")
 
     if normalized == "no" do
-      case ql |> QuestionLog.changeset(%{browsable: true}) |> Repo.update() do
-        {:ok, _} ->
-          Jobs.finish_run(run, "done", "Cleared — published.")
+      # A conditional UPDATE, not a changeset write on the row we loaded before a
+      # multi-second LLM call. `retract_contributions/1` (contribute-off, group
+      # delete, owner account deletion) can commit inside that window, and this is
+      # the ONLY writer in the system that opens the gate — a stale write here
+      # would re-publish a row the crew just explicitly withdrew.
+      {published, _} =
+        Repo.update_all(
+          from(q in QuestionLog,
+            where: q.id == ^ql.id,
+            where: q.browsable == false,
+            where: q.pooled == true,
+            where: not is_nil(q.group_id)
+          ),
+          set: [browsable: true]
+        )
 
-        {:error, _cs} ->
-          Jobs.finish_run(run, "failed", "Couldn't save browsable flag — left unbrowsable.")
+      if published == 1 do
+        Jobs.finish_run(run, "done", "Cleared — published.")
+      else
+        Jobs.finish_run(run, "done", "Cleared, but the row was withdrawn meanwhile — not published.")
       end
     else
       Jobs.finish_run(run, "done", "Not cleared — left unbrowsable.")
