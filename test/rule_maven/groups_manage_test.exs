@@ -189,6 +189,41 @@ defmodule RuleMaven.GroupsManageTest do
       assert {:ok, :left} = Groups.leave(o, g)
       refute Groups.member?(o, g)
     end
+
+    test "stale authorization is rejected: a former owner cannot transfer again", %{
+      owner: o,
+      member: m,
+      group: g
+    } do
+      # This proves the auth re-check inside the lock rejects an actor who is
+      # no longer the owner at the moment the check runs. It does NOT exercise
+      # the true concurrent race (two transactions racing for the advisory
+      # lock) — Ecto's SQL sandbox pins a test to a single connection, so two
+      # genuinely concurrent transactions aren't reachable here. What this
+      # test stands in for: O transfers to M (O becomes "admin"), then O
+      # (now stale) tries to transfer again to a third user C. Before the fix,
+      # the transaction body re-derived "whoever currently holds role: owner"
+      # instead of pinning to the actor, so O's stale authorization would have
+      # forced a second, unconsented transfer away from M.
+      other = create_user("u21")
+      {:ok, _} = Groups.join_by_code(other, g.invite_code)
+
+      assert {:ok, _} = Groups.transfer_ownership(o, g, m.id)
+      assert Groups.role_of(o, g) == "admin"
+      assert Groups.role_of(m, g) == "owner"
+
+      assert {:error, :forbidden} = Groups.transfer_ownership(o, g, other.id)
+
+      # group still has exactly one owner, and it's still M (the real
+      # current owner), not O and not C.
+      owner_rows =
+        Groups.list_members(g)
+        |> Enum.filter(&(&1.role == "owner"))
+
+      assert [%{user_id: owner_id}] = owner_rows
+      assert owner_id == m.id
+      assert Groups.role_of(other, g) == "member"
+    end
   end
 
   describe "remove_member/3" do
@@ -243,6 +278,64 @@ defmodule RuleMaven.GroupsManageTest do
       assert {:error, :forbidden} = Groups.delete_group(m, g)
       assert {:error, :forbidden} = Groups.delete_group(create_user("u17"), g)
       assert {:ok, :deleted} = Groups.delete_group(o, g)
+    end
+  end
+
+  describe "account deletion and group ownership (Users.delete_user/1)" do
+    defp owner_count(group) do
+      Groups.list_members(group) |> Enum.count(&(&1.role == "owner"))
+    end
+
+    test "deleting an owner with other members hands off ownership; admin preferred over member",
+         %{owner: o, member: m, group: g} do
+      # m is a plain "member"; promote a third user to "admin" so both an
+      # admin and a plain member exist as heir candidates.
+      admin = create_user("u22")
+      {:ok, _} = Groups.join_by_code(admin, g.invite_code)
+      {:ok, _} = Groups.set_role(o, g, admin.id, "admin")
+
+      assert {:ok, _} = RuleMaven.Users.delete_user(o)
+
+      # group survives
+      refute is_nil(RuleMaven.Repo.get(RuleMaven.Groups.Group, g.id))
+      assert owner_count(g) == 1
+      # the admin was preferred over the plain member
+      assert Groups.role_of(admin, g) == "owner"
+      assert Groups.role_of(m, g) == "member"
+    end
+
+    test "deleting an owner with only plain members promotes the oldest member", %{
+      owner: o,
+      member: m,
+      group: g
+    } do
+      assert {:ok, _} = RuleMaven.Users.delete_user(o)
+
+      refute is_nil(RuleMaven.Repo.get(RuleMaven.Groups.Group, g.id))
+      assert owner_count(g) == 1
+      assert Groups.role_of(m, g) == "owner"
+    end
+
+    test "deleting an owner who is the group's only member deletes the group" do
+      solo_owner = create_user("u23")
+      {:ok, solo_group} = Groups.create_group(solo_owner, %{name: "Solo"})
+
+      assert {:ok, _} = RuleMaven.Users.delete_user(solo_owner)
+
+      assert is_nil(RuleMaven.Repo.get(RuleMaven.Groups.Group, solo_group.id))
+    end
+
+    test "deleting a plain member leaves the group and its owner untouched", %{
+      owner: o,
+      member: m,
+      group: g
+    } do
+      assert {:ok, _} = RuleMaven.Users.delete_user(m)
+
+      refute is_nil(RuleMaven.Repo.get(RuleMaven.Groups.Group, g.id))
+      assert owner_count(g) == 1
+      assert Groups.role_of(o, g) == "owner"
+      refute Groups.member?(m, g)
     end
   end
 end

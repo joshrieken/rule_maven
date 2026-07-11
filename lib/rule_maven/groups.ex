@@ -265,33 +265,44 @@ defmodule RuleMaven.Groups do
 
   Runs inside a single transaction, first taking a transaction-scoped
   advisory lock keyed on the group id (same pattern as `join_by_code/2`),
-  then demotes the current owner to "admin" and promotes the target to
-  "owner", in that order, so the DB's partial unique index
-  (`group_memberships_one_owner_index`, one "owner" row per group) is never
-  transiently violated.
+  THEN re-verifies authorization: the actor must still hold "owner" on this
+  group at the moment the lock is held. The naive approach — checking
+  `role_at_least?(actor, group, :owner)` before opening the transaction —
+  is a TOCTOU: two concurrent transfers by the same owner can both pass
+  that outer check (neither has committed yet), and the loser, once it
+  gets the lock, would otherwise blindly re-derive "whoever currently
+  holds role: owner" and demote whoever the winner just promoted — a
+  second, unconsented transfer away from the actual current owner. Pinning
+  the check to the actor's own row under the lock closes that race:
+  the loser sees that role: "owner" no longer belongs to `actor` and
+  rolls back `:forbidden` instead of acting.
 
-  Returns `{:ok, group}`, `{:error, :forbidden}` if the actor isn't the
-  owner, or `{:error, :not_member}` if the target doesn't belong to the
-  group.
+  Demotes the current owner to "admin" and promotes the target to
+  "owner", in that order, so the DB's partial unique index
+  (`group_memberships_one_owner_index`, one "owner" row per group) is
+  never transiently violated.
+
+  Returns `{:ok, group}`, `{:error, :forbidden}` if the actor isn't (or
+  is no longer) the owner, or `{:error, :not_member}` if the target
+  doesn't belong to the group.
   """
   def transfer_ownership(actor, group, new_owner_user_id) do
-    cond do
-      not role_at_least?(actor, group, :owner) ->
-        {:error, :forbidden}
+    result =
+      Repo.transaction(fn ->
+        Repo.query!("SELECT pg_advisory_xact_lock($1)", [group.id])
 
-      true ->
-        result =
-          Repo.transaction(fn ->
-            Repo.query!("SELECT pg_advisory_xact_lock($1)", [group.id])
+        current_owner = Repo.get_by(Membership, group_id: group.id, role: "owner")
 
+        cond do
+          is_nil(current_owner) or current_owner.user_id != actor.id ->
+            Repo.rollback(:forbidden)
+
+          true ->
             case Repo.get_by(Membership, group_id: group.id, user_id: new_owner_user_id) do
               nil ->
                 Repo.rollback(:not_member)
 
               target_membership ->
-                current_owner =
-                  Repo.get_by!(Membership, group_id: group.id, role: "owner")
-
                 current_owner
                 |> Membership.changeset(%{role: "admin"})
                 |> Repo.update!()
@@ -300,14 +311,24 @@ defmodule RuleMaven.Groups do
                 |> Membership.changeset(%{role: "owner"})
                 |> Repo.update!()
 
+                # `groups.owner_id` is a denormalized pointer that must
+                # track whichever membership row holds role: "owner". Left
+                # stale, it would keep referencing the OLD owner even
+                # though they're now a mere admin — and since that column
+                # is `null: false` while its FK is `on_delete: :nilify_all`,
+                # deleting that former owner's account later would crash
+                # on a not-null violation instead of leaving the group
+                # (which they no longer own) untouched.
                 group
+                |> Group.changeset(%{owner_id: new_owner_user_id})
+                |> Repo.update!()
             end
-          end)
-
-        case result do
-          {:ok, group} -> {:ok, group}
-          {:error, reason} -> {:error, reason}
         end
+      end)
+
+    case result do
+      {:ok, group} -> {:ok, group}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -368,5 +389,88 @@ defmodule RuleMaven.Groups do
     else
       {:error, :forbidden}
     end
+  end
+
+  @doc """
+  Must be called (and committed) BEFORE deleting a user's account, for
+  every group that user owns. Without this, deleting the account leaves
+  an unrecoverable state: `group_memberships.user_id` cascades on delete
+  (the owner's membership row vanishes) but `groups.owner_id` only
+  nilifies (the group survives) — the group ends up with zero "owner"
+  rows, and every owner-gated operation (`transfer_ownership/3`,
+  `set_role/4`, `delete_group/2`) requires one to exist.
+
+  For each group the departing user owns, runs under the same
+  transaction-scoped advisory lock used by `join_by_code/2` and
+  `transfer_ownership/3`, then either:
+
+    * promotes the most senior remaining member to "owner" — an existing
+      "admin" is preferred; otherwise the oldest "member" by
+      `inserted_at`; or
+    * deletes the group outright if the departing owner was its only
+      member (nothing left to preserve).
+
+  Caller is expected to run this inside the same transaction as the
+  user delete so there is never a window where the user row is gone but
+  a group is still ownerless. Returns `:ok`.
+  """
+  def handle_owner_account_deletion(%RuleMaven.Users.User{id: user_id}) do
+    owned_group_ids =
+      Repo.all(
+        from m in Membership,
+          where: m.user_id == ^user_id and m.role == "owner",
+          select: m.group_id
+      )
+
+    Enum.each(owned_group_ids, &fixup_owner_departure(&1, user_id))
+    :ok
+  end
+
+  defp fixup_owner_departure(group_id, departing_owner_id) do
+    Repo.transaction(fn ->
+      Repo.query!("SELECT pg_advisory_xact_lock($1)", [group_id])
+
+      candidates =
+        Repo.all(
+          from m in Membership,
+            where: m.group_id == ^group_id and m.user_id != ^departing_owner_id,
+            order_by: [
+              asc: fragment("case when ? = 'admin' then 0 else 1 end", m.role),
+              asc: m.inserted_at
+            ]
+        )
+
+      case candidates do
+        [] ->
+          Repo.delete_all(from g in Group, where: g.id == ^group_id)
+
+        [heir | _] ->
+          # The departing owner's own membership row still holds role
+          # "owner" at this point — the user row (and its cascade) hasn't
+          # been deleted yet, since this fixup runs BEFORE that delete in
+          # the same transaction. Promoting the heir straight to "owner"
+          # while that row is still there would collide with the partial
+          # unique index (one "owner" row per group). Clear it first; the
+          # user row is about to be deleted anyway so this row would be
+          # cascade-removed a moment later regardless.
+          Repo.delete_all(
+            from m in Membership,
+              where: m.group_id == ^group_id and m.user_id == ^departing_owner_id
+          )
+
+          heir
+          |> Membership.changeset(%{role: "owner"})
+          |> Repo.update!()
+
+          # Keep the denormalized `groups.owner_id` pointer in sync too —
+          # see the matching note in `transfer_ownership/3`. Without this,
+          # `groups.owner_id` still points at the departing user, and
+          # `Repo.delete(user)` a moment later (same transaction) hits the
+          # FK's `on_delete: :nilify_all` against a `null: false` column.
+          Repo.get!(Group, group_id)
+          |> Group.changeset(%{owner_id: heir.user_id})
+          |> Repo.update!()
+      end
+    end)
   end
 end

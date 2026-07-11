@@ -130,7 +130,7 @@ defmodule RuleMaven.Users do
           select: v.question_log_id
       )
 
-    with {:ok, deleted} <- unless_super_admin(user, &Repo.delete/1) do
+    with {:ok, deleted} <- unless_super_admin(user, &do_delete_user/1) do
       rows = Repo.all(from q in RuleMaven.Games.QuestionLog, where: q.id in ^voted_on)
       Enum.each(rows, &RuleMaven.Games.Trust.recompute_trust/1)
 
@@ -145,6 +145,24 @@ defmodule RuleMaven.Users do
   end
 
   def delete_user(nil), do: {:error, :not_found}
+
+  # Any group the user owns must be handed off (or deleted, if they were
+  # its only member) BEFORE the user row disappears — `groups.owner_id`
+  # only nilifies on delete, so without this fixup the group would survive
+  # with zero "owner" rows, an unrecoverable state (see
+  # `RuleMaven.Groups.handle_owner_account_deletion/1`). Wrapping both in
+  # one transaction means there is never a window where the user is gone
+  # but a group hasn't been fixed up yet.
+  defp do_delete_user(%User{} = user) do
+    Repo.transaction(fn ->
+      RuleMaven.Groups.handle_owner_account_deletion(user)
+
+      case Repo.delete(user) do
+        {:ok, deleted} -> deleted
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
+  end
 
   # --- moderation ------------------------------------------------------------
 
