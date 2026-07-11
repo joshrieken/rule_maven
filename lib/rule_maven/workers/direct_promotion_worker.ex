@@ -20,7 +20,13 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
   def perform(_job) do
     Repo.all(
       from q in QuestionLog,
-        where: q.pooled == true and q.refused == false and q.visibility != "community",
+        # A row that may not be listed (browsable == false) must not be
+        # promoted either: promotion sets visibility = "community", which
+        # makes the row listable everywhere. Group rows start unbrowsable and
+        # are flipped only by PublishCheckWorker's own publish check.
+        where:
+          q.pooled == true and q.browsable == true and q.refused == false and
+            q.visibility != "community",
         where: not is_nil(q.question_embedding),
         # Deterministic seeding for the greedy clustering below: highest-trust
         # rows seed clusters first, ties broken by id.

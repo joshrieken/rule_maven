@@ -112,4 +112,24 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
     assert Repo.get(QuestionLog, row.id).visibility == "private"
   end
+
+  test "never promotes an unbrowsable row, even above the floor with full quorum",
+       %{game: game, author: author} do
+    row = pooled_row(game, author, Enum.to_list(1..768))
+
+    Repo.update_all(
+      from(r in QuestionLog, where: r.id == ^row.id),
+      set: [browsable: false]
+    )
+
+    # Same conditions as the passing-promotion test above (two confirmed,
+    # distinct, non-author upvotes clear the floor with quorum) — the ONLY
+    # thing that should stop promotion here is browsable == false.
+    Games.set_community_vote(row.id, confirmed_user("v1").id, "up")
+    Games.set_community_vote(row.id, confirmed_user("v2").id, "up")
+
+    assert Repo.get(QuestionLog, row.id).trust_score >= 3.0
+    assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
+    assert Repo.get(QuestionLog, row.id).visibility == "private"
+  end
 end

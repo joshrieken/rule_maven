@@ -67,6 +67,15 @@ defmodule RuleMaven.CommunityBrowseTest do
       assert game |> Games.unverified_pool_questions() |> Enum.map(& &1.id) ==
                [high.id, low.id]
     end
+
+    test "excludes unbrowsable rows", %{game: game} do
+      shown = log(game, %{pooled: true, browsable: true, question: "browsable"})
+      hidden = log(game, %{pooled: true, browsable: false, question: "hidden group row"})
+
+      ids = game |> Games.unverified_pool_questions() |> Enum.map(& &1.id)
+      assert shown.id in ids
+      refute hidden.id in ids
+    end
   end
 
   describe "recent_questions/3 upvoted pooled rows" do

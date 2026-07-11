@@ -2321,15 +2321,19 @@ defmodule RuleMaven.Games do
   pooled rows (already shareable via the answer cache) that haven't been
   promoted to community. Excludes anything a browser shouldn't see — refused,
   under review, blocked, stale, failed answers, pool-hit duplicates (only the
-  source row surfaces) — and anything voted significantly down. Questions are
-  shown without the asker's identity; only pooled rows qualify, so the asker
-  has already consented to answer sharing via the pool.
+  source row surfaces), unbrowsable rows — and anything voted significantly
+  down. Questions are shown without the asker's identity; only pooled rows
+  qualify, so the asker has already consented to answer sharing via the pool.
+  A group-origin row (`browsable: false` by default) appears here only after
+  `PublishCheckWorker` flips `browsable` true — i.e. only after it clears the
+  group's own publish check.
   """
   def unverified_pool_questions(%Game{} = game, limit \\ 200) do
     Repo.all(
       from q in QuestionLog,
         where:
-          q.game_id == ^game.id and q.pooled == true and q.visibility != "community" and
+          q.game_id == ^game.id and q.pooled == true and q.browsable == true and
+            q.visibility != "community" and
             q.refused == false and q.needs_review == false and q.blocked == false and
             q.stale == false and is_nil(q.error_kind) and is_nil(q.pool_source_id) and
             q.trust_score > -1.0,
