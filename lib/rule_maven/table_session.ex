@@ -36,7 +36,13 @@ defmodule RuleMaven.TableSession do
   def put(user_id, game_id, snapshot) when is_map(snapshot) do
     GenServer.call(__MODULE__, {:put, user_id, game_id, snapshot})
   catch
-    :exit, _ -> :ok
+    # Never take a LiveView down over ephemeral UI state — but say so. A silent
+    # :ok here would drop the write and reintroduce the lost-active_group_id bug
+    # this serialization exists to prevent, with nothing in the logs.
+    :exit, reason ->
+      require Logger
+      Logger.warning("TableSession.put dropped for #{user_id}/#{game_id}: #{inspect(reason)}")
+      :ok
   end
 
   @doc "Drop entries idle longer than ttl_ms. Called on a timer; public for tests."

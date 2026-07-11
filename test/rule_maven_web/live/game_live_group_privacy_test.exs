@@ -19,6 +19,7 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
   import RuleMaven.GroupsFixtures
 
   alias RuleMaven.{Games, Repo}
+  alias RuleMaven.Games.QuestionLog
   alias RuleMaven.Games.QuestionVote
 
   @raw "SECRETWORDING will Dave's smuggler get caught"
@@ -253,5 +254,40 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
 
     assert row, "the ask was still logged"
     assert is_nil(row.group_id), "a removed member's ask was still stamped with the crew"
+  end
+
+  test "Ask exactly this cannot launder a crew question into the public pool", ctx do
+    # The laundering path: the re-ask took its TEXT from the old crew row but its
+    # group_id from the socket's CURRENT selector. So: ask in the crew, flip the
+    # selector back to "Just me", click "Ask exactly this" on your own answer —
+    # and the crew's unscreened wording lands in a group_id: nil, browsable: true
+    # row that the public Unverified tab lists verbatim.
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
+    q = group_row!(ctx.game, ctx.member, ctx.group, %{})
+
+    {:ok, view, _html} =
+      live(
+        login(build_conn(), ctx.member),
+        ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
+      )
+
+    # Back to "Just me" — the crew is no longer the active ask context.
+    view |> element("[phx-value-group='']") |> render_click()
+
+    render_click(view, "ask_exactly", %{"id" => to_string(q.id)})
+
+    reasked =
+      RuleMaven.Games.QuestionLog
+      |> Repo.get_by(question: @raw, answer: "Thinking...")
+
+    assert reasked, "precondition: the verbatim re-ask row was created"
+
+    refute reasked.browsable,
+           "a re-ask carrying the crew's raw wording was published as browsable"
+
+    assert QuestionLog.listed_question(reasked) == "(question withheld)"
   end
 end

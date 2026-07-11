@@ -369,6 +369,36 @@ defmodule RuleMaven.GroupGateHolesTest do
       refute Enum.any?(bodies, &(&1 =~ "SECRETWORDING"))
     end
 
+    test "a crew member DOES tiebreak against their own crew's unscreened row", ctx do
+      # The crew's private answer cache is the whole point of the feature. The
+      # asker's membership in `active_group_id` is verified upstream in LLM.ask/5,
+      # so serving them their own crew's row crosses no boundary — gating the
+      # tiebreak on `browsable` alone made two crew members asking paraphrases
+      # both pay for a full ask.
+      ctx.game
+      |> group_question!(ctx.member, ctx.grp)
+      |> with_embedding!(@near_miss_vec_a)
+
+      test = self()
+
+      Application.put_env(:rule_maven, :llm_mock, fn body ->
+        send(test, {:llm_body, inspect(body)})
+        {:ok, %{answer: "yes", finish_reason: "stop"}}
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      RuleMaven.LLM.ask(ctx.game, "can a smuggler get caught cheating?", [], [],
+        user_id: ctx.member.id,
+        group_id: ctx.grp.id
+      )
+
+      bodies = collect_bodies([])
+
+      assert Enum.any?(bodies, &(&1 =~ "Can a smuggler cheat?")),
+             "the crew's own private cache never reached the tiebreaker for its own member"
+    end
+
     test "a CLEARED group row tiebreaks on its scrubbed text", ctx do
       ctx.game
       |> group_question!(ctx.member, ctx.grp, %{browsable: true})
@@ -441,6 +471,43 @@ defmodule RuleMaven.GroupGateHolesTest do
 
       refute Enum.any?(labels, &(&1 =~ "SECRETWORDING")),
              "the crew member's raw wording was written to the shared Jobs log"
+    end
+  end
+
+  describe "Groups.delete_group/2" do
+    test "retracts the crew's rows before nilifying their group_id", ctx do
+      # group_id is on_delete: :nilify_all, so after the delete nothing on the row
+      # says it came from a crew. Close the rows while we can still find them —
+      # otherwise every group_id-keyed guard downstream misjudges them.
+      q = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
+
+      {:ok, :deleted} = Groups.delete_group(ctx.member, ctx.grp)
+
+      row = Repo.get(QuestionLog, q.id)
+      assert is_nil(row.group_id), "precondition: group_id is nilified"
+      refute row.browsable, "a deleted crew's row stayed publicly listable"
+      refute row.pooled
+    end
+
+    test "a non-owner cannot delete", ctx do
+      stranger = create_user("stranger")
+
+      assert {:error, :forbidden} = Groups.delete_group(stranger, ctx.grp)
+    end
+  end
+
+  describe "listed_question/1 needs BOTH axes" do
+    test "a cleared crew row still never falls back to the raw column", ctx do
+      # browsable: true says the SCRUBBED text passed the screen — it says nothing
+      # about the raw column, which is exactly what the scrub removed.
+      q =
+        group_question!(ctx.game, ctx.member, ctx.grp, %{
+          browsable: true,
+          cleaned_question: nil
+        })
+
+      assert QuestionLog.listed_question(q) == "(question withheld)"
+      refute QuestionLog.listed_question(q) =~ "SECRETWORDING"
     end
   end
 end

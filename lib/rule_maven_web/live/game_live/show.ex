@@ -1525,14 +1525,18 @@ defmodule RuleMavenWeb.GameLive.Show do
     q = find_question_log(socket.assigns.game, id)
 
     if user && q && q.user_id == user.id && q.answer != "Thinking..." do
+      # Audit policy, applied consistently across every Audit.log call on a
+      # question: the LABEL is scrubbed (`listed_question/1`) because it renders
+      # in the audit LIST — a scanning surface — while the METADATA keeps the raw
+      # text, because that is the forensic record and admins already read raw
+      # wording in the moderation views. Scrubbing it here would also make this
+      # entry a tautology: it exists so an admin can compare what the user TYPED
+      # against the rewrite, and "original" would just repeat "cleaned".
       RuleMaven.Audit.log(user, "question.ask_verbatim",
         target_type: "question",
         target_id: q.id,
         target_label: QuestionLog.listed_question(q),
-        metadata: %{
-          "original" => QuestionLog.listed_question(q),
-          "cleaned" => q.cleaned_question
-        }
+        metadata: %{"original" => q.question, "cleaned" => q.cleaned_question}
       )
 
       Games.record_pool_mismatch(q, user.id)
@@ -1811,7 +1815,27 @@ defmodule RuleMavenWeb.GameLive.Show do
           |> Enum.reject(& &1[:pending])
           |> build_recent_pairs()
 
-        group_id = live_group_id(socket)
+        # A re-ask inherits the SOURCE row's boundary — it must not be able to
+        # take its text from one context and its publishability from another.
+        #
+        # `question` above came from `old_q` (verbatim re-ask reuses the raw
+        # column outright), so reading `group_id` from the socket's current
+        # selector was a laundering path: ask in the crew, flip the selector back
+        # to "Just me", hit "Ask exactly this" on your own answer, and the crew's
+        # unscreened wording lands in a group_id: nil, browsable: true row that
+        # the public Unverified tab lists verbatim. Two clicks, no forgery.
+        source_group_id = old_q && old_q.group_id
+        uid = socket.assigns.current_user.id
+
+        group_id =
+          if source_group_id && RuleMaven.Groups.member_of_group_id?(uid, source_group_id),
+            do: source_group_id,
+            else: live_group_id(socket)
+
+        # Belt and braces: even where the group_id can't be carried over (the
+        # user has since left the crew), text derived from an uncleared row stays
+        # uncleared.
+        browsable = is_nil(group_id) and (is_nil(old_q) or old_q.browsable)
 
         case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
                game_id: game.id,
@@ -1820,7 +1844,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                user_id: socket.assigns.current_user.id,
                visibility: visibility,
                group_id: group_id,
-               browsable: is_nil(group_id),
+               browsable: browsable,
                expansion_ids: Enum.sort(expansion_ids),
                error_retries: carried_retries
              }) do

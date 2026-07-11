@@ -479,11 +479,21 @@ defmodule RuleMaven.Groups do
 
   @doc """
   Deletes the group and (via FK cascade) its memberships. Owner-only.
+
+  Retracts the crew's contributions FIRST. `questions_log.group_id` is
+  `on_delete: :nilify_all`, so deleting the group strips its rows of the only
+  marker that says they came from a crew — while leaving the unscreened text in
+  place. Anything that then asks "is this a crew row?" by looking at `group_id`
+  gets the wrong answer, so the rows are closed here, while we can still find
+  them, rather than left for a guard to misjudge later.
   """
   def delete_group(actor, group) do
     if role_at_least?(actor, group, :owner) do
-      Repo.delete!(group)
-      {:ok, :deleted}
+      Repo.transaction(fn ->
+        retract_contributions(group)
+        Repo.delete!(group)
+        :deleted
+      end)
     else
       {:error, :forbidden}
     end

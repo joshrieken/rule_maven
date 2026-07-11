@@ -90,11 +90,23 @@ defmodule RuleMaven.Games.QuestionLog do
   `display_question/1` turns the search box into an oracle: the card appears and
   disappears on substrings of text the viewer is never shown, which is enough to
   reconstruct it a character at a time.
-  """
-  def listed_question(%{group_id: gid} = q) when not is_nil(gid),
-    do: q.canonical_question || q.cleaned_question || "(question withheld)"
 
-  def listed_question(q), do: display_question(q)
+  The raw column is reachable only for a row that is BOTH cleared (`browsable`)
+  and not crew-marked (`group_id` nil) — neither test alone is enough:
+
+    * `browsable` alone: a crew row is browsable once the screen clears it, but
+      what the screen cleared was the SCRUBBED text. Falling back to the raw
+      column on a cleared crew row would publish the wording the scrub removed.
+    * `group_id` alone: `questions_log.group_id` is `on_delete: :nilify_all`, so
+      a deleted crew's rows keep their unscreened text while losing the marker
+      that says where it came from. A group_id-keyed guard opens for exactly
+      those rows — the trap that already bit `publishable?/1` and the
+      SuggestionsWorker.
+  """
+  def listed_question(%{browsable: true, group_id: nil} = q), do: display_question(q)
+
+  def listed_question(q),
+    do: q.canonical_question || q.cleaned_question || "(question withheld)"
 
   @doc false
   def changeset(question_log, attrs) do

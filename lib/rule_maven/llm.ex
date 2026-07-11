@@ -217,7 +217,7 @@ defmodule RuleMaven.LLM do
         ambiguous
         |> Enum.take(@max_tiebreaker_calls)
         |> Enum.find_value(fn {row, _sim} ->
-          if paraphrase_equivalent?(row, match_text, game, user_id) do
+          if paraphrase_equivalent?(row, match_text, game, user_id, active_group_id) do
             {row, RuleMaven.Games.pool_tier(row)}
           end
         end)
@@ -234,19 +234,26 @@ defmodule RuleMaven.LLM do
   # arbitrary content through this path; the worst case is coercing a "yes" on
   # a candidate the asker was already within 0.85-0.92 cosine similarity of,
   # which just serves an already-vetted, rulebook-derived pool answer early.
-  defp paraphrase_equivalent?(row, asker_question, game, user_id) do
-    # The tiebreaker is a real provider call made on behalf of the ASKER, who is
-    # very often a stranger to the crew that owns the candidate row — pool
-    # candidates include group rows by design (their ANSWERS feed the commons).
-    # So the candidate's text may only be used if it is cleared for publication.
+  defp paraphrase_equivalent?(row, asker_question, game, user_id, active_group_id) do
+    # The tiebreaker is a real provider call made on behalf of the ASKER. Pool
+    # candidates include group rows by design (their ANSWERS feed the commons),
+    # so the asker is usually a stranger to the crew that owns the candidate —
+    # and then the candidate's text may only be used if it is cleared for
+    # publication. `browsable` is the flag that records that verdict; an
+    # unbrowsable crew row is either unscreened or actively REJECTED (the
+    # scrubber left a real name in, say), and even its `cleaned_question` is then
+    # exactly the text that must not leave the crew.
     #
-    # Gated on `browsable`, which is the flag that records the publish check's
-    # verdict — not on `group_id`. An unbrowsable crew row is either not yet
-    # screened or actively REJECTED (the scrubber left a real name in, say), and
-    # in both cases even its `cleaned_question` is exactly the text that must not
-    # leave the group. Such a row simply misses the tiebreak.
+    # The exception is the asker's OWN crew. `active_group_id` has already been
+    # checked against this user's memberships upstream (`LLM.ask/5`), and the
+    # crew's private answer cache is the whole point of the feature — gating it
+    # on `browsable` alone made a crew's own rows un-tiebreakable to its own
+    # members, so two members asking paraphrases both paid for a full ask.
+    own_crew_row? = not is_nil(active_group_id) and row.group_id == active_group_id
+
     candidate_question =
-      if row.browsable, do: RuleMaven.Games.QuestionLog.display_question(row)
+      if row.browsable or own_crew_row?,
+        do: RuleMaven.Games.QuestionLog.display_question(row)
 
     if is_nil(candidate_question) do
       false
