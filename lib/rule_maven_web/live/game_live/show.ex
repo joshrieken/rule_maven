@@ -564,6 +564,13 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp shown_answer(q, _current_user_id), do: QuestionLog.listed_answer(q)
 
+  # May this viewer see the row's RAW answer text? Your own row always; anyone
+  # else's only once `browsable` (the same gate `listed_answer/1` uses). This
+  # governs the persona overlay, which would otherwise route the raw crew answer
+  # around `shown_answer/2` via the shared, un-authorized Voices cache.
+  defp answer_visible?(%{user_id: uid}, uid) when not is_nil(uid), do: true
+  defp answer_visible?(q, _current_user_id), do: q.browsable == true
+
   # Build flat conversation for a single thread (root + regen history).
   defp build_conversation_for_thread(grouped, thread_id, current_user_id) do
     case Enum.find(grouped, &(&1.primary.id == thread_id)) do
@@ -599,6 +606,11 @@ defmodule RuleMavenWeb.GameLive.Show do
         id: g.primary.id,
         role: :assistant,
         content: shown_answer(g.primary, current_user_id),
+        # Whether the RAW answer is showable to this viewer. Drives the persona
+        # overlay: a withheld crew answer must not be restyled, cached, fetched
+        # from the shared Voices store, or rendered as `v_content` — the styled
+        # copy is the same private prose in a costume.
+        answer_visible: answer_visible?(g.primary, current_user_id),
         cited_passage: g.primary.cited_passage,
         cited_page: g.primary.cited_page,
         cited_source: g.primary.cited_source,
@@ -629,6 +641,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             id: h.id,
             role: :assistant,
             content: shown_answer(h, current_user_id),
+            answer_visible: answer_visible?(h, current_user_id),
             cited_passage: h.cited_passage,
             cited_page: h.cited_page,
             cited_source: h.cited_source,
@@ -722,7 +735,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       # voice_pending set forever (they render plain regardless).
       |> Enum.filter(
         &(&1[:role] == :assistant && &1[:id] && !&1[:pending] && !&1[:refused] &&
-            &1[:content] != "Thinking...")
+            &1[:content] != "Thinking..." && Map.get(&1, :answer_visible, true))
       )
       |> Enum.map(& &1[:id])
       |> Enum.uniq()
@@ -2322,7 +2335,8 @@ defmodule RuleMavenWeb.GameLive.Show do
       # the broadcast — apply_default_voice/2 below already skips re-enqueuing
       # a VoiceWorker restyle for a voice already present in voice_cache.
       socket =
-        if data[:styled_answer] && data[:styled_voice] do
+        if data[:styled_answer] && data[:styled_voice] &&
+             answer_visible?(ql, socket.assigns.current_user.id) do
           assign(socket,
             voice_cache:
               Map.put(
@@ -3324,8 +3338,12 @@ defmodule RuleMavenWeb.GameLive.Show do
                       (msg.role == :assistant && !msg[:refused] &&
                          Map.get(@voice_sel, msg[:id], @default_voice)) ||
                         "neutral" %>
+                    <%!-- `answer_visible == false` (a crew answer withheld from
+                          this viewer) never renders a persona overlay: the styled
+                          copy is the same withheld prose in a costume. --%>
                     <% v_content =
-                      if v_sel == "neutral" or msg.content == "Thinking...",
+                      if v_sel == "neutral" or msg.content == "Thinking..." or
+                           msg[:answer_visible] == false,
                         do: nil,
                         else: Map.get(@voice_cache, {msg[:id], v_sel}) %>
                     <% v_failed = MapSet.member?(@voice_failed, {msg[:id], v_sel}) %>

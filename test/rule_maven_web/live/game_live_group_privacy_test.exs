@@ -181,6 +181,35 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
     assert html =~ "(answer withheld)"
   end
 
+  test "an admin does NOT see the crew answer via the persona-voice overlay", ctx do
+    # The styled answer is the same private prose in a costume, and the Voices
+    # cache is keyed only by (question_log_id, voice) with no authz — so a styled
+    # copy sitting there (the asker's own restyle, or the old crew store_direct)
+    # let the admin's persona overlay render around the "(answer withheld)" gate.
+    q =
+      group_row!(ctx.game, ctx.member, ctx.group, %{
+        answer: "Yes, SECRETANSWER on a failed roll."
+      })
+
+    :ok = RuleMaven.Voices.store_direct(q.id, "pirate", "Arr, PIRATESECRET be the ruling.")
+
+    admin = user!("voice_admin", %{role: "admin"})
+    conn = login(build_conn(), admin)
+
+    {:ok, view, _html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
+      )
+
+    # Admin picks the persona whose styled copy is already in the shared store.
+    html = render_click(view, "set_voice", %{"voice" => "pirate"})
+
+    refute html =~ "PIRATESECRET", "the persona overlay leaked the withheld crew answer"
+    refute html =~ "SECRETANSWER"
+    assert html =~ "(answer withheld)"
+  end
+
   test "the asker still sees their own crew ANSWER in the bubble", ctx do
     q =
       group_row!(ctx.game, ctx.member, ctx.group, %{

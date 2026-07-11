@@ -559,9 +559,16 @@ defmodule RuleMaven.Workers.AskWorker do
                       # never produces a styled_answer in the first place (voice_style_block
                       # returns "" for "neutral"), so this branch of the guard can't
                       # currently be reached — kept in case that ever changes.
+                      #
+                      # `not crew_origin?`: the styled answer restates the crew's private
+                      # question in a persona voice. store_direct persists it to the SHARED,
+                      # un-authorized Voices cache (keyed only by question_log_id+voice) and
+                      # broadcasts it game-wide — either of which hands a non-member the very
+                      # prose `listed_answer/1` withholds. A crew ask forgoes the direct-cache
+                      # optimization; the asker gets the on-demand VoiceWorker restyle instead.
                       store_direct? =
                         styled_answer && styled_voice && styled_voice != "neutral" &&
-                          not refused?
+                          not refused? && not crew_origin?
 
                       if store_direct? do
                         case RuleMaven.Voices.store_direct(
