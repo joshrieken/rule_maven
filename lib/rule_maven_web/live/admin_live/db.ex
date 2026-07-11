@@ -6,6 +6,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
 
   # Raw browse caps at this many rows; large tables truncate (newest-first).
   @row_limit 500
+  @redaction_marker "«redacted»"
 
   # Writes through this raw editor are ALLOWLISTED, not denylisted. A denylist
   # fails open: the next migration adds a credential-bearing table and it is
@@ -38,6 +39,10 @@ defmodule RuleMavenWeb.AdminLive.Db do
 
   @doc false
   def __writable_tables__, do: @writable_tables
+
+  @doc false
+  def __redact_for_test__(rows, table, superadmin?),
+    do: redact_sensitive(rows, table, superadmin?)
 
   defp writable?(table, user) do
     Users.can?(user, :admin) and (Users.can?(user, :superadmin) or table in @writable_tables)
@@ -83,7 +88,11 @@ defmodule RuleMavenWeb.AdminLive.Db do
       if table && table_valid?(table) do
         columns = fetch_columns(table)
         {pk, _} = find_pk(table, columns)
-        rows = fetch_rows(table, columns)
+
+        rows =
+          table
+          |> fetch_rows(columns)
+          |> redact_sensitive(table, Users.can?(live_user(socket), :superadmin))
 
         assign(socket,
           table_name: table,
@@ -174,7 +183,16 @@ defmodule RuleMavenWeb.AdminLive.Db do
   def handle_event("edit_row", %{"id" => id}, socket) do
     table = socket.assigns.table_name
     pk = socket.assigns.pk_col
-    row = fetch_row(table, pk, id, socket.assigns.columns)
+    superadmin? = Users.can?(live_user(socket), :superadmin)
+
+    # Same masking as the list view — the edit form would otherwise show the raw
+    # value in a textarea. A non-superadmin who saves without touching a masked
+    # field must not write the mask over the real prose, so a redacted field is
+    # dropped from the save (see the "save" handler).
+    row =
+      table
+      |> fetch_row(pk, id, socket.assigns.columns)
+      |> then(&([&1] |> redact_sensitive(table, superadmin?) |> hd()))
 
     data =
       Enum.reduce(socket.assigns.columns, %{}, fn {col, _type}, acc ->
@@ -210,8 +228,14 @@ defmodule RuleMavenWeb.AdminLive.Db do
   end
 
   defp do_save(socket, table, pk, columns, mode, data, cols_map) do
-    # Exclude pk from insert/update
-    set_cols = Enum.filter(Map.keys(cols_map), &(&1 != pk))
+    # Exclude pk from insert/update — and any field still holding the redaction
+    # marker, so a non-superadmin who saves an edited row without touching a masked
+    # field leaves the real prose intact instead of overwriting it with the mask.
+    set_cols =
+      cols_map
+      |> Map.keys()
+      |> Enum.reject(&(&1 == pk or Map.get(data, &1) == @redaction_marker))
+
     vals = Enum.map(set_cols, &parse_for_db(Map.get(data, &1), cols_map[&1]))
 
     try do
@@ -247,7 +271,10 @@ defmodule RuleMavenWeb.AdminLive.Db do
         metadata: %{"table" => table, "columns" => set_cols}
       )
 
-      rows = fetch_rows(table, columns)
+      rows =
+        table
+        |> fetch_rows(columns)
+        |> redact_sensitive(table, Users.can?(live_user(socket), :superadmin))
 
       {:noreply,
        assign(socket, rows: rows, mode: nil, editing_id: nil, form_data: %{}, form_errors: %{})}
@@ -349,6 +376,41 @@ defmodule RuleMavenWeb.AdminLive.Db do
 
   defp table_valid?(name) do
     name in fetch_tables()
+  end
+
+  # Columns carrying a user's RAW verbatim prose. The crew feature's threat model
+  # is that even an admin must not read another user's raw crew wording — a crew
+  # question can name real people at the table. Every purpose-built admin surface
+  # scrubs it (`listed_question/1`, `scrub_detail/2`, the audit `format_meta`
+  # redaction), but this generic console read all columns of every table for any
+  # `:admin`, which reopened the whole class through the side door.
+  #
+  # Masked for a plain admin; a SUPER admin (grantable only by mix task, and the
+  # documented unrestricted escape hatch) still sees everything.
+  @sensitive_columns %{
+    "questions_log" => ~w(question cleaned_question raw_response feedback also_asked followups),
+    "llm_logs" => ~w(detail messages),
+    "audit_logs" => ~w(metadata),
+    "house_rules" => ~w(body),
+    "game_support_requests" => ~w(message)
+  }
+
+  defp redact_sensitive(rows, _table, true = _superadmin?), do: rows
+
+  defp redact_sensitive(rows, table, _superadmin?) do
+    case Map.get(@sensitive_columns, table) do
+      nil ->
+        rows
+
+      cols ->
+        Enum.map(rows, fn row ->
+          Enum.reduce(cols, row, fn col, acc ->
+            if Map.has_key?(acc, col) and not is_nil(Map.get(acc, col)),
+              do: Map.put(acc, col, @redaction_marker),
+              else: acc
+          end)
+        end)
+    end
   end
 
   # ── Helpers ──

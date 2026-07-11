@@ -116,6 +116,9 @@ defmodule RuleMavenWeb.AdminLive.Audit do
     """
   end
 
+  @doc false
+  def __format_meta_for_test__(meta), do: format_meta(meta)
+
   defp format_meta(meta) when meta == %{} or is_nil(meta), do: ""
 
   # Question and answer TEXT never renders in the audit list.
@@ -129,7 +132,13 @@ defmodule RuleMavenWeb.AdminLive.Audit do
   #
   # The audit ROW still holds the text (that is the point of an audit record); it
   # just isn't painted onto a screen that lists every user's questions.
-  @redacted_meta_keys ~w(question cleaned_question canonical_question answer original)
+  # Both the canonical column names AND the short keys audit writers actually use
+  # (`ask_verbatim` stores `"original"`/`"cleaned"`). Keying redaction on the
+  # canonical names alone missed `"cleaned"`, which for a normalize-FALLBACK crew
+  # row holds the asker's raw prose — the same leak, one key name off.
+  @redacted_meta_keys ~w(
+    question cleaned_question canonical_question answer original cleaned canonical
+  )
 
   defp format_meta(meta) do
     meta

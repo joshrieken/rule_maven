@@ -602,11 +602,9 @@ defmodule RuleMaven.Workers.AskWorker do
                         verified: llm_result[:verified] || false,
                         source_question_log_id: llm_result[:source_question_log_id],
                         followups: if(refused?, do: [], else: llm_result[:followups] || []),
-                        also_asked: if(refused?, do: [], else: llm_result[:also_asked] || []),
                         cited_page: cited_page,
                         refused: refused?,
                         verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
-                        raw_response: llm_result[:raw_response],
                         # Only ever carry a styled answer that was actually cached
                         # above (store_direct or inline restyle) — a refused
                         # question must not broadcast a styled answer even if the
@@ -763,7 +761,11 @@ defmodule RuleMaven.Workers.AskWorker do
   # Single choke point for the :ask_complete broadcast. `group_id` rides in
   # from the persisted row so Task 11's live feed panel can tell whether to
   # re-query the group feed — the topic is public to every viewer of the
-  # game, so ONLY the id goes on the wire, never group question content.
+  # game, so ONLY routing fields go on the wire, never group question content.
+  # `also_asked` and `raw_response` are the asker's verbatim prose; the handler
+  # re-reads them from the row through owner-scoped gates (`own_also_asked/2`,
+  # `own_raw_response/2`), so they must not travel in the payload at all — a
+  # subscriber that forgot to re-gate would otherwise render them.
   def broadcast_complete(%QuestionLog{} = ql, meta) do
     payload =
       meta
@@ -812,11 +814,9 @@ defmodule RuleMaven.Workers.AskWorker do
           verified: ql.verified || false,
           source_question_log_id: ql.pool_source_id,
           followups: ql.followups || [],
-          also_asked: ql.also_asked || [],
           cited_page: ql.cited_page,
           refused: ql.refused,
           verdict: ql.verdict,
-          raw_response: nil,
           styled_voice: nil,
           styled_answer: nil
         })
