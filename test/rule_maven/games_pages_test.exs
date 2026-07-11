@@ -106,6 +106,21 @@ defmodule RuleMaven.GamesPagesTest do
       [p | _] = Games.paginate(["body text"]) |> Games.assign_printed_from_anchor(1)
       assert p.text == "body text"
     end
+
+    test "2-up pages (physical sheet + half) get two printed numbers per sheet" do
+      # Sheets 1 (cover spread) and 2–3: anchor printed 1 at sheet 2's left half.
+      pages = [
+        %{sheet: 1, half: "left", printed: nil},
+        %{sheet: 1, half: "right", printed: nil},
+        %{sheet: 2, half: "left", printed: nil},
+        %{sheet: 2, half: "right", printed: nil},
+        %{sheet: 3, half: "left", printed: nil},
+        %{sheet: 3, half: "right", printed: nil}
+      ]
+
+      assert Games.assign_printed_from_anchor(pages, 2) |> Enum.map(& &1.printed) ==
+               [nil, nil, 1, 2, 3, 4]
+    end
   end
 
   describe "strip_printed_number/2" do

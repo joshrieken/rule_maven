@@ -2000,8 +2000,19 @@ defmodule RuleMavenWeb.GameLive.Form do
   defp page_label(p) do
     cond do
       p[:printed] -> "p.#{p[:printed]}"
-      p[:sheet] -> "sheet #{p[:sheet]}"
+      p[:sheet] -> "sheet #{p[:sheet]}#{sheet_half_suffix(p)}"
       true -> "##{(p[:index] || 0) + 1}"
+    end
+  end
+
+  # 2-up pages share their physical sheet number with the other half —
+  # disambiguate ("Sheet 4 (left)") wherever a bare sheet number is shown.
+  defp sheet_half_suffix(p) do
+    # Map.get, not p[:half]: p is a plain map in some call sites and an Ecto
+    # embed struct (no Access) in others.
+    case Map.get(p, :half) do
+      h when h in ["left", "right"] -> " (#{h})"
+      _ -> ""
     end
   end
 
@@ -2053,6 +2064,7 @@ defmodule RuleMavenWeb.GameLive.Form do
             index: p.index,
             sheet: p.sheet,
             printed: p.printed,
+            half: Map.get(p, :half),
             text: p.text || "",
             cleaned: p.cleaned,
             confidence: p.confidence,
@@ -2260,7 +2272,9 @@ defmodule RuleMavenWeb.GameLive.Form do
               or falsely render as the first printed page). --%>
         <select name={"pagesel_#{@id}"} phx-change="set_source_page" style={@select_style}>
           <option :for={{p, i} <- Enum.with_index(@pages)} value={i} selected={i == @cur}>
-            {if p.printed, do: "#{p.printed}", else: "Sheet #{p.sheet} (unnumbered)"}
+            {if p.printed,
+              do: "#{p.printed}",
+              else: "Sheet #{p.sheet}#{sheet_half_suffix(p)} (unnumbered)"}
           </option>
         </select>
       </label>
@@ -3834,7 +3848,8 @@ defmodule RuleMavenWeb.GameLive.Form do
         <% page_head =
           "font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:0 0 0.4rem 0;text-align:center" %>
         <% page_label = fn p ->
-          if p.printed, do: "Page #{p.printed} · Sheet #{p.sheet}", else: "Sheet #{p.sheet}"
+          sheet = "Sheet #{p.sheet}#{sheet_half_suffix(p)}"
+          if p.printed, do: "Page #{p.printed} · #{sheet}", else: sheet
         end %>
         <% tab_style = fn active ->
           "font-size:0.72rem;padding:0.2rem 0.7rem;border-radius:0.3rem;cursor:pointer;border:1px solid var(--border);background:#{if active, do: "var(--accent)", else: "var(--bg-subtle)"};color:#{if active, do: "white", else: "var(--text-secondary)"}"
