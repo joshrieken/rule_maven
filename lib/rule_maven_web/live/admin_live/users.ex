@@ -28,6 +28,51 @@ defmodule RuleMavenWeb.AdminLive.Users do
 
   @impl true
   def handle_event("promote_user", %{"id" => id_str}, socket) do
+    with_superadmin(socket, fn -> do_promote_user(id_str, socket) end)
+  end
+
+  def handle_event("demote_user", %{"id" => id_str}, socket) do
+    with_superadmin(socket, fn -> do_demote_user(id_str, socket) end)
+  end
+
+  def handle_event(
+        "create_user",
+        %{"new_username" => username, "new_email" => email, "new_role" => role},
+        socket
+      ) do
+    if role == "admin" do
+      with_superadmin(socket, fn -> do_create_user(username, email, role, socket) end)
+    else
+      do_create_user(username, email, role, socket)
+    end
+  end
+
+  def handle_event("dismiss_temp_password", _params, socket) do
+    {:noreply, assign(socket, temp_password: nil, created_username: nil)}
+  end
+
+  def handle_event("form_change", params, socket) do
+    socket =
+      Enum.reduce([:new_username, :new_email, :new_role], socket, fn field, acc ->
+        key = Atom.to_string(field)
+        if Map.has_key?(params, key), do: assign(acc, field, params[key]), else: acc
+      end)
+
+    {:noreply, socket}
+  end
+
+  # Promoting/demoting admins and creating new admins is reserved for super
+  # admins — a regular admin who could do this could mint themselves a peer
+  # with the same reach.
+  defp with_superadmin(socket, fun) do
+    if Users.can?(socket.assigns.current_user, :superadmin) do
+      fun.()
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
+  defp do_promote_user(id_str, socket) do
     {id, _} = Integer.parse(id_str)
 
     case Users.get_user(id) do
@@ -52,7 +97,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
     end
   end
 
-  def handle_event("demote_user", %{"id" => id_str}, socket) do
+  defp do_demote_user(id_str, socket) do
     {id, _} = Integer.parse(id_str)
 
     case Users.get_user(id) do
@@ -70,11 +115,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
     end
   end
 
-  def handle_event(
-        "create_user",
-        %{"new_username" => username, "new_email" => email, "new_role" => role},
-        socket
-      ) do
+  defp do_create_user(username, email, role, socket) do
     case Users.create_user_with_temp_password(%{
            username: String.trim(username),
            email: String.trim(email),
@@ -103,20 +144,6 @@ defmodule RuleMavenWeb.AdminLive.Users do
 
         {:noreply, put_flash(socket, :error, "Failed: #{msg}")}
     end
-  end
-
-  def handle_event("dismiss_temp_password", _params, socket) do
-    {:noreply, assign(socket, temp_password: nil, created_username: nil)}
-  end
-
-  def handle_event("form_change", params, socket) do
-    socket =
-      Enum.reduce([:new_username, :new_email, :new_role], socket, fn field, acc ->
-        key = Atom.to_string(field)
-        if Map.has_key?(params, key), do: assign(acc, field, params[key]), else: acc
-      end)
-
-    {:noreply, socket}
   end
 
   defp demote(user, socket) do

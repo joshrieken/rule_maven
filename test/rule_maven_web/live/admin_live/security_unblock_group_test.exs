@@ -59,6 +59,7 @@ defmodule RuleMavenWeb.AdminLive.SecurityUnblockGroupTest do
     game = published_game_fixture(%{name: "Unblock Game"})
     member = user!("unblock_member")
     admin = user!("unblock_admin", %{role: "admin"})
+    {:ok, admin} = RuleMaven.Users.set_super_admin(admin, true)
     grp = group_fixture(member)
 
     {:ok, q} =
