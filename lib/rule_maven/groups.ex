@@ -147,4 +147,163 @@ defmodule RuleMaven.Groups do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @rank %{"member" => 1, "admin" => 2, "owner" => 3}
+
+  @doc "True if `user` currently belongs to `group`. Tolerates a nil user."
+  def member?(user, group), do: role_of(user, group) != nil
+
+  @doc """
+  True if `user`'s role in `group` is at least `role` (member < admin < owner).
+  `role` may be an atom or a string. Tolerates a nil user (always false).
+  """
+  def role_at_least?(user, group, role) do
+    case role_of(user, group) do
+      nil ->
+        false
+
+      current ->
+        Map.fetch!(@rank, current) >= Map.fetch!(@rank, to_string(role))
+    end
+  end
+
+  @doc "Lists the groups `user` belongs to, ordered by name. Empty list for a nil user."
+  def list_for_user(nil), do: []
+
+  def list_for_user(user) do
+    Repo.all(
+      from g in Group,
+        join: m in Membership,
+        on: m.group_id == g.id,
+        where: m.user_id == ^user.id,
+        order_by: [asc: g.name]
+    )
+  end
+
+  @doc "Lists a group's members as plain maps with user_id, username, role."
+  def list_members(%Group{id: group_id}) do
+    Repo.all(
+      from m in Membership,
+        join: u in RuleMaven.Users.User,
+        on: u.id == m.user_id,
+        where: m.group_id == ^group_id,
+        order_by: [asc: u.username],
+        select: %{user_id: u.id, username: u.username, role: m.role}
+    )
+  end
+
+  @doc """
+  Renames the group. Requires the actor to be at least an admin.
+
+  Returns `{:ok, group}`, `{:error, :forbidden}`, or `{:error, changeset}`
+  for an invalid name.
+  """
+  def rename(actor, group, name) do
+    if role_at_least?(actor, group, :admin) do
+      group
+      |> Group.changeset(%{name: name})
+      |> Repo.update()
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  @doc """
+  Rotates the group's invite code, immediately invalidating the old one
+  (join_by_code looks up by exact code, so a stale code simply matches no
+  group). Requires the actor to be at least an admin.
+  """
+  def regenerate_code(actor, group) do
+    if role_at_least?(actor, group, :admin) do
+      group
+      |> Group.changeset(%{invite_code: generate_code()})
+      |> Repo.update()
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  @doc """
+  Promotes or demotes `target_user_id`'s role in the group. Owner-only —
+  admins cannot change roles, including their own.
+
+  Returns `{:error, :forbidden}` if the actor isn't the owner, or
+  `{:error, :not_member}` if the target doesn't belong to the group.
+  """
+  def set_role(actor, group, target_user_id, role) do
+    role = to_string(role)
+
+    cond do
+      not role_at_least?(actor, group, :owner) ->
+        {:error, :forbidden}
+
+      role not in Membership.roles() ->
+        {:error, :forbidden}
+
+      true ->
+        case Repo.get_by(Membership, group_id: group.id, user_id: target_user_id) do
+          nil -> {:error, :not_member}
+          membership -> membership |> Membership.changeset(%{role: role}) |> Repo.update()
+        end
+    end
+  end
+
+  @doc """
+  Removes `target_user_id` from the group. Requires the actor to be at
+  least an admin. The owner can never be removed by anyone — the DB's
+  partial unique index guarantees exactly one owner per group, and
+  transferring ownership is the only sanctioned way to change that.
+
+  Returns `{:ok, :removed}`, `{:error, :forbidden}`,
+  `{:error, :cannot_remove_owner}`, or `{:error, :not_member}`.
+  """
+  def remove_member(actor, group, target_user_id) do
+    cond do
+      not role_at_least?(actor, group, :admin) ->
+        {:error, :forbidden}
+
+      true ->
+        case Repo.get_by(Membership, group_id: group.id, user_id: target_user_id) do
+          nil ->
+            {:error, :not_member}
+
+          %Membership{role: "owner"} ->
+            {:error, :cannot_remove_owner}
+
+          membership ->
+            Repo.delete!(membership)
+            {:ok, :removed}
+        end
+    end
+  end
+
+  @doc """
+  Removes `user`'s own membership. The owner must transfer ownership
+  (via `set_role/4`) before leaving, since a group must always have an
+  owner.
+
+  Returns `{:ok, :left}`, `{:error, :owner_must_transfer}`, or
+  `{:error, :not_member}`.
+  """
+  def leave(user, group) do
+    case Repo.get_by(Membership, group_id: group.id, user_id: user.id) do
+      nil -> {:error, :not_member}
+      %Membership{role: "owner"} -> {:error, :owner_must_transfer}
+      membership ->
+        Repo.delete!(membership)
+        {:ok, :left}
+    end
+  end
+
+  @doc """
+  Deletes the group and (via FK cascade) its memberships. Owner-only.
+  """
+  def delete_group(actor, group) do
+    if role_at_least?(actor, group, :owner) do
+      Repo.delete!(group)
+      {:ok, :deleted}
+    else
+      {:error, :forbidden}
+    end
+  end
 end
