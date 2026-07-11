@@ -413,7 +413,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       %{
         id: g.primary.id,
-        question: QuestionLog.display_question(g.primary),
+        question: shown_question(g.primary, current_user_id),
         answer: g.primary.answer,
         pending: pending?,
         refused: g.primary.refused,
@@ -491,6 +491,20 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp own_raw_question(_q, _current_user_id), do: nil
 
+  # The question text to DISPLAY for a row in the thread list / conversation.
+  #
+  # Your own row shows your own wording (display_question's raw fallback is your
+  # own prose). Anyone else's goes through `listed_question/1`, which never falls
+  # back to the raw column for a crew row. This matters because an admin's
+  # `question_group_opts/1` drops the user scope entirely — their sidebar carries
+  # every user's rows, including crew rows, and for a `skip_normalize` crew row
+  # (cleaned_question: nil) a bare display_question/1 renders the crew member's
+  # verbatim prose.
+  defp shown_question(%{user_id: uid} = q, uid) when not is_nil(uid),
+    do: QuestionLog.display_question(q)
+
+  defp shown_question(q, _current_user_id), do: QuestionLog.listed_question(q)
+
   # Build flat conversation for a single thread (root + regen history).
   defp build_conversation_for_thread(grouped, thread_id, current_user_id) do
     case Enum.find(grouped, &(&1.primary.id == thread_id)) do
@@ -505,7 +519,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       user_msg = %{
         id: g.primary.id,
         role: :user,
-        content: QuestionLog.display_question(g.primary),
+        content: shown_question(g.primary, current_user_id),
         cleaned_question: g.primary.cleaned_question,
         # The RAW question is the asker's verbatim prose. Only ever hand it to
         # the person who typed it: an admin, or a row pulled in by an upvote,
@@ -2055,7 +2069,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                   t
                   | pending: false,
                     refused: ql.refused,
-                    question: QuestionLog.display_question(ql),
+                    question: shown_question(ql, socket.assigns.current_user.id),
                     answer: ql.answer
                 }
 
@@ -2074,7 +2088,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           Enum.map(socket.assigns.conversation, fn
             %{id: ^question_log_id, role: :user} = msg ->
               msg
-              |> Map.put(:content, QuestionLog.display_question(ql))
+              |> Map.put(:content, shown_question(ql, socket.assigns.current_user.id))
               |> Map.put(:cleaned_question, ql.cleaned_question)
               |> Map.put(
                 :original_question,

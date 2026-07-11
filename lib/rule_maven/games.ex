@@ -2662,7 +2662,14 @@ defmodule RuleMaven.Games do
         dynamic(
           [q],
           q.pooled == true or (q.visibility == "community" and q.citation_valid == true) or
-            q.group_id == ^active_group_id
+            # The crew's private cache carries the SAME grounded-citation gate as
+            # the other two branches. `mark_pooled/1` refuses to pool an answer
+            # whose citation isn't grounded because that is the system's own signal
+            # that it may be hallucinated — and re-serving it as a cache hit is
+            # precisely what that gate exists to prevent. A crew got no such
+            # protection: its ungrounded answers were cached and re-served to every
+            # member indefinitely, labelled as a hit rather than re-asked.
+            (q.group_id == ^active_group_id and q.citation_valid == true)
         )
       else
         dynamic([q], q.pooled == true or (q.visibility == "community" and q.citation_valid == true))

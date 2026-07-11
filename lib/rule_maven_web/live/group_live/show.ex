@@ -387,7 +387,8 @@ defmodule RuleMavenWeb.GroupLive.Show do
             <span class="crew-toggle__hint">
               Your crew's questions stay private either way — only the answers are shared,
               and only after a privacy check. Turning this off also withdraws the answers
-              you've already shared, unless the community has voted them in.
+              you've already shared, unless the community has voted them in — permanently.
+              Turning it back on shares future answers only; the withdrawn ones stay out.
             </span>
           </span>
         </label>
