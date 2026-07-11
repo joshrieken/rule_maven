@@ -132,26 +132,41 @@ defmodule RuleMaven.Jobs do
   end
 
   @doc """
-  Closes every still-`running` run for a scope as `failed`.
+  Closes still-`running` runs for a scope as `failed`.
 
   For crash cleanup: a worker that RAISES never reaches its own `finish_run/3`,
   so its run row sits `running` forever and the Jobs panel shows a job that never
   ends. The crashing worker usually no longer has the run struct in hand (the
   exception unwound past it), so this closes by scope instead.
+
+  Pass `kind:` to restrict to one worker's runs — a scope is NOT unique to a
+  worker (an ask and a voice restyle share `{"question", id}`), so an unscoped
+  close would mark a healthy concurrent run failed. Omit it only when you really
+  do mean every run for the scope.
   """
-  def fail_running_runs({scope_type, scope_id}, summary) when not is_nil(scope_id) do
-    Repo.all(
+  def fail_running_runs(scope, summary, opts \\ [])
+
+  def fail_running_runs({scope_type, scope_id}, summary, opts) when not is_nil(scope_id) do
+    query =
       from r in JobRun,
         where:
           r.scope_type == ^to_string(scope_type) and r.scope_id == ^scope_id and
             r.state == "running"
-    )
+
+    query =
+      case opts[:kind] do
+        nil -> query
+        kind -> from r in query, where: r.kind == ^to_string(kind)
+      end
+
+    query
+    |> Repo.all()
     |> Enum.each(&finish_run(&1, "failed", summary))
 
     :ok
   end
 
-  def fail_running_runs(_scope, _summary), do: :ok
+  def fail_running_runs(_scope, _summary, _opts), do: :ok
 
   # --- Readiness integration -------------------------------------------------
   #

@@ -72,6 +72,48 @@ defmodule RuleMaven.Workers.AskWorkerCrashTest do
            "the crashed ask's run was left running"
   end
 
+  test "a crew-origin row whose crew was deleted still gets a generic job label" do
+    # The label is written to job_runs and shown in the admin Jobs panel — outside
+    # the crew. A crew row keeps its raw, unscreened wording after the crew is
+    # deleted (group_id nilified), so keying the label on a live group_id put the
+    # asker's real player names on a shared surface for exactly those rows.
+    {:ok, game} = Games.create_game(%{name: "LabelGame"})
+    u = user("label_u")
+
+    raw = "Dave says my rogue can sneak past; my brother Sam says no"
+
+    # Crew-origin but nilified: no group_id, unbrowsable. `crew_origin?/1` is true.
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: u.id,
+        question: raw,
+        answer: "Thinking...",
+        visibility: "private",
+        group_id: nil,
+        browsable: false
+      })
+
+    # No LLM mock: LLM.ask errors, but `start_run` (and thus the label) runs first.
+    AskWorker.perform(%Oban.Job{
+      id: System.unique_integer([:positive]),
+      attempt: 1,
+      max_attempts: 2,
+      args: %{
+        "game_id" => game.id,
+        "question_log_id" => ql.id,
+        "question" => raw,
+        "user_id" => u.id
+      }
+    })
+
+    run = Repo.get_by(JobRun, kind: "ask", scope_type: "question", scope_id: ql.id)
+
+    assert run.label == "Ask (crew)"
+    refute run.label =~ "Dave"
+    refute run.label =~ "Sam"
+  end
+
   test "an EARLY (non-last) attempt crash does not finalize — it lets Oban retry" do
     {:ok, game} = Games.create_game(%{name: "CrashRetryGame"})
     u = user("crash_retry_u")

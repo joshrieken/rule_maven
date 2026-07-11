@@ -37,18 +37,32 @@ defmodule RuleMavenWeb.GroupLive.Join do
     group = Groups.get_group_by_code(code)
 
     case result do
-      {:ok, _membership} ->
+      # `group` is a SEPARATE read issued after the join committed, so the owner
+      # could have deleted the group in the window between them — a sub-ms
+      # cross-user race, but reading `group.name` off nil would 500 the joiner into
+      # a reconnect loop. A gone group falls through to the neutral error render.
+      {:ok, _membership} when not is_nil(group) ->
         assign(socket, page_title: "Joined #{group.name}", outcome: :joined, group: group)
 
-      {:error, :already_member} ->
+      {:error, :already_member} when not is_nil(group) ->
         assign(socket, page_title: group.name, outcome: :already_member, group: group)
 
-      {:error, reason} ->
+      {:error, reason} when reason != :already_member ->
         assign(socket,
           page_title: "Can't join group",
           outcome: :error,
           reason: reason,
           group: group
+        )
+
+      # Joined (or already a member), but the group vanished before we could read
+      # it back. Render the neutral "can't join" page rather than crash.
+      _ ->
+        assign(socket,
+          page_title: "Can't join group",
+          outcome: :error,
+          reason: :invalid_code,
+          group: nil
         )
     end
   end

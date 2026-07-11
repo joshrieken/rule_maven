@@ -83,7 +83,11 @@ defmodule RuleMaven.Workers.AskWorker do
     # below) — not "question_log", which is PublishCheckWorker's scope. A mismatch
     # matches zero rows, leaving the crashed ask's run "running" forever: the very
     # symptom this finalizer exists to prevent.
-    Jobs.fail_running_runs({"question", question_log_id}, "Worker crashed.")
+    #
+    # `kind: "ask"` because the scope is NOT unique to this worker — a VoiceWorker
+    # restyle for the same question runs under the same `{"question", id}`, and an
+    # unscoped close would flip that healthy run to "failed".
+    Jobs.fail_running_runs({"question", question_log_id}, "Worker crashed.", kind: "ask")
   rescue
     # Never let the cleanup itself mask the original exception.
     e -> Logger.error("AskWorker crash finalizer failed: #{inspect(e)}")
@@ -142,8 +146,14 @@ defmodule RuleMaven.Workers.AskWorker do
     # One run per question. High-volume, so the panel hides "ask" by default; the
     # admin can toggle it on. Every terminal branch below closes this run, so it
     # never lingers as "running".
+    # Crew PROVENANCE, not a live group_id — `withdrawn?` above already folds in
+    # the nilify case (`is_nil(group_id) and not row_browsable?`), plus retraction.
+    # A crew row whose crew was left or deleted has a nil group_id but is still
+    # crew-origin, and its raw wording must not land in the label.
+    crew_origin? = not is_nil(group_id) or withdrawn?
+
     run =
-      Jobs.start_run("ask", {"question", question_log_id}, ask_label(question, group_id),
+      Jobs.start_run("ask", {"question", question_log_id}, ask_label(question, crew_origin?),
         oban_job_id: oban_id
       )
 
@@ -871,14 +881,19 @@ defmodule RuleMaven.Workers.AskWorker do
   # The label is written durably to job_runs and rendered in the admin Jobs panel
   # — a shared surface outside the group. A crew ask is labelled generically: the
   # raw wording has no business there, and nothing keys on the label.
-  defp ask_label(_question, group_id) when not is_nil(group_id), do: "Ask (crew)"
+  #
+  # The second argument is crew PROVENANCE (`QuestionLog.crew_origin?`-shaped),
+  # never a bare `group_id`: a crew row keeps its unscreened raw text after the
+  # crew is deleted (group_id nilified), and keying on the live id would put that
+  # text in the label for exactly those rows.
+  defp ask_label(_question, true), do: "Ask (crew)"
 
-  defp ask_label(question, _group_id) when is_binary(question) do
+  defp ask_label(question, _crew_origin?) when is_binary(question) do
     q = String.trim(question)
     if String.length(q) > 60, do: String.slice(q, 0, 57) <> "…", else: q
   end
 
-  defp ask_label(_question, _group_id), do: "Ask"
+  defp ask_label(_question, _crew_origin?), do: "Ask"
 
   defp get_question_log(id) do
     import Ecto.Query
