@@ -14,7 +14,8 @@ defmodule RuleMavenWeb.AdminLive.Health do
        socket
        |> assign(
          page_title: "System Health",
-         cost_alert: Settings.get("global_daily_cost_alert") || "0"
+         cost_alert: Settings.get("global_daily_cost_alert") || "0",
+         super_admin?: Users.can?(socket.assigns.current_user, :superadmin)
        )
        |> load()}
     else
@@ -159,7 +160,7 @@ defmodule RuleMavenWeb.AdminLive.Health do
           </table>
         </div>
       <% end %>
-      <p style="font-size:0.72rem;color:var(--text-muted);margin:0 0 1.5rem">
+      <p :if={@super_admin?} style="font-size:0.72rem;color:var(--text-muted);margin:0 0 1.5rem">
         Deep job inspection lives in the <.link
           href="/oban"
           target="_blank"

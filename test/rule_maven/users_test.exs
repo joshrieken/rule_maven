@@ -270,7 +270,12 @@ defmodule RuleMaven.UsersTest do
 
     test "change_password/3 fails with too-short new password", %{user: user} do
       {:error, reason} = Users.change_password(user, "testpass1234", "ab")
-      assert reason =~ "4 characters"
+      assert reason =~ "10 character"
+    end
+
+    test "change_password/3 fails with a password missing a number", %{user: user} do
+      {:error, reason} = Users.change_password(user, "testpass1234", "allletters")
+      assert reason =~ "number"
     end
   end
 

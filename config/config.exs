@@ -37,7 +37,8 @@ config :rule_maven, env: config_env()
 
 # Mailer. Default adapter is Local (preview at /dev/mailbox); test overrides
 # to Test. Real sends bypass this: Mailer.deliver_email/1 passes the Resend
-# adapter per-call when RESEND_API_KEY is set.
+# adapter per-call when a Resend key is configured (Settings, falls back to
+# RESEND_API_KEY).
 config :rule_maven, RuleMaven.Mailer, adapter: Swoosh.Adapters.Local
 
 # Disable Swoosh's default API client (Local/Test adapters don't need one;

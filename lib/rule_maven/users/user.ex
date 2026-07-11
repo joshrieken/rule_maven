@@ -43,7 +43,26 @@ defmodule RuleMaven.Users.User do
     "super_admin" => [:admin, :superadmin]
   }
 
+  # Single source of truth for password strength — every entry point (registration,
+  # reset, change-password, and the LiveView pre-check) validates against this.
+  @min_password_length 10
+  @max_password_length 128
+
   def all_roles, do: @all_roles
+
+  @doc "Human-readable password rule, shown in forms and error messages."
+  def password_requirements,
+    do: "At least #{@min_password_length} characters, including a letter and a number."
+
+  @doc "Server-side pre-check mirroring the changeset rule, for LiveView inline validation."
+  def valid_password?(password) when is_binary(password) do
+    String.length(password) >= @min_password_length and
+      String.length(password) <= @max_password_length and
+      String.match?(password, ~r/[a-zA-Z]/) and
+      String.match?(password, ~r/[0-9]/)
+  end
+
+  def valid_password?(_), do: false
 
   @doc "Roles the admin UI may assign. Excludes super_admin (mix task only)."
   def assignable_roles, do: @assignable_roles
@@ -101,7 +120,7 @@ defmodule RuleMaven.Users.User do
     |> changeset(attrs)
     |> cast(attrs, [:password])
     |> validate_required([:password])
-    |> validate_length(:password, min: 4, max: 128)
+    |> validate_password_strength()
     |> put_password_hash()
   end
 
@@ -120,8 +139,15 @@ defmodule RuleMaven.Users.User do
     user
     |> cast(attrs, [:password])
     |> validate_required([:password])
-    |> validate_length(:password, min: 4, max: 128)
+    |> validate_password_strength()
     |> put_password_hash()
+  end
+
+  defp validate_password_strength(changeset) do
+    changeset
+    |> validate_length(:password, min: @min_password_length, max: @max_password_length)
+    |> validate_format(:password, ~r/[a-zA-Z]/, message: "must contain at least one letter")
+    |> validate_format(:password, ~r/[0-9]/, message: "must contain at least one number")
   end
 
   @doc "Stamps the account as email-confirmed (no-op shape if already set)."

@@ -13,6 +13,8 @@ defmodule RuleMaven.Settings.AppSetting do
     setting
     |> cast(attrs, [:key, :value])
     |> validate_required([:key])
+    |> validate_length(:key, max: 200)
+    |> validate_length(:value, max: 10_000)
     |> unique_constraint(:key)
   end
 end

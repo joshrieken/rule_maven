@@ -62,6 +62,13 @@ defmodule RuleMaven.Games.Game do
       :theme_names
     ])
     |> validate_required([:name])
+    |> validate_length(:name, max: 300)
+    |> validate_number(:year_published, greater_than_or_equal_to: 1400, less_than_or_equal_to: 2200)
+    |> validate_number(:min_players, greater_than_or_equal_to: 0, less_than_or_equal_to: 100)
+    |> validate_number(:max_players, greater_than_or_equal_to: 0, less_than_or_equal_to: 100)
+    |> validate_number(:playing_time, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
+    |> validate_number(:weight, greater_than_or_equal_to: 0, less_than_or_equal_to: 5)
+    |> validate_number(:bgg_rank, greater_than_or_equal_to: 0)
   end
 end
 

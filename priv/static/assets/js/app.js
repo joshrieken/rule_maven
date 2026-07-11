@@ -2379,10 +2379,13 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("phx:page-loading-stop", () => {
     document.querySelectorAll("details[open]").forEach(el => el.removeAttribute("open"));
   });
-  // Also close on back-forward cache restore
+  // A bfcache restore (Safari back/forward) resurrects the DOM with its JS
+  // execution frozen — the LiveSocket connection is stale or dead and never
+  // reconnects on its own, so the page can render blank or stuck until a
+  // real navigation happens. Reload to force a fresh dead render + socket.
   window.addEventListener("pageshow", (e) => {
     if (e.persisted) {
-      document.querySelectorAll("details[open]").forEach(el => el.removeAttribute("open"));
+      window.location.reload();
     }
   });
 

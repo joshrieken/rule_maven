@@ -5,7 +5,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
 
   @impl true
   def mount(_params, _session, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
+    if Users.can?(socket.assigns.current_user, :superadmin) do
       {:ok,
        socket
        |> assign(page_title: "Security")

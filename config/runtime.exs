@@ -62,8 +62,16 @@ if config_env() == :prod do
   config :rule_maven, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   # Mail: no boot-time adapter wiring. RuleMaven.Mailer.deliver_email/1 picks
-  # Resend per-send when RESEND_API_KEY is set, and skips (with a warning)
+  # Resend per-send when a key is configured (Settings, falls back to
+  # RESEND_API_KEY), and skips (with a warning)
   # when it isn't — email is best-effort and must never crash boot or callers.
+
+  # Host used to build links in outbound email (password reset, confirmation).
+  # Independent of PHX_HOST/the Endpoint above, so mail links can point at a
+  # different domain than the one the app is served on. Defaults to PHX_HOST.
+  config :rule_maven,
+         :public_url,
+         System.get_env("PUBLIC_URL") || "https://#{host}"
 
   config :rule_maven, RuleMavenWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],

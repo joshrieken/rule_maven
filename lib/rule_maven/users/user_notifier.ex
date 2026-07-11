@@ -4,6 +4,8 @@ defmodule RuleMaven.Users.UserNotifier do
   import Swoosh.Email
   alias RuleMaven.Mailer
 
+  require Logger
+
   # Sender address. Resend rejects senders from unverified domains, so prod
   # sets the admin "mail from" setting to an address on the verified domain.
   defp from_address do
@@ -18,7 +20,14 @@ defmodule RuleMaven.Users.UserNotifier do
       |> subject(subject)
       |> text_body(body)
 
-    with {:ok, _metadata} <- Mailer.deliver_email(email), do: {:ok, email}
+    case Mailer.deliver_email(email) do
+      {:ok, _metadata} ->
+        {:ok, email}
+
+      {:error, reason} ->
+        Logger.error("mail delivery failed for #{inspect(to)}: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
 
   @doc "Sends the email-confirmation link."
@@ -47,6 +56,22 @@ defmodule RuleMaven.Users.UserNotifier do
     #{url}
 
     If you didn't request this, ignore this email — your password won't change.
+    """)
+  end
+
+  @doc "Sends the passwordless sign-in link."
+  def deliver_magic_link_instructions(user, url) do
+    deliver(user.email, "Your Rule Maven sign-in link", """
+
+    Hi #{user.username},
+
+    Use this link to sign in without a password (it expires in 15 minutes and
+    works once):
+
+    #{url}
+
+    If you didn't request this, ignore this email — no one can sign in without
+    clicking the link above.
     """)
   end
 end

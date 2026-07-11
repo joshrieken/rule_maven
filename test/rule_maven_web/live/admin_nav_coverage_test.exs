@@ -14,6 +14,10 @@ defmodule RuleMavenWeb.AdminNavCoverageTest do
 
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
 
+  # Chrome coverage is asserted against a super admin: some /admin/* pages
+  # (LLM Provider, BoardGameGeek, Security, Feature Flags) are intentionally
+  # super-admin-only and absent from a regular admin's menus — see
+  # AdminNavSuperAdminGateTest for that half of the contract.
   defp admin do
     {:ok, user} =
       RuleMaven.Users.create_user(%{
@@ -23,6 +27,7 @@ defmodule RuleMavenWeb.AdminNavCoverageTest do
         role: "admin"
       })
 
+    {:ok, user} = RuleMaven.Users.set_super_admin(user, true)
     user
   end
 

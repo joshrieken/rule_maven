@@ -59,7 +59,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
 
   defp do_event("force_logout", %{"id" => id}, socket) do
     with {:ok, user} <- fetch(id),
-         :ok <- guard_super_admin(user) do
+         :ok <- guard_super_admin(user, socket) do
       {:ok, _} = Users.force_logout(user)
       audit(socket, "user.force_logout", user)
 
@@ -74,7 +74,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
 
   defp do_event("demote_answers", %{"id" => id}, socket) do
     with {:ok, user} <- fetch(id),
-         :ok <- guard_super_admin(user) do
+         :ok <- guard_super_admin(user, socket) do
       n = Games.demote_user_answers(user.id)
       audit(socket, "user.demote_answers", user, %{count: n})
 
@@ -89,7 +89,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
 
   defp do_event("reset_reputation", %{"id" => id}, socket) do
     with {:ok, user} <- fetch(id),
-         :ok <- guard_super_admin(user) do
+         :ok <- guard_super_admin(user, socket) do
       {:ok, _} = Users.reset_reputation(user)
       audit(socket, "user.reset_reputation", user)
       {:noreply, socket |> put_flash(:info, "Reset reputation for #{user.username}.") |> load()}
@@ -100,7 +100,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
 
   defp do_event("set_quota", %{"user_id" => id, "quota" => quota}, socket) do
     with {:ok, user} <- fetch(id),
-         :ok <- guard_super_admin(user),
+         :ok <- guard_super_admin(user, socket),
          {q, _} <- Integer.parse(to_string(quota)),
          {:ok, updated} <- Users.set_quota(user, q) do
       audit(socket, "user.set_quota", user, %{quota: updated.monthly_quota})
@@ -203,11 +203,20 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
   end
 
   # The owner account is out of reach of every moderation lever. Users enforces
-  # this too — this is the flash-friendly copy of the same rule.
-  defp guard_super_admin(user) do
-    if Users.super_admin?(user),
-      do: {:error, "Super admins can't be moderated."},
-      else: :ok
+  # this too — this is the flash-friendly copy of the same rule. A regular
+  # admin also can't wield these levers against a peer admin — only a super
+  # admin can act on another admin account.
+  defp guard_super_admin(user, socket) do
+    cond do
+      Users.super_admin?(user) ->
+        {:error, "Super admins can't be moderated."}
+
+      Users.can?(user, :admin) and not Users.can?(socket.assigns.current_user, :superadmin) ->
+        {:error, "You can't moderate another admin. A super admin must do this."}
+
+      true ->
+        :ok
+    end
   end
 
   @impl true

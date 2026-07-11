@@ -21,16 +21,66 @@ defmodule RuleMavenWeb.AdminEmailControlsTest do
     admin
   end
 
-  test "email kill switch toggles from the dashboard", %{conn: conn} do
+  defp create_super_admin do
+    {:ok, user} =
+      Users.create_user(%{
+        username: "mail_super_admin",
+        email: "mail_super_admin@test.com",
+        password: "password1234"
+      })
+
+    {:ok, admin} = Users.set_super_admin(user, true)
+    admin
+  end
+
+  test "email kill switch toggles from the dashboard for a super admin", %{conn: conn} do
     on_exit(fn -> FunWithFlags.clear(:outbound_email) end)
 
-    {:ok, view, html} = conn |> login(create_admin()) |> live(~p"/admin")
+    {:ok, view, html} = conn |> login(create_super_admin()) |> live(~p"/admin")
 
     assert html =~ "Email is on"
 
     view |> element("button[phx-click=toggle_email]") |> render_click()
     assert not RuleMaven.Flags.enabled?(:outbound_email)
     assert render(view) =~ "Email is paused"
+  end
+
+  test "regular admin cannot see or submit the email kill switch", %{conn: conn} do
+    on_exit(fn -> FunWithFlags.clear(:outbound_email) end)
+
+    {:ok, view, html} = conn |> login(create_admin()) |> live(~p"/admin")
+
+    refute html =~ "phx-click=\"toggle_email\""
+
+    result = render_click(view, "toggle_email", %{})
+
+    assert result =~ "have permission"
+    assert RuleMaven.Flags.enabled?(:outbound_email)
+  end
+
+  test "regular admin cannot see or submit the asks kill switch", %{conn: conn} do
+    on_exit(fn -> FunWithFlags.clear(:asks) end)
+
+    {:ok, view, html} = conn |> login(create_admin()) |> live(~p"/admin")
+
+    refute html =~ "phx-click=\"toggle_asks\""
+
+    result = render_click(view, "toggle_asks", %{})
+
+    assert result =~ "have permission"
+    assert RuleMaven.Flags.enabled?(:asks)
+  end
+
+  test "asks kill switch toggles from the dashboard for a super admin", %{conn: conn} do
+    on_exit(fn -> FunWithFlags.clear(:asks) end)
+
+    {:ok, view, html} = conn |> login(create_super_admin()) |> live(~p"/admin")
+
+    assert html =~ "Asks are live"
+
+    view |> element("button[phx-click=toggle_asks]") |> render_click()
+    assert not RuleMaven.Flags.enabled?(:asks)
+    assert render(view) =~ "Asks are paused"
   end
 
   test "sender address saves and rejects junk", %{conn: conn} do
@@ -47,5 +97,45 @@ defmodule RuleMavenWeb.AdminEmailControlsTest do
     |> render_submit()
 
     assert Settings.mail_from() == "hello@rulemaven.app"
+  end
+
+  test "resend key saves, blank submit is a no-op, clear removes it", %{conn: conn} do
+    on_exit(fn -> Settings.delete("resend_api_key") end)
+
+    {:ok, view, html} = conn |> login(create_super_admin()) |> live(~p"/admin")
+
+    assert html =~ "Resend key not set"
+
+    view
+    |> form("#resend-key-form", %{"resend_api_key" => "re_test_123"})
+    |> render_submit()
+
+    assert Settings.resend_api_key() == "re_test_123"
+    assert render(view) =~ "Resend key: set."
+
+    view
+    |> form("#resend-key-form", %{"resend_api_key" => ""})
+    |> render_submit()
+
+    assert Settings.resend_api_key() == "re_test_123"
+
+    view |> element("button[phx-click=clear_resend_key]") |> render_click()
+    assert Settings.resend_api_key() == nil
+    assert render(view) =~ "Resend key not set"
+  end
+
+  test "regular admin cannot see or submit the resend key form", %{conn: conn} do
+    on_exit(fn -> Settings.delete("resend_api_key") end)
+
+    {:ok, view, html} = conn |> login(create_admin()) |> live(~p"/admin")
+
+    refute html =~ "resend-key-form"
+
+    # Form isn't rendered for a regular admin; forge the event directly the
+    # way a malicious client could, to prove the server-side gate holds too.
+    result = render_submit(view, "save_resend_key", %{"resend_api_key" => "re_test_123"})
+
+    assert result =~ "have permission"
+    assert Settings.resend_api_key() == nil
   end
 end

@@ -1394,7 +1394,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   @impl true
   def handle_event("search", %{"query" => query}, socket) do
-    {:noreply, assign(socket, search_query: query)}
+    {:noreply, assign(socket, search_query: String.slice(query, 0, 200))}
   end
 
   @impl true

@@ -6,7 +6,7 @@ defmodule RuleMaven.Mailer do
     * `:outbound_email` flag disabled → skipped (email is best-effort; callers succeed)
     * test → configured Test adapter (assert_email_sent keeps working)
     * dev without `mail_dev_live` → configured Local adapter (`/dev/mailbox`)
-    * `RESEND_API_KEY` set → Resend
+    * Resend key set (Settings, falls back to `RESEND_API_KEY` env) → Resend
     * no key → skipped with a warning, never a crash
   """
   use Swoosh.Mailer, otp_app: :rule_maven
@@ -28,12 +28,12 @@ defmodule RuleMaven.Mailer do
       env() == :dev and not Settings.mail_dev_live?() ->
         deliver(email)
 
-      api_key = System.get_env("RESEND_API_KEY") ->
+      api_key = Settings.resend_api_key() ->
         deliver(email, adapter: Resend.Swoosh.Adapter, api_key: api_key)
 
       true ->
         Logger.warning(
-          "RESEND_API_KEY not set: skipping #{describe(email)}. " <>
+          "Resend API key not set (Settings or RESEND_API_KEY): skipping #{describe(email)}. " <>
             "Outbound email is unconfigured."
         )
 

@@ -29,6 +29,10 @@ config :rule_maven, RuleMavenWeb.Endpoint,
   secret_key_base: "7D7c6/MoalDOGvmWDRAavfuaRvU4fnOcsRW1XgxmnLfVjzzsEl5uRmW9Z0KAV7qI",
   watchers: []
 
+# Host used to build links in outbound email (password reset, confirmation).
+# Independent of the Endpoint's own host/port above.
+config :rule_maven, :public_url, "http://localhost:#{System.get_env("DEV_PORT") || "4000"}"
+
 # ## SSL Support
 #
 # In order to use HTTPS in development, a self-signed

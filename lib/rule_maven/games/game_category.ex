@@ -14,5 +14,7 @@ defmodule RuleMaven.Games.GameCategory do
     cat
     |> cast(attrs, [:game_id, :name, :description, :name_embedding])
     |> validate_required([:game_id, :name])
+    |> validate_length(:name, max: 200)
+    |> validate_length(:description, max: 2000)
   end
 end

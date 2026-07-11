@@ -1,64 +1,42 @@
 defmodule RuleMavenWeb.AdminDbRedactionLiveTest do
   @moduledoc """
-  The `/admin/db` sensitive-column masking must hold on EVERY render of the list,
-  not just the initial load. A plain admin deleting a row (an ordinary use of this
-  tool) re-fetches the table — and that sink re-rendered raw crew prose because it
-  skipped `redact_sensitive`. Every `@rows` sink now routes through `load_rows/3`;
-  this drives the LiveView to prove it.
+  `/admin/db` is the generic table console. A crew question/answer can name real
+  people, so the console must never expose that prose to someone who isn't trusted
+  with it. The primary control is the mount gate: the page is SUPERADMIN-only
+  (RuleMavenWeb.AdminLive.Db is in `@superadmin_views`), so a plain admin can't
+  reach it at all. The column-level default-deny masking in `Db.redact_sensitive/3`
+  remains as defense-in-depth (unit-tested in AdminRawTextRedactionTest) in case
+  that gate is ever loosened back to `:admin`.
   """
   use RuleMavenWeb.ConnCase, async: true
   import Phoenix.LiveViewTest
-  import Ecto.Query
-
-  alias RuleMaven.{Games, Repo}
 
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
 
-  defp admin(name) do
+  defp user(name, role) do
     {:ok, user} =
       RuleMaven.Users.create_user(%{
         username: name,
         email: "#{name}@test.com",
         password: "password1234",
-        role: "admin"
+        role: role
       })
 
     user
   end
 
-  defp raw_question_rows do
-    {:ok, game} = Games.create_game(%{name: "RedactGame"})
-    u = admin("redact_asker")
+  test "a plain admin is denied the generic DB console" do
+    conn = login(build_conn(), user("db_plain_admin", "admin"))
 
-    for i <- 1..3 do
-      {:ok, _} =
-        Games.log_question(%{
-          game_id: game.id,
-          user_id: u.id,
-          question: "Dave's rogue sneaks past Sarah #{i}?",
-          answer: "No.",
-          visibility: "private"
-        })
-    end
+    assert {:error, {:live_redirect, %{to: "/"}}} = live(conn, ~p"/admin/db?table=questions_log")
   end
 
-  test "a plain admin never sees raw question text — not on load, not after a delete" do
-    raw_question_rows()
-    conn = login(build_conn(), admin("redact_viewer"))
+  test "a superadmin can open the console" do
+    superadmin = user("db_superadmin", "admin")
+    {:ok, superadmin} = RuleMaven.Users.set_super_admin(superadmin, true)
 
-    {:ok, view, _html} = live(conn, ~p"/admin/db?table=questions_log")
+    conn = login(build_conn(), superadmin)
 
-    # Load path.
-    html = render(view)
-    refute html =~ "Dave", "load path leaked raw question text"
-    assert html =~ "«redacted»"
-
-    # Delete path: delete one row, which re-fetches and re-renders the table.
-    id = Repo.one!(from q in RuleMaven.Games.QuestionLog, order_by: [desc: q.id], limit: 1).id
-
-    html = render_click(view, "delete_row", %{"id" => to_string(id)})
-
-    refute html =~ "Dave", "delete re-render leaked raw question text"
-    assert html =~ "«redacted»"
+    assert {:ok, _view, _html} = live(conn, ~p"/admin/db?table=questions_log")
   end
 end

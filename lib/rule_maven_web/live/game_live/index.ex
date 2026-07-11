@@ -372,7 +372,7 @@ defmodule RuleMavenWeb.GameLive.Index do
   def handle_event("search", %{"search" => text}, socket) do
     {:noreply,
      socket
-     |> assign(search: text, search_ready: true, display_count: 20, selected_idx: -1)
+     |> assign(search: String.slice(text, 0, 200), search_ready: true, display_count: 20, selected_idx: -1)
      |> maybe_reload_for_all()
      |> push_event("reset_list_pos", %{})}
   end

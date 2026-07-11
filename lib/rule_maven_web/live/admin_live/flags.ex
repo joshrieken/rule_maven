@@ -6,7 +6,7 @@ defmodule RuleMavenWeb.AdminLive.Flags do
 
   @impl true
   def mount(_params, _session, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
+    if Users.can?(socket.assigns.current_user, :superadmin) do
       {:ok, assign(socket, page_title: "Feature Flags", flags: load_flags())}
     else
       {:ok, push_navigate(socket, to: ~p"/")}
@@ -15,7 +15,7 @@ defmodule RuleMavenWeb.AdminLive.Flags do
 
   @impl true
   def handle_event("toggle", %{"id" => id}, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
+    if Users.can?(socket.assigns.current_user, :superadmin) do
       flag = String.to_existing_atom(id)
       _ = Registry.fetch!(flag)
       on? = Flags.enabled?(flag, nil)
@@ -125,7 +125,7 @@ defmodule RuleMavenWeb.AdminLive.Flags do
 
   # Re-check admin capability on every event, then run fun/0 which returns a socket.
   defp with_admin(socket, fun) do
-    if Users.can?(socket.assigns.current_user, :admin) do
+    if Users.can?(socket.assigns.current_user, :superadmin) do
       {:noreply, fun.()}
     else
       {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}

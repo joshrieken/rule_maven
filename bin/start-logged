@@ -19,4 +19,4 @@ ensure_log_dir
 trim_log
 cd "$ROOT"
 echo "Starting Rule Maven at http://localhost:4000 (log: $LOG)"
-mix phx.server 2>&1 | tee -a "$LOG"
+iex -S mix phx.server 2>&1 | tee -a "$LOG"

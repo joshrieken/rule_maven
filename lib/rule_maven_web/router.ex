@@ -37,6 +37,9 @@ defmodule RuleMavenWeb.Router do
     post "/reset-password", PasswordResetController, :create
     get "/reset-password/:token", PasswordResetController, :edit
     post "/reset-password/:token", PasswordResetController, :update
+    get "/magic-link", MagicLinkController, :new
+    post "/magic-link", MagicLinkController, :create
+    get "/magic-link/:token", MagicLinkController, :consume
     get "/auto-login", AuthController, :auto_login
     get "/confirm/:token", ConfirmationController, :confirm
     get "/games/:id/cheatsheet", CheatSheetController, :show
@@ -95,6 +98,11 @@ defmodule RuleMavenWeb.Router do
       live "/admin/themes", AdminLive.Themes, :index
       live "/admin/requests", AdminLive.Requests, :index
       live "/admin/flags", AdminLive.Flags, :index
+      live "/admin/llm", AdminLive.Llm, :index
+      live "/admin/embeddings", AdminLive.Embeddings, :index
+      live "/admin/automation", AdminLive.Automation, :index
+      live "/admin/bgg", AdminLive.Bgg, :index
+      live "/admin/prompts", AdminLive.Prompts, :index
 
       live "/", GameLive.Index, :index
       live "/games/import", GameLive.Import, :index
@@ -103,7 +111,6 @@ defmodule RuleMavenWeb.Router do
       # Legacy URL for old bookmarks/links — same page.
       live "/games/:id/faq", GameLive.Community, :index
       live "/settings", SettingsLive, :index
-      live "/settings/usage", SettingsLive, :usage
       live "/standing", StandingLive, :index
 
       # NOTE: "/groups/join/:code" (literal prefix) MUST be declared before
