@@ -10,7 +10,7 @@ defmodule RuleMaven.Flags.Registry do
     * `:experiment` — a percentage rollout. Deleted when the experiment concludes.
   """
 
-  @tools ~w(turn first_player checklist scorepad timer expansions teach quiz mistakes dyk house_rules)a
+  @tools ~w(turn first_player checklist scorepad timer expansions teach quiz mistakes dyk house_rules group_feed)a
 
   @tool_labels %{
     turn: "Turn Wizard",
@@ -23,7 +23,8 @@ defmodule RuleMaven.Flags.Registry do
     quiz: "Rules quiz",
     mistakes: "Rules tables get wrong",
     dyk: "Did you know",
-    house_rules: "House rules"
+    house_rules: "House rules",
+    group_feed: "Group feed"
   }
 
   @tool_flags for t <- @tools,

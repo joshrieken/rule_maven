@@ -39,6 +39,7 @@ defmodule RuleMavenWeb.GameLive.Show do
        is_admin: RuleMaven.Users.can?(socket.assigns.current_user, :admin),
        my_groups: [],
        active_group_id: nil,
+       group_feed: [],
        # Per-page-load seed (set by the :put_dyk_seed plug). Identical across the
        # dead render and the connected mount, so the "Did you know?" card picks
        # the same fact on both; re-rolls on a real refresh.
@@ -334,7 +335,9 @@ defmodule RuleMavenWeb.GameLive.Show do
         active_group_id =
           if sticky && Enum.any?(my_groups, &(&1.id == sticky)), do: sticky, else: nil
 
-        assign(socket, my_groups: my_groups, active_group_id: active_group_id)
+        socket
+        |> assign(my_groups: my_groups, active_group_id: active_group_id)
+        |> assign_group_feed()
       end
 
     # Restyle the just-loaded thread's answers to the current voice (switching
@@ -708,7 +711,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     snap = RuleMaven.TableSession.get(user.id, game.id)
     RuleMaven.TableSession.put(user.id, game.id, Map.put(snap, :active_group_id, group_id))
 
-    {:noreply, assign(socket, :active_group_id, group_id)}
+    {:noreply, socket |> assign(:active_group_id, group_id) |> assign_group_feed()}
   end
 
   # Table tools (window state, quiz, turn wizard, checklist, house rules) are
@@ -1815,6 +1818,21 @@ defmodule RuleMavenWeb.GameLive.Show do
     RuleMaven.Repo.one(from q in QuestionLog, where: q.id == ^id)
   end
 
+  # The active group's question feed (Task 11): newest-first, attributed,
+  # scoped to this game + this group by `Games.recent_questions/3`. Reloaded
+  # (never patched in place) on group switch and on a matching `:ask_complete`
+  # broadcast — a full re-query is authorized here and sidesteps duplicate-row
+  # bugs a targeted prepend would risk.
+  defp assign_group_feed(socket) do
+    case socket.assigns.active_group_id do
+      nil ->
+        assign(socket, :group_feed, [])
+
+      gid ->
+        assign(socket, :group_feed, Games.recent_questions(socket.assigns.game, 20, group_id: gid))
+    end
+  end
+
   defp matches_search?(_t, ""), do: true
 
   defp matches_search?(t, query) do
@@ -2004,6 +2022,28 @@ defmodule RuleMavenWeb.GameLive.Show do
       # The answered question now has an embedding — surface any of the user's
       # house rules that sit near it.
       socket = if answer_ready?, do: load_hr_overlay(socket), else: socket
+
+      # Task 11: this broadcast is game-wide, so every viewer's session gets
+      # it — not just the asker's. When the answered question was asked under
+      # the SAME group this viewer currently has active, refresh the group
+      # feed panel so it live-appends. Folded into this single existing
+      # clause (not a second `handle_info({:ask_complete, ...})` clause)
+      # deliberately: Elixir matches clauses top-down, and a second clause
+      # guarded on `group_id` would have to sit either before this one (where
+      # it would swallow every group ask before the asker's own conversation
+      # update above ever ran) or after it (dead code, since this clause
+      # matches every `:ask_complete` payload shape already). Reusing the
+      # already-computed `question_log_id`/`data` here keeps both behaviors —
+      # the asker's own conversation update and the group feed refresh —
+      # running for the exact same message.
+      socket =
+        case Map.get(data, :group_id) do
+          gid when not is_nil(gid) and gid == socket.assigns.active_group_id ->
+            assign_group_feed(socket)
+
+          _ ->
+            socket
+        end
 
       # First real answer this user has ever seen: walk them through its
       # anatomy (verdict, confidence, citations, voting → curator points).

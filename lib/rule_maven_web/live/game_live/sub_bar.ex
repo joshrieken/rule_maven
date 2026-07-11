@@ -343,6 +343,21 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       >
         <span aria-hidden="true">👥</span> {g.name}
       </button>
+      <%!-- Only meaningful once a group is actually active — no active group,
+            no toggle, no clutter. Opens via the shared tool-panel machinery
+            (`open_tool`/`ToolRegistry`), same as every other table tool. --%>
+      <button
+        :if={@active_group_id}
+        type="button"
+        phx-click="open_tool"
+        phx-value-tool="group_feed"
+        data-testid="group-feed-toggle"
+        title="Group question feed"
+        aria-label="Group question feed"
+        class="pill-link"
+      >
+        <span aria-hidden="true">📰</span> Feed
+      </button>
     </div>
     """
   end
