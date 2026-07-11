@@ -4,6 +4,8 @@ defmodule RuleMaven.Users.UserNotifier do
   import Swoosh.Email
   alias RuleMaven.Mailer
 
+  require Logger
+
   # Sender address. Resend rejects senders from unverified domains, so prod
   # sets the admin "mail from" setting to an address on the verified domain.
   defp from_address do
@@ -18,7 +20,14 @@ defmodule RuleMaven.Users.UserNotifier do
       |> subject(subject)
       |> text_body(body)
 
-    with {:ok, _metadata} <- Mailer.deliver_email(email), do: {:ok, email}
+    case Mailer.deliver_email(email) do
+      {:ok, _metadata} ->
+        {:ok, email}
+
+      {:error, reason} ->
+        Logger.error("mail delivery failed for #{inspect(to)}: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
 
   @doc "Sends the email-confirmation link."
