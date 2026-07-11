@@ -57,9 +57,16 @@ defmodule RuleMaven.Workers.AskWorker do
       "AskWorker crashed for question #{inspect(question_log_id)}: #{Exception.message(exception)}"
     )
 
+    # Only a row still STUCK on "Thinking..." may be overwritten. A last-attempt
+    # crash can fire AFTER `log_question_update` has already written the real
+    # answer (a raise in broadcast_complete, Jobs.finish_run, a post-answer
+    # enqueue — the commit's own `answered_already?` note lists these), and there
+    # `is_nil(error_kind)` is TRUE for a perfectly good answer. Guarding on
+    # error_kind alone would clobber that answer with "⚠️" and discard the job so
+    # nothing heals it. A good, refused, or already-errored row is never
+    # "Thinking...", so the terminal-shape test excludes every real terminal state.
     with id when not is_nil(id) <- question_log_id,
-         %QuestionLog{} = ql <- Games.get_question_log(id),
-         true <- is_nil(ql.error_kind) do
+         %QuestionLog{answer: "Thinking..."} = ql <- Games.get_question_log(id) do
       Games.log_question_update(ql, %{
         answer: "⚠️ Something went wrong. Please retry.",
         error_kind: "unknown"
@@ -72,7 +79,11 @@ defmodule RuleMaven.Workers.AskWorker do
       )
     end
 
-    Jobs.fail_running_runs({"question_log", question_log_id}, "Worker crashed.")
+    # Scope MUST match the ask run's own scope (`start_run("ask", {"question", ...`,
+    # below) — not "question_log", which is PublishCheckWorker's scope. A mismatch
+    # matches zero rows, leaving the crashed ask's run "running" forever: the very
+    # symptom this finalizer exists to prevent.
+    Jobs.fail_running_runs({"question", question_log_id}, "Worker crashed.")
   rescue
     # Never let the cleanup itself mask the original exception.
     e -> Logger.error("AskWorker crash finalizer failed: #{inspect(e)}")
