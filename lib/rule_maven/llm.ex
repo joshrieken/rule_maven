@@ -34,6 +34,23 @@ defmodule RuleMaven.LLM do
   """
   def ask(game, question, expansion_ids \\ [], recent_context \\ [], opts \\ []) do
     skip_pool = Keyword.get(opts, :skip_pool, false)
+    # `group_id` is downstream of a client (LiveView assign -> Oban job arg),
+    # so it is NOT proof the acting user actually belongs to that group — a
+    # forged/stale Oban arg could name any group. Verify membership HERE,
+    # against the also-passed `user_id`, before the group_id is allowed to
+    # widen anything. This is the single point every ask path funnels
+    # through (LLM.ask/5), so a bypass would require skipping this function
+    # entirely, not just the LiveView that normally calls it.
+    active_group_id =
+      case Keyword.get(opts, :group_id) do
+        nil ->
+          nil
+
+        group_id ->
+          if RuleMaven.Groups.member_of_group_id?(opts[:user_id], group_id),
+            do: group_id
+      end
+
     # Canonical sorted form — cache rows store and match this exact set.
     expansion_ids = Enum.sort(expansion_ids)
 
@@ -116,7 +133,15 @@ defmodule RuleMaven.LLM do
         serve_from_cache(user_semantic, question_embedding, cleaned, game.id, user_id, true)
 
       pool_hit =
-          find_pool_hit(game, question_embedding, expansion_ids, skip_pool, match_text, user_id) ->
+          find_pool_hit(
+            game,
+            question_embedding,
+            expansion_ids,
+            skip_pool,
+            match_text,
+            user_id,
+            active_group_id
+          ) ->
         # The pool is user-agnostic, so the asker's OWN pooled row can land
         # here (a paraphrase in the 0.92–0.95 band misses the stricter
         # user_semantic tier but clears the pool floor). Flag it same-user so
@@ -156,14 +181,26 @@ defmodule RuleMaven.LLM do
   # none do we pay the tiebreaker, and then on the NEAREST candidates first.
   @max_tiebreaker_calls 2
 
-  defp find_pool_hit(_game, nil, _expansion_ids, _skip_pool, _match_text, _user_id), do: nil
-  defp find_pool_hit(_game, _embedding, _expansion_ids, true, _match_text, _user_id), do: nil
+  defp find_pool_hit(_game, nil, _expansion_ids, _skip_pool, _match_text, _user_id, _active_group_id),
+    do: nil
 
-  defp find_pool_hit(game, question_embedding, expansion_ids, false, match_text, user_id) do
+  defp find_pool_hit(_game, _embedding, _expansion_ids, true, _match_text, _user_id, _active_group_id),
+    do: nil
+
+  defp find_pool_hit(
+         game,
+         question_embedding,
+         expansion_ids,
+         false,
+         match_text,
+         user_id,
+         active_group_id
+       ) do
     candidates =
       RuleMaven.Games.find_pool_candidates(game.id, question_embedding,
         expansion_ids: expansion_ids,
-        threshold: RuleMaven.Games.pool_tiebreaker_distance_threshold()
+        threshold: RuleMaven.Games.pool_tiebreaker_distance_threshold(),
+        active_group_id: active_group_id
       )
 
     floor = RuleMaven.Games.pool_similarity_floor()
@@ -1739,6 +1776,30 @@ defmodule RuleMaven.LLM do
     {:error, "Rate limited after #{attempt - 1} attempts"}
   end
 
+  defp do_request(body, attempt, opts) do
+    case spend_call() do
+      {:error, :call_budget_exhausted} ->
+        require Logger
+
+        Logger.error(
+          "exhausted the LLM call budget (operation=#{opts[:operation]}, game_id=#{opts[:game_id]}) — refusing further calls"
+        )
+
+        {:error, "exceeded the LLM call budget"}
+
+      :ok ->
+        # Test-mode mock injection point. Set via Application.put_env(:rule_maven, :llm_mock, fn body -> ... end)
+        result =
+          if mock = Application.get_env(:rule_maven, :llm_mock) do
+            do_request_mock(body, opts, mock)
+          else
+            do_request_real(body, attempt, opts)
+          end
+
+        maybe_retry_truncated(result, body, attempt, opts)
+    end
+  end
+
   # Every LLM HTTP call in the app funnels through here (mock included), so it
   # is the one place a per-ask ceiling can be enforced without threading a
   # counter through the whole retry/escalation cascade.
@@ -1824,30 +1885,6 @@ defmodule RuleMaven.LLM do
           :atomics.add(ref, @slot_denied, 1)
           {:error, :call_budget_exhausted}
         end
-    end
-  end
-
-  defp do_request(body, attempt, opts) do
-    case spend_call() do
-      {:error, :call_budget_exhausted} ->
-        require Logger
-
-        Logger.error(
-          "exhausted the LLM call budget (operation=#{opts[:operation]}, game_id=#{opts[:game_id]}) — refusing further calls"
-        )
-
-        {:error, "exceeded the LLM call budget"}
-
-      :ok ->
-        # Test-mode mock injection point. Set via Application.put_env(:rule_maven, :llm_mock, fn body -> ... end)
-        result =
-          if mock = Application.get_env(:rule_maven, :llm_mock) do
-            do_request_mock(body, opts, mock)
-          else
-            do_request_real(body, attempt, opts)
-          end
-
-        maybe_retry_truncated(result, body, attempt, opts)
     end
   end
 

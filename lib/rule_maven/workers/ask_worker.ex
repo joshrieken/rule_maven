@@ -9,6 +9,7 @@ defmodule RuleMaven.Workers.AskWorker do
   require Logger
 
   alias RuleMaven.{Games, Jobs}
+  alias RuleMaven.Games.QuestionLog
 
   # Hard wall-clock ceiling on a whole ask. LLM.ask's only internal limit is
   # the 60s @ask_stream_deadline_ms, and that is checked *only* inside the
@@ -27,6 +28,7 @@ defmodule RuleMaven.Workers.AskWorker do
     question = args["question"]
     expansion_ids = args["expansion_ids"] || []
     user_id = args["user_id"]
+    group_id = args["group_id"]
     skip_pool = args["skip_pool"] || false
     never_pool = args["never_pool"] || false
     skip_normalize = args["skip_normalize"] || false
@@ -101,22 +103,16 @@ defmodule RuleMaven.Workers.AskWorker do
                  refused: true,
                  blocked: true
                }) do
-            {:ok, _} ->
-              Phoenix.PubSub.broadcast(
-                RuleMaven.PubSub,
-                "game:#{game_id}",
-                {:ask_complete,
-                 %{
-                   question_log_id: question_log_id,
-                   faq_hit: false,
-                   followup: false,
-                   followups: [],
-                   also_asked: [],
-                   cited_page: nil,
-                   refused: true,
-                   raw_response: nil
-                 }}
-              )
+            {:ok, updated} ->
+              broadcast_complete(updated, %{
+                faq_hit: false,
+                followup: false,
+                followups: [],
+                also_asked: [],
+                cited_page: nil,
+                refused: true,
+                raw_response: nil
+              })
 
             {:error, _} ->
               :ok
@@ -169,6 +165,7 @@ defmodule RuleMaven.Workers.AskWorker do
           case run_bounded(fn ->
                  RuleMaven.LLM.ask(game, question, expansion_ids, recent_context,
                    user_id: user_id,
+                   group_id: group_id,
                    skip_pool: skip_pool,
                    skip_normalize: skip_normalize,
                    voice: voice
@@ -433,31 +430,25 @@ defmodule RuleMaven.Workers.AskWorker do
                       {bcast_styled_voice, bcast_styled_answer} =
                         if store_direct?, do: {styled_voice, styled_answer}, else: {nil, nil}
 
-                      Phoenix.PubSub.broadcast(
-                        RuleMaven.PubSub,
-                        "game:#{game_id}",
-                        {:ask_complete,
-                         %{
-                           question_log_id: question_log_id,
-                           faq_hit: llm_result[:faq_hit] || false,
-                           pool_hit: pool_hit?,
-                           tier: llm_result[:tier],
-                           verified: llm_result[:verified] || false,
-                           source_question_log_id: llm_result[:source_question_log_id],
-                           followups: if(refused?, do: [], else: llm_result[:followups] || []),
-                           also_asked: if(refused?, do: [], else: llm_result[:also_asked] || []),
-                           cited_page: cited_page,
-                           refused: refused?,
-                           verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
-                           raw_response: llm_result[:raw_response],
-                           # Only ever carry a styled answer that was actually cached
-                           # above (store_direct or inline restyle) — a refused
-                           # question must not broadcast a styled answer even if the
-                           # model ignored the "don't style a refusal" framing.
-                           styled_voice: bcast_styled_voice,
-                           styled_answer: bcast_styled_answer
-                         }}
-                      )
+                      broadcast_complete(updated, %{
+                        faq_hit: llm_result[:faq_hit] || false,
+                        pool_hit: pool_hit?,
+                        tier: llm_result[:tier],
+                        verified: llm_result[:verified] || false,
+                        source_question_log_id: llm_result[:source_question_log_id],
+                        followups: if(refused?, do: [], else: llm_result[:followups] || []),
+                        also_asked: if(refused?, do: [], else: llm_result[:also_asked] || []),
+                        cited_page: cited_page,
+                        refused: refused?,
+                        verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
+                        raw_response: llm_result[:raw_response],
+                        # Only ever carry a styled answer that was actually cached
+                        # above (store_direct or inline restyle) — a refused
+                        # question must not broadcast a styled answer even if the
+                        # model ignored the "don't style a refusal" framing.
+                        styled_voice: bcast_styled_voice,
+                        styled_answer: bcast_styled_answer
+                      })
 
                       summary =
                         cond do
@@ -609,6 +600,19 @@ defmodule RuleMaven.Workers.AskWorker do
     :ok
   end
 
+  # Single choke point for the :ask_complete broadcast. `group_id` rides in
+  # from the persisted row so Task 11's live feed panel can tell whether to
+  # re-query the group feed — the topic is public to every viewer of the
+  # game, so ONLY the id goes on the wire, never group question content.
+  def broadcast_complete(%QuestionLog{} = ql, meta) do
+    payload =
+      meta
+      |> Map.put(:question_log_id, ql.id)
+      |> Map.put(:group_id, ql.group_id)
+
+    Phoenix.PubSub.broadcast(RuleMaven.PubSub, "game:#{ql.game_id}", {:ask_complete, payload})
+  end
+
   # True once the row carries a real answer. The in-flight sentinel and a
   # vanished row both read as "not answered" — a deleted row is handled by the
   # `is_nil(ql)` branch further down, and a stuck "Thinking..." row is exactly
@@ -632,31 +636,29 @@ defmodule RuleMaven.Workers.AskWorker do
       # boilerplate: a paid VoiceWorker restyle of "⚠️ Please retry." (the
       # voice filter skips only `refused` rows, and error rows are not refused)
       # and possibly the answer-anatomy tour. Route it as the error it is.
-      payload =
-        if failed_row?(ql) do
-          {:ask_error,
-           %{question_log_id: question_log_id, question: ql.question, error: ql.answer}}
-        else
-          {:ask_complete,
-           %{
-             question_log_id: question_log_id,
-             faq_hit: false,
-             pool_hit: false,
-             tier: nil,
-             verified: ql.verified || false,
-             source_question_log_id: ql.pool_source_id,
-             followups: ql.followups || [],
-             also_asked: ql.also_asked || [],
-             cited_page: ql.cited_page,
-             refused: ql.refused,
-             verdict: ql.verdict,
-             raw_response: nil,
-             styled_voice: nil,
-             styled_answer: nil
-           }}
-        end
-
-      Phoenix.PubSub.broadcast(RuleMaven.PubSub, "game:#{game_id}", payload)
+      if failed_row?(ql) do
+        Phoenix.PubSub.broadcast(
+          RuleMaven.PubSub,
+          "game:#{game_id}",
+          {:ask_error, %{question_log_id: question_log_id, question: ql.question, error: ql.answer}}
+        )
+      else
+        broadcast_complete(ql, %{
+          faq_hit: false,
+          pool_hit: false,
+          tier: nil,
+          verified: ql.verified || false,
+          source_question_log_id: ql.pool_source_id,
+          followups: ql.followups || [],
+          also_asked: ql.also_asked || [],
+          cited_page: ql.cited_page,
+          refused: ql.refused,
+          verdict: ql.verdict,
+          raw_response: nil,
+          styled_voice: nil,
+          styled_answer: nil
+        })
+      end
     end
 
     :ok
@@ -723,7 +725,6 @@ defmodule RuleMaven.Workers.AskWorker do
 
   defp get_question_log(id) do
     import Ecto.Query
-    alias RuleMaven.Games.QuestionLog
 
     RuleMaven.Repo.one(from q in QuestionLog, where: q.id == ^id)
   end

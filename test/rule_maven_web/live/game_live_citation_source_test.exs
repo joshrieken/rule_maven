@@ -16,6 +16,16 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
 
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
 
+  # The citation-readability restyle split the caption's single "<source> ·
+  # p.<n>" string into two elements: the source label, and the page as a
+  # styled `.cite-page` chip (the "·" is gone — the chip is the separator).
+  # The property under test is unchanged — the caption names the cited source
+  # and the page — so assert against the caption element itself rather than a
+  # literal that only ever held while the two were one string. `element/2`
+  # raises unless exactly one figcaption is rendered, so this still proves the
+  # caption exists.
+  defp figcaption(view), do: view |> element("figure figcaption") |> render()
+
   defp setup_user(prefix) do
     {:ok, user} =
       RuleMaven.Users.create_user(%{
@@ -45,13 +55,15 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
 
     conn = login(conn, user)
 
-    {:ok, _view, html} =
+    {:ok, view, _html} =
       live(
         conn,
         ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
       )
 
-    assert html =~ "Official FAQ · p.2"
+    caption = figcaption(view)
+    assert caption =~ "Official FAQ"
+    assert caption =~ "p.2"
   end
 
   test "figcaption falls back to Rulebook when cited_source is nil", %{conn: conn} do
@@ -71,13 +83,15 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
 
     conn = login(conn, user)
 
-    {:ok, _view, html} =
+    {:ok, view, _html} =
       live(
         conn,
         ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
       )
 
-    assert html =~ "Rulebook · p.5"
+    caption = figcaption(view)
+    assert caption =~ "Rulebook"
+    assert caption =~ "p.5"
   end
 
   test "same-page citations merge into one card, ellipsis-joined, and cards sort by page", %{

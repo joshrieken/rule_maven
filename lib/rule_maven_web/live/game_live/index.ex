@@ -289,28 +289,6 @@ defmodule RuleMavenWeb.GameLive.Index do
     end
   end
 
-  defp admin?(socket) do
-    RuleMaven.Users.can?(RuleMaven.Users.get_user(socket.assigns.current_user.id), :admin)
-  end
-
-  defp do_confirm_delete(socket, id_str) do
-    {id, _} = Integer.parse(id_str)
-    game = Games.get_game!(id)
-
-    case Games.delete_game(game) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> reload_games()
-         |> put_flash(:info, "Deleted #{game.name}.")}
-
-      {:error, _} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Failed to delete #{game.name}.")}
-    end
-  end
-
   @impl true
   def handle_event("go_to_game", %{"id" => id_str}, socket) do
     {id, _} = Integer.parse(id_str)
@@ -569,6 +547,28 @@ defmodule RuleMavenWeb.GameLive.Index do
         else: assign_games(socket, socket.assigns.games)
 
     {:noreply, push_event(socket, "save_count", %{count: count})}
+  end
+
+  defp admin?(socket) do
+    RuleMaven.Users.can?(RuleMaven.Users.get_user(socket.assigns.current_user.id), :admin)
+  end
+
+  defp do_confirm_delete(socket, id_str) do
+    {id, _} = Integer.parse(id_str)
+    game = Games.get_game!(id)
+
+    case Games.delete_game(game) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> reload_games()
+         |> put_flash(:info, "Deleted #{game.name}.")}
+
+      {:error, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to delete #{game.name}.")}
+    end
   end
 
   @impl true

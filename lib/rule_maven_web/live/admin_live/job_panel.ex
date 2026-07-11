@@ -78,10 +78,6 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
     end
   end
 
-  # Re-fetch: a role revoked mid-session must take effect on the open socket.
-  defp admin_now?(%{assigns: %{viewer_id: nil}}), do: false
-  defp admin_now?(%{assigns: %{viewer_id: id}}), do: Users.can?(Users.get_user(id), :admin)
-
   def handle_event("clear-selection", _params, socket) do
     {:noreply, assign(socket, selected_id: nil, events: [])}
   end
@@ -96,6 +92,10 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
 
     {:noreply, assign(socket, hidden_kinds: hidden)}
   end
+
+  # Re-fetch: a role revoked mid-session must take effect on the open socket.
+  defp admin_now?(%{assigns: %{viewer_id: nil}}), do: false
+  defp admin_now?(%{assigns: %{viewer_id: id}}), do: Users.can?(Users.get_user(id), :admin)
 
   # A run opened/closed/changed state — upsert it at the top of the rail.
   @impl true

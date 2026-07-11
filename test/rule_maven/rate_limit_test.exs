@@ -29,6 +29,25 @@ defmodule RuleMaven.RateLimitTest do
     q
   end
 
+  # `check_rate_limit/1` bills fresh asks via the append-only `llm_logs`
+  # "ask" rows (see the doc comment on Games.recent_question_count/2), not
+  # from surviving questions_log rows — so a billable ask must log both.
+  defp fresh_ask(game, user, attrs \\ %{}) do
+    q = ask(game, user, attrs)
+
+    RuleMaven.Repo.insert!(%RuleMaven.LLM.Log{
+      operation: "ask",
+      user_id: user.id,
+      game_id: game.id,
+      question_log_id: q.id,
+      model: "test",
+      provider: "test",
+      success: true
+    })
+
+    q
+  end
+
   setup do
     %{game: game_fixture()}
   end
@@ -37,10 +56,10 @@ defmodule RuleMaven.RateLimitTest do
     user = user_fixture("limited")
     {:ok, user} = Users.set_quota(user, 2)
 
-    ask(game, user, %{})
+    fresh_ask(game, user)
     assert Games.check_rate_limit(user) == :ok
 
-    ask(game, user, %{})
+    fresh_ask(game, user)
     assert {:error, msg} = Games.check_rate_limit(user)
     assert msg =~ "quota"
   end
@@ -56,7 +75,7 @@ defmodule RuleMaven.RateLimitTest do
     assert Games.check_rate_limit(user) == :ok
 
     # The first *fresh* generation hits the quota of 1.
-    ask(game, user, %{})
+    fresh_ask(game, user)
     assert {:error, _} = Games.check_rate_limit(user)
   end
 
@@ -64,14 +83,14 @@ defmodule RuleMaven.RateLimitTest do
     admin = user_fixture("boss", %{role: "admin"})
     {:ok, admin} = Users.set_quota(admin, 1)
 
-    for _ <- 1..5, do: ask(game, admin, %{})
+    for _ <- 1..5, do: fresh_ask(game, admin)
     assert Games.check_rate_limit(admin) == :ok
   end
 
   test "raising a user's quota lets them ask again", %{game: game} do
     user = user_fixture("topped")
     {:ok, user} = Users.set_quota(user, 1)
-    ask(game, user, %{})
+    fresh_ask(game, user)
     assert {:error, _} = Games.check_rate_limit(user)
 
     {:ok, user} = Users.set_quota(user, 50)

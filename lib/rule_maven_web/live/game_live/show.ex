@@ -795,34 +795,6 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
-  defp do_community_vote(socket, id, uid, value, new_upvote?) do
-    case Games.set_community_vote(id, uid, value, socket.assigns.is_admin) do
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, vote_error_message(reason))}
-
-      _ ->
-        vote_ids =
-          Enum.map(socket.assigns.community_questions, & &1.id) ++
-            conversation_source_ids(socket.assigns.conversation) ++
-            conversation_answer_ids(socket.assigns.conversation)
-
-        {cv_counts, cv_user, cv_asker} = Games.community_vote_maps(vote_ids, uid)
-
-        socket =
-          assign(socket,
-            community_vote_counts: cv_counts,
-            community_user_votes: cv_user,
-            asker_confirmed_ids: cv_asker
-          )
-
-        {:noreply,
-         if(new_upvote?,
-           do: push_event(socket, "vote_thanks", vote_thanks_payload(socket)),
-           else: socket
-         )}
-    end
-  end
-
   # Opens the report-reason modal for an answer. The actual flag is written on
   # "submit_report" once the user has picked a reason.
   def handle_event("open_report", %{"id" => id_str}, socket) do
@@ -1027,6 +999,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                        answer: "Thinking...",
                        user_id: socket.assigns.current_user.id,
                        visibility: visibility,
+                       group_id: socket.assigns[:active_group_id],
                        expansion_ids: Enum.sort(expansion_ids)
                      }) do
                   {:ok, question_log} ->
@@ -1037,6 +1010,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       expansion_ids: expansion_ids,
                       recent_context: recent,
                       user_id: socket.assigns.current_user.id,
+                      group_id: socket.assigns[:active_group_id],
                       voice: socket.assigns.default_voice
                     }
                     |> RuleMaven.Workers.AskWorker.new()
@@ -1449,6 +1423,34 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
+  defp do_community_vote(socket, id, uid, value, new_upvote?) do
+    case Games.set_community_vote(id, uid, value, socket.assigns.is_admin) do
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, vote_error_message(reason))}
+
+      _ ->
+        vote_ids =
+          Enum.map(socket.assigns.community_questions, & &1.id) ++
+            conversation_source_ids(socket.assigns.conversation) ++
+            conversation_answer_ids(socket.assigns.conversation)
+
+        {cv_counts, cv_user, cv_asker} = Games.community_vote_maps(vote_ids, uid)
+
+        socket =
+          assign(socket,
+            community_vote_counts: cv_counts,
+            community_user_votes: cv_user,
+            asker_confirmed_ids: cv_asker
+          )
+
+        {:noreply,
+         if(new_upvote?,
+           do: push_event(socket, "vote_thanks", vote_thanks_payload(socket)),
+           else: socket
+         )}
+    end
+  end
+
   defp refresh_house_rules(socket) do
     socket |> ToolHost.refresh_house_rules() |> load_hr_overlay()
   end
@@ -1670,6 +1672,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                answer: "Thinking...",
                user_id: socket.assigns.current_user.id,
                visibility: visibility,
+               group_id: socket.assigns[:active_group_id],
                expansion_ids: Enum.sort(expansion_ids),
                error_retries: carried_retries
              }) do
@@ -1681,6 +1684,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               expansion_ids: expansion_ids,
               recent_context: recent,
               user_id: socket.assigns.current_user.id,
+              group_id: socket.assigns[:active_group_id],
               skip_pool: skip_pool,
               skip_normalize: verbatim,
               never_pool: protect_existing?,

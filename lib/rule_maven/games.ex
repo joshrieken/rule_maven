@@ -2392,7 +2392,6 @@ defmodule RuleMaven.Games do
     Repo.delete(q)
   end
 
-  @doc "True if any votes have been cast on this question row."
   @doc """
   True when the row carries a real community vote — one that moved trust.
 
@@ -2410,36 +2409,54 @@ defmodule RuleMaven.Games do
   end
 
   def recent_questions(%Game{} = game, limit \\ 20, opts \\ []) do
-    user_id = Keyword.get(opts, :user_id)
+    group_id = Keyword.get(opts, :group_id)
 
-    base =
-      from q in QuestionLog,
-        where: q.game_id == ^game.id,
-        order_by: [desc: q.inserted_at],
-        preload: [:user]
+    if group_id do
+      # The group feed: every question asked with this group active, for this
+      # game, newest first, attributed. Scoped by game+group so one group's
+      # rows never leak into another group's (or another game's) feed.
+      query =
+        from q in QuestionLog,
+          where: q.game_id == ^game.id and q.group_id == ^group_id,
+          where: q.refused == false and q.blocked == false,
+          order_by: [desc: q.inserted_at],
+          preload: [:user]
 
-    base = if limit, do: from(q in base, limit: ^limit), else: base
+      query = if limit, do: from(q in query, limit: ^limit), else: query
 
-    query =
-      if user_id do
-        # Own questions, community questions, plus other users' pooled answers
-        # this user upvoted from the Community Q&A browse page — an upvote is
-        # the explicit "add this to my list" gesture (viewing alone never adds).
-        upvoted =
-          from v in QuestionVote,
-            where: v.user_id == ^user_id and v.value == "up",
-            select: v.question_log_id
+      Repo.all(query)
+    else
+      user_id = Keyword.get(opts, :user_id)
 
-        from q in base,
-          where:
-            q.user_id == ^user_id or q.visibility == "community" or
-              (q.pooled == true and q.refused == false and q.blocked == false and
-                 q.id in subquery(upvoted))
-      else
-        base
-      end
+      base =
+        from q in QuestionLog,
+          where: q.game_id == ^game.id,
+          order_by: [desc: q.inserted_at],
+          preload: [:user]
 
-    Repo.all(query)
+      base = if limit, do: from(q in base, limit: ^limit), else: base
+
+      query =
+        if user_id do
+          # Own questions, community questions, plus other users' pooled answers
+          # this user upvoted from the Community Q&A browse page — an upvote is
+          # the explicit "add this to my list" gesture (viewing alone never adds).
+          upvoted =
+            from v in QuestionVote,
+              where: v.user_id == ^user_id and v.value == "up",
+              select: v.question_log_id
+
+          from q in base,
+            where:
+              q.user_id == ^user_id or q.visibility == "community" or
+                (q.pooled == true and q.refused == false and q.blocked == false and
+                   q.id in subquery(upvoted))
+        else
+          base
+        end
+
+      Repo.all(query)
+    end
   end
 
   def admin_list_questions(opts \\ []) do
@@ -2605,7 +2622,25 @@ defmodule RuleMaven.Games do
     threshold = Keyword.get(opts, :threshold, pool_distance_threshold())
     limit = Keyword.get(opts, :limit, @default_pool_candidates)
     expansion_ids = opts |> Keyword.get(:expansion_ids, []) |> Enum.sort()
+    active_group_id = Keyword.get(opts, :active_group_id)
     vec = Pgvector.new(question_embedding)
+
+    # Callers must have ALREADY verified the acting user is a member of
+    # `active_group_id` (see `RuleMaven.Groups.member_of_group_id?/2`) before
+    # this opt reaches here — this function trusts it blindly and widens the
+    # candidate set to that group's rows. This is a READ-only widening: it
+    # never sets `pooled` or `visibility`, so a group row is not promoted
+    # into the community pool by being served this way.
+    visibility_filter =
+      if active_group_id do
+        dynamic(
+          [q],
+          q.pooled == true or (q.visibility == "community" and q.citation_valid == true) or
+            q.group_id == ^active_group_id
+        )
+      else
+        dynamic([q], q.pooled == true or (q.visibility == "community" and q.citation_valid == true))
+      end
 
     Repo.all(
       from q in QuestionLog,
@@ -2618,8 +2653,11 @@ defmodule RuleMaven.Games do
         # Community rows normally imply `pooled` (promotion sets both); the
         # visibility-only branch exists for legacy rows, so it must carry the
         # citation gate itself — otherwise a row that skipped `mark_pooled`
-        # would serve cross-user ungated.
-        where: q.pooled == true or (q.visibility == "community" and q.citation_valid == true),
+        # would serve cross-user ungated. When `active_group_id` is set (and
+        # already membership-checked by the caller), a third branch widens
+        # this to the group's own rows — a private group cache, subject to
+        # every guard below just like the other branches.
+        where: ^visibility_filter,
         where: not is_nil(q.question_embedding),
         where: q.refused == false,
         # Skip answers flagged stale by a rulebook change until re-approved.
@@ -3966,7 +4004,7 @@ defmodule RuleMaven.Games do
   # equally authoritative, equally scoped chunks — where `Enum.min_by` otherwise
   # kept whichever it happened to see first, which could discard the chunk the
   # semantic search ranked closest to the question.
-  defp pick_authoritative(candidates, base_game_id, rank \\ %{}) do
+  defp pick_authoritative(candidates, base_game_id, rank) do
     Enum.min_by(candidates, fn c ->
       {RuleMaven.Games.Document.authority(c.kind), if(c.game_id == base_game_id, do: 0, else: 1),
        Map.get(rank, c.id, 0)}
