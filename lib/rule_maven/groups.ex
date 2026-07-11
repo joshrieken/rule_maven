@@ -58,6 +58,14 @@ defmodule RuleMaven.Groups do
     end
   end
 
+  @doc """
+  Looks up a group by its invite code, regardless of whether the code is
+  currently active. Used by the join flow to show the group's name even
+  when the invite has been turned off or capped, so the error screen can
+  say *what* you were trying to join. Returns nil for an unknown code.
+  """
+  def get_group_by_code(code), do: Repo.get_by(Group, invite_code: code)
+
   @doc "Returns the user's role in the group, or nil if not a member. Tolerates a nil user."
   def role_of(nil, _group), do: nil
 

@@ -105,6 +105,14 @@ defmodule RuleMavenWeb.Router do
       live "/settings", SettingsLive, :index
       live "/settings/usage", SettingsLive, :usage
       live "/standing", StandingLive, :index
+
+      # NOTE: "/groups/join/:code" (literal prefix) MUST be declared before
+      # "/groups/:token" (dynamic) for the same reason as "/games/new" above —
+      # otherwise GroupLive.Show would swallow "/groups/join/XYZ" with
+      # token="join" before Join ever sees it.
+      live "/groups", GroupLive.Index, :index
+      live "/groups/join/:code", GroupLive.Join, :join
+      live "/groups/:token", GroupLive.Show, :show
     end
   end
 

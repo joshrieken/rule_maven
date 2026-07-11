@@ -93,6 +93,12 @@ defmodule RuleMavenWeb.Tours do
           "Tap 🎲 Play or 📚 Learn to open Turn Wizard, Quiz, Setup checklist, Score pad, and more — they open as movable panels you can minimize to the dock, and they remember where you left off."
       },
       %{
+        sel: "[data-tour='group-selector']",
+        title: "Asking for your group",
+        body:
+          "Pick a group here and everyone in it sees your questions and answers live — and if someone already asked, the rest of the group gets the instant cached answer. Create or join a group from My Groups in your user menu."
+      },
+      %{
         sel: nil,
         title: "Good to go! 🎲",
         body:

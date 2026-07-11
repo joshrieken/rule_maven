@@ -127,6 +127,7 @@
                   <.link href={~p"/admin/db"} class="user-dropdown-link">DB Admin</.link>
                   <.link href={~p"/admin/themes"} class="user-dropdown-link">Themes</.link>
                   <.link href={~p"/standing"} class="user-dropdown-link">Standing</.link>
+                  <.link href={~p"/groups"} class="user-dropdown-link">My Groups</.link>
                   <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>
                   <.link href={~p"/oban"} class="user-dropdown-link" target="_blank">Oban ↗</.link>
                 </div>
@@ -214,6 +215,7 @@
                     </button>
                     <div class="user-dropdown-section">Account</div>
                     <.link href={~p"/standing"} class="user-dropdown-link">Standing</.link>
+                    <.link href={~p"/groups"} class="user-dropdown-link">My Groups</.link>
                     <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>
                     <.link href={~p"/help"} class="user-dropdown-link">Help &amp; FAQ</.link>
                     <div class="user-dropdown-section">Tours</div>
@@ -272,6 +274,7 @@
           <.link href={~p"/help"} class="drawer-link">📖 Help &amp; FAQ</.link>
           <%= if me do %>
             <.link href={~p"/standing"} class="drawer-link">Standing</.link>
+            <.link href={~p"/groups"} class="drawer-link">My Groups</.link>
             <.link href={~p"/logout"} class="drawer-link">Log out</.link>
           <% else %>
             <.link href={~p"/login"} class="drawer-link">Log in</.link>

@@ -320,6 +320,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
     <div
       class="group-selector"
       data-testid="group-selector"
+      data-tour="group-selector"
       style="display:inline-flex;align-items:center;gap:0.3rem;flex-wrap:wrap"
     >
       <button
