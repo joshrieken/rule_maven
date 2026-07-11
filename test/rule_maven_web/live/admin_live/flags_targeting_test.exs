@@ -5,19 +5,26 @@ defmodule RuleMavenWeb.AdminLive.FlagsTargetingTest do
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
 
   defp user(role) do
+    create_role = if role == "super_admin", do: "admin", else: role
+
     {:ok, u} =
       RuleMaven.Users.create_user(%{
         username: "u#{System.unique_integer([:positive])}",
         email: "u#{System.unique_integer([:positive])}@test.com",
         password: "password1234",
-        role: role
+        role: create_role
       })
 
-    u
+    if role == "super_admin" do
+      {:ok, u} = RuleMaven.Users.set_super_admin(u, true)
+      u
+    else
+      u
+    end
   end
 
   test "granting a user by username adds an actor gate", %{conn: conn} do
-    admin = user("admin")
+    admin = user("super_admin")
     target = user("user")
     {:ok, _} = RuleMaven.Flags.disable(:tool_quiz)
 
@@ -34,7 +41,7 @@ defmodule RuleMavenWeb.AdminLive.FlagsTargetingTest do
   end
 
   test "unknown username flashes and writes nothing", %{conn: conn} do
-    admin = user("admin")
+    admin = user("super_admin")
     {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/flags")
 
     html =
@@ -49,7 +56,7 @@ defmodule RuleMavenWeb.AdminLive.FlagsTargetingTest do
   end
 
   test "setting a percentage writes a percentage gate", %{conn: conn} do
-    admin = user("admin")
+    admin = user("super_admin")
     {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/flags")
 
     view
@@ -62,7 +69,7 @@ defmodule RuleMavenWeb.AdminLive.FlagsTargetingTest do
   end
 
   test "forged percentage >= 100 is rejected instead of crashing", %{conn: conn} do
-    admin = user("admin")
+    admin = user("super_admin")
     {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/flags")
 
     html =
@@ -77,7 +84,7 @@ defmodule RuleMavenWeb.AdminLive.FlagsTargetingTest do
   end
 
   test "forged non-numeric percentage is rejected instead of crashing", %{conn: conn} do
-    admin = user("admin")
+    admin = user("super_admin")
     {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/flags")
 
     html =
@@ -91,7 +98,7 @@ defmodule RuleMavenWeb.AdminLive.FlagsTargetingTest do
   end
 
   test "forged non-numeric revoke user-id is a no-op instead of crashing", %{conn: conn} do
-    admin = user("admin")
+    admin = user("super_admin")
     target = user("user")
     {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/flags")
 
@@ -109,7 +116,7 @@ defmodule RuleMavenWeb.AdminLive.FlagsTargetingTest do
   end
 
   test "revoking a deleted user's orphaned actor grant clears the gate", %{conn: conn} do
-    admin = user("admin")
+    admin = user("super_admin")
     target = user("user")
     {:ok, _} = RuleMaven.Flags.grant_actor(:tool_quiz, target)
     assert "user:#{target.id}" in RuleMaven.Flags.gates(:tool_quiz).actors
@@ -129,7 +136,7 @@ defmodule RuleMavenWeb.AdminLive.FlagsTargetingTest do
 
   test "phx-value-id uniquely identifies the toggle even with an actor grant and a percentage set",
        %{conn: conn} do
-    admin = user("admin")
+    admin = user("super_admin")
     target = user("user")
     {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/flags")
 
