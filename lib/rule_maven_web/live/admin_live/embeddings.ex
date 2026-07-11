@@ -6,7 +6,7 @@ defmodule RuleMavenWeb.AdminLive.Embeddings do
 
   @impl true
   def mount(_params, _session, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
+    if Users.can?(socket.assigns.current_user, :superadmin) do
       {:ok,
        assign(socket,
          page_title: "Embeddings & Proxy",
