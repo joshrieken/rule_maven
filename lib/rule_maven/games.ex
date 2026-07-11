@@ -2587,19 +2587,30 @@ defmodule RuleMaven.Games do
       if search && search != "" do
         term = "%#{search}%"
 
-        # Search the text the list actually RENDERS (`listed_question/1`), never the
-        # raw column. Matching on hidden text is the search-oracle shape: the row
-        # appears and disappears on substrings the viewer is never shown, which is
-        # enough to reconstruct a crew member's verbatim question a character at a
-        # time. The admin list renders `listed_question/1` now, so the filter has to
-        # agree with it or the oracle survives the render fix.
+        # Search the text the list actually RENDERS (`listed_question/1` /
+        # `listed_answer/1`), never the raw column. Matching on hidden text is the
+        # search-oracle shape: the row appears and disappears on substrings the
+        # viewer is never shown, which is enough to reconstruct a crew member's
+        # verbatim question — or answer, which restates it — a character at a time.
+        # The admin list renders the withholding helpers now, so the filter has to
+        # agree with them or the oracle survives the render fix.
         # `cleaned_question` is only searchable when it is genuinely a scrub:
         # on a normalize fallback the column holds the asker's verbatim prose
         # (see `QuestionLog.listed_question/1`), so matching it unconditionally
-        # rebuilds the very oracle this filter exists to close.
+        # rebuilds the very oracle this filter exists to close. Likewise the answer:
+        # `listed_answer/1` shows the raw `answer` only for a browsable row, so the
+        # filter matches `canonical_answer` always and `answer` only when browsable.
         from(q in query,
           where:
-            ilike(q.answer, ^term) or
+            ilike(
+              fragment(
+                "coalesce(?, CASE WHEN ? THEN ? END)",
+                q.canonical_answer,
+                q.browsable,
+                q.answer
+              ),
+              ^term
+            ) or
               ilike(
                 fragment(
                   "coalesce(?, CASE WHEN ? THEN ? END)",

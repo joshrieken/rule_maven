@@ -3377,7 +3377,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% thinking? = msg.content == "Thinking..." && msg[:pending] %>
                     <% voicing? =
                       msg.content != "Thinking..." && v_sel != "neutral" && is_nil(v_content) &&
-                        not v_failed %>
+                        not v_failed && msg[:answer_visible] != false %>
                     <%!-- Keying the text node by voice makes LiveView replace it
                           rather than patch it whenever the persona changes, so
                           the .answer-in rise animation replays instead of the

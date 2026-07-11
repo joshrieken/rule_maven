@@ -403,6 +403,11 @@ defmodule RuleMavenWeb.AdminLive.Db do
   @sensitive_columns %{
     "questions_log" =>
       ~w(question cleaned_question answer canonical_answer raw_response feedback also_asked followups),
+    # A persona restyle of a crew answer — the same private prose in a costume
+    # (Voices.restyle enforces fact/length parity). Keyed only by
+    # (question_log_id, voice) with no crew gate on write, so a plain admin
+    # reading this table verbatim bypasses listed_answer/answer_visible entirely.
+    "answer_voices" => ~w(content),
     "llm_logs" => ~w(detail messages),
     "audit_logs" => ~w(metadata),
     "house_rules" => ~w(body),

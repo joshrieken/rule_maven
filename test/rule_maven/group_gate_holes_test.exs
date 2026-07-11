@@ -823,6 +823,27 @@ defmodule RuleMaven.GroupGateHolesTest do
       q = group_question!(ctx.game, ctx.member, ctx.grp)
       assert QuestionLog.listed_question(q) == "Can a smuggler cheat?"
     end
+
+    test "the admin search box cannot match a withheld crew ANSWER either", ctx do
+      # The answer restates the private question ("No, Sarah may not…"), so
+      # `listed_answer/1` withholds it for an unbrowsable crew row. Matching the
+      # raw `answer` column is the same oracle one column over: the row blinks in
+      # and out on substrings the admin never sees.
+      group_question!(ctx.game, ctx.member, ctx.grp, %{
+        answer: "No, ORACLETOKEN may not palm a card."
+      })
+
+      assert Games.admin_list_questions(search: "ORACLETOKEN") == []
+    end
+
+    test "a browsable answer is still searchable (no false-withhold)", ctx do
+      group_question!(ctx.game, ctx.member, ctx.grp, %{
+        answer: "Yes, FINDME is allowed.",
+        browsable: true
+      })
+
+      assert [_] = Games.admin_list_questions(search: "FINDME")
+    end
   end
 
   describe "round 10 — a crew row is not readable by house-rule delta" do

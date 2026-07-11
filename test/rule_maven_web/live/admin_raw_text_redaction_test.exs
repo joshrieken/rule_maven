@@ -71,5 +71,23 @@ defmodule RuleMavenWeb.AdminRawTextRedactionTest do
       assert [%{"answer" => "«redacted»", "canonical_answer" => "«redacted»", "id" => 1}] = masked
       refute inspect(masked) =~ "Sarah"
     end
+
+    test "masks answer_voices.content — the persona restyle is the same prose in a costume" do
+      # answer_voices holds the persona restyle of a crew answer (fact/length
+      # parity preserved), keyed only by (question_log_id, voice) with no crew
+      # gate on write — so reading it verbatim bypasses listed_answer entirely.
+      rows = [%{"id" => 1, "voice" => "pirate", "content" => "Arr, Sarah be caught."}]
+
+      masked = Db.__redact_for_test__(rows, "answer_voices", false)
+
+      assert [%{"content" => "«redacted»", "voice" => "pirate", "id" => 1}] = masked
+      refute inspect(masked) =~ "Sarah"
+    end
+
+    test "a superadmin's answer_voices read is untouched" do
+      rows = [%{"id" => 1, "content" => "Arr, Sarah be caught."}]
+
+      assert ^rows = Db.__redact_for_test__(rows, "answer_voices", true)
+    end
   end
 end
