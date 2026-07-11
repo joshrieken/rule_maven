@@ -17,6 +17,7 @@ defmodule RuleMaven.Groups.Membership do
     |> validate_required([:user_id, :group_id, :role])
     |> validate_inclusion(:role, @roles)
     |> unique_constraint([:user_id, :group_id])
+    |> unique_constraint(:group_id, name: :group_memberships_one_owner_index)
   end
 
   def roles, do: @roles

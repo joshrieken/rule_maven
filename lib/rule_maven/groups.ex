@@ -227,8 +227,14 @@ defmodule RuleMaven.Groups do
   Promotes or demotes `target_user_id`'s role in the group. Owner-only —
   admins cannot change roles, including their own.
 
-  Returns `{:error, :forbidden}` if the actor isn't the owner, or
-  `{:error, :not_member}` if the target doesn't belong to the group.
+  This function can never create or destroy an owner: it cannot touch a
+  membership row that currently holds "owner" (use `transfer_ownership/3`
+  to move ownership), and it cannot promote anyone to "owner" either.
+
+  Returns `{:error, :forbidden}` if the actor isn't the owner,
+  `{:error, :not_member}` if the target doesn't belong to the group,
+  `{:error, :last_owner}` if the target currently holds "owner", or
+  `{:error, :use_transfer_ownership}` if the requested role is "owner".
   """
   def set_role(actor, group, target_user_id, role) do
     role = to_string(role)
@@ -240,10 +246,67 @@ defmodule RuleMaven.Groups do
       role not in Membership.roles() ->
         {:error, :forbidden}
 
+      role == "owner" ->
+        {:error, :use_transfer_ownership}
+
       true ->
         case Repo.get_by(Membership, group_id: group.id, user_id: target_user_id) do
           nil -> {:error, :not_member}
+          %Membership{role: "owner"} -> {:error, :last_owner}
           membership -> membership |> Membership.changeset(%{role: role}) |> Repo.update()
+        end
+    end
+  end
+
+  @doc """
+  Transfers ownership of `group` from the current owner to
+  `new_owner_user_id`. This is the ONLY sanctioned way to move ownership —
+  `set_role/4` refuses to touch an owner row in either direction.
+
+  Runs inside a single transaction, first taking a transaction-scoped
+  advisory lock keyed on the group id (same pattern as `join_by_code/2`),
+  then demotes the current owner to "admin" and promotes the target to
+  "owner", in that order, so the DB's partial unique index
+  (`group_memberships_one_owner_index`, one "owner" row per group) is never
+  transiently violated.
+
+  Returns `{:ok, group}`, `{:error, :forbidden}` if the actor isn't the
+  owner, or `{:error, :not_member}` if the target doesn't belong to the
+  group.
+  """
+  def transfer_ownership(actor, group, new_owner_user_id) do
+    cond do
+      not role_at_least?(actor, group, :owner) ->
+        {:error, :forbidden}
+
+      true ->
+        result =
+          Repo.transaction(fn ->
+            Repo.query!("SELECT pg_advisory_xact_lock($1)", [group.id])
+
+            case Repo.get_by(Membership, group_id: group.id, user_id: new_owner_user_id) do
+              nil ->
+                Repo.rollback(:not_member)
+
+              target_membership ->
+                current_owner =
+                  Repo.get_by!(Membership, group_id: group.id, role: "owner")
+
+                current_owner
+                |> Membership.changeset(%{role: "admin"})
+                |> Repo.update!()
+
+                target_membership
+                |> Membership.changeset(%{role: "owner"})
+                |> Repo.update!()
+
+                group
+            end
+          end)
+
+        case result do
+          {:ok, group} -> {:ok, group}
+          {:error, reason} -> {:error, reason}
         end
     end
   end

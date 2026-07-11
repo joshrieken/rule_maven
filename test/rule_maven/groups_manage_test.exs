@@ -135,6 +135,60 @@ defmodule RuleMaven.GroupsManageTest do
       target = create_user("u10")
       assert {:error, :forbidden} = Groups.set_role(create_user("u11"), g, target.id, "admin")
     end
+
+    test "owner cannot demote themselves via set_role", %{owner: o, group: g} do
+      assert {:error, :last_owner} = Groups.set_role(o, g, o.id, "member")
+      assert {:error, :last_owner} = Groups.set_role(o, g, o.id, "admin")
+
+      # group still has an owner afterwards
+      assert Groups.role_of(o, g) == "owner"
+      assert {:error, :owner_must_transfer} = Groups.leave(o, g)
+    end
+
+    test "cannot promote to owner via set_role", %{owner: o, member: m, group: g} do
+      assert {:error, :use_transfer_ownership} = Groups.set_role(o, g, m.id, "owner")
+      assert Groups.role_of(m, g) == "member"
+    end
+  end
+
+  describe "transfer_ownership/3" do
+    test "moves ownership atomically", %{owner: o, member: m, group: g} do
+      assert {:ok, _} = Groups.transfer_ownership(o, g, m.id)
+
+      assert Groups.role_of(o, g) == "admin"
+      assert Groups.role_of(m, g) == "owner"
+
+      owner_count =
+        Groups.list_members(g)
+        |> Enum.count(&(&1.role == "owner"))
+
+      assert owner_count == 1
+
+      # new owner can now delete the group
+      assert {:ok, :deleted} = Groups.delete_group(m, g)
+    end
+
+    test "forbidden for admin and non-member actors", %{owner: o, member: m, group: g} do
+      admin = create_user("u18")
+      {:ok, _} = Groups.join_by_code(admin, g.invite_code)
+      {:ok, _} = Groups.set_role(o, g, admin.id, "admin")
+
+      assert {:error, :forbidden} = Groups.transfer_ownership(admin, g, m.id)
+
+      outsider = create_user("u19")
+      assert {:error, :forbidden} = Groups.transfer_ownership(outsider, g, m.id)
+    end
+
+    test "target must be a member", %{owner: o, group: g} do
+      outsider = create_user("u20")
+      assert {:error, :not_member} = Groups.transfer_ownership(o, g, outsider.id)
+    end
+
+    test "old owner (now admin) can leave after transfer", %{owner: o, member: m, group: g} do
+      assert {:ok, _} = Groups.transfer_ownership(o, g, m.id)
+      assert {:ok, :left} = Groups.leave(o, g)
+      refute Groups.member?(o, g)
+    end
   end
 
   describe "remove_member/3" do
