@@ -177,77 +177,93 @@ defmodule RuleMavenWeb.AdminLive.Flags do
     ~H"""
     <div class="container">
       <h1>Feature Flags</h1>
-      <p class="text-secondary">
+      <p class="text-secondary flag-intro">
         Boolean gate shown. Off means the feature vanishes for everyone (admins may still
         see it via a group override set on the console).
       </p>
 
-      <%= for {kind, flags} <- @flags do %>
-        <h2>{kind |> Atom.to_string() |> String.capitalize()}</h2>
+      <section :for={{kind, flags} <- @flags} class="flag-section">
+        <h2 class="flag-section__title">{kind |> Atom.to_string() |> String.capitalize()}</h2>
+
         <ul class="flag-list">
-          <%= for f <- flags do %>
-            <li style="padding:0.6rem 0;border-bottom:1px solid var(--border)">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem">
-                <span>
-                  <strong>{f.label}</strong>
-                  <code class="text-muted">{f.id}</code>
-                </span>
+          <li :for={f <- flags} class="flag-row">
+            <div class="flag-row__head">
+              <span class="flag-row__name">
+                <strong>{f.label}</strong>
+                <code class="flag-row__code">{f.id}</code>
+              </span>
+
+              <button
+                type="button"
+                class={["btn-sm", if(f.on?, do: "btn-primary", else: "btn-secondary")]}
+                phx-click="toggle"
+                phx-value-id={f.id}
+              >
+                {if f.on?, do: "On", else: "Off"}
+              </button>
+            </div>
+
+            <div class="flag-row__controls">
+              <form id={"grant-#{f.id}"} phx-submit="grant_actor" class="flag-form">
+                <input type="hidden" name="_id" value={f.id} />
+                <input
+                  type="text"
+                  name="username"
+                  placeholder="username"
+                  aria-label={"Grant #{f.label} to a user"}
+                />
+                <button type="submit" class="btn-xs btn-outline">Grant</button>
+              </form>
+
+              <form id={"pct-#{f.id}"} phx-submit="set_percentage" class="flag-form">
+                <input type="hidden" name="_id" value={f.id} />
+                <input
+                  type="number"
+                  name="percentage"
+                  min="1"
+                  max="99"
+                  value={pct_value(f)}
+                  aria-label={"Rollout percentage for #{f.label}"}
+                />
+                <span>%</span>
+                <button type="submit" class="btn-xs btn-outline">Set</button>
                 <button
+                  :if={f.gates.percentage != nil}
                   type="button"
-                  class={["btn-sm", if(f.on?, do: "btn-primary", else: "btn-secondary")]}
-                  phx-click="toggle"
-                  phx-value-id={f.id}
+                  class="btn-xs btn-secondary"
+                  phx-click="set_percentage"
+                  phx-value-flag={f.id}
+                  phx-value-percentage="0"
                 >
-                  {if f.on?, do: "On", else: "Off"}
+                  Clear
                 </button>
-              </div>
+              </form>
+            </div>
 
-              <div style="display:flex;flex-wrap:wrap;gap:1rem;margin-top:0.5rem;font-size:0.85rem">
-                <form id={"grant-#{f.id}"} phx-submit="grant_actor" style="display:flex;gap:0.35rem;align-items:center">
-                  <input type="hidden" name="_id" value={f.id} />
-                  <input type="text" name="username" placeholder="username" />
-                  <button type="submit" class="btn-xs btn-outline">Grant</button>
-                </form>
+            <div :if={f.gates.actors != []} class="flag-meta">
+              <span>Granted to:</span>
+              <span :for={a <- f.gates.actors} class="flag-grant">
+                {a.username}
+                <button
+                  :if={a.id != nil}
+                  type="button"
+                  class="btn-xs btn-remove"
+                  phx-click="revoke_actor"
+                  phx-value-flag={f.id}
+                  phx-value-user-id={a.id}
+                  title={"Revoke #{a.username}"}
+                >
+                  ×
+                </button>
+              </span>
+            </div>
 
-                <form id={"pct-#{f.id}"} phx-submit="set_percentage" style="display:flex;gap:0.35rem;align-items:center">
-                  <input type="hidden" name="_id" value={f.id} />
-                  <input type="number" name="percentage" min="1" max="99" value={pct_value(f)} style="width:4rem" />
-                  <span>%</span>
-                  <button type="submit" class="btn-xs btn-outline">Set</button>
-                  <button
-                    :if={f.gates.percentage != nil}
-                    type="button"
-                    class="btn-xs btn-secondary"
-                    phx-click="set_percentage"
-                    phx-value-flag={f.id}
-                    phx-value-percentage="0"
-                  >Clear</button>
-                </form>
-              </div>
-
-              <div :if={f.gates.actors != []} style="margin-top:0.35rem;font-size:0.8rem" class="text-secondary">
-                Granted to:
-                <span :for={a <- f.gates.actors} style="margin-right:0.5rem">
-                  {a.username}
-                  <button
-                    :if={a.id != nil}
-                    type="button"
-                    class="btn-xs btn-remove"
-                    phx-click="revoke_actor"
-                    phx-value-flag={f.id}
-                    phx-value-user-id={a.id}
-                    title={"Revoke #{a.username}"}
-                  >×</button>
-                </span>
-              </div>
-
-              <div :if={f.counts} style="margin-top:0.35rem;font-size:0.8rem" class="text-secondary">
-                Assignments — control: {f.counts.control} · treatment: {f.counts.treatment}
-              </div>
-            </li>
-          <% end %>
+            <div :if={f.counts} class="flag-meta">
+              Assignments — control: {f.counts.control} · treatment: {f.counts.treatment}
+            </div>
+          </li>
         </ul>
-      <% end %>
+      </section>
     </div>
     """
   end
