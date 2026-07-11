@@ -27,7 +27,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
   @impl true
   def handle_event("toggle_asks", _params, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
+    if Users.can?(socket.assigns.current_user, :superadmin) do
       disable? = not socket.assigns.asks_disabled
       if disable?, do: RuleMaven.Flags.disable(:asks), else: RuleMaven.Flags.enable(:asks)
 
@@ -48,7 +48,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
   @impl true
   def handle_event("toggle_email", _params, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
+    if Users.can?(socket.assigns.current_user, :superadmin) do
       disable? = not socket.assigns.email_disabled
 
       if disable?,
@@ -173,6 +173,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
           </div>
         </div>
         <button
+          :if={@super_admin?}
           type="button"
           phx-click="toggle_asks"
           data-confirm={
@@ -200,6 +201,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
             </div>
           </div>
           <button
+            :if={@super_admin?}
             type="button"
             phx-click="toggle_email"
             data-confirm={

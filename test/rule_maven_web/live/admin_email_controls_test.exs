@@ -33,16 +33,54 @@ defmodule RuleMavenWeb.AdminEmailControlsTest do
     admin
   end
 
-  test "email kill switch toggles from the dashboard", %{conn: conn} do
+  test "email kill switch toggles from the dashboard for a super admin", %{conn: conn} do
     on_exit(fn -> FunWithFlags.clear(:outbound_email) end)
 
-    {:ok, view, html} = conn |> login(create_admin()) |> live(~p"/admin")
+    {:ok, view, html} = conn |> login(create_super_admin()) |> live(~p"/admin")
 
     assert html =~ "Email is on"
 
     view |> element("button[phx-click=toggle_email]") |> render_click()
     assert not RuleMaven.Flags.enabled?(:outbound_email)
     assert render(view) =~ "Email is paused"
+  end
+
+  test "regular admin cannot see or submit the email kill switch", %{conn: conn} do
+    on_exit(fn -> FunWithFlags.clear(:outbound_email) end)
+
+    {:ok, view, html} = conn |> login(create_admin()) |> live(~p"/admin")
+
+    refute html =~ "phx-click=\"toggle_email\""
+
+    result = render_click(view, "toggle_email", %{})
+
+    assert result =~ "have permission"
+    assert RuleMaven.Flags.enabled?(:outbound_email)
+  end
+
+  test "regular admin cannot see or submit the asks kill switch", %{conn: conn} do
+    on_exit(fn -> FunWithFlags.clear(:asks) end)
+
+    {:ok, view, html} = conn |> login(create_admin()) |> live(~p"/admin")
+
+    refute html =~ "phx-click=\"toggle_asks\""
+
+    result = render_click(view, "toggle_asks", %{})
+
+    assert result =~ "have permission"
+    assert RuleMaven.Flags.enabled?(:asks)
+  end
+
+  test "asks kill switch toggles from the dashboard for a super admin", %{conn: conn} do
+    on_exit(fn -> FunWithFlags.clear(:asks) end)
+
+    {:ok, view, html} = conn |> login(create_super_admin()) |> live(~p"/admin")
+
+    assert html =~ "Asks are live"
+
+    view |> element("button[phx-click=toggle_asks]") |> render_click()
+    assert not RuleMaven.Flags.enabled?(:asks)
+    assert render(view) =~ "Asks are paused"
   end
 
   test "sender address saves and rejects junk", %{conn: conn} do
