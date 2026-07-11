@@ -102,6 +102,10 @@ defmodule RuleMaven.Flags do
   The experiment variant for `user`, recording first exposure. `:treatment` iff the
   flag's gate is on for the user, else `:control`. Requires a `kind: :experiment` flag.
   A nil user is `:control` and is not recorded.
+
+  The returned variant reflects the live gate at call time; the recorded assignment
+  is frozen at first exposure, so the two can diverge if the gate changes between a
+  user's exposures (first-exposure-wins for the record).
   """
   def variant(flag, user \\ nil)
 
@@ -115,6 +119,10 @@ defmodule RuleMaven.Flags do
     variant = if FunWithFlags.enabled?(flag, for: user), do: :treatment, else: :control
     record_assignment(user.id, flag, variant)
     variant
+  end
+
+  def variant(_flag, other) do
+    raise ArgumentError, "variant/2 expects a %RuleMaven.Users.User{} or nil, got: #{inspect(other)}"
   end
 
   @doc "Assignment counts per variant. %{control: n, treatment: m}."
@@ -136,7 +144,7 @@ defmodule RuleMaven.Flags do
   defp ensure_experiment!(flag) do
     case Registry.fetch!(flag) do
       %{kind: :experiment} -> :ok
-      _ -> raise ArgumentError, "variant/2 requires a :experiment flag, got #{inspect(flag)}"
+      _ -> raise ArgumentError, "variant/2 requires an :experiment flag, got #{inspect(flag)}"
     end
   end
 

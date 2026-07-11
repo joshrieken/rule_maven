@@ -70,6 +70,12 @@ defmodule RuleMaven.FlagsVariantTest do
     FunWithFlags.clear(:tool_quiz)
   end
 
+  test "variant raises ArgumentError on a non-User, non-nil second arg" do
+    assert_raise ArgumentError, fn -> Flags.variant(@exp, 123) end
+  after
+    FunWithFlags.clear(@exp)
+  end
+
   test "assignment_counts returns per-variant counts" do
     u1 = user()
     u2 = user()
