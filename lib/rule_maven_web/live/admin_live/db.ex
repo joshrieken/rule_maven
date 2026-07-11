@@ -41,8 +41,10 @@ defmodule RuleMavenWeb.AdminLive.Db do
   def __writable_tables__, do: @writable_tables
 
   @doc false
+  # Resolves the table's real column types from the schema so tests exercise the
+  # same default-deny path the live console uses.
   def __redact_for_test__(rows, table, superadmin?),
-    do: redact_sensitive(rows, table, superadmin?)
+    do: redact_sensitive(rows, fetch_columns(table), superadmin?)
 
   defp writable?(table, user) do
     Users.can?(user, :admin) and (Users.can?(user, :superadmin) or table in @writable_tables)
@@ -198,7 +200,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
     row =
       table
       |> fetch_row(pk, id, socket.assigns.columns)
-      |> then(&([&1] |> redact_sensitive(table, superadmin?) |> hd()))
+      |> then(&([&1] |> redact_sensitive(socket.assigns.columns, superadmin?) |> hd()))
 
     data =
       Enum.reduce(socket.assigns.columns, %{}, fn {col, _type}, acc ->
@@ -353,7 +355,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
   defp load_rows(socket, table, columns) do
     table
     |> fetch_rows(columns)
-    |> redact_sensitive(table, Users.can?(live_user(socket), :superadmin))
+    |> redact_sensitive(columns, Users.can?(live_user(socket), :superadmin))
   end
 
   defp fetch_rows(table, columns) do
@@ -391,46 +393,56 @@ defmodule RuleMavenWeb.AdminLive.Db do
     name in fetch_tables()
   end
 
-  # Columns carrying a user's RAW verbatim prose. The crew feature's threat model
-  # is that even an admin must not read another user's raw crew wording — a crew
-  # question can name real people at the table. Every purpose-built admin surface
-  # scrubs it (`listed_question/1`, `scrub_detail/2`, the audit `format_meta`
-  # redaction), but this generic console read all columns of every table for any
-  # `:admin`, which reopened the whole class through the side door.
+  # This generic console reads EVERY column of EVERY table for any `:admin`. The
+  # crew threat model is that even an admin must not read another user's raw crew
+  # wording (a crew question/answer can name real people at the table), and the
+  # same console also exposes PII (emails), credential hashes, and join secrets.
   #
-  # Masked for a plain admin; a SUPER admin (grantable only by mix task, and the
-  # documented unrestricted escape hatch) still sees everything.
-  @sensitive_columns %{
-    "questions_log" =>
-      ~w(question cleaned_question answer canonical_answer raw_response feedback also_asked followups),
-    # A persona restyle of a crew answer — the same private prose in a costume
-    # (Voices.restyle enforces fact/length parity). Keyed only by
-    # (question_log_id, voice) with no crew gate on write, so a plain admin
-    # reading this table verbatim bypasses listed_answer/answer_visible entirely.
-    "answer_voices" => ~w(content),
-    # The LLM note explaining how a house rule changes an answer — the prompt is
-    # fed the crew row's question + answer (llm.ex house_rule_delta/3), so the
-    # note restates that private prose. Reachable for a crew row: request_delta/3
-    # gates on reachable_by?/2, which a crew member passes for their own row.
-    "house_rule_deltas" => ~w(delta),
-    # A crew's join secret. A plain admin reading it here could join the crew via
-    # join_by_code/2 and then read ALL its Q&A directly as a member — defeating
-    # the entire "an admin must not read crew prose" boundary in one step.
-    "groups" => ~w(invite_code),
-    # Reporter-authored free-text; a crew member reporting their own row can type
-    # crew-answer prose / real names into it. Parity with game_support_requests.
-    "question_flags" => ~w(reason),
-    "llm_logs" => ~w(detail messages),
-    "audit_logs" => ~w(metadata),
-    "house_rules" => ~w(body),
-    "game_support_requests" => ~w(message)
-  }
+  # Masking was a hand-curated per-column DENYLIST, which fails OPEN: it leaked one
+  # more prose column every review round (answer_voices.content, house_rule_deltas.
+  # delta, groups.invite_code, canonical_question, users.email, …) and even listed
+  # columns that no longer exist. A denylist cannot converge.
+  #
+  # So masking is now DEFAULT-DENY by column TYPE: for a plain admin, every
+  # text-like / array / json / user-defined / uuid column is masked unless its NAME
+  # is in @always_safe_columns (categorical identifiers that are never prose, PII,
+  # or a secret). Scalars — integers, floats, booleans, timestamps — are shown by
+  # type and never masked. A NEW prose column is therefore hidden until someone
+  # proves it safe, the opposite of the failure mode above. A SUPER admin (the
+  # documented unrestricted escape hatch, grantable only by mix task) still sees
+  # everything.
+  @masked_types [
+    "text",
+    "character",
+    "character varying",
+    "json",
+    "jsonb",
+    "bytea",
+    "ARRAY",
+    "uuid",
+    "USER-DEFINED"
+  ]
 
-  defp redact_sensitive(rows, _table, true = _superadmin?), do: rows
+  # Column names always safe to show regardless of type: categorical/identifier
+  # text that is never user prose, PII, or a secret. Keep this tight — when in
+  # doubt, leave a column out and let it mask (fail closed); superadmin can still
+  # read it.
+  @always_safe_columns ~w(
+    id name slug username role status kind type action target_type
+    visibility verdict error_kind stage llm_provider llm_model provider model voice
+  )
 
-  defp redact_sensitive(rows, table, _superadmin?) do
-    case Map.get(@sensitive_columns, table) do
-      nil ->
+  defp redact_sensitive(rows, _columns, true = _superadmin?), do: rows
+
+  defp redact_sensitive(rows, columns, _superadmin?) do
+    masked_cols =
+      for {col, type} <- columns,
+          type in @masked_types,
+          col not in @always_safe_columns,
+          do: col
+
+    case masked_cols do
+      [] ->
         rows
 
       cols ->

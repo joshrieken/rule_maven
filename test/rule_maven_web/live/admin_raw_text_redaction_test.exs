@@ -114,5 +114,41 @@ defmodule RuleMavenWeb.AdminRawTextRedactionTest do
 
       assert [%{"reason" => "«redacted»", "id" => 1}] = masked
     end
+
+    test "default-deny masks PII/credentials on users, but shows identifiers" do
+      # These were never in any denylist — default-deny by column TYPE catches them:
+      # email/password_hash are text, so masked; username/role/id are safe.
+      rows = [
+        %{
+          "id" => 1,
+          "username" => "alice",
+          "role" => "admin",
+          "email" => "alice@secret.com",
+          "password_hash" => "$2b$04$abcdefghijklmnopqrstuv"
+        }
+      ]
+
+      masked = Db.__redact_for_test__(rows, "users", false)
+
+      assert [
+               %{
+                 "id" => 1,
+                 "username" => "alice",
+                 "role" => "admin",
+                 "email" => "«redacted»",
+                 "password_hash" => "«redacted»"
+               }
+             ] = masked
+    end
+
+    test "default-deny masks canonical_question — the question twin of canonical_answer" do
+      # The old denylist masked canonical_answer but missed canonical_question;
+      # default-deny by type catches it with no per-column bookkeeping.
+      rows = [%{"id" => 1, "canonical_question" => "Can Dave cheat here?"}]
+
+      masked = Db.__redact_for_test__(rows, "questions_log", false)
+
+      assert [%{"canonical_question" => "«redacted»", "id" => 1}] = masked
+    end
   end
 end
