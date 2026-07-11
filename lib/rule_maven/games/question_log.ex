@@ -123,5 +123,32 @@ defmodule RuleMaven.Games.QuestionLog do
     ])
     |> validate_required([:question, :answer, :game_id])
     |> validate_inclusion(:visibility, ~w(private community))
+    |> foreign_key_constraint(:group_id)
+    |> default_group_unbrowsable()
   end
+
+  # A group row is born unbrowsable unless the caller says otherwise, so the
+  # gate fails closed even if a future insert path forgets to pass `browsable`.
+  #
+  # INSERT only: on update, `browsable` is absent from most changesets (vote
+  # counts, trust, staleness), and forcing it false there would silently undo
+  # a publish check that had already passed.
+  #
+  # Keyed on the cast params, NOT on `get_change/2`: the field's schema default
+  # is `true`, so a caller explicitly passing `browsable: true` produces no
+  # *change* at all, and a `get_change == nil` test would read that as "caller
+  # said nothing" and slam it shut.
+  defp default_group_unbrowsable(%Ecto.Changeset{data: %__MODULE__{id: nil}} = changeset) do
+    explicit? =
+      Map.has_key?(changeset.params || %{}, "browsable") or
+        Map.has_key?(changeset.params || %{}, :browsable)
+
+    if get_field(changeset, :group_id) && not explicit? do
+      put_change(changeset, :browsable, false)
+    else
+      changeset
+    end
+  end
+
+  defp default_group_unbrowsable(changeset), do: changeset
 end

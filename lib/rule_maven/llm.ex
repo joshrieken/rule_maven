@@ -235,8 +235,29 @@ defmodule RuleMaven.LLM do
   # a candidate the asker was already within 0.85-0.92 cosine similarity of,
   # which just serves an already-vetted, rulebook-derived pool answer early.
   defp paraphrase_equivalent?(row, asker_question, game, user_id) do
-    candidate_question = RuleMaven.Games.QuestionLog.display_question(row)
+    # For a GROUP row, `display_question/1` is not safe here: its last fallback
+    # is the raw `question` column, and a group row asked via "ask exactly this"
+    # (skip_normalize) is pooled with `cleaned_question: nil` — so that fallback
+    # would ship a crew member's verbatim wording to the provider under a
+    # stranger's ask. A group row therefore tiebreaks on its scrubbed text or
+    # not at all (it just misses). Non-group rows keep the raw fallback: their
+    # wording is already public, and plenty of community rows have no
+    # `cleaned_question` at all, so dropping it would silently cost pool hits.
+    candidate_question =
+      if is_nil(row.group_id) do
+        RuleMaven.Games.QuestionLog.display_question(row)
+      else
+        row.canonical_question || row.cleaned_question
+      end
 
+    if is_nil(candidate_question) do
+      false
+    else
+      do_paraphrase_equivalent?(row, candidate_question, asker_question, game, user_id)
+    end
+  end
+
+  defp do_paraphrase_equivalent?(row, candidate_question, asker_question, game, user_id) do
     user =
       RuleMaven.Prompts.render("pool_tiebreaker", %{
         question_a: candidate_question,
@@ -563,12 +584,16 @@ defmodule RuleMaven.LLM do
   # bubble render its final form — cleaned text + "You asked" disclosure — up
   # front so the streaming answer below it never reflows. Same gating as
   # broadcast_ask_stage/2: only fires for a logged question (AskWorker metadata).
-  defp broadcast_ask_normalized(game_id, original, cleaned) do
+  # The raw wording is deliberately NOT in the payload: `game:<id>` is a public
+  # topic that every viewer of the game is subscribed to, and the asker's
+  # verbatim text has no business on it. The one consumer that needs it (the
+  # "↳ You asked:" disclosure) re-reads the row and shows it only to its author.
+  defp broadcast_ask_normalized(game_id, _original, cleaned) do
     if ql_id = current_question_log_id() do
       Phoenix.PubSub.broadcast(
         RuleMaven.PubSub,
         "game:#{game_id}",
-        {:ask_normalized, %{question_log_id: ql_id, original: original, cleaned: cleaned}}
+        {:ask_normalized, %{question_log_id: ql_id, cleaned: cleaned}}
       )
     end
   end

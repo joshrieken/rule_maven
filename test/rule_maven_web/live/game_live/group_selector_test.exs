@@ -112,4 +112,27 @@ defmodule RuleMavenWeb.GameLive.GroupSelectorTest do
     {:ok, lv2, _html} = live(conn, ~p"/games/#{game}")
     refute render(lv2) =~ grp.name
   end
+
+  test "the active crew survives a tool event (opening the Feed panel)", %{conn: conn} do
+    # ToolHost persists Map.take(assigns, @session_keys) on EVERY tool event, and
+    # :active_group_id isn't one of its keys — under the old replace-semantics
+    # TableSession.put/3 that wiped the crew, so opening the Feed panel itself
+    # un-stuck the crew and the next ask went out private.
+    user = create_user("sticky")
+    game = published_game_fixture(%{bgg_id: 107})
+    grp = group_fixture(user)
+    conn = login(conn, user)
+
+    {:ok, lv, _html} = live(conn, ~p"/games/#{game}")
+    token = Phoenix.Param.to_param(grp)
+    lv |> element("[phx-value-group='#{token}']") |> render_click()
+
+    lv |> element("[data-testid='group-feed-toggle']") |> render_click()
+
+    assert RuleMaven.TableSession.get(user.id, game.id)[:active_group_id] == grp.id
+
+    {:ok, lv2, _html} = live(conn, ~p"/games/#{game}")
+    assert render(lv2) =~ grp.name
+  end
+
 end

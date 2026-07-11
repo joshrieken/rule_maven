@@ -9,7 +9,10 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
   Helpful thumb on a pool hit targets the pool SOURCE row — so an ordinary user
   who upvotes a served answer ends up holding an upvote on a group member's row.
   """
-  use RuleMavenWeb.ConnCase, async: true
+  # async: false — the removed-member test starts a globally-named Oban instance
+  # (the ask form enqueues an AskWorker job), same as the other ask-form LiveView
+  # tests.
+  use RuleMavenWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
@@ -159,5 +162,96 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
     render_hook(view, "community_vote", %{"id" => to_string(q.id), "vote" => "up"})
 
     assert Repo.aggregate(QuestionVote, :count) == 0
+  end
+
+  test "an admin does NOT get the raw wording via the live :ask_complete broadcast", ctx do
+    # The static render was already gated by own_raw_question/2, but the
+    # :ask_complete handler re-put `original_question` straight from the row —
+    # so an admin watching a crew member's still-"Thinking…" thread got the
+    # verbatim prose pushed to them the moment the answer landed.
+    q = group_row!(ctx.game, ctx.member, ctx.group, %{answer: "Thinking..."})
+    admin = user!("bcast_admin", %{role: "admin"})
+
+    {:ok, view, _html} =
+      live(
+        login(build_conn(), admin),
+        ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
+      )
+
+    {:ok, answered} = Games.log_question_update(q, %{answer: "Yes, on a failed roll."})
+
+    RuleMaven.Workers.AskWorker.broadcast_complete(answered, %{
+      faq_hit: false,
+      pool_hit: false,
+      tier: nil,
+      verified: false,
+      followups: [],
+      also_asked: []
+    })
+
+    html = render(view)
+
+    refute html =~ "SECRETWORDING"
+    assert html =~ "Can a smuggler be caught?"
+  end
+
+  test "the asker DOES get their own raw wording via :ask_complete", ctx do
+    q = group_row!(ctx.game, ctx.member, ctx.group, %{answer: "Thinking..."})
+
+    {:ok, view, _html} =
+      live(
+        login(build_conn(), ctx.member),
+        ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
+      )
+
+    {:ok, answered} = Games.log_question_update(q, %{answer: "Yes, on a failed roll."})
+
+    RuleMaven.Workers.AskWorker.broadcast_complete(answered, %{
+      faq_hit: false,
+      pool_hit: false,
+      tier: nil,
+      verified: false,
+      followups: [],
+      also_asked: []
+    })
+
+    assert render(view) =~ "SECRETWORDING"
+  end
+
+  test "a removed member stops seeing the crew feed and stops writing into it", ctx do
+    # Membership used to be checked only at mount and at set_active_group, so a
+    # member removed mid-session kept a socket that both READ the crew feed on
+    # every :ask_complete and WROTE into it (the next ask still carried group_id).
+    #
+    # Submitting the ask form enqueues an AskWorker job, and Oban is unsupervised
+    # in test (`testing: :manual`) — same queueless instance the other ask-form
+    # LiveView tests start.
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
+    {:ok, _} = RuleMaven.Groups.join_by_code(ctx.outsider, ctx.group.invite_code)
+    conn = login(build_conn(), ctx.outsider)
+
+    {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}")
+
+    view
+    |> element("[phx-value-group='#{Phoenix.Param.to_param(ctx.group)}']")
+    |> render_click()
+
+    assert render(view) =~ ctx.group.name
+
+    {:ok, _} = RuleMaven.Groups.remove_member(ctx.member, ctx.group, ctx.outsider.id)
+
+    view
+    |> form("#ask-form", %{"question" => "what happens when I get caught?"})
+    |> render_submit()
+
+    row =
+      RuleMaven.Games.QuestionLog
+      |> Repo.get_by(question: "what happens when I get caught?")
+
+    assert row, "the ask was still logged"
+    assert is_nil(row.group_id), "a removed member's ask was still stamped with the crew"
   end
 end

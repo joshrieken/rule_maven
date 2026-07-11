@@ -87,4 +87,26 @@ defmodule RuleMavenWeb.GameLive.ToolFlagGateTest do
   after
     FunWithFlags.clear(:tool_house_rules)
   end
+
+  test "the crew Feed pill is hidden when tool_group_feed is off", %{conn: conn} do
+    # ToolHost silently drops an `open_tool` for a disabled tool, so an ungated
+    # pill would render as a button that simply does nothing.
+    u = user("user")
+    grp = RuleMaven.GroupsFixtures.group_fixture(u)
+    conn = login(conn, u)
+
+    # The shared `game` here is unpublished, which renders the "not ready" page
+    # and no header at all — this test needs the real game screen.
+    game = published_game_fixture(%{bgg_id: System.unique_integer([:positive])})
+
+    {:ok, lv, _html} = live(conn, ~p"/games/#{game}")
+    lv |> element("[phx-value-group='#{Phoenix.Param.to_param(grp)}']") |> render_click()
+    assert render(lv) =~ "group-feed-toggle"
+
+    {:ok, _} = RuleMaven.Flags.disable(:tool_group_feed)
+
+    {:ok, lv2, _html} = live(conn, ~p"/games/#{game}")
+    lv2 |> element("[phx-value-group='#{Phoenix.Param.to_param(grp)}']") |> render_click()
+    refute render(lv2) =~ "group-feed-toggle"
+  end
 end

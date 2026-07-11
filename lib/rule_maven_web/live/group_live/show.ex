@@ -94,8 +94,13 @@ defmodule RuleMavenWeb.GroupLive.Show do
     group = socket.assigns.group
 
     if Groups.role_at_least?(actor, group, :admin) do
-      {:ok, _group} = Groups.set_invite_active(group, !group.invite_active)
-      {:noreply, load_group(socket)}
+      case Groups.set_invite_active(group, !group.invite_active) do
+        {:ok, _group} ->
+          {:noreply, load_group(socket)}
+
+        {:error, _changeset} ->
+          {:noreply, put_flash(socket, :error, "Couldn't change the invite link.")}
+      end
     else
       {:noreply,
        put_flash(socket, :error, "You don't have permission to change the invite link.")}
@@ -374,7 +379,8 @@ defmodule RuleMavenWeb.GroupLive.Show do
             <span class="crew-toggle__label">Contribute answers to the community</span>
             <span class="crew-toggle__hint">
               Your crew's questions stay private either way — only the answers are shared,
-              and only after a privacy check.
+              and only after a privacy check. Turning this off also withdraws the answers
+              you've already shared, unless the community has voted them in.
             </span>
           </span>
         </label>

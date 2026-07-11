@@ -2035,7 +2035,25 @@ defmodule RuleMaven.Games do
     if q.verified, do: do_unverify(q), else: do_verify(q)
   end
 
+  # Promotion to `visibility: "community"` is the other way a question's TEXT
+  # becomes publicly listed: every browse surface reads
+  # `browsable or visibility == "community"`, and those surfaces render
+  # `display_question/1`, whose last fallback is the raw `question` column.
+  # So an admin verifying a crew row that the publish check has not cleared
+  # (or has rejected) would publish the asker's verbatim wording. Group rows
+  # have to clear the screen first; non-group rows are unaffected.
+  defp publishable?(%QuestionLog{group_id: nil}), do: true
+  defp publishable?(%QuestionLog{browsable: browsable}), do: browsable == true
+
   defp do_verify(%QuestionLog{} = q) do
+    if publishable?(q) do
+      do_verify!(q)
+    else
+      {:error, :not_publishable}
+    end
+  end
+
+  defp do_verify!(%QuestionLog{} = q) do
     # At most one verified answer per question. Clear any existing verified row
     # for the *same* question — matched by embedding similarity (so paraphrases
     # don't both stay verified), falling back to exact wording when this row has
@@ -2149,7 +2167,17 @@ defmodule RuleMaven.Games do
     {:ok, updated}
   end
 
-  def update_question_visibility(%QuestionLog{} = q, visibility) do
+  def update_question_visibility(%QuestionLog{group_id: gid} = q, "community")
+      when not is_nil(gid) do
+    if publishable?(q),
+      do: do_update_question_visibility(q, "community"),
+      else: {:error, :not_publishable}
+  end
+
+  def update_question_visibility(%QuestionLog{} = q, visibility),
+    do: do_update_question_visibility(q, visibility)
+
+  defp do_update_question_visibility(%QuestionLog{} = q, visibility) do
     # Promoting to community makes the row cache-eligible.
     old_visibility = q.visibility
     attrs = %{visibility: visibility, pooled: visibility == "community" or q.pooled}
@@ -2213,12 +2241,24 @@ defmodule RuleMaven.Games do
   defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: s)
 
   def set_question_visibility(id, visibility) when is_integer(id) do
-    old_visibility =
-      case Repo.get(QuestionLog, id) do
-        nil -> nil
-        q -> q.visibility
-      end
+    row = Repo.get(QuestionLog, id)
+    old_visibility = row && row.visibility
 
+    cond do
+      is_nil(row) ->
+        :ok
+
+      # Same gate as update_question_visibility/2: an unscreened crew row must
+      # not reach community visibility, which is what makes its text listable.
+      visibility == "community" and not publishable?(row) ->
+        {:error, :not_publishable}
+
+      true ->
+        do_set_question_visibility(id, visibility, old_visibility)
+    end
+  end
+
+  defp do_set_question_visibility(id, visibility, old_visibility) do
     set = [visibility: visibility]
     set = if visibility == "community", do: Keyword.put(set, :pooled, true), else: set
     Repo.update_all(from(q in QuestionLog, where: q.id == ^id), set: set)
@@ -2725,6 +2765,14 @@ defmodule RuleMaven.Games do
       from(q in QuestionLog,
         where: q.game_id == ^game_id,
         where: q.pooled == true or q.visibility == "community",
+        # `browsable`, not just `pooled`: this hint block is rendered into the
+        # normalize prompt of EVERY asker, and rule 8 tells the model to reuse a
+        # matching entry VERBATIM. A group row is pooled by design (its answer
+        # feeds the commons) but its wording is unscreened until PublishCheck
+        # clears it — without this filter that wording is handed to a stranger,
+        # comes back as their cleaned_question, and their row (non-group, hence
+        # browsable) publishes it. The gate has to hold here or it holds nowhere.
+        where: q.browsable == true,
         where: q.refused == false,
         where: q.needs_review == false,
         where: not is_nil(q.cleaned_question),
@@ -4578,7 +4626,9 @@ defmodule RuleMaven.Games do
         {:error, :not_found}
 
       %QuestionLog{} = q ->
-        if q.visibility == "community" or q.pooled do
+        # `pooled and browsable`, matching votable?/1: a pooled-but-unbrowsable
+        # group row surfaces to nobody, so it must not be favoritable by id either.
+        if q.visibility == "community" or (q.pooled and q.browsable) do
           do_toggle_answer_favorite(user_id, question_log_id)
         else
           {:error, :not_favoritable}

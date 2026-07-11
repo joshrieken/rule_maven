@@ -258,12 +258,40 @@ defmodule RuleMaven.Groups do
   """
   def set_contribute(group, actor, contribute?) when is_boolean(contribute?) do
     if role_at_least?(actor, group, :admin) do
-      group
-      |> Group.changeset(%{contribute_to_community: contribute?})
-      |> Repo.update()
+      Repo.transaction(fn ->
+        result =
+          group
+          |> Group.changeset(%{contribute_to_community: contribute?})
+          |> Repo.update()
+
+        case result do
+          {:ok, updated} ->
+            if not contribute?, do: retract_contributions(group)
+            updated
+
+          {:error, changeset} ->
+            Repo.rollback(changeset)
+        end
+      end)
     else
       {:error, :forbidden}
     end
+  end
+
+  # Turning contribution off has to be retroactive, not just future-facing.
+  # The setting was previously read only at ask time, so a crew that flipped it
+  # off left every answer it had already contributed serving the cross-user
+  # cache, and every question the publish check had already cleared listed on
+  # the community browse — "stop sharing" that stopped nothing already shared.
+  #
+  # Rows already promoted to `visibility: "community"` are left alone: those
+  # passed a community vote and belong to the commons, not to the crew.
+  defp retract_contributions(%Group{id: group_id}) do
+    from(q in RuleMaven.Games.QuestionLog,
+      where: q.group_id == ^group_id,
+      where: q.visibility != "community"
+    )
+    |> Repo.update_all(set: [pooled: false, browsable: false])
   end
 
   @doc """

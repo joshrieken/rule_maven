@@ -460,6 +460,20 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> String.trim()
   end
 
+  # The active group, re-authorized against the DB on every use.
+  #
+  # Membership was previously checked only at mount and at `set_active_group`,
+  # so a member removed from the crew mid-session kept a live socket that both
+  # READ the crew's feed (each :ask_complete re-queried it) and WROTE into it
+  # (their next ask was still stamped with the group_id). Re-deriving authority
+  # per use costs one indexed lookup and makes removal take effect immediately.
+  defp live_group_id(socket) do
+    gid = socket.assigns[:active_group_id]
+    uid = socket.assigns.current_user && socket.assigns.current_user.id
+
+    if gid && RuleMaven.Groups.member_of_group_id?(uid, gid), do: gid, else: nil
+  end
+
   defp question_group_opts(socket) do
     if socket.assigns.is_admin do
       [limit: nil]
@@ -1081,13 +1095,16 @@ defmodule RuleMavenWeb.GameLive.Show do
                   |> Enum.reject(&(&1[:pending] || &1[:history]))
                   |> build_recent_pairs()
 
+                group_id = live_group_id(socket)
+
                 case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
                        game_id: game.id,
                        question: question,
                        answer: "Thinking...",
                        user_id: socket.assigns.current_user.id,
                        visibility: visibility,
-                       group_id: socket.assigns[:active_group_id],
+                       group_id: group_id,
+                       browsable: is_nil(group_id),
                        expansion_ids: Enum.sort(expansion_ids)
                      }) do
                   {:ok, question_log} ->
@@ -1098,7 +1115,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       expansion_ids: expansion_ids,
                       recent_context: recent,
                       user_id: socket.assigns.current_user.id,
-                      group_id: socket.assigns[:active_group_id],
+                      group_id: group_id,
                       never_pool: socket.assigns[:keep_in_crew] || false,
                       voice: socket.assigns.default_voice
                     }
@@ -1355,12 +1372,28 @@ defmodule RuleMavenWeb.GameLive.Show do
     {id, _} = Integer.parse(id_str)
     game = socket.assigns.game
 
-    if RuleMaven.Users.can?(socket.assigns.current_user, :admin) do
-      case find_question_log(game, id) do
-        nil -> :ok
-        q -> Games.toggle_verified(q)
+    verify_result =
+      if RuleMaven.Users.can?(socket.assigns.current_user, :admin) do
+        case find_question_log(game, id) do
+          nil -> :ok
+          q -> Games.toggle_verified(q)
+        end
+      else
+        :ok
       end
-    end
+
+    socket =
+      case verify_result do
+        {:error, :not_publishable} ->
+          put_flash(
+            socket,
+            :error,
+            "This question came from a private crew and hasn't cleared the privacy check, so it can't be published to the community."
+          )
+
+        _ ->
+          socket
+      end
 
     grouped = Games.grouped_questions(game, question_group_opts(socket))
 
@@ -1775,13 +1808,16 @@ defmodule RuleMavenWeb.GameLive.Show do
           |> Enum.reject(& &1[:pending])
           |> build_recent_pairs()
 
+        group_id = live_group_id(socket)
+
         case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
                game_id: game.id,
                question: question,
                answer: "Thinking...",
                user_id: socket.assigns.current_user.id,
                visibility: visibility,
-               group_id: socket.assigns[:active_group_id],
+               group_id: group_id,
+               browsable: is_nil(group_id),
                expansion_ids: Enum.sort(expansion_ids),
                error_retries: carried_retries
              }) do
@@ -1793,7 +1829,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               expansion_ids: expansion_ids,
               recent_context: recent,
               user_id: socket.assigns.current_user.id,
-              group_id: socket.assigns[:active_group_id],
+              group_id: group_id,
               skip_pool: skip_pool,
               skip_normalize: verbatim,
               # Either a private one-off (regenerate/report redo of an already-voted
@@ -1889,7 +1925,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   # broadcast — a full re-query is authorized here and sidesteps duplicate-row
   # bugs a targeted prepend would risk.
   defp assign_group_feed(socket) do
-    case socket.assigns.active_group_id do
+    case live_group_id(socket) do
       nil ->
         assign(socket, :group_feed, [])
 
@@ -2005,7 +2041,10 @@ defmodule RuleMavenWeb.GameLive.Show do
               msg
               |> Map.put(:content, QuestionLog.display_question(ql))
               |> Map.put(:cleaned_question, ql.cleaned_question)
-              |> Map.put(:original_question, ql.question)
+              |> Map.put(
+                :original_question,
+                own_raw_question(ql, socket.assigns.current_user.id)
+              )
 
             %{id: ^question_log_id, role: :assistant} = msg ->
               if ql.answer == "Thinking..." do
@@ -2107,8 +2146,8 @@ defmodule RuleMavenWeb.GameLive.Show do
       # running for the exact same message.
       socket =
         case Map.get(data, :group_id) do
-          gid when not is_nil(gid) and gid == socket.assigns.active_group_id ->
-            assign_group_feed(socket)
+          gid when not is_nil(gid) ->
+            if gid == live_group_id(socket), do: assign_group_feed(socket), else: socket
 
           _ ->
             socket
@@ -2201,7 +2240,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   # streams underneath, so the answer never reflows the page as it loads. Only
   # touches the active thread's still-pending user turn.
   def handle_info(
-        {:ask_normalized, %{question_log_id: ql_id, original: original, cleaned: cleaned}},
+        {:ask_normalized, %{question_log_id: ql_id, cleaned: cleaned}},
         socket
       ) do
     active? = socket.assigns.active_thread_id == ql_id
@@ -2213,6 +2252,15 @@ defmodule RuleMavenWeb.GameLive.Show do
       )
 
     if active? and still_pending? do
+      # `active?` is not ownership: an admin's thread list carries every user's
+      # rows, so the raw wording is re-read from the row and handed back only to
+      # its author (own_raw_question/2 returns nil for anyone else).
+      original =
+        case get_question_log_by_id(ql_id) do
+          nil -> nil
+          ql -> own_raw_question(ql, socket.assigns.current_user.id)
+        end
+
       conversation =
         Enum.map(socket.assigns.conversation, fn
           %{id: ^ql_id, role: :user} = msg ->

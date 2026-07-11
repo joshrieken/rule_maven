@@ -2121,6 +2121,46 @@ button.pill-link:active,
   .game-header-row__left { gap: 0.15rem; }
 }
 
+/* "Who am I asking for" pills. Unlike `.table-context` this one wraps: its
+   length is variable (one pill per crew), so it wraps as a whole and, if a user
+   holds several crews, internally too — rather than running off-screen.
+
+   The crew NAME is the only elastic part (60 chars allowed), so it's the only
+   thing that ellipsizes; the emoji and the pressed state must always survive. */
+.group-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.group-selector .pill-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  min-width: 0;
+}
+.group-selector .gs-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 12rem;
+}
+
+/* Same icon-only collapse as `.table-context`, same reason: the header line
+   wraps on BASE widths, so this strip has to *fit* at 390px, not merely shrink.
+   "Just me" and "Feed" go to bare emoji (their `title`/`aria-label` carry the
+   meaning); the crew name stays but is capped, so the active crew is still
+   identifiable at a glance. */
+@media (max-width: 640px) {
+  .group-selector { gap: 0.2rem; }
+  .group-selector .gs-label { display: none; }
+  .group-selector .gs-name { max-width: 7rem; }
+  .group-selector .pill-link { padding-left: 0.35rem; padding-right: 0.35rem; }
+}
+
 .btn-primary:hover::after {
   left: 130%;
 }

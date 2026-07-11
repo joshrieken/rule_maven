@@ -46,7 +46,11 @@ defmodule RuleMaven.Workers.SuggestionsWorker do
     already_asked =
       game
       |> Games.recent_questions(100)
-      |> Enum.reject(&(&1.group_id && not &1.browsable))
+      # Keyed on `browsable` alone, never on `group_id`: questions_log.group_id
+      # is `on_delete: :nilify_all`, so deleting a crew would strip the group_id
+      # from its rows while leaving them unbrowsable — and a `group_id && ...`
+      # guard would then wave that unscreened text straight through.
+      |> Enum.reject(&(not &1.browsable))
       |> Enum.map(&QuestionLog.display_question/1)
       |> Enum.reject(&(is_nil(&1) or &1 == ""))
       |> Enum.uniq()

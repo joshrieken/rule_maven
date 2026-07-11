@@ -510,11 +510,7 @@ defmodule RuleMaven.Workers.AskWorker do
                         RuleMaven.PubSub,
                         "game:#{game_id}",
                         {:ask_error,
-                         %{
-                           question_log_id: question_log_id,
-                           question: question,
-                           error: "Failed to save answer"
-                         }}
+                         %{question_log_id: question_log_id, error: "Failed to save answer"}}
                       )
 
                       Jobs.finish_run(run, "failed", "Failed to save answer.")
@@ -560,8 +556,7 @@ defmodule RuleMaven.Workers.AskWorker do
                     Phoenix.PubSub.broadcast(
                       RuleMaven.PubSub,
                       "game:#{game_id}",
-                      {:ask_error,
-                       %{question_log_id: question_log_id, question: question, error: reason}}
+                      {:ask_error, %{question_log_id: question_log_id, error: reason}}
                     )
 
                   {:error, changeset} ->
@@ -607,7 +602,7 @@ defmodule RuleMaven.Workers.AskWorker do
   # the LLM — mirrors the {:error, reason} terminal branch below (friendly
   # answer + :ask_error broadcast + finish_run), so the LiveView unblocks the
   # "Thinking..." row the same way a failed ask would.
-  defp handle_disabled(run, game_id, question_log_id, question) do
+  defp handle_disabled(run, game_id, question_log_id, _question) do
     # ⚠️-prefix so the row picks up the standard error styling (every error
     # check in the LiveView keys off that prefix); error_kind "paused" keeps
     # the retry button away — retrying while the switch is on is pointless.
@@ -619,7 +614,7 @@ defmodule RuleMaven.Workers.AskWorker do
           Phoenix.PubSub.broadcast(
             RuleMaven.PubSub,
             "game:#{game_id}",
-            {:ask_error, %{question_log_id: question_log_id, question: question, error: message}}
+            {:ask_error, %{question_log_id: question_log_id, error: message}}
           )
 
         {:error, changeset} ->
@@ -675,8 +670,9 @@ defmodule RuleMaven.Workers.AskWorker do
         Phoenix.PubSub.broadcast(
           RuleMaven.PubSub,
           "game:#{game_id}",
-          {:ask_error,
-           %{question_log_id: question_log_id, question: ql.question, error: ql.answer}}
+          # No raw `question` in the payload: `game:<id>` is a public topic and
+          # the handler never read it anyway.
+          {:ask_error, %{question_log_id: question_log_id, error: ql.answer}}
         )
       else
         broadcast_complete(ql, %{
@@ -707,7 +703,7 @@ defmodule RuleMaven.Workers.AskWorker do
 
   # Mirrors handle_disabled/4: persist a friendly ⚠️ answer so the LiveView
   # unblocks the "Thinking..." row, and close the run without spending.
-  defp handle_taken_down(run, game_id, question_log_id, question) do
+  defp handle_taken_down(run, game_id, question_log_id, _question) do
     message = "⚠️ This game is unavailable."
 
     if ql = get_question_log!(question_log_id) do
@@ -716,7 +712,7 @@ defmodule RuleMaven.Workers.AskWorker do
           Phoenix.PubSub.broadcast(
             RuleMaven.PubSub,
             "game:#{game_id}",
-            {:ask_error, %{question_log_id: question_log_id, question: question, error: message}}
+            {:ask_error, %{question_log_id: question_log_id, error: message}}
           )
 
         {:error, changeset} ->

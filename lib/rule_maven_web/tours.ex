@@ -92,11 +92,15 @@ defmodule RuleMavenWeb.Tours do
         body:
           "Tap 🎲 Play or 📚 Learn to open Turn Wizard, Quiz, Setup checklist, Score pad, and more — they open as movable panels you can minimize to the dock, and they remember where you left off."
       },
+      # Deliberately un-anchored (`sel: nil`, a centered step). The obvious
+      # anchor — [data-tour='group-selector'] — only renders for a user who
+      # already belongs to a crew, i.e. never for the new user this tour is
+      # written for, and a data-tour on an absent element is silently skipped.
       %{
-        sel: "[data-tour='group-selector']",
+        sel: nil,
         title: "Asking for your group",
         body:
-          "Pick a group here and everyone in it sees your questions and answers live — and if someone already asked, the rest of the group gets the instant cached answer. Create or join a group from My Groups in your user menu."
+          "Join a crew and everyone in it sees your questions and answers live — and if someone already asked, the rest of the crew gets the instant cached answer. Create or join one from My Groups in your user menu; once you're in, a picker appears up here to choose who you're asking for."
       },
       %{
         sel: nil,

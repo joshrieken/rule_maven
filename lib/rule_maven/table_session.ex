@@ -24,8 +24,18 @@ defmodule RuleMaven.TableSession do
     ArgumentError -> %{}
   end
 
+  @doc """
+  Merge `snapshot` into this user+game's stored snapshot.
+
+  Merge, not replace: each writer only knows about its own keys. `ToolHost`
+  persists `Map.take(assigns, @session_keys)` on every tool event, which under
+  replace semantics wiped `:active_group_id` (written by Show's group selector,
+  a key ToolHost has never heard of) — so opening the crew Feed panel silently
+  un-stuck the crew, and the next ask went private.
+  """
   def put(user_id, game_id, snapshot) when is_map(snapshot) do
-    :ets.insert(@table, {{user_id, game_id}, snapshot, System.monotonic_time(:millisecond)})
+    merged = Map.merge(get(user_id, game_id), snapshot)
+    :ets.insert(@table, {{user_id, game_id}, merged, System.monotonic_time(:millisecond)})
     :ok
   rescue
     ArgumentError -> :ok

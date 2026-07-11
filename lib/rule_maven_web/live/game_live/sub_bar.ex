@@ -150,6 +150,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           :if={@current != :edit and @my_groups != []}
           my_groups={@my_groups}
           active_group_id={@active_group_id}
+          current_user={@current_user}
         />
       </div>
       <div class="game-header-row__right">
@@ -308,6 +309,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
 
   attr :my_groups, :list, required: true
   attr :active_group_id, :integer, default: nil
+  attr :current_user, :map, default: nil
 
   # The sticky "who am I asking for" selector: "Just me" (the default) plus one
   # pill per group the user belongs to. Sets the ask context server-side via
@@ -317,12 +319,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   # user with no groups, so joining is opt-in with zero UI change otherwise.
   defp group_selector(assigns) do
     ~H"""
-    <div
-      class="group-selector"
-      data-testid="group-selector"
-      data-tour="group-selector"
-      style="display:inline-flex;align-items:center;gap:0.3rem;flex-wrap:wrap"
-    >
+    <div class="group-selector" data-testid="group-selector" data-tour="group-selector">
       <button
         type="button"
         phx-click="set_active_group"
@@ -331,8 +328,13 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         aria-pressed={to_string(is_nil(@active_group_id))}
         class={["pill-link", @active_group_id == nil && "pill-link-accent"]}
       >
-        <span aria-hidden="true">🙋</span> Just me
+        <span aria-hidden="true">🙋</span> <span class="gs-label">Just me</span>
       </button>
+      <%!-- Group names run to 60 chars and a user may hold several crews, so
+            the name is the one part that must be allowed to shrink: `.gs-name`
+            ellipsizes, and below 640px `.gs-label` drops the "Just me"/"Feed"
+            text entirely — same icon-only collapse `.table-context` uses to
+            keep the header on a single row at 390px. --%>
       <button
         :for={g <- @my_groups}
         type="button"
@@ -342,13 +344,16 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         aria-pressed={to_string(@active_group_id == g.id)}
         class={["pill-link", @active_group_id == g.id && "pill-link-accent"]}
       >
-        <span aria-hidden="true">👥</span> {g.name}
+        <span aria-hidden="true">👥</span> <span class="gs-name">{g.name}</span>
       </button>
       <%!-- Only meaningful once a group is actually active — no active group,
             no toggle, no clutter. Opens via the shared tool-panel machinery
-            (`open_tool`/`ToolRegistry`), same as every other table tool. --%>
+            (`open_tool`/`ToolRegistry`), same as every other table tool — so it
+            also has to honour the same flag: with `tool_group_feed` off,
+            `ToolHost` silently drops the `open_tool`, and an ungated pill would
+            just be a button that does nothing. --%>
       <button
-        :if={@active_group_id}
+        :if={not is_nil(@active_group_id) and ToolRegistry.visible?(:group_feed, @current_user)}
         type="button"
         phx-click="open_tool"
         phx-value-tool="group_feed"
@@ -357,7 +362,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         aria-label="Group question feed"
         class="pill-link"
       >
-        <span aria-hidden="true">📰</span> Feed
+        <span aria-hidden="true">📰</span> <span class="gs-label">Feed</span>
       </button>
     </div>
     """
