@@ -84,4 +84,19 @@ defmodule RuleMaven.Settings do
   def set_mail_dev_live(live?) when is_boolean(live?) do
     put("mail_dev_live", to_string(live?))
   end
+
+  @doc """
+  Resend API key for outbound mail. DB value (admin-editable) takes priority
+  over the `RESEND_API_KEY` env var so ops can rotate the key without a deploy.
+  """
+  def resend_api_key do
+    case get("resend_api_key") do
+      nil -> System.get_env("RESEND_API_KEY")
+      "" -> System.get_env("RESEND_API_KEY")
+      key -> key
+    end
+  end
+
+  @doc "Sets the Resend API key. Blank clears the DB override, falling back to env."
+  def set_resend_api_key(key) when is_binary(key), do: put("resend_api_key", String.trim(key))
 end

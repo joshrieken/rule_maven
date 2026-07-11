@@ -62,7 +62,8 @@ if config_env() == :prod do
   config :rule_maven, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   # Mail: no boot-time adapter wiring. RuleMaven.Mailer.deliver_email/1 picks
-  # Resend per-send when RESEND_API_KEY is set, and skips (with a warning)
+  # Resend per-send when a key is configured (Settings, falls back to
+  # RESEND_API_KEY), and skips (with a warning)
   # when it isn't — email is best-effort and must never crash boot or callers.
 
   config :rule_maven, RuleMavenWeb.Endpoint,

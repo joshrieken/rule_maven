@@ -15,7 +15,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
          email_disabled: not RuleMaven.Flags.enabled?(:outbound_email),
          mail_from: Settings.mail_from(),
          mail_dev_live: Settings.mail_dev_live?(),
-         resend_key_set: System.get_env("RESEND_API_KEY") != nil,
+         resend_key_set: Settings.resend_api_key() != nil,
          dev_routes: Application.get_env(:rule_maven, :dev_routes, false)
        )}
     else
@@ -80,6 +80,42 @@ defmodule RuleMavenWeb.AdminLive.Index do
   end
 
   @impl true
+  def handle_event("save_resend_key", %{"resend_api_key" => key}, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      case String.trim(key) do
+        "" ->
+          {:noreply, put_flash(socket, :error, "Enter a key, or use Clear to remove it.")}
+
+        key ->
+          Settings.set_resend_api_key(key)
+          Audit.log(socket.assigns.current_user, "email.set_resend_api_key", metadata: %{key_set: true})
+
+          {:noreply,
+           socket
+           |> assign(resend_key_set: true)
+           |> put_flash(:info, "Resend key saved.")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
+  @impl true
+  def handle_event("clear_resend_key", _params, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      Settings.set_resend_api_key("")
+      Audit.log(socket.assigns.current_user, "email.set_resend_api_key", metadata: %{key_set: false})
+
+      {:noreply,
+       socket
+       |> assign(resend_key_set: Settings.resend_api_key() != nil)
+       |> put_flash(:info, "Resend key cleared (falls back to env var if set).")}
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
+  @impl true
   def handle_event("save_mail_from", %{"mail_from" => from}, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
       from = String.trim(from)
@@ -135,7 +171,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
             <div style="font-size:0.75rem;color:var(--text-muted)">
               Kill switch for outbound email (confirmation, password reset). Skipped sends are logged; callers still succeed.
               <span :if={!@resend_key_set} style="color:var(--danger,#c0392b)">
-                RESEND_API_KEY not set — real sends are skipped.
+                Resend key not set — real sends are skipped.
               </span>
               <span :if={@resend_key_set}>Resend key: set.</span>
             </div>
@@ -169,6 +205,36 @@ defmodule RuleMavenWeb.AdminLive.Index do
             style="flex:1;min-width:12rem;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--bg);color:var(--text)"
           />
           <button type="submit" class="btn-sm btn-outline" style="flex-shrink:0">Save</button>
+        </form>
+
+        <form
+          id="resend-key-form"
+          phx-submit="save_resend_key"
+          style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.6rem"
+        >
+          <label for="resend_api_key" style="font-size:0.75rem;color:var(--text-muted);flex-shrink:0">
+            Resend API key
+          </label>
+          <input
+            id="resend_api_key"
+            name="resend_api_key"
+            type="password"
+            value=""
+            placeholder={if @resend_key_set, do: "•••••••••• (set — enter a new key to replace)", else: "re_..."}
+            autocomplete="off"
+            style="flex:1;min-width:12rem;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--bg);color:var(--text)"
+          />
+          <button type="submit" class="btn-sm btn-outline" style="flex-shrink:0">Save</button>
+          <button
+            :if={@resend_key_set}
+            type="button"
+            phx-click="clear_resend_key"
+            data-confirm="Clear the Resend key? Falls back to RESEND_API_KEY env var if set."
+            class="btn-sm"
+            style="flex-shrink:0;border:1px solid var(--danger,#c0392b);color:var(--danger,#c0392b);background:none"
+          >
+            Clear
+          </button>
         </form>
 
         <label
