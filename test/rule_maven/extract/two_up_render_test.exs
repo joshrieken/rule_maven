@@ -92,4 +92,28 @@ defmodule RuleMaven.Extract.TwoUpRenderTest do
     assert RulebookDownloader.two_up_suspect?(rel_wide)
     refute RulebookDownloader.two_up_suspect?(rel_tall)
   end
+
+  test "portrait_sheet? flags a tall sheet and not a wide one", %{pdf: pdf, dir: dir} do
+    static = Application.app_dir(:rule_maven, "priv/static")
+    rel_wide = "uploads/rulebooks/portrait_sheet_wide_test.pdf"
+    rel_tall = "uploads/rulebooks/portrait_sheet_tall_test.pdf"
+    File.mkdir_p!(Path.join(static, "uploads/rulebooks"))
+    File.cp!(pdf, Path.join(static, rel_wide))
+
+    tall = Path.join(dir, "portrait.pdf")
+    {_, 0} = System.cmd("magick", ["-size", "200x400", "canvas:white", tall])
+    File.cp!(tall, Path.join(static, rel_tall))
+
+    on_exit(fn ->
+      File.rm(Path.join(static, rel_wide))
+      File.rm(Path.join(static, rel_tall))
+    end)
+
+    # The split is side-by-side only, so a portrait sheet is the shape that
+    # warrants the toggle warning; a wide (landscape/spread) sheet does not.
+    assert RulebookDownloader.portrait_sheet?(rel_tall)
+    refute RulebookDownloader.portrait_sheet?(rel_wide)
+    # A missing file must not warn (don't guess on uncertainty).
+    refute RulebookDownloader.portrait_sheet?("uploads/rulebooks/does_not_exist.pdf")
+  end
 end

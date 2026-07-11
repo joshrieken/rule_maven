@@ -78,6 +78,43 @@ defmodule RuleMavenWeb.PrepareTwoUpToggleTest do
     assert updated.extracted_at == doc.extracted_at
   end
 
+  test "the toggle row explains the split axis (visible without hover)", %{conn: conn} do
+    user = admin_user("prepare_two_up_axis")
+    {game, _doc} = setup_game_with_pdf_doc("axis-note")
+
+    conn = login(conn, user)
+    {:ok, _view, html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    # Persistent (not tooltip-only) so touch users see the left→right axis and
+    # a narrow side-by-side spread stays discoverable even when the aspect hint
+    # doesn't fire.
+    assert html =~ "splits left→right"
+  end
+
+  @have_tools Enum.all?(~w(magick pdfinfo), &System.find_executable/1)
+
+  @tag skip: not @have_tools
+  test "enabling two_up on a portrait sheet warns about the left→right split", %{conn: conn} do
+    user = admin_user("prepare_two_up_portrait")
+    {game, doc} = setup_game_with_pdf_doc("portrait-book")
+
+    # Stage a real portrait PDF at the document's pdf_path so portrait_sheet?
+    # can read it.
+    static = Application.app_dir(:rule_maven, "priv/static")
+    dest = Path.join(static, doc.pdf_path)
+    File.mkdir_p!(Path.dirname(dest))
+    {_, 0} = System.cmd("magick", ["-size", "200x400", "canvas:white", dest])
+    on_exit(fn -> File.rm(dest) end)
+
+    conn = login(conn, user)
+    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
+
+    html = view |> element("input[phx-click='toggle_two_up']") |> render_click()
+
+    assert Games.get_document!(doc.id).two_up
+    assert html =~ "portrait"
+  end
+
   test "cannot toggle another game's document", %{conn: conn} do
     user = admin_user("prepare_two_up_cross")
     {game, _doc} = setup_game_with_pdf_doc("mine")

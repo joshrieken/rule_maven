@@ -560,10 +560,23 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
             label = if updated.two_up, do: "on", else: "off"
 
-            {:noreply,
-             socket
-             |> put_flash(:info, "2-pages-per-sheet #{label} for “#{updated.label}”.#{note}")
-             |> load()}
+            # Split is side-by-side only. Warn if a portrait sheet is flipped on
+            # — its two pages may be stacked top/bottom, which the left/right
+            # crop would mangle. Non-blocking; the admin still decides.
+            if updated.two_up and RulebookDownloader.portrait_sheet?(updated.pdf_path) do
+              {:noreply,
+               socket
+               |> put_flash(
+                 :error,
+                 "2-pages-per-sheet on for “#{updated.label}”, but this sheet looks portrait. The split is left→right — if its two pages are stacked top/bottom, extraction will mangle them.#{note}"
+               )
+               |> load()}
+            else
+              {:noreply,
+               socket
+               |> put_flash(:info, "2-pages-per-sheet #{label} for “#{updated.label}”.#{note}")
+               |> load()}
+            end
 
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Could not update the source.")}
@@ -1287,6 +1300,12 @@ defmodule RuleMavenWeb.GameLive.Prepare do
                   style="accent-color:var(--accent);margin:0"
                 /> 2 pages per sheet
               </label>
+              <span
+                :if={pdf_source?(d)}
+                style="margin-left:0.25rem;font-size:0.68rem;color:var(--text-muted);white-space:nowrap"
+              >
+                splits left→right
+              </span>
               <span
                 :if={@two_up_suspects && MapSet.member?(@two_up_suspects, d.id) && !d.two_up}
                 style="margin-left:0.3rem;font-size:0.72rem;font-weight:600;color:var(--warn-ink, var(--warn, #b45309))"
