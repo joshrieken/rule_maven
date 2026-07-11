@@ -2409,36 +2409,54 @@ defmodule RuleMaven.Games do
   end
 
   def recent_questions(%Game{} = game, limit \\ 20, opts \\ []) do
-    user_id = Keyword.get(opts, :user_id)
+    group_id = Keyword.get(opts, :group_id)
 
-    base =
-      from q in QuestionLog,
-        where: q.game_id == ^game.id,
-        order_by: [desc: q.inserted_at],
-        preload: [:user]
+    if group_id do
+      # The group feed: every question asked with this group active, for this
+      # game, newest first, attributed. Scoped by game+group so one group's
+      # rows never leak into another group's (or another game's) feed.
+      query =
+        from q in QuestionLog,
+          where: q.game_id == ^game.id and q.group_id == ^group_id,
+          where: q.refused == false and q.blocked == false,
+          order_by: [desc: q.inserted_at],
+          preload: [:user]
 
-    base = if limit, do: from(q in base, limit: ^limit), else: base
+      query = if limit, do: from(q in query, limit: ^limit), else: query
 
-    query =
-      if user_id do
-        # Own questions, community questions, plus other users' pooled answers
-        # this user upvoted from the Community Q&A browse page — an upvote is
-        # the explicit "add this to my list" gesture (viewing alone never adds).
-        upvoted =
-          from v in QuestionVote,
-            where: v.user_id == ^user_id and v.value == "up",
-            select: v.question_log_id
+      Repo.all(query)
+    else
+      user_id = Keyword.get(opts, :user_id)
 
-        from q in base,
-          where:
-            q.user_id == ^user_id or q.visibility == "community" or
-              (q.pooled == true and q.refused == false and q.blocked == false and
-                 q.id in subquery(upvoted))
-      else
-        base
-      end
+      base =
+        from q in QuestionLog,
+          where: q.game_id == ^game.id,
+          order_by: [desc: q.inserted_at],
+          preload: [:user]
 
-    Repo.all(query)
+      base = if limit, do: from(q in base, limit: ^limit), else: base
+
+      query =
+        if user_id do
+          # Own questions, community questions, plus other users' pooled answers
+          # this user upvoted from the Community Q&A browse page — an upvote is
+          # the explicit "add this to my list" gesture (viewing alone never adds).
+          upvoted =
+            from v in QuestionVote,
+              where: v.user_id == ^user_id and v.value == "up",
+              select: v.question_log_id
+
+          from q in base,
+            where:
+              q.user_id == ^user_id or q.visibility == "community" or
+                (q.pooled == true and q.refused == false and q.blocked == false and
+                   q.id in subquery(upvoted))
+        else
+          base
+        end
+
+      Repo.all(query)
+    end
   end
 
   def admin_list_questions(opts \\ []) do
