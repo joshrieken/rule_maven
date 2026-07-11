@@ -1029,6 +1029,26 @@ defmodule RuleMaven.RulebookDownloader do
 
   def two_up_suspect?(_), do: false
 
+  @doc """
+  True when the first sheet is taller than wide (portrait, aspect w/h < 1.0).
+  The 2-up split is side-by-side only (`TwoUp.crop_args` cuts on width), so a
+  portrait sheet is the shape of a *top/bottom* stack the split can't handle —
+  the toggle uses this to warn before a portrait book is flipped on. `false`
+  when the size can't be read (don't warn on uncertainty). `doc_path` is
+  static-relative, as stored on the Document.
+  """
+  def portrait_sheet?(doc_path) when is_binary(doc_path) do
+    full = Application.app_dir(:rule_maven, "priv/static/#{doc_path}")
+
+    not image?(doc_path) and not Native.native?(doc_path) and
+      case sheet_size(full, 1) do
+        {:ok, {w, h}} when w > 0 -> h / w > 1.0
+        _ -> false
+      end
+  end
+
+  def portrait_sheet?(_), do: false
+
   # One sheet's rendered size (points, rotation-corrected). {:ok, {w, h}} | :error | {:error, _}.
   defp sheet_size(full_path, sheet) do
     with {:ok, sizes} <- sheet_sizes(full_path, sheet, sheet) do

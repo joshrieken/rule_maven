@@ -24,6 +24,24 @@ defmodule RuleMaven.Extract.TwoUpTest do
     end
   end
 
+  describe "reading order" do
+    # apply_two_up_layout numbers each extracted logical page by position, then
+    # calls map_page(index + 1); the sequence below is the exact identity every
+    # stored page must carry — sheet ascending, left before right, no gaps.
+    test "logical 1..2n walk sheets left-then-right in order" do
+      seq = for logical <- 1..TwoUp.logical_count(3), do: TwoUp.map_page(logical)
+
+      assert seq == [
+               {1, :left},
+               {1, :right},
+               {2, :left},
+               {2, :right},
+               {3, :left},
+               {3, :right}
+             ]
+    end
+  end
+
   describe "crop_args/4" do
     test "left half starts at x=0 with half the rendered width" do
       # US Letter landscape spread: 1224 x 792 pts at 300 dpi → 5100 x 3300 px.
