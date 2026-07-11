@@ -31,4 +31,19 @@ defmodule RuleMaven.PromptsTest do
       refute rendered =~ "{{voice_style}}"
     end
   end
+
+  describe "publish_check" do
+    test "publish_check prompts are registered and render" do
+      assert Prompts.template("publish_check_system") =~ "yes"
+
+      rendered = Prompts.render("publish_check", %{question: "May a player retract a move?"})
+      assert rendered =~ "May a player retract a move?"
+    end
+  end
+
+  describe "normalize_question" do
+    test "normalize prompt instructs removal of personal content" do
+      assert Prompts.template("normalize_question") =~ "player names"
+    end
+  end
 end

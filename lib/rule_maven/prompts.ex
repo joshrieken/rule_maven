@@ -142,7 +142,8 @@ defmodule RuleMaven.Prompts do
   @normalize_question """
   Game: {{game_name}} (a {{game_kind}}).
   {{context_block}}{{canonical_questions_block}}
-  Rewrite this player's question as a standalone canonical question (resolve pronouns, add missing context, under 12 words, no game name):
+  Rewrite this player's question as a standalone canonical question (resolve pronouns, add missing context, under 12 words, no game name).
+  Remove anything personal: player names, proper nouns that are not game terms, and any narrative about who did what. Keep only the rules question itself.
 
   {{question}}
   """
@@ -166,6 +167,28 @@ defmodule RuleMaven.Prompts do
   Question B: {{question_b}}
 
   Same underlying rules question? Answer yes or no.
+  """
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Publish check. Run by PublishCheckWorker on a GROUP row's canonical question
+  # before that text may be listed on a public browse surface. Fails closed:
+  # anything other than a clean "no" leaves the row unbrowsable.
+  # Vars: question (the canonical question text).
+  # ──────────────────────────────────────────────────────────────────────────
+  @publish_check_system """
+  You screen board-game rules questions before they are published publicly. Answer with exactly one word: "yes" or "no" — nothing else, no punctuation, no explanation.
+
+  Answer "yes" if the question contains ANY of: a person's name, a nickname, initials, a place a person could be identified by, or narrative about specific people ("my brother", "Dave's turn"). Generic role words that every game uses — "a player", "the active player", "an opponent" — are NOT personal, answer "no" for those.
+
+  When uncertain, answer "yes". A false "yes" costs nothing; a false "no" publishes someone's personal information permanently.
+
+  Always the lowercase English word "yes" or "no", regardless of the question's language.
+  """
+
+  @publish_check """
+  Question: {{question}}
+
+  Does it contain a person's name or personal information? Answer yes or no.
   """
 
   # Shared cleanup fragments, inlined into each level's default so each level is a
@@ -1204,6 +1227,24 @@ defmodule RuleMaven.Prompts do
         "Asks whether a near-miss pool candidate and the new question are the same underlying rules question.",
       vars: ~w(question_a question_b),
       default: @pool_tiebreaker
+    },
+    %{
+      key: "publish_check_system",
+      group: "Q&A",
+      label: "Publish check — system",
+      description:
+        "System primer for the yes/no personal-information screen run on a group question's canonical text before it may be listed publicly.",
+      vars: [],
+      default: @publish_check_system
+    },
+    %{
+      key: "publish_check",
+      group: "Q&A",
+      label: "Publish check — prompt",
+      description:
+        "Screens a group question's canonical text for names/personal information before it becomes browsable. Fails closed.",
+      vars: ~w(question),
+      default: @publish_check
     },
     %{
       key: "cleanup_light",
