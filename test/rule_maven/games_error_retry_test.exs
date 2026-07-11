@@ -36,6 +36,23 @@ defmodule RuleMaven.GamesErrorRetryTest do
     q
   end
 
+  # `recent_question_count/2` counts *billable* asks from the append-only
+  # `llm_logs` table (see the doc comment on that function), not from
+  # surviving `questions_log` rows. Logging a question here does not by
+  # itself make it billable — the caller must also record the "ask" LLM
+  # call, exactly as production code does.
+  defp ask_call!(user, game, question_log_id) do
+    Repo.insert!(%RuleMaven.LLM.Log{
+      provider: "openrouter",
+      model: "google/gemini-2.5-flash",
+      operation: "ask",
+      success: true,
+      user_id: user.id,
+      game_id: game.id,
+      question_log_id: question_log_id
+    })
+  end
+
   describe "error_retryable?/1" do
     test "retryable kinds under the limit are retryable" do
       for kind <- ["empty", "format", "timeout", "unknown", "rate_limited"] do
@@ -140,9 +157,15 @@ defmodule RuleMaven.GamesErrorRetryTest do
       u = user("quota_u")
       since = DateTime.add(DateTime.utc_now(), -1, :hour)
 
-      question!(game, u, %{answer: "Roll 3 dice.", error_kind: nil})
-      question!(game, u, %{error_kind: "timeout"})
-      question!(game, u, %{error_kind: "paused"})
+      ok = question!(game, u, %{answer: "Roll 3 dice.", error_kind: nil})
+      timeout = question!(game, u, %{error_kind: "timeout"})
+      paused = question!(game, u, %{error_kind: "paused"})
+
+      # Every ask (success or failure) fires a real "ask" LLM call; the
+      # counter must still exclude the two that ended in an error row.
+      ask_call!(u, game, ok.id)
+      ask_call!(u, game, timeout.id)
+      ask_call!(u, game, paused.id)
 
       assert Games.recent_question_count(u.id, since) == 1
     end
