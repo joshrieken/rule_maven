@@ -49,7 +49,11 @@ defmodule RuleMaven.GroupGateHolesTest do
             visibility: "private",
             citation_valid: true,
             pooled: true,
-            browsable: false
+            browsable: false,
+            # These rows stand in for questions the normalize step actually
+            # rewrote — the premise the whole publish gate rests on. A row that
+            # records no scrub is withheld; that is its own test below.
+            question_normalized: true
           },
           attrs
         )
@@ -524,13 +528,21 @@ defmodule RuleMaven.GroupGateHolesTest do
     # timeout, a rewrite accept_normalized?/2 rejects), and that fallback is what
     # lands in cleaned_question. Screening it and publishing it would hand the
     # asker's verbatim prose to the public browse under the scrubbed column's name.
-    test "a cleaned_question identical to the raw question is never published", ctx do
-      raw = "SECRETWORDING can Dave's smuggler cheat here?"
+    # The stored fallback text is NOT byte-identical to the raw question, which is
+    # why the original equality guard was dead code: `strip_game_name/2` appends a
+    # "?" when the text doesn't end in one, so a fallback on "…, Sam says no" is
+    # stored as "…, Sam says no?" — never equal to the raw column. The gate asks the
+    # row whether normalize ran, rather than trying to infer it from the text.
+    test "a normalize FALLBACK is never published, even though its text differs from the raw",
+         ctx do
+      raw = "SECRETWORDING Dave says my smuggler can cheat, Sam says no"
 
       q =
         group_question!(ctx.game, ctx.member, ctx.grp, %{
           question: raw,
-          cleaned_question: raw
+          # Exactly what the fallback path stores: the raw prose, plus a "?".
+          cleaned_question: raw <> "?",
+          question_normalized: false
         })
 
       Application.put_env(:rule_maven, :llm_mock, fn _body ->

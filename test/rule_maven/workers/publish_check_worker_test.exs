@@ -30,7 +30,11 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
       user_id: owner.id,
       question: "some question",
       answer: "some answer",
-      browsable: true
+      browsable: true,
+      # These fixtures stand in for rows the normalize step actually rewrote —
+      # which is the premise the publish gate rests on. A row that records no
+      # scrub is withheld, and that is its own test below.
+      question_normalized: true
     }
 
     {:ok, ql} =
@@ -266,6 +270,60 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
 
       refute Repo.reload!(ql).browsable,
              "published a crew question after the crew turned contribution off"
+    end
+
+    # A "yes" is the system PROVING the scrub failed — it looked at the text this
+    # row's answer was generated from and found a person in it. Leaving the answer
+    # pooled at that exact moment was the one place the gate had hard evidence and
+    # did nothing with it. The answer is the artifact that actually leaves the crew.
+    test "a flagged question also PULLS THE ANSWER from the pool" do
+      stub_llm("yes")
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "Can Marcus's wizard counterspell mine?",
+          answer: "Marcus's wizard can indeed counterspell a counterspell.",
+          browsable: false
+        )
+
+      assert Repo.reload!(ql).pooled, "precondition: the answer was serving the pool"
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+
+      row = Repo.reload!(ql)
+      refute row.browsable
+
+      refute row.pooled,
+             "the question was withheld for containing a name, but the answer WRITTEN FROM IT kept serving strangers"
+    end
+
+    # The answer is screened alongside the question. `recent_context` feeds the RAW
+    # prior turns of a thread into the answer prompt, and the ARGUMENT-SETTLING rule
+    # tells the model to name the disputing players — so a perfectly scrubbed
+    # question can still produce an answer with someone's name in it.
+    test "a name in the ANSWER withholds the row even when the question is clean" do
+      Application.put_env(:rule_maven, :llm_mock, fn body ->
+        reply = if String.contains?(inspect(body), "Persephone"), do: "yes", else: "no"
+        {:ok, %{answer: "", raw_response: reply, finish_reason: "stop"}}
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "May a player retract a move?",
+          answer: "Persephone is right — a move may be retracted before the die is rolled.",
+          browsable: false
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+
+      row = Repo.reload!(ql)
+
+      refute row.browsable,
+             "published a row whose ANSWER names someone — the screen never looked at it"
+
+      refute row.pooled
     end
 
     # The withdrawal stamp is checked before the LLM call, so a row retracted while

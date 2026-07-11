@@ -41,6 +41,14 @@ defmodule RuleMaven.Games.QuestionLog do
     # browsable`, which could not see a row retracted by a crew that still
     # exists, and which a re-pool racing the retraction erased outright.
     field :retracted_at, :utc_datetime_usec
+    # Did the NORMALIZE step actually rewrite this question? Normalize is the step
+    # that strips player names, so this is a privacy-critical fact — and it is
+    # RECORDED, never inferred. Two gates used to reconstruct it by testing
+    # `cleaned_question == question`, which can never be true: the stored text goes
+    # through strip_game_name/2, whose last act appends a "?" if there isn't one.
+    # A fallback is therefore "the raw question, plus a question mark", and both
+    # gates waved it through as a genuine scrub.
+    field :question_normalized, :boolean, default: false
     field :pool_source_id, :integer
     # Set when a rulebook content change may have invalidated a community answer.
     # The pool lookup skips flagged rows so they stop serving until re-approved.
@@ -165,6 +173,7 @@ defmodule RuleMaven.Games.QuestionLog do
       :raw_response,
       :followups,
       :also_asked,
+      :question_normalized,
       :canonical_question,
       :canonical_answer,
       :trust_score,

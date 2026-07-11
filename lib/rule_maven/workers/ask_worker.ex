@@ -393,7 +393,12 @@ defmodule RuleMaven.Workers.AskWorker do
                     # `is_nil(group_id)` is true here, and an unconditional write
                     # would re-open the row the moment the answer landed — silently
                     # undoing the insert-time gate and every retraction.
-                    browsable: is_nil(group_id) and ql.browsable
+                    browsable: is_nil(group_id) and ql.browsable,
+                    # Recorded from the normalize step itself, not re-derived from
+                    # the text afterwards. `skip_normalize` never normalizes, so
+                    # this is false on that path by construction.
+                    question_normalized:
+                      not skip_normalize and llm_result[:normalized] == true
                   }
 
                   case Games.log_question_update(ql, update_attrs) do
@@ -842,6 +847,14 @@ defmodule RuleMaven.Workers.AskWorker do
   # No scrub, no contribution. The crew keeps its own private cache either way —
   # the `active_group_id` branch of `find_pool_candidates/3` does not require
   # `pooled`, so the crew still gets its answer back; it just stays theirs.
+  # Keyed on the RECORDED fact, not on a string comparison.
+  #
+  # The original version asked `String.trim(cleaned) == String.trim(question)` and
+  # was a no-op in production: `strip_game_name/2` appends a "?" to the stored
+  # `cleaned_question` when it doesn't end in one, so a normalize FALLBACK stores
+  # "the raw question, plus a question mark" — never equal to the raw question. Any
+  # crew member who typed a dispute without a trailing "?" (which is how people
+  # type disputes) sailed straight through the guard on every provider hiccup.
   defp unscrubbed_crew_row?(nil, _skip_normalize, _row), do: false
 
   defp unscrubbed_crew_row?(_group_id, true, _row), do: true
@@ -849,8 +862,7 @@ defmodule RuleMaven.Workers.AskWorker do
   defp unscrubbed_crew_row?(_group_id, _skip_normalize, %QuestionLog{} = row) do
     cleaned = row.cleaned_question
 
-    not is_binary(cleaned) or String.trim(cleaned) == "" or
-      String.trim(cleaned) == String.trim(row.question || "")
+    not row.question_normalized or not is_binary(cleaned) or String.trim(cleaned) == ""
   end
 
   # Durable withdrawal stamp. Unlike the browsable/pooled flags it cannot be

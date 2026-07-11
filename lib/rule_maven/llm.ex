@@ -78,10 +78,19 @@ defmodule RuleMaven.LLM do
     # meaning. Skip the normalize LLM call entirely and treat the raw text as
     # canonical (cleaned = "" → match_text = question, cleaned_question stored
     # nil → no "You asked" disclosure on the new row).
-    cleaned =
+    # `normalized?` is a FACT carried out of the normalize step, not something
+    # reconstructed downstream by comparing strings. Two gates used to infer it by
+    # testing `cleaned == question`, and that test can never be true: the stored
+    # `cleaned_question` is put through `strip_game_name/2`, which appends a "?" if
+    # there isn't one. So a fallback (429, timeout, rejected rewrite) produced "the
+    # raw question, plus a question mark" and both gates waved it through as a
+    # genuine scrub.
+    {normalize_status, cleaned} =
       if Keyword.get(opts, :skip_normalize, false),
-        do: "",
+        do: {:fallback, ""},
         else: normalize_question(game, question, recent_context, user_id: opts[:user_id])
+
+    normalized? = normalize_status == :ok
 
     match_text = if cleaned == "", do: question, else: cleaned
 
@@ -127,10 +136,10 @@ defmodule RuleMaven.LLM do
       # a second row instead of redirecting. Check own-exact first so a repeat
       # always collapses to the one existing Q&A.
       user_exact ->
-        serve_from_cache(user_exact, question_embedding, cleaned, game.id, user_id, true)
+        serve_from_cache(user_exact, question_embedding, cleaned, game.id, user_id, true, normalized?)
 
       user_semantic ->
-        serve_from_cache(user_semantic, question_embedding, cleaned, game.id, user_id, true)
+        serve_from_cache(user_semantic, question_embedding, cleaned, game.id, user_id, true, normalized?)
 
       pool_hit =
           find_pool_hit(
@@ -149,7 +158,7 @@ defmodule RuleMaven.LLM do
         # anonymized duplicate copy.
         {pool_row, _tier} = pool_hit
         same_user? = user_id != nil and pool_row.user_id == user_id
-        serve_from_cache(pool_hit, question_embedding, cleaned, game.id, user_id, same_user?)
+        serve_from_cache(pool_hit, question_embedding, cleaned, game.id, user_id, same_user?, normalized?)
 
       true ->
         call_llm(
@@ -161,7 +170,8 @@ defmodule RuleMaven.LLM do
           cleaned,
           user_id,
           opts[:voice] || "neutral",
-          skip_pool
+          skip_pool,
+          normalized?
         )
     end
   end
@@ -313,7 +323,7 @@ defmodule RuleMaven.LLM do
   # Serves answer text only — never the source row's question wording or author.
   # `same_user?` marks a hit on the asker's OWN prior row, so AskWorker can drop
   # the provisional row and redirect to the source instead of copying it.
-  defp serve_from_cache({row, tier}, question_embedding, cleaned, game_id, user_id, same_user?) do
+  defp serve_from_cache({row, tier}, question_embedding, cleaned, game_id, user_id, same_user?, normalized?) do
     RuleMaven.LLM.Savings.record_cache_hit("ask", game_id, user_id)
 
     {:ok,
@@ -334,7 +344,8 @@ defmodule RuleMaven.LLM do
        verified: tier == :trusted,
        source_question_log_id: row.id,
        question_embedding: question_embedding,
-       cleaned_question: cleaned
+       cleaned_question: cleaned,
+       normalized: normalized?
      }}
   end
 
@@ -347,7 +358,8 @@ defmodule RuleMaven.LLM do
          cleaned,
          user_id,
          voice,
-         fresh
+         fresh,
+         normalized?
        ) do
     game_ids = [game.id | expansion_ids]
     # Reuse the embedding already computed in ask/5 — no second embed call.
@@ -410,6 +422,9 @@ defmodule RuleMaven.LLM do
            # Canonical question came from the pre-answer normalize step, not the
            # answer JSON — the answer schema no longer carries it.
            cleaned_question: cleaned,
+           # Did the scrub actually run? A FACT from the normalize step, not a
+           # string comparison after the event — see normalize_question/4.
+           normalized: normalized?,
            raw_response: llm_result[:raw_response],
            # Retrieved chunk texts (each prefixed with a [Page N] marker) so the
            # worker can recover the page if the model drops it from the citation.
@@ -960,6 +975,16 @@ defmodule RuleMaven.LLM do
   Uses the cheap cleanup model. Context-free questions are cached per
   `{game_id, raw}`; followups (which carry `recent_context`) are not pure
   functions of the raw text, so they skip the cache.
+
+  Returns `{:ok, cleaned}` when the normalize step actually rewrote the question,
+  and `{:fallback, text}` when it did not — a provider error, or a rewrite
+  `accept_normalized?/2` rejected, both of which fall back to the RAW question.
+
+  The tag used to be discarded (`|> elem(1)`), leaving callers to guess after the
+  fact by comparing the stored `cleaned_question` to the raw one. That guess is
+  always wrong on the fallback path, because the stored text has been through
+  `strip_game_name/2` and carries an appended "?". The scrub is what removes
+  player names, so "did it run?" is a privacy-critical fact, not a heuristic.
   """
   def normalize_question(game, question, recent_context \\ [], opts \\ []) do
     user_id = opts[:user_id]
@@ -975,11 +1000,11 @@ defmodule RuleMaven.LLM do
 
     cond do
       raw == "" ->
-        raw
+        {:fallback, raw}
 
       # Followups resolve against the conversation — not cacheable by raw text.
       recent_context != [] and not repeat? ->
-        do_normalize(game, raw, recent_context, user_id) |> elem(1)
+        do_normalize(game, raw, recent_context, user_id)
 
       true ->
         # The prompt fingerprint is part of the key: `normalize_question_system`
@@ -989,9 +1014,19 @@ defmodule RuleMaven.LLM do
         # stale entries age out on their own.
         key = {game.id, normalize_prompt_version(), String.downcase(raw)}
 
+        # The cache stores the STATUS alongside the text. Storing the bare string
+        # would throw the fact away again on every cache hit: a fallback served
+        # from cache would look exactly like a genuine rewrite to whoever read it
+        # back, which is the whole bug this is closing.
         case RuleMaven.LLM.NormalizeCache.get(key) do
-          {:ok, cached} ->
-            cached
+          {:ok, {status, cached}} when status in [:ok, :fallback] ->
+            {status, cached}
+
+          {:ok, cached} when is_binary(cached) ->
+            # An entry written by the previous shape (bare string). It could be
+            # either, and we cannot tell — so treat it as unscrubbed. Errs closed,
+            # and ages out within the TTL.
+            {:fallback, cached}
 
           :miss ->
             # A real rewrite is cached for the full TTL. The raw-text fallback
@@ -1002,12 +1037,12 @@ defmodule RuleMaven.LLM do
             # whenever the rejection was deterministic.
             case do_normalize(game, raw, [], user_id) do
               {:ok, cleaned} ->
-                RuleMaven.LLM.NormalizeCache.put(key, cleaned)
-                cleaned
+                RuleMaven.LLM.NormalizeCache.put(key, {:ok, cleaned})
+                {:ok, cleaned}
 
               {:fallback, cleaned} ->
-                RuleMaven.LLM.NormalizeCache.put_fallback(key, cleaned)
-                cleaned
+                RuleMaven.LLM.NormalizeCache.put_fallback(key, {:fallback, cleaned})
+                {:fallback, cleaned}
             end
         end
     end

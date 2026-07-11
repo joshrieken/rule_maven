@@ -51,15 +51,31 @@ defmodule RuleMaven.Repo.Migrations.BackfillGroupUnbrowsable do
     # a row stays off the Unverified tab (its owner still sees it, and its answer
     # still serves the pool); the cost of under-closing is publishing someone's
     # verbatim private question. Those are not comparable.
+    # Every narrowing predicate has to survive the very deletion it is looking for.
+    # `groups` and `group_memberships` do NOT: a deleted crew leaves no group row
+    # and (memberships cascade) no membership rows, so keying on either matches
+    # nothing in exactly the case this statement exists for — while still closing
+    # ordinary rows of surviving crews' members. The worst of both.
+    #
+    # `schema_migrations` survives, and it dates the window precisely: the exposure
+    # is rows written after CreateGroups (when crews began writing rows) and before
+    # AddPublishGates (when `browsable` first existed). Outside that window a NULL
+    # group_id genuinely means "never a crew row". Inside it, over-closing is cheap
+    # — the row stays off the Unverified tab, its owner still sees it, its answer
+    # still serves — and under-closing publishes someone's verbatim private
+    # question. Those costs are not comparable, so this errs shut across the window.
     execute("""
     UPDATE questions_log
        SET browsable = false
      WHERE group_id IS NULL
        AND browsable = true
        AND visibility <> 'community'
-       AND EXISTS (SELECT 1 FROM groups)
-       AND inserted_at >= (SELECT min(inserted_at) FROM groups)
-       AND user_id IN (SELECT user_id FROM group_memberships)
+       AND inserted_at >= (
+         SELECT inserted_at FROM schema_migrations WHERE version = 20260710000001
+       )
+       AND inserted_at < (
+         SELECT inserted_at FROM schema_migrations WHERE version = 20260711100000
+       )
     """)
   end
 

@@ -83,15 +83,19 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
 
       # The normalize step FALLS BACK to the raw question on any failure — a 429,
       # a timeout, or a rewrite `accept_normalized?/2` rejects — and that fallback
-      # is what lands in `cleaned_question` (see LLM.normalize_question/4). So a
-      # `cleaned_question` identical to the raw column is not a scrub at all: it is
-      # the asker's verbatim prose wearing the scrubbed column's name.
+      # is what lands in `cleaned_question` (see LLM.normalize_question/4). So an
+      # unnormalized `cleaned_question` is not a scrub at all: it is the asker's
+      # verbatim prose wearing the scrubbed column's name.
       #
       # Publishing it would defeat the whole gate, which rests on the premise that
-      # what the screen cleared was the SCRUBBED text. A genuine rewrite that
-      # happens to equal the raw input is indistinguishable from a failed one here,
-      # so both are withheld: never publish text no normalizer actually rewrote.
-      String.trim(cleaned) == String.trim(ql.question || "") ->
+      # what the screen cleared was the SCRUBBED text. Never publish text no
+      # normalizer actually rewrote.
+      #
+      # This asks the ROW whether normalize ran. It used to compare `cleaned` to the
+      # raw column — which never matched, because `strip_game_name/2` appends a "?"
+      # to the stored text, so the fallback is the raw question plus a question mark.
+      # The guard was dead code on the exact path it existed for.
+      not ql.question_normalized ->
         :ok
 
       true ->
@@ -167,6 +171,16 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
   that `also_asked` never reached the screen at all.
   """
   def screen_text(%QuestionLog{} = ql, cleaned) do
+    # The ANSWER is screened too — it is the string that actually publishes.
+    #
+    # Screening only the question assumed the answer could not contain anything the
+    # question didn't, which is false twice over: the ARGUMENT-SETTLING prompt rule
+    # tells the model to name the disputing players, and `recent_context` feeds the
+    # RAW prior turns of the thread into the answer prompt. So a perfectly scrubbed
+    # question in turn 2 could still produce an answer carrying the name from
+    # turn 1's unscrubbed ask — the row would clear the screen on its question and
+    # publish an answer with "Dave" in it.
+    answer = ql.canonical_answer || ql.answer
     # `followups` rides along too. It is model-authored rather than copied
     # verbatim, so it is a weaker leak than `also_asked` — but it is generated FROM
     # the crew's raw question in the same JSON response, it routinely echoes the
@@ -180,7 +194,10 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
         _ -> []
       end)
 
-    Enum.join([cleaned | extras], "\n")
+    ([cleaned | extras] ++ [answer])
+    |> Enum.filter(&is_binary/1)
+    |> Enum.reject(&(String.trim(&1) in ["", "Thinking..."]))
+    |> Enum.join("\n")
   end
 
   # Fail closed: ONLY a bare "no" publishes. Anything else — "yes", a hedge, a
@@ -222,7 +239,41 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
         Jobs.finish_run(run, "done", "Cleared, but the row was withdrawn meanwhile — not published.")
       end
     else
-      Jobs.finish_run(run, "done", "Not cleared — left unbrowsable.")
+      # A "yes" is not merely "don't list the question". It is the system PROVING
+      # that the scrub failed: the screen looked at the text this row's answer was
+      # generated from and found a person in it. Leaving `pooled` alone at that
+      # exact moment was the one place the gate had hard evidence and ignored it.
+      #
+      # The answer is the artifact that actually leaves the crew — it feeds the
+      # cross-user cache by design, on the premise that it carries no personal text.
+      # That premise is exactly what a "yes" just falsified: the answer prompt's
+      # ARGUMENT-SETTLING rule copies the disputing players' names into the answer
+      # ("or the stated names"), so "Can Marcus's wizard counterspell mine?" comes
+      # back as "Marcus's wizard can indeed…" and went on being served to strangers
+      # as a cache hit while the question sat politely withheld.
+      #
+      # Un-pool it. The crew keeps its own answer — the `active_group_id` branch of
+      # `find_pool_candidates/3` does not require `pooled` — so nothing is lost to
+      # the people who asked; it just stops being everyone else's.
+      {unpooled, _} =
+        Repo.update_all(
+          from(q in QuestionLog,
+            where: q.id == ^ql.id,
+            where: q.pooled == true,
+            where: not is_nil(q.group_id)
+          ),
+          set: [pooled: false]
+        )
+
+      if unpooled == 1 do
+        Jobs.finish_run(
+          run,
+          "done",
+          "Not cleared — question withheld AND the answer pulled from the pool (it was written from text the screen just flagged)."
+        )
+      else
+        Jobs.finish_run(run, "done", "Not cleared — left unbrowsable.")
+      end
     end
 
     :ok

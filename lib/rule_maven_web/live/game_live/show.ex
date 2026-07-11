@@ -4529,9 +4529,29 @@ defmodule RuleMavenWeb.GameLive.Show do
     msgs
     |> Enum.zip(Enum.drop(msgs, 1))
     |> Enum.filter(fn {a, b} -> a.role == :user && b.role == :assistant end)
-    |> Enum.map(fn {user, asst} -> %{q: user.content, a: asst.content} end)
+    |> Enum.map(fn {user, asst} -> %{q: recent_q(user), a: asst.content} end)
     |> Enum.take(-2)
   end
+
+  # The SCRUBBED form of the prior turn, never the rendered bubble.
+  #
+  # `content` is `shown_question/2`, which for the reader's OWN row is
+  # `display_question/1` — i.e. the raw column. These pairs are shipped into the
+  # answer system prompt (`RECENT CONVERSATION`), so the raw text of turn 1 was
+  # reaching the model that writes turn 2's answer — and turn 2's answer pools and
+  # publishes on the strength of turn 2's own clean question. A crew member could
+  # ask turn 1 verbatim ("Dave says my rogue can sneak past…"), which round 7
+  # correctly keeps out of the pool, and then launder the name into the commons
+  # through an innocuous turn 2 in the same thread.
+  #
+  # `cleaned_question` is what normalize produced, which is the form the pool and
+  # the publish gate are built around; falling back to `content` keeps pronoun
+  # resolution working for rows that have no scrub (they carry no answer yet).
+  defp recent_q(%{cleaned_question: cleaned}) when is_binary(cleaned) do
+    if String.trim(cleaned) == "", do: "", else: cleaned
+  end
+
+  defp recent_q(msg), do: msg.content
 
   defp find_question_for_answer(conversation, assistant_msg) do
     {_, question} =
