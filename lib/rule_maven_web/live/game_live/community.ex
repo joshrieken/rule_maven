@@ -722,13 +722,15 @@ defmodule RuleMavenWeb.GameLive.Community do
     end
   end
 
-  # A group row publishes only its scrubbed canonical form — never the
-  # asker's raw wording. A group row without canonical text cannot be
-  # browsable (the publish check reads canonical text before flipping
-  # `browsable`), so the fallback below is unreachable in practice; it's here
-  # so a future caller can't accidentally leak raw text.
-  defp listed_question(%{group_id: gid, canonical_question: c}) when not is_nil(gid),
-    do: c || "(question withheld)"
+  # A group row publishes only scrubbed text — never the asker's raw wording.
+  # This is `display_question/1` minus its final `|| q.question` fallback:
+  # `cleaned_question` is the normalize step's scrubbed output (and the exact
+  # text PublishCheckWorker screened before flipping `browsable`), while
+  # `question` is the asker's verbatim prose. A group row with neither cannot
+  # be browsable, so the withheld fallback is unreachable in practice — it's
+  # here so a future caller can't accidentally leak raw text.
+  defp listed_question(%{group_id: gid} = q) when not is_nil(gid),
+    do: q.canonical_question || q.cleaned_question || "(question withheld)"
 
   defp listed_question(q), do: QuestionLog.display_question(q)
 

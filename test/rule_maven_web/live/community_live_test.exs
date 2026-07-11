@@ -2,6 +2,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
   use RuleMavenWeb.ConnCase, async: true
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
+  import RuleMaven.GroupsFixtures
 
   alias RuleMaven.Games
   alias RuleMaven.Repo
@@ -296,6 +297,79 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       render_click(view, "report_answer", %{"id" => to_string(foreign.id)})
       html = render_click(view, "submit_report", %{"reason" => "wrong"})
       refute html =~ "Reported and pulled"
+    end
+  end
+
+  describe "unverified tab never renders a group row's raw question text" do
+    setup [:setup_game]
+
+    test "group-origin row shows the scrubbed cleaned_question, never the asker's raw prose",
+         %{conn: conn} do
+      game = published_game_fixture(%{name: "Group Publish Game", bgg_id: 4343})
+      owner = create_user("gpg_owner")
+      viewer = create_user("gpg_viewer")
+      group = group_fixture(owner)
+
+      {:ok, group_q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: owner.id,
+          group_id: group.id,
+          pooled: true,
+          browsable: true,
+          visibility: "private",
+          question: "wait can Dave really do that lol",
+          cleaned_question: "May a player retract a committed move?",
+          answer: "No, a committed move cannot be retracted."
+        })
+
+      conn = login(conn, viewer)
+      {:ok, view, _html} = live(conn, ~p"/games/#{game}/community")
+
+      html = render_click(view, "switch_tab", %{"tab" => "unverified"})
+
+      assert html =~ "May a player retract a committed move?"
+      refute html =~ "Dave"
+
+      assert group_q.group_id == group.id
+    end
+
+    test "group-origin row with no scrubbed text at all withholds rather than leaking raw prose",
+         %{conn: conn} do
+      game = published_game_fixture(%{name: "Group Withhold Game", bgg_id: 4344})
+      owner = create_user("gwg_owner")
+      viewer = create_user("gwg_viewer")
+      group = group_fixture(owner)
+
+      {:ok, _group_q} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: owner.id,
+          group_id: group.id,
+          pooled: true,
+          browsable: true,
+          visibility: "private",
+          question: "wait can Steve really do that lol",
+          answer: "No, that move is not legal."
+        })
+
+      conn = login(conn, viewer)
+      {:ok, view, _html} = live(conn, ~p"/games/#{game}/community")
+
+      html = render_click(view, "switch_tab", %{"tab" => "unverified"})
+
+      assert html =~ "(question withheld)"
+      refute html =~ "Steve"
+    end
+
+    test "non-group row is unchanged: still renders via QuestionLog.display_question/1",
+         %{conn: conn, game: game, viewer: viewer, unverified: unverified} do
+      conn = login(conn, viewer)
+      {:ok, view, _html} = live(conn, ~p"/games/#{game}/community")
+
+      html = render_click(view, "switch_tab", %{"tab" => "unverified"})
+
+      assert html =~ RuleMaven.Games.QuestionLog.display_question(unverified)
     end
   end
 
