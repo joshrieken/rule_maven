@@ -205,7 +205,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
          assign(socket,
            editing_canonical_id: id,
            canon_q: q.canonical_question || QuestionLog.listed_question(q),
-           canon_a: q.canonical_answer || q.answer || ""
+           canon_a: QuestionLog.listed_answer(q)
          )}
     end
   end
@@ -488,7 +488,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                   Answer
                 </p>
                 <p style="font-size:0.8rem;color:var(--text);white-space:pre-wrap;margin:0;line-height:1.5">
-                  {q.canonical_answer || q.answer}
+                  {QuestionLog.listed_answer(q)}
                 </p>
                 <%= if q.cited_passage do %>
                   <p style="margin-top:0.5rem;padding:0.4rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem;font-size:0.7rem;color:var(--text-muted);font-style:italic;line-height:1.4">

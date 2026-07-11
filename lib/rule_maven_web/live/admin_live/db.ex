@@ -401,7 +401,8 @@ defmodule RuleMavenWeb.AdminLive.Db do
   # Masked for a plain admin; a SUPER admin (grantable only by mix task, and the
   # documented unrestricted escape hatch) still sees everything.
   @sensitive_columns %{
-    "questions_log" => ~w(question cleaned_question raw_response feedback also_asked followups),
+    "questions_log" =>
+      ~w(question cleaned_question answer canonical_answer raw_response feedback also_asked followups),
     "llm_logs" => ~w(detail messages),
     "audit_logs" => ~w(metadata),
     "house_rules" => ~w(body),

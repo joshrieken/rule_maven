@@ -363,7 +363,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                 <span style={pill("var(--danger,#c0392b)")}>{f.flag_count} flag(s)</span>
               </div>
               <p style="font-size:0.78rem;color:var(--text-muted);margin:0.3rem 0">
-                {String.slice(f.question.answer || "", 0, 240)}
+                {String.slice(QuestionLog.listed_answer(f.question), 0, 240)}
               </p>
               <p
                 :if={f.reasons != []}
@@ -417,7 +417,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
                 </span>
               </div>
               <p style="font-size:0.78rem;color:var(--text-muted);margin:0.3rem 0">
-                {String.slice(q.canonical_answer || q.answer || "", 0, 240)}
+                {String.slice(QuestionLog.listed_answer(q), 0, 240)}
               </p>
               <div style="display:flex;gap:0.3rem;margin-top:0.35rem">
                 <button

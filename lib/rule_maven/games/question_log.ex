@@ -157,6 +157,31 @@ defmodule RuleMaven.Games.QuestionLog do
   def crew_origin?(%{browsable: false}), do: true
   def crew_origin?(_q), do: false
 
+  @doc """
+  Answer text safe to render on an admin/list surface — the companion to
+  `listed_question/1`.
+
+  Scrubbing the QUESTION and then painting the ANSWER beside it raw is no scrub
+  at all: a crew answer restates the asker's private question ("Yes, Sarah may
+  not palm a card…"), so it carries the same real names `listed_question/1`
+  exists to withhold. Every admin panel that shows a Q&A pair leaked the wording
+  back through the answer column one line below the withheld question.
+
+  `browsable` is the gate, exactly as it is for the question: an answer shows
+  only once the row is cleared for listing.
+
+    * A non-crew row is born `browsable: true`; its answer was never private.
+    * A crew row becomes `browsable` only when `PublishCheckWorker` clears it —
+      and the screen it passed covers the answer (invariant A: a crew answer may
+      leave the crew only once screened), so a cleared crew answer is safe.
+    * An un-screened or retracted crew row (`browsable == false`, the nilify-safe
+      marker) withholds the raw answer; a curator-written `canonical_answer` is
+      reviewed text and may still show.
+  """
+  def listed_answer(%{browsable: true} = q), do: q.canonical_answer || q.answer
+  def listed_answer(%{canonical_answer: a}) when is_binary(a) and a != "", do: a
+  def listed_answer(_q), do: "(answer withheld)"
+
   @doc false
   def changeset(question_log, attrs) do
     question_log

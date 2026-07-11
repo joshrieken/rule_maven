@@ -54,5 +54,22 @@ defmodule RuleMavenWeb.AdminRawTextRedactionTest do
 
       assert [%{"question" => nil}] = Db.__redact_for_test__(rows, "questions_log", false)
     end
+
+    test "masks the answer columns too — a crew answer echoes the withheld question" do
+      # Masking `question`/`raw_response` but leaving `answer` rendered raw leaks
+      # the same crew prose one column over ("No, Sarah can't palm a card").
+      rows = [
+        %{
+          "id" => 1,
+          "answer" => "No, Sarah can't palm a card.",
+          "canonical_answer" => "No — palming is not allowed."
+        }
+      ]
+
+      masked = Db.__redact_for_test__(rows, "questions_log", false)
+
+      assert [%{"answer" => "«redacted»", "canonical_answer" => "«redacted»", "id" => 1}] = masked
+      refute inspect(masked) =~ "Sarah"
+    end
   end
 end
