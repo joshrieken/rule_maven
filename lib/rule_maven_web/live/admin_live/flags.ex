@@ -68,7 +68,12 @@ defmodule RuleMavenWeb.AdminLive.Flags do
         {int, ""} ->
           case Users.get_user(int) do
             nil ->
+              Flags.revoke_actor_id(flag, int)
+              Audit.log(socket.assigns.current_user, "flag.revoke_actor", target_label: id)
+
               socket
+              |> assign(flags: load_flags())
+              |> put_flash(:info, "Revoked orphaned grant.")
 
             user ->
               Flags.revoke_actor(flag, user)
@@ -142,11 +147,15 @@ defmodule RuleMavenWeb.AdminLive.Flags do
     g = Flags.gates(flag)
 
     actors =
-      Enum.map(g.actors, fn "user:" <> id ->
-        case Integer.parse(id) do
-          {int, _} -> %{id: int, username: username_for(int)}
-          :error -> %{id: nil, username: id}
-        end
+      Enum.map(g.actors, fn
+        "user:" <> id ->
+          case Integer.parse(id) do
+            {int, _} -> %{id: int, username: username_for(int)}
+            :error -> %{id: nil, username: id}
+          end
+
+        other ->
+          %{id: nil, username: other}
       end)
 
     %{percentage: g.percentage, actors: actors}
@@ -220,6 +229,7 @@ defmodule RuleMavenWeb.AdminLive.Flags do
                 <span :for={a <- f.gates.actors} style="margin-right:0.5rem">
                   {a.username}
                   <button
+                    :if={a.id != nil}
                     type="button"
                     class="btn-xs btn-remove"
                     phx-click="revoke_actor"

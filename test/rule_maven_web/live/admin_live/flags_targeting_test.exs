@@ -108,6 +108,25 @@ defmodule RuleMavenWeb.AdminLive.FlagsTargetingTest do
     FunWithFlags.clear(:tool_quiz)
   end
 
+  test "revoking a deleted user's orphaned actor grant clears the gate", %{conn: conn} do
+    admin = user("admin")
+    target = user("user")
+    {:ok, _} = RuleMaven.Flags.grant_actor(:tool_quiz, target)
+    assert "user:#{target.id}" in RuleMaven.Flags.gates(:tool_quiz).actors
+
+    {:ok, _} = RuleMaven.Users.delete_user(target)
+
+    {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/flags")
+
+    view
+    |> element("button[phx-value-flag=tool_quiz][phx-value-user-id='#{target.id}']")
+    |> render_click()
+
+    assert RuleMaven.Flags.gates(:tool_quiz).actors == []
+  after
+    FunWithFlags.clear(:tool_quiz)
+  end
+
   test "phx-value-id uniquely identifies the toggle even with an actor grant and a percentage set",
        %{conn: conn} do
     admin = user("admin")

@@ -48,6 +48,17 @@ defmodule RuleMaven.Flags do
   end
 
   @doc """
+  Remove the `"user:<id>"` actor gate by raw id, without needing a live
+  `%RuleMaven.Users.User{}` struct. Used to clear orphaned grants left behind
+  by a deleted user, whose gate would otherwise be un-revokable through the
+  normal `revoke_actor/2` path.
+  """
+  def revoke_actor_id(flag, user_id) when is_integer(user_id) do
+    Registry.fetch!(flag)
+    FunWithFlags.clear(flag, for_actor: %RuleMaven.Flags.OrphanUserActor{id: user_id})
+  end
+
+  @doc """
   Set the percentage-of-actors rollout for `flag`. `ratio <= 0` clears the gate;
   `ratio >= 1` raises (100% is the boolean gate's job — `fun_with_flags` rejects 1.0).
   """
