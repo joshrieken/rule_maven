@@ -18,7 +18,10 @@ defmodule RuleMavenWeb.PasswordResetController do
     case LoginThrottle.check(key) do
       :ok ->
         LoginThrottle.record_failure(key)
-        Users.deliver_password_reset_instructions(email, &url(~p"/reset-password/#{&1}"))
+        Users.deliver_password_reset_instructions(
+          email,
+          &RuleMavenWeb.public_url("/reset-password/#{&1}")
+        )
 
       {:error, _} ->
         :throttled

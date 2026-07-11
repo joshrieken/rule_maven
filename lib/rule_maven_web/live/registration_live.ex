@@ -98,7 +98,7 @@ defmodule RuleMavenWeb.RegistrationLive do
   defp send_confirmation_email(user) do
     Users.deliver_user_confirmation_instructions(
       user,
-      &(RuleMavenWeb.Endpoint.url() <> "/confirm/" <> &1)
+      &RuleMavenWeb.public_url("/confirm/#{&1}")
     )
   rescue
     _ -> :ok

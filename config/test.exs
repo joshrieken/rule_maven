@@ -40,6 +40,8 @@ config :rule_maven, RuleMavenWeb.Endpoint,
   secret_key_base: "b7nFAn8+dA6MI2uj33v6K6k+vIyQlk7dWyh8J12BgfmiJrfGvF7OtK1rvwlGKsbr",
   server: true
 
+config :rule_maven, :public_url, "http://localhost:#{test_port}"
+
 # Bcrypt's default cost (12) burns ~270ms per hash. Tests create hundreds of
 # users; the minimum cost keeps them exercising the real hashing path at ~1ms.
 config :bcrypt_elixir, log_rounds: 4
