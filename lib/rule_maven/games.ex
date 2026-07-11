@@ -6,6 +6,10 @@ defmodule RuleMaven.Games do
   import Ecto.Query, warn: false
   alias RuleMaven.Repo
 
+  # See the note in `log_question_with_rate_limit/2`: advisory-lock class for
+  # per-user locks. `RuleMaven.Groups` owns class 2 for per-group locks.
+  @user_lock_class 1
+
   alias RuleMaven.Games.Game
   alias RuleMaven.Games.QuestionLog
   alias RuleMaven.Games.QuestionMismatchReport
@@ -1934,7 +1938,11 @@ defmodule RuleMaven.Games do
   """
   def log_question_with_rate_limit(user, attrs) do
     Repo.transaction(fn ->
-      Repo.query!("SELECT pg_advisory_xact_lock($1)", [user.id])
+      # Two-argument (class, id) form: advisory locks share one flat keyspace,
+      # so a bare `pg_advisory_xact_lock(user.id)` collides with the per-group
+      # lock in `RuleMaven.Groups` (class 2) whenever a user id equals a group
+      # id. Class 1 is the per-user quota lock.
+      Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@user_lock_class, user.id])
 
       case check_rate_limit(user) do
         :ok ->
@@ -2585,10 +2593,22 @@ defmodule RuleMaven.Games do
         # enough to reconstruct a crew member's verbatim question a character at a
         # time. The admin list renders `listed_question/1` now, so the filter has to
         # agree with it or the oracle survives the render fix.
+        # `cleaned_question` is only searchable when it is genuinely a scrub:
+        # on a normalize fallback the column holds the asker's verbatim prose
+        # (see `QuestionLog.listed_question/1`), so matching it unconditionally
+        # rebuilds the very oracle this filter exists to close.
         from(q in query,
           where:
             ilike(q.answer, ^term) or
-              ilike(fragment("coalesce(?, ?)", q.canonical_question, q.cleaned_question), ^term) or
+              ilike(
+                fragment(
+                  "coalesce(?, CASE WHEN ? THEN ? END)",
+                  q.canonical_question,
+                  q.question_normalized,
+                  q.cleaned_question
+                ),
+                ^term
+              ) or
               (q.browsable == true and is_nil(q.group_id) and ilike(q.question, ^term))
         )
       else
@@ -4611,7 +4631,19 @@ defmodule RuleMaven.Games do
   #     opens no farming vector a crew doesn't have without one: promotion needs
   #     `browsable`, and colluding upvotes are the vote-ring problem moderation
   #     already handles, crew or no crew.
-  defp votable?(%QuestionLog{} = q, user_id) do
+  defp votable?(%QuestionLog{} = q, user_id), do: reachable_by?(q, user_id)
+
+  @doc """
+  Can `user_id` actually SEE this row? The reachability predicate behind
+  `votable?/2` and every by-id action on a question row.
+
+  Any handler that takes a row id from the client and then does something with
+  the row's TEXT — report it, feed it to an LLM, render it — must gate on this
+  first. `find_question_log/2` is scoped by game only, so an id alone is not
+  authorization: without this check a stranger can name a crew's private row and
+  act on prose they were never shown.
+  """
+  def reachable_by?(%QuestionLog{} = q, user_id) do
     cond do
       q.visibility == "community" -> true
       q.pooled and q.browsable -> true
@@ -4639,7 +4671,10 @@ defmodule RuleMaven.Games do
     # quorum nobody outside the crew ever saw form. The thumb still works; it just
     # doesn't buy trust, reputation or curator points until the row is public.
     self_vote? = q.user_id == user_id and not admin?
-    unreviewable? = not is_nil(q.group_id) and not q.browsable
+    # `crew_origin?/1`, not `group_id` — the column is `on_delete: :nilify_all`,
+    # so an orphaned crew row would otherwise start earning full-weight votes
+    # toward a promotion quorum on text nobody screened.
+    unreviewable? = QuestionLog.crew_origin?(q) and not q.browsable
 
     weight =
       if self_vote? or unreviewable? do

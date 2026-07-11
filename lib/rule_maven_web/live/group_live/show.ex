@@ -113,7 +113,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
     actor = socket.assigns.current_user
     group = socket.assigns.group
 
-    case Groups.set_contribute(group, actor, !group.contribute_to_community) do
+    case Groups.set_contribute(actor, group, !group.contribute_to_community) do
       {:ok, _group} ->
         {:noreply, load_group(socket)}
 

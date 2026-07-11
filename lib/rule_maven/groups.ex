@@ -7,6 +7,13 @@ defmodule RuleMaven.Groups do
   alias RuleMaven.Repo
   alias RuleMaven.Groups.{Group, Membership}
 
+  # Advisory locks live in ONE flat 64-bit keyspace, so a single-argument
+  # `pg_advisory_xact_lock(id)` keyed on a group id collides with the same call
+  # keyed on a user id — group 7 and user 7 contend for the same lock. Use the
+  # two-argument (class, id) form everywhere. Class 1 is the per-user quota
+  # lock in `RuleMaven.Games`; class 2 is the per-group lock here.
+  @group_lock_class 2
+
   @doc "Generate an opaque invite code."
   def generate_code, do: :crypto.strong_rand_bytes(8) |> Base.encode32(padding: false)
 
@@ -67,14 +74,6 @@ defmodule RuleMaven.Groups do
     case RuleMaven.Hashid.decode(token) do
       {:ok, id} -> Repo.get(Group, id)
       :error -> nil
-    end
-  end
-
-  @doc "Like `get_group_by_token/1` but raises `Ecto.NoResultsError` when absent."
-  def get_group_by_token!(token) do
-    case get_group_by_token(token) do
-      nil -> raise Ecto.NoResultsError, queryable: Group
-      group -> group
     end
   end
 
@@ -157,24 +156,38 @@ defmodule RuleMaven.Groups do
     * `{:error, :already_member}` - the user already belongs to the group
     * `{:error, :full}` - the group is at or over its member cap
   """
-  def join_by_code(user, code) do
-    case Repo.get_by(Group, invite_code: code) do
-      nil ->
-        {:error, :invalid_code}
+  def join_by_code(user, code) when is_binary(code) do
+    result =
+      Repo.transaction(fn ->
+        # The FIRST read only tells us which group to lock. Every credential
+        # this join rests on — the code itself, the active flag, the cap — is
+        # re-read INSIDE the lock, because all three can change while a joiner
+        # is in flight. Reading them once, up front, made removal defeatable:
+        # `remove_member/3` rotates the invite code precisely so a kicked
+        # member can't reuse their link, but a join that had already passed
+        # the outside-the-lock lookup sailed straight past the rotation and
+        # re-inserted the membership row that had just been deleted.
+        case Repo.get_by(Group, invite_code: code) do
+          nil ->
+            Repo.rollback(:invalid_code)
 
-      %Group{invite_active: false} ->
-        {:error, :inactive}
+          %Group{id: group_id} ->
+            Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group_id])
+            do_join(user, group_id, code)
+        end
+      end)
 
-      %Group{} = group ->
-        do_join(user, group)
+    case result do
+      {:ok, membership} -> {:ok, membership}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp do_join(user, %Group{id: group_id, member_cap: cap}) do
-    result =
-      Repo.transaction(fn ->
-        Repo.query!("SELECT pg_advisory_xact_lock($1)", [group_id])
-
+  # Runs holding the group's advisory lock. `code` is re-verified here: if it
+  # no longer names this group, the key we were shown has been changed since.
+  defp do_join(user, group_id, code) do
+    case Repo.get(Group, group_id) do
+      %Group{invite_code: ^code, invite_active: true, member_cap: cap} ->
         cond do
           role_of(user, %Group{id: group_id}) ->
             Repo.rollback(:already_member)
@@ -187,11 +200,14 @@ defmodule RuleMaven.Groups do
             |> Membership.changeset(%{user_id: user.id, group_id: group_id, role: "member"})
             |> Repo.insert!()
         end
-      end)
 
-    case result do
-      {:ok, membership} -> {:ok, membership}
-      {:error, reason} -> {:error, reason}
+      %Group{invite_code: ^code, invite_active: false} ->
+        Repo.rollback(:inactive)
+
+      # Rotated (or deleted) out from under us between the two reads. The code
+      # we were handed is no longer a key to this door.
+      _ ->
+        Repo.rollback(:invalid_code)
     end
   end
 
@@ -282,7 +298,7 @@ defmodule RuleMaven.Groups do
   private either way, this only affects whether the *answers* feed the
   shared community cache.
   """
-  def set_contribute(group, actor, contribute?) when is_boolean(contribute?) do
+  def set_contribute(actor, %Group{} = group, contribute?) when is_boolean(contribute?) do
     if role_at_least?(actor, group, :admin) do
       Repo.transaction(fn ->
         result =
@@ -409,7 +425,7 @@ defmodule RuleMaven.Groups do
   def transfer_ownership(actor, group, new_owner_user_id) do
     result =
       Repo.transaction(fn ->
-        Repo.query!("SELECT pg_advisory_xact_lock($1)", [group.id])
+        Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
 
         current_owner = Repo.get_by(Membership, group_id: group.id, role: "owner")
 
@@ -587,7 +603,7 @@ defmodule RuleMaven.Groups do
 
   defp fixup_owner_departure(group_id, departing_owner_id) do
     Repo.transaction(fn ->
-      Repo.query!("SELECT pg_advisory_xact_lock($1)", [group_id])
+      Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group_id])
 
       candidates =
         Repo.all(

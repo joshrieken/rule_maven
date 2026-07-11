@@ -120,8 +120,20 @@ defmodule RuleMaven.Games.QuestionLog do
   """
   def listed_question(%{browsable: true, group_id: nil} = q), do: display_question(q)
 
-  def listed_question(q),
-    do: q.canonical_question || q.cleaned_question || "(question withheld)"
+  # `cleaned_question` is only a scrub if the scrub actually RAN. When normalize
+  # 429s or its rewrite is rejected, `LLM.normalize_question/4` returns
+  # `{:fallback, raw}` and AskWorker stores the asker's verbatim prose in the
+  # column named `cleaned_question` — same column, no scrub, `question_normalized:
+  # false`. PublishCheckWorker already refuses to publish such a row for exactly
+  # this reason; falling back to the column here hands the same unscrubbed prose
+  # to every admin list, and — via the `ilike` on `coalesce(canonical, cleaned)` —
+  # to the admin search box as a substring oracle.
+  def listed_question(%{question_normalized: true, cleaned_question: c} = q)
+      when is_binary(c) do
+    q.canonical_question || c
+  end
+
+  def listed_question(q), do: q.canonical_question || "(question withheld)"
 
   @doc """
   Did this row come out of a crew? The question is NOT "is `group_id` set" —

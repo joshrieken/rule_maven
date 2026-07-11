@@ -35,12 +35,6 @@ defmodule RuleMaven.GroupsTest do
     assert Groups.get_group_by_token("not-a-token") == nil
   end
 
-  test "get_group_by_token! raises for a missing group" do
-    assert_raise Ecto.NoResultsError, fn ->
-      Groups.get_group_by_token!("not-a-token")
-    end
-  end
-
   test "role_of tolerates a nil user" do
     owner = create_user("solo")
     {:ok, group} = Groups.create_group(owner, %{name: "Solo"})

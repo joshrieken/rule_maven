@@ -253,6 +253,14 @@ defmodule RuleMaven.HouseRules do
       hr.user_id != user.id ->
         {:error, :not_owner}
 
+      # Owning the house rule says nothing about being allowed to READ the row
+      # the delta is computed against — and the delta prompt feeds that row's
+      # question and answer to the LLM, then renders the result. Without this,
+      # any logged-in user could pair their own house rule with a crew's private
+      # row id and read a summary of prose they were never shown.
+      not Games.reachable_by?(ql, user.id) ->
+        {:error, :not_found}
+
       delta = get_delta(hr, ql) ->
         {:ok, delta}
 

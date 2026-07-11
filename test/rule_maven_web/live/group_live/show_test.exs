@@ -93,6 +93,6 @@ defmodule RuleMavenWeb.GroupLive.ShowTest do
     member = create_user("cont_direct_member")
     {:ok, _} = Groups.join_by_code(member, grp.invite_code)
 
-    assert {:error, :forbidden} = Groups.set_contribute(grp, member, false)
+    assert {:error, :forbidden} = Groups.set_contribute(member, grp, false)
   end
 end

@@ -203,9 +203,17 @@ defmodule RuleMaven.HouseRulesTest do
     hr
   end
 
-  defp question_log(game, question) do
+  # `user` matters for `request_delta/3`: the delta is computed against the row's
+  # text, so the requester has to be able to READ the row (Games.reachable_by?/2).
+  # An ownerless row is reachable by nobody, which is not a shape the UI produces.
+  defp question_log(game, question, user \\ nil) do
     {:ok, ql} =
-      RuleMaven.Games.log_question(%{game_id: game.id, question: question, answer: "the answer"})
+      RuleMaven.Games.log_question(%{
+        game_id: game.id,
+        user_id: user && user.id,
+        question: question,
+        answer: "the answer"
+      })
 
     ql
   end
@@ -309,7 +317,7 @@ defmodule RuleMaven.HouseRulesTest do
       user = user_fixture()
       game = game_fixture()
       hr = checked_rule(user, game, "6 cards", "overrides", 0)
-      ql = question_log(game, "How many cards?")
+      ql = question_log(game, "How many cards?", user)
 
       assert HouseRules.get_delta(hr, ql) == nil
 
@@ -357,7 +365,7 @@ defmodule RuleMaven.HouseRulesTest do
       {:ok, user} = Users.set_quota(user, 0)
       game = game_fixture()
       hr = checked_rule(user, game, "6 cards", "overrides", 0)
-      ql = question_log(game, "How many cards?")
+      ql = question_log(game, "How many cards?", user)
       {:ok, _} = HouseRules.save_delta(hr, ql, "cached note")
 
       assert {:ok, %{delta: "cached note"}} = HouseRules.request_delta(user, hr, ql)
@@ -368,7 +376,7 @@ defmodule RuleMaven.HouseRulesTest do
       user = user_fixture()
       game = game_fixture()
       hr = checked_rule(user, game, "6 cards", "overrides", 0)
-      ql = question_log(game, "How many cards?")
+      ql = question_log(game, "How many cards?", user)
 
       assert :pending = HouseRules.request_delta(user, hr, ql)
 
@@ -383,7 +391,7 @@ defmodule RuleMaven.HouseRulesTest do
       other = user_fixture()
       game = game_fixture()
       hr = checked_rule(owner, game, "6 cards", "overrides", 0)
-      ql = question_log(game, "How many cards?")
+      ql = question_log(game, "How many cards?", owner)
 
       assert {:error, :not_owner} = HouseRules.request_delta(other, hr, ql)
 

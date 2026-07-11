@@ -438,7 +438,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
     Application.put_env(:rule_maven, :llm_mock, fn _body ->
       # The owner flips "contribute to the community" off while the ask is in
       # flight. retract_contributions/1 closes the row; the job must notice.
-      {:ok, _} = RuleMaven.Groups.set_contribute(grp, owner, false)
+      {:ok, _} = RuleMaven.Groups.set_contribute(owner, grp, false)
 
       {:ok,
        %{

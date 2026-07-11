@@ -255,7 +255,9 @@ defmodule RuleMavenWeb.AdminLive.Security do
                         "—"}</span>
                     </td>
                     <td style="padding:0.45rem 0.75rem;overflow:hidden">
-                      <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:0.8rem;color:var(--text)">{q.question}</span>
+                      <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:0.8rem;color:var(--text)">{RuleMaven.Games.QuestionLog.listed_question(
+                        q
+                      )}</span>
                     </td>
                     <td style="padding:0.45rem 0.75rem">
                       <div style="display:flex;gap:0.35rem">

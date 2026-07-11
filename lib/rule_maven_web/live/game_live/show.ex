@@ -1037,14 +1037,28 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
+  # `handle_params/3` validates `?t=`, but that only runs when the CLIENT sends the
+  # patch back — a hand-rolled socket client just doesn't. So this event has to
+  # validate on its own: it sets `active_thread_id`, which is the row id that
+  # `house_rule_delta` and `load_hr_overlay/1` then feed to the LLM and render.
+  # Without this check, any logged-in user could point either of them at any row
+  # in any game — including a crew row whose raw question the delta prompt reads.
   def handle_event("switch_thread", %{"id" => id_str}, socket) do
-    {id, _} = Integer.parse(id_str)
+    case Integer.parse(id_str) do
+      {id, _} ->
+        if Enum.any?(socket.assigns.threads, &(&1.id == id)) do
+          {:noreply,
+           socket
+           |> assign(active_thread_id: id, sidebar_open: false)
+           |> push_event("scroll_top", %{})
+           |> push_patch(to: ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(id)}")}
+        else
+          {:noreply, socket}
+        end
 
-    {:noreply,
-     socket
-     |> assign(active_thread_id: id, sidebar_open: false)
-     |> push_event("scroll_top", %{})
-     |> push_patch(to: ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(id)}")}
+      :error ->
+        {:noreply, socket}
+    end
   end
 
   @impl true

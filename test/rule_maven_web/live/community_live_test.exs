@@ -320,6 +320,10 @@ defmodule RuleMavenWeb.CommunityLiveTest do
           visibility: "private",
           question: "wait can Dave really do that lol",
           cleaned_question: "May a player retract a committed move?",
+          # A crew row can only BE browsable if the publish gate cleared it, and the
+          # gate refuses any row whose normalize step didn't actually run — so a
+          # realistic browsable crew row always records the scrub.
+          question_normalized: true,
           answer: "No, a committed move cannot be retracted."
         })
 

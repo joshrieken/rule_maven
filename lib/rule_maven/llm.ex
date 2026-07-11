@@ -338,9 +338,11 @@ defmodule RuleMaven.LLM do
 
     require Logger
 
-    Logger.info(
-      "pool_tiebreaker decision=#{result} candidate_id=#{row.id} candidate_question=#{inspect(candidate_question)} asker_question=#{inspect(asker_question)}"
-    )
+    # Ids and the verdict only. Both strings here can be raw crew prose — the
+    # candidate's `display_question/1` falls back to the raw column, and the
+    # asker's `match_text` is the raw question whenever normalize fell back — and
+    # an :info log ships them to the aggregator, outside every gate, forever.
+    Logger.info("pool_tiebreaker decision=#{result} candidate_id=#{row.id}")
 
     result
   end

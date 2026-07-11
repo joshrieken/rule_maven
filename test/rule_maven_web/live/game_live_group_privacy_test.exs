@@ -58,7 +58,11 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
             visibility: "private",
             citation_valid: true,
             pooled: true,
-            browsable: false
+            browsable: false,
+            # Stands in for a row the normalize step actually rewrote — the premise
+            # the whole gate rests on, and what makes `cleaned_question` a scrub
+            # rather than the asker's verbatim prose under a scrubbed column's name.
+            question_normalized: true
           },
           attrs
         )

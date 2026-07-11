@@ -213,7 +213,7 @@ defmodule RuleMaven.GroupGateHolesTest do
       cleared = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
       pending = group_question!(ctx.game, ctx.member, ctx.grp)
 
-      {:ok, _} = Groups.set_contribute(ctx.grp, ctx.member, false)
+      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, false)
 
       for id <- [cleared.id, pending.id] do
         row = Repo.get(QuestionLog, id)
@@ -229,7 +229,7 @@ defmodule RuleMaven.GroupGateHolesTest do
           visibility: "community"
         })
 
-      {:ok, _} = Groups.set_contribute(ctx.grp, ctx.member, false)
+      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, false)
 
       row = Repo.get(QuestionLog, q.id)
       assert row.pooled
@@ -239,8 +239,8 @@ defmodule RuleMaven.GroupGateHolesTest do
     test "turning it back on does not silently re-publish the retracted rows", ctx do
       q = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
 
-      {:ok, _} = Groups.set_contribute(ctx.grp, ctx.member, false)
-      {:ok, _} = Groups.set_contribute(ctx.grp, ctx.member, true)
+      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, false)
+      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, true)
 
       refute Repo.get(QuestionLog, q.id).browsable
     end
@@ -248,7 +248,7 @@ defmodule RuleMaven.GroupGateHolesTest do
     test "a non-admin cannot flip it", ctx do
       outsider = create_user("outsider")
 
-      assert {:error, :forbidden} = Groups.set_contribute(ctx.grp, outsider, false)
+      assert {:error, :forbidden} = Groups.set_contribute(outsider, ctx.grp, false)
     end
   end
 
@@ -586,7 +586,7 @@ defmodule RuleMaven.GroupGateHolesTest do
 
       # Simulate retract_contributions committing inside the screen's LLM window.
       Application.put_env(:rule_maven, :llm_mock, fn _body ->
-        {:ok, _} = Groups.set_contribute(ctx.grp, ctx.member, false)
+        {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, false)
         {:ok, %{answer: "no", finish_reason: "stop"}}
       end)
 
@@ -693,14 +693,14 @@ defmodule RuleMaven.GroupGateHolesTest do
          ctx do
       q = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
 
-      {:ok, _} = Groups.set_contribute(ctx.grp, ctx.member, false)
+      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, false)
 
       q = Repo.get!(QuestionLog, q.id)
       assert q.retracted_at, "the withdrawal left no durable trace"
       refute q.pooled
       refute q.browsable
 
-      {:ok, _} = Groups.set_contribute(ctx.grp, ctx.member, true)
+      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, true)
 
       q = Repo.get!(QuestionLog, q.id)
 
@@ -754,6 +754,100 @@ defmodule RuleMaven.GroupGateHolesTest do
 
       assert {:error, :invalid_code} = Groups.join_by_code(mate, stale_code),
              "a removed member walked straight back in with the link they already had"
+    end
+  end
+
+  describe "round 10 — listed_question trusts a scrub that never ran" do
+    # `cleaned_question` is only a scrub if normalize actually RAN. On a fallback
+    # (429, timeout, rejected rewrite) AskWorker stores the asker's verbatim prose
+    # in that column. `listed_question/1` used to fall back to it unconditionally,
+    # which handed the raw prose — names and all — to every admin list, and to the
+    # admin search box as a substring oracle.
+    test "an unnormalized cleaned_question is never listed", ctx do
+      q =
+        group_question!(ctx.game, ctx.member, ctx.grp, %{
+          question: "does Dave's rogue sneak past when Sarah blocks?",
+          cleaned_question: "does Dave's rogue sneak past when Sarah blocks?",
+          question_normalized: false
+        })
+
+      listed = QuestionLog.listed_question(q)
+
+      refute listed =~ "Dave"
+      refute listed =~ "Sarah"
+      assert listed == "(question withheld)"
+    end
+
+    test "the admin search box cannot match on it either", ctx do
+      group_question!(ctx.game, ctx.member, ctx.grp, %{
+        question: "does Dave's rogue sneak past?",
+        cleaned_question: "does Dave's rogue sneak past?",
+        question_normalized: false
+      })
+
+      # If the filter matches text the list never renders, the box is an oracle:
+      # the row appears and disappears on substrings of prose the admin is never
+      # shown, which is enough to reconstruct it a character at a time.
+      assert Games.admin_list_questions(search: "Dave") == []
+    end
+
+    test "a genuinely scrubbed cleaned_question still lists", ctx do
+      q = group_question!(ctx.game, ctx.member, ctx.grp)
+      assert QuestionLog.listed_question(q) == "Can a smuggler cheat?"
+    end
+  end
+
+  describe "round 10 — a crew row is not readable by house-rule delta" do
+    test "a stranger cannot pair their own house rule with a crew row", ctx do
+      q = group_question!(ctx.game, ctx.member, ctx.grp)
+      stranger = create_user("stranger")
+
+      {:ok, hr} =
+        RuleMaven.HouseRules.create(stranger, ctx.game.id, %{
+          title: "Mine",
+          body: "Players may reroll once per turn."
+        })
+
+      # Owning the house rule says nothing about being allowed to READ the row the
+      # delta is computed against — and the delta prompt feeds that row's question
+      # and answer to the LLM, then renders the summary back to the requester.
+      assert {:error, :not_found} = RuleMaven.HouseRules.request_delta(stranger, hr, q)
+    end
+
+    # The guard is `Games.reachable_by?/2`. Asserted directly rather than through
+    # `request_delta/3`, whose success path enqueues an Oban job (no instance runs
+    # in this test file) — the interesting fact is that the crew member passes the
+    # reachability check the stranger fails, not what happens after it.
+    test "a fellow crew member is reachable, a stranger is not", ctx do
+      q = group_question!(ctx.game, ctx.member, ctx.grp)
+      mate = create_user("mate")
+      {:ok, _} = Groups.join_by_code(mate, ctx.grp.invite_code)
+      stranger = create_user("stranger2")
+
+      assert Games.reachable_by?(q, mate.id)
+      assert Games.reachable_by?(q, ctx.member.id)
+      refute Games.reachable_by?(q, stranger.id)
+    end
+  end
+
+  describe "round 10 — an orphaned crew row earns no promotion quorum" do
+    # `group_id` is `on_delete: :nilify_all`, so a deleted crew's rows keep their
+    # unscreened text and lose the marker that says where it came from. Two layers
+    # have to hold for such a row:
+    #
+    #   1. It is not votable at all by an outsider — `reachable_by?/2` sees an
+    #      unbrowsable row that isn't theirs. This is the live gate.
+    #   2. Even if it WERE votable, `unreviewable?` now keys on `crew_origin?/1`
+    #      rather than `group_id`, so any vote it did collect would be weight 0 and
+    #      buy no promotion quorum. This is the backstop the nilify trap defeated.
+    test "an outsider cannot vote on a nilified, unbrowsable crew row at all", ctx do
+      q = group_question!(ctx.game, ctx.member, ctx.grp)
+      voter = create_user("voter") |> confirmed()
+
+      # Nilify the marker the way a group deletion does.
+      q = q |> Ecto.Changeset.change(%{group_id: nil}) |> Repo.update!()
+
+      assert {:error, :not_votable} = Games.set_community_vote(q.id, voter.id, "up")
     end
   end
 end
