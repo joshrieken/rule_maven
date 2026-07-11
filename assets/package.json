@@ -1,0 +1,8 @@
+{
+  "name": "rule_maven_test_assets",
+  "private": true,
+  "description": "Test-only tooling: the Playwright CLI used by phoenix_test_playwright. App JS is hand-written in priv/static/assets/js (no build step).",
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}

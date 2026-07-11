@@ -33,15 +33,12 @@ config :rule_maven, RuleMaven.Repo,
   pool_size: System.schedulers_online() * 2,
   types: RuleMaven.PostgresTypes
 
-# Run server on dedicated port for Wallaby E2E tests.
+# Run server on dedicated port for Playwright E2E tests.
 # Does not conflict with ConnTest (which bypasses HTTP).
 config :rule_maven, RuleMavenWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: test_port],
   secret_key_base: "b7nFAn8+dA6MI2uj33v6K6k+vIyQlk7dWyh8J12BgfmiJrfGvF7OtK1rvwlGKsbr",
   server: true
-
-# Wallaby E2E tests need the server on a different port.
-config :rule_maven, :wallaby, endpoint_port: test_port
 
 # Bcrypt's default cost (12) burns ~270ms per hash. Tests create hundreds of
 # users; the minimum cost keeps them exercising the real hashing path at ~1ms.
@@ -71,17 +68,24 @@ config :fun_with_flags, :cache, enabled: false
 # Capture sent emails in-process so tests can assert on them.
 config :rule_maven, RuleMaven.Mailer, adapter: Swoosh.Adapters.Test
 
-# Wallaby E2E tests — dedicated port (4003 in main checkout, per-worktree above)
-# Chrome/chromedriver paths set in test_helper.exs (platform-dependent)
+# Browser E2E tests — dedicated port (4003 in main checkout, per-worktree above)
 # Enables the Phoenix.Ecto.SQL.Sandbox plug in the endpoint (test only), so
-# Wallaby browser requests roll back their DB writes instead of committing.
+# browser requests roll back their DB writes instead of committing.
 config :rule_maven, sql_sandbox: true
 
-config :wallaby,
-  driver: Wallaby.Chrome,
-  screenshot_on_failure: true,
-  js_errors: true,
+# phoenix_test_playwright drives the browser tests. The Playwright CLI is a
+# devDependency in assets/ (npm --prefix assets install); browsers live in the
+# shared ~/Library/Caches/ms-playwright, so worktrees need no per-tree setup.
+config :phoenix_test,
+  otp_app: :rule_maven,
+  ecto_repos: [RuleMaven.Repo],
   base_url: "http://localhost:#{test_port}",
-  # Wallaby.Feature reads this to find the app's ecto_repos, check them out into
-  # the test's sandbox, and pass the connection metadata to the browser session.
-  otp_app: :rule_maven
+  playwright: [
+    browser: :chromium,
+    # Grace period before the Ecto sandbox owner exits at test end, so a
+    # LiveView mid-query in the browser doesn't crash into a dead owner.
+    ecto_sandbox_stop_owner_delay: 200,
+    assets_dir: Path.expand("../assets", __DIR__),
+    headless: true,
+    timeout: :timer.seconds(4)
+  ]

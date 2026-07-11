@@ -1,7 +1,10 @@
 defmodule RuleMavenWeb.Feature.FlowTest do
-  use RuleMavenWeb.FeatureCase, async: false
+  use PhoenixTest.Playwright.Case, async: false
 
   import RuleMaven.GamesFixtures
+
+  # Lets `mix test.fast` skip browser E2E tests.
+  @moduletag :feature
 
   @moduledoc """
   Browser-only flow tests: localStorage-driven theme persistence and the
@@ -12,25 +15,19 @@ defmodule RuleMavenWeb.Feature.FlowTest do
 
   @password "testpassword123"
 
-  # Helper: log in via form and return session
-  # Log in without driving the form. Typing into the login form was flaky: the
-  # layout mounts a LiveView that patches the DOM just after connect, so elements
-  # captured for fill_in/click went stale (StaleReferenceError), and a not-yet-
-  # committed session let the next visit/2 race back to /login. The app already
-  # has a signed-token bypass (`/auto-login`, used post-registration) — a plain
-  # controller that sets the session and redirects, with no form and no LiveView
-  # in the path. Deterministic. We still assert the logged-in header to block
-  # until the session is established before returning.
-  defp login(session, username) do
+  # Log in via the signed-token bypass (`/auto-login`, used post-registration):
+  # a plain controller that sets the session and redirects - no form, no
+  # LiveView in the path. The logged-in header assert blocks until the session
+  # is established.
+  defp login(conn, username) do
     user = RuleMaven.Users.get_user_by_username(username)
     token = Phoenix.Token.sign(RuleMavenWeb.Endpoint, "auto-login", user.id)
 
-    session
+    conn
     |> visit("/auto-login?token=#{token}")
-    |> assert_has(css(".header-user", text: username))
+    |> assert_has(".header-user", text: username)
   end
 
-  # Helper: create a user for testing
   defp create_user(username, role) do
     {:ok, user} =
       RuleMaven.Users.create_user(%{
@@ -53,46 +50,44 @@ defmodule RuleMavenWeb.Feature.FlowTest do
 
   # Stays a browser test: the expand/collapse toggle is client-side app.js
   # (data-prepare-head has no phx-click), so only a real browser covers it.
-  feature "admin can open a game's Prepare (readiness) page", %{session: session} do
+  test "admin can open a game's Prepare (readiness) page", %{conn: conn} do
     user = create_user("e2e_prepare_admin", "admin")
     game = published_game_fixture(%{name: "Prep Test Game", bgg_id: 7777})
 
-    session
+    conn
     |> login(user.username)
     |> visit("/games/#{RuleMaven.Hashid.encode(game.id)}/prepare")
-    |> assert_has(css("h1", text: "Prepare Prep Test Game"))
-    |> assert_has(css("button", text: "Prepare game"))
-    |> assert_has(css("h2", text: "Pipeline"))
-    |> assert_has(css("button[data-prepare-all]", text: "Expand all"))
+    |> assert_has("h1", text: "Prepare Prep Test Game")
+    |> assert_has("button", text: "Prepare game")
+    |> assert_has("h2", text: "Pipeline")
+    |> assert_has("button[data-prepare-all]", text: "Expand all")
     # A published fixture has an uploaded source, so its step is collapsible and
     # starts collapsed (no data-open until the admin expands it).
-    |> assert_has(css("[data-prepare-step='source']"))
-    |> refute_has(css("[data-prepare-step='source'][data-open]"))
+    |> assert_has("[data-prepare-step='source']")
+    |> refute_has("[data-prepare-step='source'][data-open]")
     # Expanding reveals the step's result body and its action link.
-    |> click(css("[data-prepare-step='source'] [data-prepare-head]"))
-    |> assert_has(css("[data-prepare-step='source'][data-open]"))
-    |> assert_has(css("[data-prepare-step='source'] a", text: "Manage on edit page"))
+    |> click("[data-prepare-step='source'] [data-prepare-head]")
+    |> assert_has("[data-prepare-step='source'][data-open]")
+    |> assert_has("[data-prepare-step='source'] a", text: "Manage on edit page")
   end
 
   # Stays a browser test: theme persistence is localStorage + the inline
-  # theme-migration script in the root layout — no server involvement.
-  feature "theme persists across page navigation", %{session: session} do
-    session
+  # theme-migration script in the root layout - no server involvement.
+  test "theme persists across page navigation", %{conn: conn} do
+    conn
     |> visit("/login")
-
-    # Set theme via JS. Use a current slug ("deep-space") — retired slugs like
+    # Set theme via JS. Use a current slug ("deep-space") - retired slugs like
     # "nebula" get rewritten by the theme-migration script on load.
-    session
-    |> Wallaby.Browser.execute_script("""
+    |> evaluate("""
       document.documentElement.setAttribute('data-theme', 'deep-space');
       localStorage.setItem('theme', 'deep-space');
     """)
-
-    # Navigate to another page
-    session
+    # Navigate again: the inline script must re-apply the saved theme.
     |> visit("/login")
-
-    page_source = session |> Wallaby.Browser.page_source()
-    assert page_source =~ ~s(data-theme="deep-space")
+    |> evaluate(
+      "() => document.documentElement.getAttribute('data-theme')",
+      [is_function: true],
+      fn theme -> assert theme == "deep-space" end
+    )
   end
 end

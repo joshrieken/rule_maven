@@ -47,7 +47,7 @@ defmodule RuleMavenWeb.Endpoint do
   plug Plug.MethodOverride
   plug Plug.Head
 
-  # In the test env only, let Wallaby's browser requests join the test process's
+  # In the test env only, let Playwright's browser requests join the test process's
   # Ecto sandbox connection (via metadata in the user-agent) so their DB writes
   # roll back with the test instead of committing. Compile-time guarded, so it
   # never ships in dev/prod.

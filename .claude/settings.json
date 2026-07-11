@@ -46,7 +46,6 @@
     "symlinkDirectories": [
       "deps",
       "node_modules",
-      "priv/browser",
       "priv/docling/.venv",
       "priv/static/rulebooks",
       "priv/static/uploads"
