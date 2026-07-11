@@ -317,11 +317,22 @@ defmodule RuleMavenWeb.CommunityLiveTest do
     test "sub-bar overview link navigates (cross-LiveView), not patches",
          %{conn: conn, game: game, viewer: viewer} do
       conn = login(conn, viewer)
-      {:ok, _view, html} = live(conn, ~p"/games/#{game}/community")
+      {:ok, view, _html} = live(conn, ~p"/games/#{game}/community")
 
-      # patch to another LiveView would crash; the link must data-phx-link=redirect
-      assert html =~ "🔍 Overview"
-      refute html =~ ~r/data-phx-link="patch"[^>]*>🔍 Overview/
+      # The sub-bar puts the emoji in its own `aria-hidden` span, so "🔍 Overview"
+      # is no longer one contiguous string in the markup — scope to the More
+      # menu's Overview link instead (`element/2` raises unless it matches
+      # exactly one, so this still proves the link is there). Patching to
+      # another LiveView would crash: it must render as a navigate
+      # (data-phx-link="redirect"), never a patch.
+      overview =
+        view
+        |> element(~s|.card-menu__pop a[href="#{~p"/games/#{game}?start=1"}"]|)
+        |> render()
+
+      assert overview =~ "Overview"
+      assert overview =~ ~s(data-phx-link="redirect")
+      refute overview =~ ~s(data-phx-link="patch")
     end
   end
 end
