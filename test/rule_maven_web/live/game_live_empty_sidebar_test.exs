@@ -45,8 +45,12 @@ defmodule RuleMavenWeb.GameLiveEmptySidebarTest do
 
     css = File.read!(Path.join(File.cwd!(), "priv/static/assets/css/app.css"))
 
-    for class <- ["sidebar-empty", "sidebar-empty__glyph", "sidebar-empty__title",
-                  "sidebar-empty__hint"] do
+    for class <- [
+          "sidebar-empty",
+          "sidebar-empty__glyph",
+          "sidebar-empty__title",
+          "sidebar-empty__hint"
+        ] do
       assert html =~ class, "#{class} missing from the rendered empty state"
       assert css =~ ".#{class}", "#{class} has no rule in app.css"
     end

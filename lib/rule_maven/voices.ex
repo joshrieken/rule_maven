@@ -696,9 +696,7 @@ defmodule RuleMaven.Voices do
   def drop_generated(game_id, slugs) do
     Enum.each(slugs, &clear_for_voice(game_id, @game_prefix <> &1))
 
-    Repo.delete_all(
-      from gv in GameVoice, where: gv.game_id == ^game_id and gv.slug in ^slugs
-    )
+    Repo.delete_all(from gv in GameVoice, where: gv.game_id == ^game_id and gv.slug in ^slugs)
 
     :ok
   end

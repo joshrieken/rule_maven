@@ -11,7 +11,11 @@ defmodule RuleMavenWeb.GameLiveAdminAllQuestionsTest do
     {:ok, user} =
       RuleMaven.Users.create_user(
         Map.merge(
-          %{username: "#{prefix}_user", email: "#{prefix}_user@test.com", password: "password1234"},
+          %{
+            username: "#{prefix}_user",
+            email: "#{prefix}_user@test.com",
+            password: "password1234"
+          },
           attrs
         )
       )
@@ -77,7 +81,8 @@ defmodule RuleMavenWeb.GameLiveAdminAllQuestionsTest do
     conn = login(conn, admin)
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
 
-    html = view |> element("form[phx-change='search']") |> render_change(%{"query" => other.username})
+    html =
+      view |> element("form[phx-change='search']") |> render_change(%{"query" => other.username})
 
     assert html =~ "Totally unrelated text"
   end

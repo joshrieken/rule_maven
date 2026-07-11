@@ -111,8 +111,7 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
   # Jobs.events/2 ordering). Ignore lines for runs we're not viewing.
   def handle_info({:job_event, event}, socket) do
     if event.job_run_id == socket.assigns.selected_id do
-      {:noreply,
-       assign(socket, events: Enum.take([event | socket.assigns.events], @max_events))}
+      {:noreply, assign(socket, events: Enum.take([event | socket.assigns.events], @max_events))}
     else
       {:noreply, socket}
     end

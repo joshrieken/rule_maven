@@ -136,6 +136,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
       from(r in QuestionLog, where: r.id == ^row.id),
       set: [browsable: false]
     )
+
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
     assert Repo.get(QuestionLog, row.id).visibility == "private"
   end

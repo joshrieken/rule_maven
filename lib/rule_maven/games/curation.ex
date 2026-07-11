@@ -43,9 +43,7 @@ defmodule RuleMaven.Games.Curation do
           v.question_log_id == ^q.id and is_nil(v.settled_at) and
             v.user_id != ^author_id and v.weight > 0.0 and
             v.inserted_at <= ^event_at and
-            v.user_id not in subquery(
-              from u in User, where: u.role in ^admin_roles, select: u.id
-            )
+            v.user_id not in subquery(from u in User, where: u.role in ^admin_roles, select: u.id)
 
     Repo.transaction(fn ->
       {_, correct_ids} =

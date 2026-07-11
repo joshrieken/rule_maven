@@ -5,6 +5,7 @@ defmodule RuleMaven.BGGLinkExpansionsTest do
   defp game(name, bgg_id) do
     {:ok, g} =
       Games.create_game(%{name: "#{name} #{System.unique_integer([:positive])}", bgg_id: bgg_id})
+
     g
   end
 

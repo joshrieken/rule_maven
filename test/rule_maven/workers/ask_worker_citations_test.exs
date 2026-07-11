@@ -19,7 +19,8 @@ defmodule RuleMaven.Workers.AskWorkerCitationsTest do
   end
 
   setup do
-    {:ok, game} = Games.create_game(%{name: "CitationTestGame #{System.unique_integer([:positive])}"})
+    {:ok, game} =
+      Games.create_game(%{name: "CitationTestGame #{System.unique_integer([:positive])}"})
 
     {:ok, doc} =
       Games.create_document(%{
@@ -64,8 +65,16 @@ defmodule RuleMaven.Workers.AskWorkerCitationsTest do
          answer: "The d20 picks the first player and damages the Beholder's eyestalks.",
          cited_passage: nil,
          citations: [
-           %{"quote" => "Roll the d20 to determine the first player.", "page" => 5, "source" => "Core rules"},
-           %{"quote" => "Damage the Beholder's eyestalks by rolling the d20.", "page" => 11, "source" => "Core rules"}
+           %{
+             "quote" => "Roll the d20 to determine the first player.",
+             "page" => 5,
+             "source" => "Core rules"
+           },
+           %{
+             "quote" => "Damage the Beholder's eyestalks by rolling the d20.",
+             "page" => 11,
+             "source" => "Core rules"
+           }
          ],
          verdict: "info",
          followups: [],
@@ -102,8 +111,16 @@ defmodule RuleMaven.Workers.AskWorkerCitationsTest do
          answer: "The d20 picks the first player.",
          cited_passage: nil,
          citations: [
-           %{"quote" => "Roll the d20 to determine the first player.", "page" => 5, "source" => "Core rules"},
-           %{"quote" => "the dragon devours two villages each dawn", "page" => 999, "source" => "Core rules"}
+           %{
+             "quote" => "Roll the d20 to determine the first player.",
+             "page" => 5,
+             "source" => "Core rules"
+           },
+           %{
+             "quote" => "the dragon devours two villages each dawn",
+             "page" => 999,
+             "source" => "Core rules"
+           }
          ],
          verdict: "info",
          followups: [],

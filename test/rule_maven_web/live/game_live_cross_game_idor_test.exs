@@ -48,8 +48,18 @@ defmodule RuleMavenWeb.GameLiveCrossGameIdorTest do
 
   describe "review page" do
     test "approve_doc cannot touch another game's document", %{conn: conn} do
-      mine = published_game_fixture(%{name: "Mine #{System.unique_integer([:positive])}", bgg_id: System.unique_integer([:positive])})
-      theirs = published_game_fixture(%{name: "Theirs #{System.unique_integer([:positive])}", bgg_id: System.unique_integer([:positive])})
+      mine =
+        published_game_fixture(%{
+          name: "Mine #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+
+      theirs =
+        published_game_fixture(%{
+          name: "Theirs #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+
       victim = doc(theirs, "pending_review")
 
       {:ok, view, _} = conn |> login(admin()) |> live(~p"/games/#{token(mine)}/review")
@@ -59,8 +69,18 @@ defmodule RuleMavenWeb.GameLiveCrossGameIdorTest do
     end
 
     test "reject_doc cannot touch another game's document", %{conn: conn} do
-      mine = published_game_fixture(%{name: "Mine2 #{System.unique_integer([:positive])}", bgg_id: System.unique_integer([:positive])})
-      theirs = published_game_fixture(%{name: "Theirs2 #{System.unique_integer([:positive])}", bgg_id: System.unique_integer([:positive])})
+      mine =
+        published_game_fixture(%{
+          name: "Mine2 #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+
+      theirs =
+        published_game_fixture(%{
+          name: "Theirs2 #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+
       victim = doc(theirs, "pending_review")
 
       {:ok, view, _} = conn |> login(admin()) |> live(~p"/games/#{token(mine)}/review")
@@ -72,11 +92,22 @@ defmodule RuleMavenWeb.GameLiveCrossGameIdorTest do
 
   describe "prepare page" do
     test "delete_category cannot permanently delete another game's category", %{conn: conn} do
-      mine = published_game_fixture(%{name: "Mine3 #{System.unique_integer([:positive])}", bgg_id: System.unique_integer([:positive])})
-      theirs = published_game_fixture(%{name: "Theirs3 #{System.unique_integer([:positive])}", bgg_id: System.unique_integer([:positive])})
+      mine =
+        published_game_fixture(%{
+          name: "Mine3 #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+
+      theirs =
+        published_game_fixture(%{
+          name: "Theirs3 #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
 
       {:ok, victim} =
-        %GameCategory{} |> GameCategory.changeset(%{name: "Setup", game_id: theirs.id}) |> Repo.insert()
+        %GameCategory{}
+        |> GameCategory.changeset(%{name: "Setup", game_id: theirs.id})
+        |> Repo.insert()
 
       {:ok, view, _} = conn |> login(admin()) |> live(~p"/games/#{token(mine)}/prepare")
       render_click(view, "delete_category", %{"id" => to_string(victim.id)})
@@ -85,10 +116,16 @@ defmodule RuleMavenWeb.GameLiveCrossGameIdorTest do
     end
 
     test "delete_category still deletes this game's own category", %{conn: conn} do
-      mine = published_game_fixture(%{name: "Mine4 #{System.unique_integer([:positive])}", bgg_id: System.unique_integer([:positive])})
+      mine =
+        published_game_fixture(%{
+          name: "Mine4 #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
 
       {:ok, own} =
-        %GameCategory{} |> GameCategory.changeset(%{name: "Combat", game_id: mine.id}) |> Repo.insert()
+        %GameCategory{}
+        |> GameCategory.changeset(%{name: "Combat", game_id: mine.id})
+        |> Repo.insert()
 
       {:ok, view, _} = conn |> login(admin()) |> live(~p"/games/#{token(mine)}/prepare")
       render_click(view, "delete_category", %{"id" => to_string(own.id)})
@@ -99,8 +136,18 @@ defmodule RuleMavenWeb.GameLiveCrossGameIdorTest do
 
   describe "scoped lookups" do
     test "get_game_document/2 and get_game_category/2 refuse a foreign id" do
-      mine = published_game_fixture(%{name: "Mine5 #{System.unique_integer([:positive])}", bgg_id: System.unique_integer([:positive])})
-      theirs = published_game_fixture(%{name: "Theirs5 #{System.unique_integer([:positive])}", bgg_id: System.unique_integer([:positive])})
+      mine =
+        published_game_fixture(%{
+          name: "Mine5 #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+
+      theirs =
+        published_game_fixture(%{
+          name: "Theirs5 #{System.unique_integer([:positive])}",
+          bgg_id: System.unique_integer([:positive])
+        })
+
       foreign = doc(theirs, "published")
 
       refute Games.get_game_document(mine, foreign.id)

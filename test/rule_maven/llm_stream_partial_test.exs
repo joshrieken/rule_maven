@@ -134,7 +134,8 @@ defmodule RuleMaven.LLMStreamPartialTest do
   end
 
   test "legal/illegal verdicts keep the Yes/No lead" do
-    content = "{\"verdict\": \"legal\", \"answer\": \"**Yes** — a settlement can be upgraded to a city"
+    content =
+      "{\"verdict\": \"legal\", \"answer\": \"**Yes** — a settlement can be upgraded to a city"
 
     assert LLM.__partial_display_answer__(content) ==
              "**Yes** — a settlement can be upgraded to a city"
@@ -146,7 +147,9 @@ defmodule RuleMaven.LLMStreamPartialTest do
 
     # Closed with no verdict: decode_answer would keep the lead → so do we.
     closed = open <> "\""
-    assert LLM.__partial_display_answer__(closed) == "Yes. During the set-up phase, each player builds 1 road"
+
+    assert LLM.__partial_display_answer__(closed) ==
+             "Yes. During the set-up phase, each player builds 1 road"
   end
 
   test "silent verdict suppresses the doomed answer text entirely" do

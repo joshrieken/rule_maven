@@ -48,7 +48,12 @@ defmodule RuleMaven.Workers.ExpansionDeltaWorker do
         Jobs.finish_run(run, "failed", reason)
     end
 
-    Phoenix.PubSub.broadcast(RuleMaven.PubSub, ExpansionDelta.topic(game_id), {:delta_done, game_id})
+    Phoenix.PubSub.broadcast(
+      RuleMaven.PubSub,
+      ExpansionDelta.topic(game_id),
+      {:delta_done, game_id}
+    )
+
     :ok
   end
 

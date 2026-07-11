@@ -5,7 +5,10 @@ defmodule RuleMaven.GamesDocumentKindTest do
 
   defp doc(attrs) do
     {:ok, game} = Games.create_game(%{name: "Kind #{System.unique_integer([:positive])}"})
-    Games.create_document(Map.merge(%{game_id: game.id, label: "Rules", full_text: "text"}, attrs))
+
+    Games.create_document(
+      Map.merge(%{game_id: game.id, label: "Rules", full_text: "text"}, attrs)
+    )
   end
 
   test "defaults to rulebook" do

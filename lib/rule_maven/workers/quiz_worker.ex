@@ -34,9 +34,7 @@ defmodule RuleMaven.Workers.QuizWorker do
     text = Games.document_full_text(game)
 
     run =
-      Jobs.start_run("quiz", {"game", game_id}, "Rules quiz — #{game.name}",
-        oban_job_id: oban_id
-      )
+      Jobs.start_run("quiz", {"game", game_id}, "Rules quiz — #{game.name}", oban_job_id: oban_id)
 
     Jobs.event(run, :info, "Reading #{String.length(text)} chars of rulebook for quiz questions…")
 

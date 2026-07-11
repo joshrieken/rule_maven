@@ -144,7 +144,9 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
   end
 
   defp run_summary(doc) do
-    [run_row] = Jobs.list_runs(scope_type: "document", scope_id: doc.id, kind: "cleanup", limit: 1)
+    [run_row] =
+      Jobs.list_runs(scope_type: "document", scope_id: doc.id, kind: "cleanup", limit: 1)
+
     run_row.summary
   end
 
@@ -308,7 +310,9 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
 
     # The winning attempt still carried defects (junk_remains) → the page must
     # be flagged in the job log, not silently accepted.
-    run_row = Jobs.list_runs(scope_type: "document", scope_id: doc.id, kind: "cleanup", limit: 1) |> hd()
+    run_row =
+      Jobs.list_runs(scope_type: "document", scope_id: doc.id, kind: "cleanup", limit: 1) |> hd()
+
     messages = Jobs.events(run_row.id) |> Enum.map(& &1.message)
     assert Enum.any?(messages, &(&1 =~ "cleanup review flagged"))
 
@@ -476,7 +480,14 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
 
     vision_pages =
       Enum.map(doc.pages, fn p ->
-        %{index: p.index, sheet: p.sheet, printed: p.printed, text: p.text, lane: "ensemble", confidence: 0.9}
+        %{
+          index: p.index,
+          sheet: p.sheet,
+          printed: p.printed,
+          text: p.text,
+          lane: "ensemble",
+          confidence: 0.9
+        }
       end)
 
     {:ok, doc} = Games.update_document(doc, %{pages: vision_pages}, chunk: false)
@@ -493,7 +504,14 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
 
     vision_pages =
       Enum.map(doc.pages, fn p ->
-        %{index: p.index, sheet: p.sheet, printed: p.printed, text: p.text, lane: "ensemble", confidence: 0.9}
+        %{
+          index: p.index,
+          sheet: p.sheet,
+          printed: p.printed,
+          text: p.text,
+          lane: "ensemble",
+          confidence: 0.9
+        }
       end)
 
     {:ok, doc} = Games.update_document(doc, %{pages: vision_pages}, chunk: false)

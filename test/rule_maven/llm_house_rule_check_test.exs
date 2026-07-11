@@ -4,9 +4,16 @@ defmodule RuleMaven.LLMHouseRuleCheckTest do
   alias RuleMaven.LLM
 
   test "parses strict json" do
-    json = ~s({"verdict":"overrides","raw_quote":"Deal 5 cards.","note":"Changes hand size.","citations":[{"quote":"Deal 5 cards.","page":4}]})
+    json =
+      ~s({"verdict":"overrides","raw_quote":"Deal 5 cards.","note":"Changes hand size.","citations":[{"quote":"Deal 5 cards.","page":4}]})
 
-    assert {:ok, %{verdict: "overrides", raw_quote: "Deal 5 cards.", check_note: "Changes hand size.", citations: [%{"quote" => "Deal 5 cards.", "page" => 4}]}} =
+    assert {:ok,
+            %{
+              verdict: "overrides",
+              raw_quote: "Deal 5 cards.",
+              check_note: "Changes hand size.",
+              citations: [%{"quote" => "Deal 5 cards.", "page" => 4}]
+            }} =
              LLM.__parse_house_rule_check__(json)
   end
 

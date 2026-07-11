@@ -40,6 +40,7 @@ defmodule RuleMaven.Readiness do
   def required_steps, do: @required
   @doc "Ordered enrichment steps (post-playable polish)."
   def enrichment_steps, do: @enrichment
+
   @doc """
   All steps, display order. `:theme` is pulled out of its normal enrichment
   slot and shown right after `:bgg` — it only needs the BGG cover image, so it
@@ -217,6 +218,7 @@ defmodule RuleMaven.Readiness do
   # pipeline to do and the step reads as already satisfied.
   def step_complete?(:theme, %Game{} = game, _docs),
     do: Games.expansion?(game.id) or not is_nil(game.theme_palette)
+
   def step_complete?(:bgg, %Game{} = game, _docs), do: not is_nil(game.bgg_data)
 
   defp doc_extracted?(%Document{pages: pages}) do

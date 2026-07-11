@@ -59,7 +59,10 @@ defmodule RuleMavenWeb.CitationCardsTest do
   end
 
   test "renders the source and page header, page as its own element" do
-    html = render_cards(%{citations: [%{"quote" => "Some rule.", "page" => 7, "source" => "Ticket to Ride"}]})
+    html =
+      render_cards(%{
+        citations: [%{"quote" => "Some rule.", "page" => 7, "source" => "Ticket to Ride"}]
+      })
 
     assert html =~ "Ticket to Ride"
     assert html =~ "p.7"
@@ -85,7 +88,13 @@ defmodule RuleMavenWeb.CitationCardsTest do
   test "strips decorative extraction-artifact glyphs from the quote" do
     html =
       render_cards(%{
-        citations: [%{"quote" => "c) City ● Requires: 3 Ore & 2 Grain", "page" => 5, "source" => "Catan Base"}]
+        citations: [
+          %{
+            "quote" => "c) City ● Requires: 3 Ore & 2 Grain",
+            "page" => 5,
+            "source" => "Catan Base"
+          }
+        ]
       })
 
     refute html =~ "●"
@@ -94,7 +103,11 @@ defmodule RuleMavenWeb.CitationCardsTest do
 
   test "falls back to legacy cited_passage fields" do
     html =
-      render_cards(%{cited_passage: "Legacy passage text.", cited_page: 9, cited_source: "Old Book"})
+      render_cards(%{
+        cited_passage: "Legacy passage text.",
+        cited_page: 9,
+        cited_source: "Old Book"
+      })
 
     assert html =~ "Legacy passage text."
     assert html =~ "p.9"

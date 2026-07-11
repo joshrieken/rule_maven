@@ -135,7 +135,9 @@ defmodule RuleMaven.GamesExpansionCacheTest do
       _ = prior
 
       assert Games.find_user_answer_duplicate(g.id, u.id, "Identical ruling text.", 0)
-      assert Games.find_user_answer_duplicate(g.id, u.id, "Identical ruling text.", 0, [42]) == nil
+
+      assert Games.find_user_answer_duplicate(g.id, u.id, "Identical ruling text.", 0, [42]) ==
+               nil
     end
   end
 

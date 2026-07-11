@@ -105,8 +105,10 @@ defmodule RuleMaven.InviteCodesTest do
       # and require the DB-level atomic guard (not the in-process read) to
       # settle the race: exactly one wins.
       results =
-        [Task.async(fn -> InviteCodes.use_code(code.code) end),
-         Task.async(fn -> InviteCodes.use_code(code.code) end)]
+        [
+          Task.async(fn -> InviteCodes.use_code(code.code) end),
+          Task.async(fn -> InviteCodes.use_code(code.code) end)
+        ]
         |> Enum.map(&Task.await/1)
 
       successes = Enum.count(results, &match?({:ok, _}, &1))

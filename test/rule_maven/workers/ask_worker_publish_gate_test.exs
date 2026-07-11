@@ -382,9 +382,15 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
                "skip_pool" => true
              })
 
-    # Precondition: a grounded crew answer really does pool (otherwise this test
-    # would pass for the wrong reason).
-    assert Repo.reload!(ql).pooled, "precondition: the grounded crew answer pooled"
+    # A crew row is NOT pooled by the ask any more — clearing the publish screen is
+    # what pools it. Stand in for a row that had already cleared and reached the
+    # commons, so "was it put BACK after the withdrawal?" is a question with teeth.
+    refute Repo.reload!(ql).pooled, "precondition: the ask itself must not pool a crew row"
+
+    Repo.update_all(
+      from(q in RuleMaven.Games.QuestionLog, where: q.id == ^ql.id),
+      set: [pooled: true]
+    )
 
     {:ok, :deleted} = RuleMaven.Groups.delete_group(owner, grp)
 

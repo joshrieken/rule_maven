@@ -102,6 +102,7 @@ defmodule RuleMaven.LLMRefusalEscalationTest do
     )
 
     mock_embed(query_vec)
+
     mock_llm_asks(fn
       1, _body -> refusal_result()
       2, _body -> legal_result()

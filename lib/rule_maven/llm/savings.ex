@@ -45,15 +45,29 @@ defmodule RuleMaven.LLM.Savings do
     attrs = Map.put(attrs, :kind, kind)
 
     %__MODULE__{}
-    |> cast(attrs, [:kind, :operation, :estimated_tokens, :estimated_usd, :model, :game_id, :user_id])
+    |> cast(attrs, [
+      :kind,
+      :operation,
+      :estimated_tokens,
+      :estimated_usd,
+      :model,
+      :game_id,
+      :user_id
+    ])
     |> validate_required([:kind])
     |> Repo.insert()
     |> case do
-      {:ok, _} -> :ok
-      {:error, cs} -> Logger.warning("Savings.record failed: #{inspect(cs.errors)}"); :ok
+      {:ok, _} ->
+        :ok
+
+      {:error, cs} ->
+        Logger.warning("Savings.record failed: #{inspect(cs.errors)}")
+        :ok
     end
   rescue
-    e -> Logger.warning("Savings.record raised: #{inspect(e)}"); :ok
+    e ->
+      Logger.warning("Savings.record raised: #{inspect(e)}")
+      :ok
   end
 
   def record(_kind, _attrs), do: :ok
@@ -71,7 +85,9 @@ defmodule RuleMaven.LLM.Savings do
       user_id: user_id
     })
   rescue
-    e -> Logger.warning("Savings.record_cache_hit raised: #{inspect(e)}"); :ok
+    e ->
+      Logger.warning("Savings.record_cache_hit raised: #{inspect(e)}")
+      :ok
   end
 
   @doc """
@@ -111,7 +127,8 @@ defmodule RuleMaven.LLM.Savings do
     model = RuleMaven.LLM.model()
     rows = recent_logs(operation, game_id)
 
-    rows = if game_id && length(rows) < @min_same_game, do: recent_logs(operation, nil), else: rows
+    rows =
+      if game_id && length(rows) < @min_same_game, do: recent_logs(operation, nil), else: rows
 
     {p, c} =
       case rows do

@@ -7,7 +7,8 @@ defmodule RuleMaven.GamesResetPreparationTest do
   alias RuleMaven.Games.{Document, Chunk, GameCategory}
   alias RuleMaven.Voices.GameVoice
 
-  defp game, do: elem(Games.create_game(%{name: "Reset #{System.unique_integer([:positive])}"}), 1)
+  defp game,
+    do: elem(Games.create_game(%{name: "Reset #{System.unique_integer([:positive])}"}), 1)
 
   defp doc_with_file(game) do
     pdf_path = "rulebooks/reset_#{System.unique_integer([:positive])}.pdf"

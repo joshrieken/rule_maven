@@ -60,6 +60,7 @@ defmodule RuleMaven.Workers.SuggestionsWorkerTest do
     assert :ok = SuggestionsWorker.perform(%Oban.Job{id: nil, args: %{"game_id" => game.id}})
 
     assert last_run!().state == "done"
+
     assert [%{"category" => "Combat", "questions" => [_, _]}] =
              Jason.decode!(Settings.get("suggestions_#{game.id}"))
   end

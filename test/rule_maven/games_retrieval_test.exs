@@ -177,8 +177,18 @@ defmodule RuleMaven.GamesRetrievalTest do
     # sub-dimensions, so they don't collapse into each other as near-dupes;
     # none share any vocabulary with the question.
     put_chunk(doc, "[Page 1]\nunrelated filler wombat gazebo", sparse_vec([{0, 0.9}, {1, 0.436}]))
-    put_chunk(doc, "[Page 2]\nanother filler paragraph zeppelin", sparse_vec([{0, 0.9}, {2, 0.436}]))
-    put_chunk(doc, "[Page 3]\nyet more filler content lighthouse", sparse_vec([{0, 0.9}, {3, 0.436}]))
+
+    put_chunk(
+      doc,
+      "[Page 2]\nanother filler paragraph zeppelin",
+      sparse_vec([{0, 0.9}, {2, 0.436}])
+    )
+
+    put_chunk(
+      doc,
+      "[Page 3]\nyet more filler content lighthouse",
+      sparse_vec([{0, 0.9}, {3, 0.436}])
+    )
 
     # This chunk is embedded orthogonal to the query (cosine similarity 0),
     # so pure vector search ranks it dead last / outside the limit — but its
@@ -208,7 +218,11 @@ defmodule RuleMaven.GamesRetrievalTest do
     query_vec = sparse_vec([{0, 1.0}])
 
     for i <- 1..4 do
-      put_chunk(doc, "[Page #{i}]\nnoise filler #{i} zeppelin", sparse_vec([{0, 0.9}, {i, 0.436}]))
+      put_chunk(
+        doc,
+        "[Page #{i}]\nnoise filler #{i} zeppelin",
+        sparse_vec([{0, 0.9}, {i, 0.436}])
+      )
     end
 
     # Vector-distant (cosine 0 to the query) AND only 2 question words overlap
@@ -279,9 +293,7 @@ defmodule RuleMaven.GamesRetrievalTest do
     _faq = published_doc(game, "Rulings FAQ", "faq", "FAQ full text body distinct from rulebook.")
 
     chunks =
-      Games.retrieve_chunks_for_games([game.id], "anything",
-        embedding: List.duplicate(0.1, 768)
-      )
+      Games.retrieve_chunks_for_games([game.id], "anything", embedding: List.duplicate(0.1, 768))
 
     assert length(chunks) == 2
 

@@ -22,8 +22,10 @@ defmodule RuleMavenWeb.AdminLive.FlagsExperimentReadoutTest do
     admin = user("admin")
     subject = user("user")
     {:ok, _} = RuleMaven.Flags.grant_actor(@exp, subject)
-    RuleMaven.Flags.variant(@exp, subject)      # treatment
-    RuleMaven.Flags.variant(@exp, user("user")) # control
+    # treatment
+    RuleMaven.Flags.variant(@exp, subject)
+    # control
+    RuleMaven.Flags.variant(@exp, user("user"))
 
     {:ok, _view, html} = conn |> login(admin) |> live(~p"/admin/flags")
 

@@ -23,8 +23,11 @@ defmodule RuleMaven.Repo.Migrations.CreateGroups do
 
     create unique_index(:group_memberships, [:user_id, :group_id])
     create index(:group_memberships, [:group_id])
+
     create unique_index(:group_memberships, [:group_id],
-      where: "role = 'owner'", name: :group_memberships_one_owner_index)
+             where: "role = 'owner'",
+             name: :group_memberships_one_owner_index
+           )
 
     alter table(:questions_log) do
       add :group_id, references(:groups, on_delete: :nilify_all)

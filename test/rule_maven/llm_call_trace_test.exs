@@ -117,25 +117,31 @@ defmodule RuleMaven.LLMCallTraceTest do
       }
 
       Repo.insert!(
-        struct(Log, Map.merge(base, %{
-          operation: "ask",
-          prompt_tokens: 1000,
-          completion_tokens: 500,
-          total_tokens: 1500,
-          duration_ms: 2000
-        }))
+        struct(
+          Log,
+          Map.merge(base, %{
+            operation: "ask",
+            prompt_tokens: 1000,
+            completion_tokens: 500,
+            total_tokens: 1500,
+            duration_ms: 2000
+          })
+        )
       )
 
       Repo.insert!(
-        struct(Log, Map.merge(base, %{
-          operation: "grounding_critic",
-          prompt_tokens: 200,
-          completion_tokens: 50,
-          total_tokens: 250,
-          duration_ms: 800,
-          success: false,
-          error_message: "boom"
-        }))
+        struct(
+          Log,
+          Map.merge(base, %{
+            operation: "grounding_critic",
+            prompt_tokens: 200,
+            completion_tokens: 50,
+            total_tokens: 250,
+            duration_ms: 800,
+            success: false,
+            error_message: "boom"
+          })
+        )
       )
 
       # Unrelated row must not appear.

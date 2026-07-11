@@ -31,7 +31,9 @@ defmodule Mix.Tasks.Qa.Wipe do
 
     unless "--yes" in args do
       confirm =
-        Mix.shell().prompt("Delete #{before} question(s) and ALL adjacent rows? Type 'wipe' to confirm: ")
+        Mix.shell().prompt(
+          "Delete #{before} question(s) and ALL adjacent rows? Type 'wipe' to confirm: "
+        )
         |> to_string()
         |> String.trim()
 

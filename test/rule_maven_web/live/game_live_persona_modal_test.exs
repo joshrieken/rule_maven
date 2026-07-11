@@ -55,7 +55,10 @@ defmodule RuleMavenWeb.GameLivePersonaModalTest do
 
     refute has_element?(lv, "#persona-modal")
     assert Repo.aggregate(PersonaEvent, :count) == 1
-    assert [%PersonaEvent{voice_id: "neutral", game_id: gid, user_id: uid}] = Repo.all(PersonaEvent)
+
+    assert [%PersonaEvent{voice_id: "neutral", game_id: gid, user_id: uid}] =
+             Repo.all(PersonaEvent)
+
     assert gid == game.id
     assert uid == user.id
   end

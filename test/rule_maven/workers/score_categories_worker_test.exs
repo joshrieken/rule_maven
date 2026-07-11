@@ -19,7 +19,8 @@ defmodule RuleMaven.Workers.ScoreCategoriesWorkerTest do
     on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
   end
 
-  defp perform(game), do: ScoreCategoriesWorker.perform(%Oban.Job{id: 1, args: %{"game_id" => game.id}})
+  defp perform(game),
+    do: ScoreCategoriesWorker.perform(%Oban.Job{id: 1, args: %{"game_id" => game.id}})
 
   describe "a game with no scoring categories" do
     test "records the empty verdict so the readiness step reads as done" do

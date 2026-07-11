@@ -96,6 +96,7 @@ defmodule RuleMaven.ReadinessTest do
           name: "exp #{System.unique_integer([:positive])}",
           bgg_id: System.unique_integer([:positive])
         })
+
       :ok = Games.link_expansion(exp.id, base.id)
       # No palette of its own, but it's an expansion — inherits, so it's done.
       assert Readiness.step_complete?(:theme, exp, [])

@@ -11,7 +11,7 @@ defmodule RuleMaven.Repo.Migrations.BackfillPublishApproval do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     rows =
-      repo().all(from g in "games", where: g.playable == true, select: g.id)
+      repo().all(from(g in "games", where: g.playable == true, select: g.id))
       |> Enum.map(fn id ->
         %{key: "readiness_publish_#{id}", value: "on", inserted_at: now, updated_at: now}
       end)
@@ -22,8 +22,6 @@ defmodule RuleMaven.Repo.Migrations.BackfillPublishApproval do
   end
 
   def down do
-    repo().query!(
-      "DELETE FROM app_settings WHERE key LIKE 'readiness_publish_%'"
-    )
+    repo().query!("DELETE FROM app_settings WHERE key LIKE 'readiness_publish_%'")
   end
 end

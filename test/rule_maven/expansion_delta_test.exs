@@ -74,8 +74,12 @@ defmodule RuleMaven.ExpansionDeltaTest do
 
   describe "readiness kicks delta generation for expansions" do
     test "ensure_enrichments seeds the delta state machine for an expansion, not a base game" do
-      {:ok, base} = RuleMaven.Games.create_game(%{name: "DeltaBase #{System.unique_integer([:positive])}"})
-      {:ok, exp} = RuleMaven.Games.create_game(%{name: "DeltaExp #{System.unique_integer([:positive])}"})
+      {:ok, base} =
+        RuleMaven.Games.create_game(%{name: "DeltaBase #{System.unique_integer([:positive])}"})
+
+      {:ok, exp} =
+        RuleMaven.Games.create_game(%{name: "DeltaExp #{System.unique_integer([:positive])}"})
+
       RuleMaven.Games.link_expansion(exp.id, base.id)
 
       # drive/1 reaches ensure_enrichments only at :done; call the enrichment

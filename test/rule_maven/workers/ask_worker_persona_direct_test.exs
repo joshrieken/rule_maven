@@ -33,7 +33,11 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
 
     {:ok, doc} = Games.update_document(doc, %{status: "published"})
 
-    put_chunk(doc, "[Page 5]\nRoll the d20 to determine the first player.", List.duplicate(0.1, 768))
+    put_chunk(
+      doc,
+      "[Page 5]\nRoll the d20 to determine the first player.",
+      List.duplicate(0.1, 768)
+    )
 
     {:ok, ql} =
       Games.log_question(%{
@@ -58,7 +62,11 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
          cited_passage: nil,
          styled_answer: "Arr, the d20 be pickin' the first player.",
          citations: [
-           %{"quote" => "Roll the d20 to determine the first player.", "page" => 5, "source" => "Core rules"}
+           %{
+             "quote" => "Roll the d20 to determine the first player.",
+             "page" => 5,
+             "source" => "Core rules"
+           }
          ],
          verdict: "info",
          followups: [],
@@ -86,7 +94,7 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
 
     assert Voices.get(ql.id, "pirate") == "Arr, the d20 be pickin' the first player."
 
-    refute_enqueued worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id}
+    refute_enqueued(worker: RuleMaven.Workers.VoiceWorker, args: %{question_log_id: ql.id})
 
     # The real broadcast shape must match what Voices.get/2 just proved got
     # written — pins AskWorker's payload to the LiveView's expectations so the
@@ -109,7 +117,12 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
     # on-demand VoiceWorker restyle and swaps the persona text in later.
     :ok =
       Voices.replace_generated(game.id, [
-        %{slug: "herald", label: "Woodland Herald", emoji: "🦉", style: "a courtly woodland herald"}
+        %{
+          slug: "herald",
+          label: "Woodland Herald",
+          emoji: "🦉",
+          style: "a courtly woodland herald"
+        }
       ])
 
     canonical = "The d20 picks the first player."
@@ -128,7 +141,11 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
          answer: canonical,
          cited_passage: nil,
          citations: [
-           %{"quote" => "Roll the d20 to determine the first player.", "page" => 5, "source" => "Core rules"}
+           %{
+             "quote" => "Roll the d20 to determine the first player.",
+             "page" => 5,
+             "source" => "Core rules"
+           }
          ],
          verdict: "info",
          followups: [],
@@ -211,7 +228,11 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
          answer: "The d20 picks the first player.",
          cited_passage: nil,
          citations: [
-           %{"quote" => "Roll the d20 to determine the first player.", "page" => 5, "source" => "Core rules"}
+           %{
+             "quote" => "Roll the d20 to determine the first player.",
+             "page" => 5,
+             "source" => "Core rules"
+           }
          ],
          verdict: "info",
          followups: [],

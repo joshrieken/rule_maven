@@ -134,5 +134,4 @@ defmodule RuleMavenWeb.GameLive.GroupSelectorTest do
     {:ok, lv2, _html} = live(conn, ~p"/games/#{game}")
     assert render(lv2) =~ grp.name
   end
-
 end

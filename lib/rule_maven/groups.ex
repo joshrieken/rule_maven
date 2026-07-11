@@ -325,9 +325,7 @@ defmodule RuleMaven.Groups do
       where: q.group_id == ^group_id,
       where: q.visibility != "community"
     )
-    |> Repo.update_all(
-      set: [pooled: false, browsable: false, retracted_at: DateTime.utc_now()]
-    )
+    |> Repo.update_all(set: [pooled: false, browsable: false, retracted_at: DateTime.utc_now()])
   end
 
   @doc """

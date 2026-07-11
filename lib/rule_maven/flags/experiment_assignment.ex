@@ -20,6 +20,8 @@ defmodule RuleMaven.Flags.ExperimentAssignment do
     |> cast(attrs, [:user_id, :experiment, :variant])
     |> validate_required([:user_id, :experiment, :variant])
     |> validate_inclusion(:variant, ["control", "treatment"])
-    |> unique_constraint([:user_id, :experiment], name: :experiment_assignments_user_id_experiment_index)
+    |> unique_constraint([:user_id, :experiment],
+      name: :experiment_assignments_user_id_experiment_index
+    )
   end
 end

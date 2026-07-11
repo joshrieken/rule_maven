@@ -52,10 +52,11 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
     attrs
     |> Map.new()
     |> Map.put_new(:group_id, group.id)
-    # AskWorker only enqueues the check for rows it actually pooled, and the
-    # worker's guard head now requires it — an unpooled row never surfaces
-    # cross-user, so there is nothing to publish and no call worth paying for.
-    |> Map.put_new(:pooled, true)
+    # A crew row reaches this worker NOT YET POOLED: clearing the screen is what
+    # puts it in the pool. AskWorker no longer pools crew rows at all, so an
+    # outage fails closed on the answer as well as on the question.
+    |> Map.put_new(:pooled, false)
+    |> Map.put_new(:citation_valid, true)
     |> then(&question_fixture(&1))
   end
 
@@ -95,7 +96,10 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
         )
 
       assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
-      assert Repo.reload!(ql).browsable == true
+
+      row = Repo.reload!(ql)
+      assert row.browsable == true
+      assert row.pooled == true, "clearing the screen is what puts the answer in the pool"
     end
 
     test "a clean cleaned_question becomes browsable (raw_response shape)" do
@@ -108,7 +112,10 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
         )
 
       assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
-      assert Repo.reload!(ql).browsable == true
+
+      row = Repo.reload!(ql)
+      assert row.browsable == true
+      assert row.pooled == true, "clearing the screen is what puts the answer in the pool"
     end
 
     test "a flagged question stays unbrowsable" do
@@ -201,23 +208,39 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
 
       on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
+      # The fixture must match EVERY other clause of the guard head, so the
+      # `not is_nil(gid)` test is the only thing standing between it and the screen.
+      # It used to be `browsable: true` with `pooled` defaulting false — failing
+      # three conditions at once — so deleting the group_id guard entirely left the
+      # row falling into the catch-all and the test still passed. It pinned nothing.
+      #
+      # This shape is also exactly a nilified deleted-crew row, so the test now
+      # covers something real.
       ql =
         question_fixture(
           group_id: nil,
           cleaned_question: "May a player retract a move?",
-          browsable: true
+          browsable: false,
+          pooled: false,
+          citation_valid: true,
+          question_normalized: true
         )
 
       assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
-      assert Repo.reload!(ql).browsable == true
+
+      row = Repo.reload!(ql)
+      refute row.browsable
+      refute row.pooled
     end
 
-    test "an unpooled group row is never screened (no LLM call, stays unbrowsable)" do
-      # mark_pooled/1 no-ops on an ungrounded citation, so a group ask can reach
-      # this worker having never entered the pool. It never surfaces cross-user,
-      # so screening it would be a wasted LLM call — and must never publish it.
+    test "an ungrounded-citation row is never screened (no LLM call, stays closed)" do
+      # An answer whose citation isn't grounded in the source is the system's own
+      # signal that it may be hallucinated. It is not fit to serve anyone, so it
+      # never publishes and never pools — and screening it would be a wasted call.
+      # (It used to be `pooled: false` that disqualified a row here; now an unpooled
+      # crew row is the NORMAL case, since clearing the screen is what pools it.)
       Application.put_env(:rule_maven, :llm_mock, fn _body ->
-        raise "LLM should not be called for an unpooled row"
+        raise "LLM should not be called for an ungrounded row"
       end)
 
       on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
@@ -226,11 +249,12 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
         group_question_fixture(
           cleaned_question: "May a player retract a move?",
           browsable: false,
-          pooled: false
+          citation_valid: false
         )
 
       assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
       assert Repo.reload!(ql).browsable == false
+      assert Repo.reload!(ql).pooled == false
     end
 
     test "a nonexistent row is a no-op" do
@@ -276,7 +300,7 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
     # row's answer was generated from and found a person in it. Leaving the answer
     # pooled at that exact moment was the one place the gate had hard evidence and
     # did nothing with it. The answer is the artifact that actually leaves the crew.
-    test "a flagged question also PULLS THE ANSWER from the pool" do
+    test "a flagged question never lets the ANSWER into the pool either" do
       stub_llm("yes")
 
       ql =
@@ -286,7 +310,7 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
           browsable: false
         )
 
-      assert Repo.reload!(ql).pooled, "precondition: the answer was serving the pool"
+      refute Repo.reload!(ql).pooled, "precondition: a crew row is not pooled before the screen"
 
       assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
 
@@ -294,7 +318,56 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
       refute row.browsable
 
       refute row.pooled,
-             "the question was withheld for containing a name, but the answer WRITTEN FROM IT kept serving strangers"
+             "the question was withheld for naming a person, but the answer WRITTEN FROM IT reached the commons"
+    end
+
+    # A pre-existing row that IS already pooled (written before the gate was
+    # inverted, or by an older code path) still gets pulled on an unambiguous "yes".
+    test "an already-pooled crew row is pulled from the pool on a 'yes'" do
+      stub_llm("yes")
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "Can Marcus's wizard counterspell mine?",
+          answer: "Marcus's wizard can indeed counterspell a counterspell.",
+          browsable: false
+        )
+
+      # The pre-inversion shape: in the pool, unscreened.
+      Repo.update_all(
+        from(q in RuleMaven.Games.QuestionLog, where: q.id == ^ql.id),
+        set: [pooled: true]
+      )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+
+      refute Repo.reload!(ql).pooled
+    end
+
+    # Destroying an answer requires an unambiguous "yes". A hedge, a sentence, an
+    # empty reply — none of them prove anything, and un-pooling is irreversible
+    # (nothing ever re-pools an existing row). Withhold, but do not destroy.
+    test "an unreadable reply withholds the question but leaves the answer alone" do
+      stub_llm("Sure! Probably not.")
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "May a player retract a move?",
+          browsable: false
+        )
+
+      Repo.update_all(
+        from(q in RuleMaven.Games.QuestionLog, where: q.id == ^ql.id),
+        set: [pooled: true]
+      )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+
+      row = Repo.reload!(ql)
+      refute row.browsable, "a garbage reply must not publish"
+
+      assert row.pooled,
+             "a garbage reply permanently destroyed a good crew answer — nothing ever re-pools a row"
     end
 
     # The answer is screened alongside the question. `recent_context` feeds the RAW

@@ -54,7 +54,9 @@ defmodule RuleMavenWeb.GameExpansionsToolTest do
     |> element(~s|.card-menu__item[phx-click="open_tool"][phx-value-tool="expansions"]|)
     |> render_click()
 
-    view |> element(~s|[phx-click="toggle_expansion"][phx-value-id="#{exp.id}"]|) |> render_click()
+    view
+    |> element(~s|[phx-click="toggle_expansion"][phx-value-id="#{exp.id}"]|)
+    |> render_click()
 
     assert RuleMaven.Games.get_expansion_selection(user.id, base.id) == [exp.id]
   end
@@ -67,7 +69,9 @@ defmodule RuleMavenWeb.GameExpansionsToolTest do
     |> element(~s|.card-menu__item[phx-click="open_tool"][phx-value-tool="expansions"]|)
     |> render_click()
 
-    view |> element(~s|[phx-click="toggle_expansion"][phx-value-id="#{exp.id}"]|) |> render_click()
+    view
+    |> element(~s|[phx-click="toggle_expansion"][phx-value-id="#{exp.id}"]|)
+    |> render_click()
 
     assert RuleMaven.Games.get_expansion_selection(user.id, base.id) == [exp.id]
   end

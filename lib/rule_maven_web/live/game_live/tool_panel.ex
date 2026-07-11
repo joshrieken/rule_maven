@@ -210,7 +210,9 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
       <%= if phase do %>
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.65rem;color:var(--text-muted);font-weight:600;margin-bottom:0.4rem">
-            <span>{if phase_count > 1, do: "Phase #{@turn_phase + 1} of #{phase_count}", else: "Your turn"}</span>
+            <span>{if phase_count > 1,
+              do: "Phase #{@turn_phase + 1} of #{phase_count}",
+              else: "Your turn"}</span>
             <button
               :if={@turn_phase > 0}
               type="button"
@@ -221,7 +223,10 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
           <p style="font-size:0.9rem;font-weight:700;color:var(--text);margin:0 0 0.15rem">
             {phase["name"]}
           </p>
-          <p :if={phase["note"] not in [nil, ""]} style="font-size:0.75rem;color:var(--text-secondary);margin:0 0 0.5rem;line-height:1.45">
+          <p
+            :if={phase["note"] not in [nil, ""]}
+            style="font-size:0.75rem;color:var(--text-secondary);margin:0 0 0.5rem;line-height:1.45"
+          >
             {phase["note"]}
           </p>
           <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.5rem">
@@ -230,12 +235,18 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
               style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.55rem"
             >
               <div style="font-size:0.82rem;font-weight:600;color:var(--text)">{a["label"]}</div>
-              <div :if={a["rule"] not in [nil, ""]} style="font-size:0.76rem;color:var(--text-secondary);line-height:1.45;margin-top:0.1rem">
+              <div
+                :if={a["rule"] not in [nil, ""]}
+                style="font-size:0.76rem;color:var(--text-secondary);line-height:1.45;margin-top:0.1rem"
+              >
                 {a["rule"]}
               </div>
             </div>
           </div>
-          <div :if={phase_count > 1} style="display:flex;justify-content:space-between;gap:0.5rem;margin-top:0.7rem">
+          <div
+            :if={phase_count > 1}
+            style="display:flex;justify-content:space-between;gap:0.5rem;margin-top:0.7rem"
+          >
             <button
               type="button"
               phx-click="turn_prev"
@@ -264,7 +275,14 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
     <% else %>
       <dl style="margin:0;display:flex;flex-direction:column;gap:0.5rem">
         <div
-          :for={{k, emoji, label} <- [{"goal", "🎯", "Goal"}, {"loop", "🔁", "On your turn"}, {"win", "🏆", "Winning"}, {"trap", "⚠️", "Don't forget"}]}
+          :for={
+            {k, emoji, label} <- [
+              {"goal", "🎯", "Goal"},
+              {"loop", "🔁", "On your turn"},
+              {"win", "🏆", "Winning"},
+              {"trap", "⚠️", "Don't forget"}
+            ]
+          }
           :if={@teach_pitch[k]}
           style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.55rem"
         >
@@ -398,7 +416,8 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
         phx-update="ignore"
         data-game={@game.id}
         data-categories={Jason.encode!(@score_categories)}
-      ></div>
+      >
+      </div>
     <% end %>
     """
   end

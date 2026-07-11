@@ -2,6 +2,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   use RuleMavenWeb, :live_view
 
   alias RuleMaven.{Audit, Games, Users}
+  alias RuleMaven.Games.QuestionLog
 
   @impl true
   def mount(_params, _session, socket) do
@@ -459,12 +460,12 @@ defmodule RuleMavenWeb.AdminLive.Questions do
             >
               <%= if @expanded_id == q.id do %>
                 <span style="font-size:0.82rem;color:var(--text);line-height:1.45;word-break:break-word;display:block">
-                  {q.question}
+                  {QuestionLog.listed_question(q)}
                 </span>
                 <span style="font-size:0.6rem;color:var(--text-muted);display:block;margin-top:0.2rem">▴ hide</span>
               <% else %>
                 <span style="font-size:0.82rem;color:var(--text);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                  {q.question}
+                  {QuestionLog.listed_question(q)}
                 </span>
                 <span style="font-size:0.6rem;color:var(--text-muted);display:block;margin-top:0.1rem">▾ answer</span>
               <% end %>

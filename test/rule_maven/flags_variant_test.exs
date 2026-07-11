@@ -20,7 +20,10 @@ defmodule RuleMaven.FlagsVariantTest do
   end
 
   defp count_rows(exp) do
-    RuleMaven.Repo.aggregate(from(a in ExperimentAssignment, where: a.experiment == ^to_string(exp)), :count)
+    RuleMaven.Repo.aggregate(
+      from(a in ExperimentAssignment, where: a.experiment == ^to_string(exp)),
+      :count
+    )
   end
 
   test "variant is :control when the gate is off, and records it" do
@@ -80,8 +83,10 @@ defmodule RuleMaven.FlagsVariantTest do
     u1 = user()
     u2 = user()
     {:ok, _} = Flags.grant_actor(@exp, u1)
-    Flags.variant(@exp, u1)  # treatment
-    Flags.variant(@exp, u2)  # control
+    # treatment
+    Flags.variant(@exp, u1)
+    # control
+    Flags.variant(@exp, u2)
 
     counts = Flags.assignment_counts(@exp)
     assert counts.treatment == 1

@@ -81,7 +81,11 @@ defmodule RuleMaven.GamesExpansionLinksTest do
       assert Games.expansions_with_documents(ctx.base1) == []
 
       {:ok, doc} =
-        Games.create_document(%{game_id: ctx.exp.id, label: "Promo rules", full_text: "some promo rules text"})
+        Games.create_document(%{
+          game_id: ctx.exp.id,
+          label: "Promo rules",
+          full_text: "some promo rules text"
+        })
 
       {:ok, _} = Games.update_document(doc, %{status: "published"})
       assert Enum.map(Games.expansions_with_documents(ctx.base1), & &1.id) == [ctx.exp.id]
@@ -130,7 +134,8 @@ defmodule RuleMaven.GamesExpansionLinksTest do
       assert no_pull_counts[other_base.id] == nil
     end
 
-    test "expansion_with_doc_counts counts distinct expansions with published docs per base", ctx do
+    test "expansion_with_doc_counts counts distinct expansions with published docs per base",
+         ctx do
       {:ok, doc1} =
         Games.create_document(%{
           game_id: ctx.exp.id,

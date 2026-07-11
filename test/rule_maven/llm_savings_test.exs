@@ -43,7 +43,13 @@ defmodule RuleMaven.LLMSavingsTest do
 
     test "records a prompt_cache row when cached tokens are present" do
       usage = %{prompt: 5000, completion: 200, total: 5200, cached: 4000}
-      assert :ok = LLM.record_call_savings("google/gemini-2.5-flash", [operation: "ask", game_id: nil], usage)
+
+      assert :ok =
+               LLM.record_call_savings(
+                 "google/gemini-2.5-flash",
+                 [operation: "ask", game_id: nil],
+                 usage
+               )
 
       row = Repo.one(from s in Savings, where: s.kind == "prompt_cache")
       assert row.estimated_tokens == 4000
@@ -57,7 +63,13 @@ defmodule RuleMaven.LLMSavingsTest do
     end
 
     test "nil usage writes no prompt_cache row and returns :ok" do
-      assert :ok = RuleMaven.LLM.record_call_savings("google/gemini-2.5-flash", [operation: "ask"], nil)
+      assert :ok =
+               RuleMaven.LLM.record_call_savings(
+                 "google/gemini-2.5-flash",
+                 [operation: "ask"],
+                 nil
+               )
+
       assert Repo.one(from s in Savings, where: s.kind == "prompt_cache") == nil
     end
   end
@@ -92,8 +104,13 @@ defmodule RuleMaven.LLMSavingsTest do
 
     defp log!(op, p, c) do
       Repo.insert!(%LLM.Log{
-        provider: "test", model: "google/gemini-2.5-flash", operation: op,
-        prompt_tokens: p, completion_tokens: c, total_tokens: p + c, success: true
+        provider: "test",
+        model: "google/gemini-2.5-flash",
+        operation: op,
+        prompt_tokens: p,
+        completion_tokens: c,
+        total_tokens: p + c,
+        success: true
       })
     end
 
@@ -115,8 +132,18 @@ defmodule RuleMaven.LLMSavingsTest do
   describe "summary/1" do
     test "headline excludes cheap_route" do
       Savings.record("cache_hit", %{operation: "ask", estimated_tokens: 100, estimated_usd: 0.10})
-      Savings.record("prompt_cache", %{operation: "ask", estimated_tokens: 50, estimated_usd: 0.05})
-      Savings.record("cheap_route", %{operation: "suggest_questions", estimated_tokens: 999, estimated_usd: 9.99})
+
+      Savings.record("prompt_cache", %{
+        operation: "ask",
+        estimated_tokens: 50,
+        estimated_usd: 0.05
+      })
+
+      Savings.record("cheap_route", %{
+        operation: "suggest_questions",
+        estimated_tokens: 999,
+        estimated_usd: 9.99
+      })
 
       s = Savings.summary(30)
       assert_in_delta s.headline_usd, 0.15, 0.0001

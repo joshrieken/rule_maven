@@ -88,7 +88,12 @@ defmodule RuleMaven.Workers.VoiceSuggestionsWorker do
               Enum.map(voices, &Map.put(&1, :vetted, MapSet.member?(safe, &1.slug)))
 
             {:error, reason} ->
-              Jobs.event(run, :warn, "Style vet failed (#{inspect(reason)}) — all voices take the restyle path for now.")
+              Jobs.event(
+                run,
+                :warn,
+                "Style vet failed (#{inspect(reason)}) — all voices take the restyle path for now."
+              )
+
               voices
           end
 

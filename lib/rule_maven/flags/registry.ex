@@ -42,7 +42,12 @@ defmodule RuleMaven.Flags.Registry do
   ]
 
   @experiments [
-    %{id: :exp_ask_pipeline, label: "Experiment: new ask pipeline", kind: :experiment, default: false}
+    %{
+      id: :exp_ask_pipeline,
+      label: "Experiment: new ask pipeline",
+      kind: :experiment,
+      default: false
+    }
   ]
 
   @flags @tool_flags ++ @kill_switches ++ @experiments

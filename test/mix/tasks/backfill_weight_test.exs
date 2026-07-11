@@ -28,8 +28,8 @@ defmodule Mix.Tasks.RuleMaven.BackfillWeightTest do
 
     Mix.Tasks.RuleMaven.BackfillWeight.run([])
 
-    assert_enqueued worker: BggEnrichWorker, args: %{game_id: needs_backfill.id}
-    refute_enqueued worker: BggEnrichWorker, args: %{game_id: already_set.id}
-    refute_enqueued worker: BggEnrichWorker, args: %{game_id: no_bgg_id.id}
+    assert_enqueued(worker: BggEnrichWorker, args: %{game_id: needs_backfill.id})
+    refute_enqueued(worker: BggEnrichWorker, args: %{game_id: already_set.id})
+    refute_enqueued(worker: BggEnrichWorker, args: %{game_id: no_bgg_id.id})
   end
 end

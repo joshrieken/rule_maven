@@ -405,18 +405,18 @@ defmodule RuleMavenWeb.SettingsLive do
             <h3 class="font-semibold text-sm mb-2">By Provider</h3>
             <div style="overflow-x:auto">
               <table style="width:100%;font-size:0.8rem">
-              <tr style="text-align:left;border-bottom:1px solid var(--border)">
-                <th style="padding:0.25rem 0.5rem">Provider</th>
-                <th style="padding:0.25rem 0.5rem">Requests</th>
-                <th style="padding:0.25rem 0.5rem">Tokens</th>
-              </tr>
-              <%= for p <- @usage_stats.by_provider do %>
-                <tr>
-                  <td style="padding:0.25rem 0.5rem">{p.provider}</td>
-                  <td style="padding:0.25rem 0.5rem">{p.requests}</td>
-                  <td style="padding:0.25rem 0.5rem">{p.tokens}</td>
+                <tr style="text-align:left;border-bottom:1px solid var(--border)">
+                  <th style="padding:0.25rem 0.5rem">Provider</th>
+                  <th style="padding:0.25rem 0.5rem">Requests</th>
+                  <th style="padding:0.25rem 0.5rem">Tokens</th>
                 </tr>
-              <% end %>
+                <%= for p <- @usage_stats.by_provider do %>
+                  <tr>
+                    <td style="padding:0.25rem 0.5rem">{p.provider}</td>
+                    <td style="padding:0.25rem 0.5rem">{p.requests}</td>
+                    <td style="padding:0.25rem 0.5rem">{p.tokens}</td>
+                  </tr>
+                <% end %>
               </table>
             </div>
           </div>

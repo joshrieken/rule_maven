@@ -67,7 +67,9 @@ defmodule RuleMaven.LLMUserAttributionTest do
 
   describe "Voices.restyle/5 attribution" do
     test "a fresh restyle logs the requesting user's user_id on the \"voice\" row" do
-      mock_llm(fn _body -> {:ok, %{answer: "A pirate's take on the rule.", finish_reason: "stop"}} end)
+      mock_llm(fn _body ->
+        {:ok, %{answer: "A pirate's take on the rule.", finish_reason: "stop"}}
+      end)
 
       {:ok, game} = Games.create_game(%{name: "AttribVoiceGame"})
       u = user("attrib_restyler")

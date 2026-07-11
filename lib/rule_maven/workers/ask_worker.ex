@@ -47,7 +47,8 @@ defmodule RuleMaven.Workers.AskWorker do
     # answers "yes, contribute" — so an admin re-queue (AdminLive.Security's
     # unblock) would put an answer the crew explicitly withdrew straight back into
     # the commons. The row's own closed flag is the only surviving marker.
-    withdrawn? = retracted?(question_log_id) or (is_nil(group_id) and not row_browsable?(question_log_id))
+    withdrawn? =
+      retracted?(question_log_id) or (is_nil(group_id) and not row_browsable?(question_log_id))
 
     # Folds in the per-group community-contribution switch (Task 6's composer
     # toggle sets `never_pool` directly for a one-off "keep this in the crew"
@@ -397,8 +398,7 @@ defmodule RuleMaven.Workers.AskWorker do
                     # Recorded from the normalize step itself, not re-derived from
                     # the text afterwards. `skip_normalize` never normalizes, so
                     # this is false on that path by construction.
-                    question_normalized:
-                      not skip_normalize and llm_result[:normalized] == true
+                    question_normalized: not skip_normalize and llm_result[:normalized] == true
                   }
 
                   case Games.log_question_update(ql, update_attrs) do
@@ -439,19 +439,34 @@ defmodule RuleMaven.Workers.AskWorker do
                              ) do
                             :ok
                           else
-                            # `mark_pooled/1` silently no-ops when the citation isn't
-                            # grounded, so check what it actually did: an unpooled row
-                            # never surfaces cross-user, and running the publish check
-                            # on it would burn an LLM call and could flip `browsable`
-                            # true on a row that isn't even in the pool.
-                            pooled_row = Games.mark_pooled(updated)
-
-                            # A group row's canonical text must clear the publish
-                            # check before it may be listed publicly. `skip_normalize`
-                            # rows are excluded outright: on that path the canonical
-                            # text IS the raw user text, which must never publish.
-                            if pooled_row.pooled && group_id && not skip_normalize do
-                              RuleMaven.Workers.PublishCheckWorker.enqueue(question_log_id)
+                            if group_id do
+                              # A CREW row does not enter the pool here. It enters the
+                              # pool by CLEARING THE SCREEN, and not before.
+                              #
+                              # This used to `mark_pooled` inline and enqueue the check
+                              # afterwards — pool first, revoke later. That inverts the
+                              # invariant. It left the answer serving every stranger
+                              # during the queue hop, and if the check job was discarded
+                              # (an LLM outage burns its 3 attempts), the answer served
+                              # the commons FOREVER, never having been screened. The
+                              # moduledoc's promise that an outage degrades to "crew
+                              # questions don't get listed" was true of `browsable` and
+                              # false of `pooled` — and `pooled` is the artifact that
+                              # actually leaves the crew.
+                              #
+                              # `skip_normalize` rows are excluded outright: their text
+                              # never passed the scrub, so there is nothing to screen and
+                              # nothing that may publish.
+                              #
+                              # The crew is not deprived of its own answer: the
+                              # `active_group_id` branch of `find_pool_candidates/3`
+                              # requires `citation_valid`, NOT `pooled`.
+                              if updated.citation_valid and not skip_normalize do
+                                RuleMaven.Workers.PublishCheckWorker.enqueue(question_log_id)
+                              end
+                            else
+                              # An ordinary personal row pools as it always has.
+                              Games.mark_pooled(updated)
                             end
                           end
                         end

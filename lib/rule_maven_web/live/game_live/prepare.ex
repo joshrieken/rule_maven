@@ -207,7 +207,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         socket
       else
         socket
-        |> assign(:two_up_probe_inflight, MapSet.union(inflight, MapSet.new(pending, &elem(&1, 0))))
+        |> assign(
+          :two_up_probe_inflight,
+          MapSet.union(inflight, MapSet.new(pending, &elem(&1, 0)))
+        )
         |> start_async(:two_up_probe, fn ->
           Map.new(pending, fn {id, path} -> {id, RulebookDownloader.two_up_suspect?(path)} end)
         end)
@@ -237,7 +240,6 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   defp pdf_source?(d) do
     is_binary(d.pdf_path) and String.ends_with?(String.downcase(d.pdf_path), ".pdf")
   end
-
 
   # Table tools (sub-bar → floating windows) are shared by every game screen.
   @impl true
@@ -1936,7 +1938,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # while a regenerate job is in flight for it, so `running` must win over
   # `:done` or the chip lies about a job that's actively running.
   defp chip_style(_state, true),
-    do: "background:color-mix(in srgb,var(--accent) 20%,var(--bg-surface));color:var(--accent-ink, var(--accent))"
+    do:
+      "background:color-mix(in srgb,var(--accent) 20%,var(--bg-surface));color:var(--accent-ink, var(--accent))"
 
   defp chip_style(:done, _running),
     do: "background:color-mix(in srgb,var(--green) 20%,var(--bg-surface));color:var(--green)"

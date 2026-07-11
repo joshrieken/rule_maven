@@ -549,7 +549,10 @@ defmodule RuleMavenWeb.AdminLive.Db do
                       </td>
                     <% end %>
                     <td style="padding:0.15rem 0.3rem;border-bottom:1px solid var(--border-subtle);white-space:nowrap">
-                      <span :if={not writable?(@table_name, @current_user)} style="color:var(--text-muted)">—</span>
+                      <span
+                        :if={not writable?(@table_name, @current_user)}
+                        style="color:var(--text-muted)"
+                      >—</span>
                       <div
                         :if={writable?(@table_name, @current_user)}
                         style="display:flex;gap:0.2rem;align-items:center"

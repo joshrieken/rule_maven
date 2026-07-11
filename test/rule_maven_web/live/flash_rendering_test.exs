@@ -43,7 +43,10 @@ defmodule RuleMavenWeb.FlashRenderingTest do
   } do
     conn =
       post(conn, ~p"/reset-password/bogus-token", %{
-        "reset" => %{"password" => "newpassword1234", "password_confirmation" => "newpassword1234"}
+        "reset" => %{
+          "password" => "newpassword1234",
+          "password_confirmation" => "newpassword1234"
+        }
       })
 
     assert redirected_to(conn) == ~p"/reset-password"

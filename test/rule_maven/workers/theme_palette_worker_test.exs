@@ -9,7 +9,10 @@ defmodule RuleMaven.Workers.ThemePaletteWorkerTest do
   # insert against. Start a queueless/pluginless one under the default name so
   # the plain (unnamed) insert calls in the worker resolve for real.
   setup do
-    start_supervised!({Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false})
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
     :ok
   end
 

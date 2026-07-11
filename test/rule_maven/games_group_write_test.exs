@@ -6,7 +6,11 @@ defmodule RuleMaven.GamesGroupWriteTest do
     {:ok, user} =
       RuleMaven.Users.create_user(
         Map.merge(
-          %{username: "#{prefix}_user", email: "#{prefix}_user@test.com", password: "password1234"},
+          %{
+            username: "#{prefix}_user",
+            email: "#{prefix}_user@test.com",
+            password: "password1234"
+          },
           attrs
         )
       )

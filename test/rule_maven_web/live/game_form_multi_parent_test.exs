@@ -56,7 +56,8 @@ defmodule RuleMavenWeb.GameFormMultiParentTest do
 
     assert html =~ "Base A"
 
-    html = render_click(view, "select_parent", %{"id" => to_string(base_b.id), "name" => "Base B"})
+    html =
+      render_click(view, "select_parent", %{"id" => to_string(base_b.id), "name" => "Base B"})
 
     # Both bases should still be linked in the DB...
     assert Enum.sort(Games.base_ids_for(exp.id)) == Enum.sort([base_a.id, base_b.id])

@@ -149,7 +149,8 @@ defmodule RuleMaven.GroupGateHolesTest do
     # inside this describe so it can't fight the sandbox in the LLM.ask tests.
     setup do
       start_supervised!(
-        {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+        {Oban,
+         repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
       )
 
       :ok
@@ -364,7 +365,8 @@ defmodule RuleMaven.GroupGateHolesTest do
              "the crew member's raw wording reached the provider under a stranger's ask"
     end
 
-    test "an unscreened group row does not tiebreak at all — not even on its scrubbed text", ctx do
+    test "an unscreened group row does not tiebreak at all — not even on its scrubbed text",
+         ctx do
       # `browsable`, not `group_id`, is the flag that records the screen's
       # verdict. An unbrowsable crew row is either not yet screened or actively
       # REJECTED (the scrubber left a real name in), so even its cleaned_question
@@ -459,7 +461,8 @@ defmodule RuleMaven.GroupGateHolesTest do
       q = group_question!(ctx.game, ctx.member, ctx.grp, %{answer: "Thinking..."})
 
       start_supervised!(
-        {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+        {Oban,
+         repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
       )
 
       Application.put_env(:rule_maven, :llm_mock, fn _body ->
@@ -703,6 +706,37 @@ defmodule RuleMaven.GroupGateHolesTest do
 
       assert q.retracted_at,
              "re-enabling contribution un-withdrew a row the crew had already pulled back"
+    end
+  end
+
+  describe "a crew row is not reportable by a stranger" do
+    # `find_question_log/2` is scoped by GAME only, and `report_answer/3` had none of
+    # the reachability checks its siblings (`votable?/2`, `toggle_answer_favorite/2`)
+    # apply. So any logged-in stranger could push `open_report` with a guessed id.
+    #
+    # And one report was enough: a crew row's trust_score is 0 by construction (crew
+    # votes on an unbrowsable row are weight 0), so `pool_tier/2` reads :provisional
+    # and `maybe_auto_pull/1` sets `needs_review` on the FIRST flag — no quorum. That
+    # killed the crew's own cache, blocked re-pooling of the whole topic cluster for
+    # every user in the game, doubled the asker's abuse-risk score, and put their raw
+    # never-screened question on the moderator dashboard next to a Delete button.
+    test "a non-member cannot report a crew's unbrowsable row", ctx do
+      q = group_question!(ctx.game, ctx.member, ctx.grp)
+      stranger = create_user("report_stranger")
+
+      assert {:error, :not_found} = Games.report_answer(q.id, stranger)
+
+      refute Repo.get!(QuestionLog, q.id).needs_review,
+             "a stranger flagged a crew's private row and pulled it from the crew's own cache"
+    end
+
+    test "a crew member CAN still report their crew's row", ctx do
+      mate = create_user("report_mate")
+      {:ok, _} = Groups.join_by_code(mate, ctx.grp.invite_code)
+
+      q = group_question!(ctx.game, ctx.member, ctx.grp)
+
+      assert {:ok, _} = Games.report_answer(q.id, mate)
     end
   end
 

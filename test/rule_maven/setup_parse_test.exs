@@ -33,7 +33,11 @@ defmodule RuleMaven.SetupParseTest do
 
       assert %{"components" => comps, "setup" => steps} = Setup.parse_sections(content)
       assert comps == ["1 game board", "60 wooden pieces"]
-      assert Enum.map(steps, & &1["title"]) == ["Place the board in the center of the table", "Shuffle the deck"]
+
+      assert Enum.map(steps, & &1["title"]) == [
+               "Place the board in the center of the table",
+               "Shuffle the deck"
+             ]
     end
 
     test "recognizes the 'Game setup' header synonym" do

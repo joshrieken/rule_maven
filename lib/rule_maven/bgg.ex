@@ -321,7 +321,8 @@ defmodule RuleMaven.BGG do
     |> parse()
     |> xpath(
       ~x"//items/item"e,
-      average_weight: ~x"./statistics/ratings/averageweight/@value"s |> transform_by(&parse_float/1)
+      average_weight:
+        ~x"./statistics/ratings/averageweight/@value"s |> transform_by(&parse_float/1)
     )
     |> Map.get(:average_weight)
     |> case do

@@ -398,7 +398,14 @@ defmodule RuleMaven.HouseRulesTest do
     user = user_fixture()
     game = game_fixture()
     {:ok, hr} = HouseRules.create(user, game.id, %{"body" => "r"})
-    {:ok, _} = HouseRules.mark_checked(hr, %{verdict: "matches", raw_quote: nil, check_note: nil, citations: []})
+
+    {:ok, _} =
+      HouseRules.mark_checked(hr, %{
+        verdict: "matches",
+        raw_quote: nil,
+        check_note: nil,
+        citations: []
+      })
 
     RuleMaven.Games.invalidate_pool(game.id)
 

@@ -2,6 +2,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
   use RuleMavenWeb, :live_view
 
   alias RuleMaven.{Audit, Users, Games, Moderation, Repo}
+  alias RuleMaven.Games.QuestionLog
 
   @impl true
   def mount(_params, _session, socket) do
@@ -356,7 +357,9 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
           <%= for f <- @flagged do %>
             <div style="border:1px solid var(--border);border-radius:0.5rem;padding:0.6rem 0.75rem">
               <div style="display:flex;gap:0.5rem;align-items:baseline;justify-content:space-between">
-                <span style="font-weight:600;font-size:0.85rem">{f.question.question}</span>
+                <span style="font-weight:600;font-size:0.85rem">{QuestionLog.listed_question(
+                  f.question
+                )}</span>
                 <span style={pill("var(--danger,#c0392b)")}>{f.flag_count} flag(s)</span>
               </div>
               <p style="font-size:0.78rem;color:var(--text-muted);margin:0.3rem 0">
@@ -408,7 +411,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
           <%= for q <- @pulled do %>
             <div style="border:1px solid var(--border);border-radius:0.5rem;padding:0.6rem 0.75rem">
               <div style="display:flex;gap:0.5rem;align-items:baseline;justify-content:space-between">
-                <span style="font-weight:600;font-size:0.85rem">{q.question}</span>
+                <span style="font-weight:600;font-size:0.85rem">{QuestionLog.listed_question(q)}</span>
                 <span style={pill("var(--text-muted)")}>
                   {q.game && q.game.name} · {q.visibility}
                 </span>

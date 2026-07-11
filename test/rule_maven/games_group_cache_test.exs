@@ -91,7 +91,11 @@ defmodule RuleMaven.GamesGroupCacheTest do
     assert RuleMaven.Groups.member_of_group_id?(owner.id, grp.id)
   end
 
-  test "stale group row is excluded even with active_group_id set", %{game: g, grp: grp, owner: owner} do
+  test "stale group row is excluded even with active_group_id set", %{
+    game: g,
+    grp: grp,
+    owner: owner
+  } do
     {:ok, stale_q} =
       Games.log_question(%{
         game_id: g.id,

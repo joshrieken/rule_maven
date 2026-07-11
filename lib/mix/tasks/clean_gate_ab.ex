@@ -42,7 +42,8 @@ defmodule Mix.Tasks.CleanGateAb do
     min_tokens = opts[:min_tokens] || 8
     full_dir = if Path.type(dir) == :absolute, do: dir, else: Path.join(File.cwd!(), dir)
 
-    unless File.dir?(full_dir), do: Mix.raise("no dump dir: #{full_dir} (run mix docling_ab first)")
+    unless File.dir?(full_dir),
+      do: Mix.raise("no dump dir: #{full_dir} (run mix docling_ab first)")
 
     pages = load_pages(full_dir)
     if pages == [], do: Mix.raise("no pageN_pdftotext.md / pageN_vision.md pairs in #{full_dir}")

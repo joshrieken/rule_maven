@@ -23,7 +23,10 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
   # but HouseRules.submit/3 calls Oban.insert/1 (via HouseRuleCheckWorker),
   # which needs a named, configured instance to insert against.
   setup do
-    start_supervised!({Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false})
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
     :ok
   end
 
@@ -33,7 +36,11 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     {:ok, user} =
       RuleMaven.Users.create_user(
         Map.merge(
-          %{username: "#{prefix}_user", email: "#{prefix}_user@test.com", password: "password1234"},
+          %{
+            username: "#{prefix}_user",
+            email: "#{prefix}_user@test.com",
+            password: "password1234"
+          },
           attrs
         )
       )
@@ -54,14 +61,20 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
 
     html =
       view
-      |> form("#house-rule-form", house_rule: %{title: "No stacking", body: "Cards may not stack."})
+      |> form("#house-rule-form",
+        house_rule: %{title: "No stacking", body: "Cards may not stack."}
+      )
       |> render_submit()
 
     assert html =~ "No stacking"
     assert html =~ "pending"
 
     [hr] = HouseRules.list_for_user(game.id, user.id)
-    assert_enqueued worker: RuleMaven.Workers.HouseRuleCheckWorker, args: %{"house_rule_id" => hr.id}
+
+    assert_enqueued(
+      worker: RuleMaven.Workers.HouseRuleCheckWorker,
+      args: %{"house_rule_id" => hr.id}
+    )
   end
 
   test "owner can toggle visibility and delete", %{conn: conn} do
@@ -129,7 +142,8 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
   defp basis_vec, do: for(i <- 0..767, do: if(i == 0, do: 1.0, else: 0.0))
 
   defp overlay_setup(user, game) do
-    {:ok, hr} = HouseRules.create(user, game.id, %{"title" => "Six cards", "body" => "We deal 6 cards."})
+    {:ok, hr} =
+      HouseRules.create(user, game.id, %{"title" => "Six cards", "body" => "We deal 6 cards."})
 
     {:ok, hr} =
       HouseRules.mark_checked(hr, %{
@@ -168,7 +182,10 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     conn = login(conn, user)
 
     {:ok, view, html} =
-      live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}")
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     assert html =~ "Your house rule may change this"
     assert html =~ "Six cards"
@@ -198,7 +215,10 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
 
     # Cached note now renders instantly on a fresh load — no button, no worker.
     {:ok, _view, html2} =
-      live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}")
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     assert html2 =~ "With your house rule, you draw 6 cards."
   end
@@ -238,7 +258,10 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     conn = login(conn, user)
 
     {:ok, _view, html} =
-      live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}")
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
 
     refute html =~ "Your house rule may change this"
   end
@@ -304,7 +327,10 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     game = published_game_fixture(%{name: "Broadcast Game"})
 
     {:ok, hr} =
-      HouseRules.submit(user, game.id, %{"title" => "Override rule", "body" => "We override this."})
+      HouseRules.submit(user, game.id, %{
+        "title" => "Override rule",
+        "body" => "We override this."
+      })
 
     conn = login(conn, user)
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
@@ -331,7 +357,13 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     {:ok, hr} =
       HouseRules.submit(user, game.id, %{"title" => "Old title", "body" => "Original body."})
 
-    {:ok, hr} = HouseRules.mark_checked(hr, %{verdict: "matches", raw_quote: nil, check_note: nil, citations: []})
+    {:ok, hr} =
+      HouseRules.mark_checked(hr, %{
+        verdict: "matches",
+        raw_quote: nil,
+        check_note: nil,
+        citations: []
+      })
 
     conn = login(conn, user)
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
@@ -352,7 +384,10 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     assert updated.body == "New body text."
     assert updated.check_status == "pending"
 
-    assert_enqueued worker: RuleMaven.Workers.HouseRuleCheckWorker, args: %{"house_rule_id" => hr.id}
+    assert_enqueued(
+      worker: RuleMaven.Workers.HouseRuleCheckWorker,
+      args: %{"house_rule_id" => hr.id}
+    )
   end
 
   test "owner re-checks a stale house rule", %{conn: conn} do
@@ -363,7 +398,12 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
       HouseRules.submit(user, game.id, %{"title" => "Rule", "body" => "Some body."})
 
     {:ok, hr} =
-      HouseRules.mark_checked(hr, %{verdict: "matches", raw_quote: nil, check_note: nil, citations: []})
+      HouseRules.mark_checked(hr, %{
+        verdict: "matches",
+        raw_quote: nil,
+        check_note: nil,
+        citations: []
+      })
 
     HouseRules.mark_stale_for_game(game.id)
     hr = HouseRules.get(hr.id)
@@ -375,7 +415,11 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     render_click(view, "recheck_house_rule", %{"id" => hr.id})
 
     assert HouseRules.get(hr.id).check_status == "pending"
-    assert_enqueued worker: RuleMaven.Workers.HouseRuleCheckWorker, args: %{"house_rule_id" => hr.id}
+
+    assert_enqueued(
+      worker: RuleMaven.Workers.HouseRuleCheckWorker,
+      args: %{"house_rule_id" => hr.id}
+    )
   end
 
   test "admin sees block control; regular user doesn't", %{conn: conn} do
@@ -397,7 +441,10 @@ defmodule RuleMavenWeb.GameLiveHouseRulesTest do
     assert admin_html =~ "block_house_rule"
 
     regular_conn = login(conn, regular)
-    {:ok, regular_view, _html} = live(regular_conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
+    {:ok, regular_view, _html} =
+      live(regular_conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
+
     regular_html = render_click(regular_view, "open_tool", %{"tool" => "house_rules"})
     refute regular_html =~ "block_house_rule"
   end

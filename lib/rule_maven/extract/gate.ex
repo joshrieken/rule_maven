@@ -160,7 +160,8 @@ defmodule RuleMaven.Extract.Gate do
   comparison; a fresh read must corroborate it.
   """
   def majority(reads, threshold, opts \\ []) when is_list(reads) do
-    exclude = opts |> Keyword.get(:exclude_pairs, []) |> Enum.map(&normalize_pair/1) |> MapSet.new()
+    exclude =
+      opts |> Keyword.get(:exclude_pairs, []) |> Enum.map(&normalize_pair/1) |> MapSet.new()
 
     pairs =
       for {a, i} <- Enum.with_index(reads),

@@ -90,7 +90,8 @@ defmodule RuleMaven.Workers.AskWorkerDedupTest do
     # No cache hit (distinct question, no embeddings) → the LLM "answers"; mock it
     # to return the SAME text as the prior answer so answer-dedup fires.
     Application.put_env(:rule_maven, :llm_mock, fn _ ->
-      {:ok, %{answer: "Roll 3 dice, then move.", cited_passage: "p.1", followup: false, followups: []}}
+      {:ok,
+       %{answer: "Roll 3 dice, then move.", cited_passage: "p.1", followup: false, followups: []}}
     end)
 
     on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)

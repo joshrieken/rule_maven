@@ -4,23 +4,32 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
   before it may be listed on a public browse surface (the Unverified tab,
   community promotion).
 
-  A group row is written `browsable: false` by AskWorker. This worker is the ONLY
-  thing that flips it true, and it does so only on an unambiguous "no" from the
-  publish-check prompt. Every other outcome — "yes", a malformed reply, an LLM
-  error, a missing/nil `cleaned_question` — leaves the row unbrowsable.
+  This worker is the GATE, not an audit. A crew row reaches it `browsable: false`
+  AND `pooled: false`: AskWorker does not pool crew rows at all. Clearing the
+  screen — an unambiguous "no" — is what sets BOTH flags, in one statement. Every
+  other outcome leaves the row closed on both.
 
-  Failing closed means a worker outage degrades to "group questions don't get
-  listed", never to "group questions get listed unchecked".
+  That ordering is the whole point. It used to pool the answer inline and enqueue
+  this check afterwards, i.e. pool first and revoke later, which meant the answer
+  served every stranger during the queue hop and served them FOREVER if the check
+  job was ever discarded (an LLM outage burns its 3 attempts and Oban drops it).
+  The old promise — "a worker outage degrades to 'crew questions don't get listed',
+  never to 'crew questions get listed unchecked'" — was true of `browsable` and
+  false of `pooled`, and `pooled` is the artifact that actually leaves the crew.
+  An outage now fails closed on both.
 
-  `cleaned_question` is nil for `skip_normalize` ("Ask exactly this") rows —
-  see `RuleMaven.LLM.ask/5` and `AskWorker` — so gate 3 (skip_normalize rows
-  never publish) is enforced twice: once by the enqueue guard in AskWorker,
-  and once here by the data itself (the `is_binary` guard below rejects nil
-  before any LLM call is made).
+  A "yes" additionally PULLS an already-pooled row (a legacy row, or one pooled by
+  an older path): a "yes" is positive evidence that the text this row's answer was
+  written from names a real person. Only a bare "yes" does this — a hedge, a
+  sentence or an empty reply proves nothing, and un-pooling is irreversible, so
+  ambiguity withholds without destroying.
 
-  The row's ANSWER is unaffected: it is already `pooled` (if applicable) and
-  already serves the cross-user cache, which never exposes the asker's wording
-  or identity.
+  The crew is never deprived of its own answer: the `active_group_id` branch of
+  `find_pool_candidates/3` requires `citation_valid`, not `pooled`.
+
+  `cleaned_question` is nil for `skip_normalize` ("Ask exactly this") rows — see
+  `RuleMaven.LLM.ask/5` and `AskWorker` — so those rows never publish and never
+  pool, enforced both by the enqueue guard and by the `is_binary` guard here.
   """
   use Oban.Worker, queue: :default, max_attempts: 3
 
@@ -61,14 +70,24 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
     end
   end
 
-  # Only a POOLED group row that is still unbrowsable and actually has cleaned
-  # text is a candidate. Everything else is a no-op — including a non-group row,
-  # which must never be touched by this worker; a skip_normalize row, whose
-  # cleaned_question is nil; and an unpooled row (ungrounded citation), which
-  # never surfaces cross-user and so must never be published or billed for.
+  # A crew row that is NOT YET POOLED, still unbrowsable, carries a grounded
+  # citation, and actually has cleaned text. Everything else is a no-op — including
+  # a non-group row, which this worker must never touch; a skip_normalize row, whose
+  # cleaned_question is nil; and an ungrounded-citation row, which is not fit to
+  # serve anyone and must never be published or billed for.
+  #
+  # `pooled: false` in the head, not `true`. This worker is the GATE into the pool
+  # for a crew row, not a post-hoc audit of a row already in it: AskWorker no longer
+  # pools crew rows at all. If this job never runs, the answer never enters the
+  # commons — which is what "fails closed" has to mean for the artifact that
+  # actually leaves the crew.
   defp screen(
-         %QuestionLog{group_id: gid, browsable: false, pooled: true, cleaned_question: cleaned} =
-           ql,
+         %QuestionLog{
+           group_id: gid,
+           browsable: false,
+           citation_valid: true,
+           cleaned_question: cleaned
+         } = ql,
          oban_id
        )
        when not is_nil(gid) and is_binary(cleaned) do
@@ -194,10 +213,25 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
         _ -> []
       end)
 
-    ([cleaned | extras] ++ [answer])
-    |> Enum.filter(&is_binary/1)
-    |> Enum.reject(&(String.trim(&1) in ["", "Thinking..."]))
-    |> Enum.join("\n")
+    # LABELLED, not concatenated. The prompt is asked to distinguish a real person
+    # from an in-game character, and a rules answer is wall-to-wall in-game proper
+    # nouns ("Professor Plum", "the Vagabond"). Dumping an answer into a slot named
+    # `Question:` invited the model to read every one of them as a person's name —
+    # and the prompt's own tiebreak is "when uncertain, answer yes". Combined with a
+    # "yes" now un-pooling the answer, that would have systematically destroyed the
+    # crew contributions this feature exists to produce.
+    question_block =
+      [cleaned | extras]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.reject(&(String.trim(&1) == ""))
+      |> Enum.join("\n")
+
+    answer_block =
+      if is_binary(answer) and String.trim(answer) not in ["", "Thinking..."],
+        do: "\n\nANSWER:\n#{answer}",
+        else: ""
+
+    "QUESTION:\n#{question_block}#{answer_block}"
   end
 
   # Fail closed: ONLY a bare "no" publishes. Anything else — "yes", a hedge, a
@@ -206,6 +240,21 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
     normalized =
       reply |> to_string() |> String.trim() |> String.downcase() |> String.trim_trailing(".")
 
+    # Two decisions, two directions, and BOTH fail closed — which means they cannot
+    # share a branch.
+    #
+    #   publish (open the gate)      : requires a bare "no".
+    #   un-pool (destroy the answer) : requires a bare "yes".
+    #
+    # Un-pooling used to hang off the `else` of "is it 'no'?", i.e. it fired on a
+    # hedge, a sentence, an empty string, "**no**", a stray leading newline — every
+    # reply that proves NOTHING. Withholding on those is free and reversible;
+    # un-pooling is neither. Nothing in the system ever re-pools an existing row
+    # (`mark_pooled/1` only runs on the row AskWorker just answered), so one flaky
+    # reply from the cheap model permanently evicted a perfectly good crew answer
+    # from the commons — while the job log claimed the screen had "flagged" it.
+    #
+    # Ambiguity now means "leave it exactly as it was".
     if normalized == "no" do
       # A conditional UPDATE, not a changeset write on the row we loaded before a
       # multi-second LLM call. `retract_contributions/1` (contribute-off, group
@@ -219,6 +268,8 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
       # `pooled: true` sitting there and publish the text of a withdrawn question.
       # Consent is asked for directly now: the row's own retraction stamp, and the
       # group's live `contribute_to_community` flag joined in at update time.
+      # Clearing the screen is what puts the answer INTO the pool and the question
+      # onto the browse — one statement, both flags, or neither.
       {published, _} =
         Repo.update_all(
           from(q in QuestionLog,
@@ -226,53 +277,59 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
             on: g.id == q.group_id,
             where: q.id == ^ql.id,
             where: q.browsable == false,
-            where: q.pooled == true,
+            where: q.citation_valid == true,
             where: is_nil(q.retracted_at),
             where: g.contribute_to_community == true
           ),
-          set: [browsable: true]
+          set: [browsable: true, pooled: true]
         )
 
       if published == 1 do
         Jobs.finish_run(run, "done", "Cleared — published.")
       else
-        Jobs.finish_run(run, "done", "Cleared, but the row was withdrawn meanwhile — not published.")
-      end
-    else
-      # A "yes" is not merely "don't list the question". It is the system PROVING
-      # that the scrub failed: the screen looked at the text this row's answer was
-      # generated from and found a person in it. Leaving `pooled` alone at that
-      # exact moment was the one place the gate had hard evidence and ignored it.
-      #
-      # The answer is the artifact that actually leaves the crew — it feeds the
-      # cross-user cache by design, on the premise that it carries no personal text.
-      # That premise is exactly what a "yes" just falsified: the answer prompt's
-      # ARGUMENT-SETTLING rule copies the disputing players' names into the answer
-      # ("or the stated names"), so "Can Marcus's wizard counterspell mine?" comes
-      # back as "Marcus's wizard can indeed…" and went on being served to strangers
-      # as a cache hit while the question sat politely withheld.
-      #
-      # Un-pool it. The crew keeps its own answer — the `active_group_id` branch of
-      # `find_pool_candidates/3` does not require `pooled` — so nothing is lost to
-      # the people who asked; it just stops being everyone else's.
-      {unpooled, _} =
-        Repo.update_all(
-          from(q in QuestionLog,
-            where: q.id == ^ql.id,
-            where: q.pooled == true,
-            where: not is_nil(q.group_id)
-          ),
-          set: [pooled: false]
-        )
-
-      if unpooled == 1 do
         Jobs.finish_run(
           run,
           "done",
-          "Not cleared — question withheld AND the answer pulled from the pool (it was written from text the screen just flagged)."
+          "Cleared, but the row was withdrawn meanwhile — not published."
         )
+      end
+    else
+      # An unambiguous "yes" is the system PROVING the scrub failed: the screen read
+      # the text this row's answer was generated from and found a real person in it.
+      # The answer is the artifact that actually leaves the crew — it feeds the
+      # cross-user cache by design, on the premise that it carries no personal text,
+      # and a "yes" is precisely the falsification of that premise. So pull it: the
+      # crew keeps its own answer (the `active_group_id` branch of
+      # `find_pool_candidates/3` does not require `pooled`), it just stops being
+      # everyone else's.
+      #
+      # ONLY on a bare "yes". Anything else is withheld but left intact — see above.
+      if normalized == "yes" do
+        {unpooled, _} =
+          Repo.update_all(
+            from(q in QuestionLog,
+              where: q.id == ^ql.id,
+              where: q.pooled == true,
+              where: not is_nil(q.group_id)
+            ),
+            set: [pooled: false]
+          )
+
+        if unpooled == 1 do
+          Jobs.finish_run(
+            run,
+            "done",
+            "Flagged — question withheld AND the answer pulled from the pool (it was written from text the screen flagged)."
+          )
+        else
+          Jobs.finish_run(run, "done", "Flagged — left unbrowsable.")
+        end
       else
-        Jobs.finish_run(run, "done", "Not cleared — left unbrowsable.")
+        Jobs.finish_run(
+          run,
+          "done",
+          "Unreadable reply (#{inspect(String.slice(normalized, 0, 40))}) — left unbrowsable, answer untouched."
+        )
       end
     end
 

@@ -44,7 +44,9 @@ defmodule RuleMavenWeb.CheatSheetController do
     content =
       Enum.find_value(docs, fn doc ->
         active = CheatSheet.active_version(doc.id)
-        if active, do: serve_content(conn, game.name, active.content <> delta_markdown(conn, game))
+
+        if active,
+          do: serve_content(conn, game.name, active.content <> delta_markdown(conn, game))
       end)
 
     if content do

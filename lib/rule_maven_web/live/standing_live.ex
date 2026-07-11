@@ -112,7 +112,9 @@ defmodule RuleMavenWeb.StandingLive do
         </div>
         <div style="border:1px solid var(--border);border-radius:0.75rem;padding:0.9rem 1rem;background:var(--bg-surface)">
           <div style="font-size:1.4rem;font-weight:800">{@asker.fresh}</div>
-          <div style="font-size:0.75rem;color:var(--text-muted)">first-asks (nobody asked before)</div>
+          <div style="font-size:0.75rem;color:var(--text-muted)">
+            first-asks (nobody asked before)
+          </div>
         </div>
         <div style="border:1px solid var(--border);border-radius:0.75rem;padding:0.9rem 1rem;background:var(--bg-surface)">
           <div style="font-size:1.4rem;font-weight:800">{@asker.streak}</div>

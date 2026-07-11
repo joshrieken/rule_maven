@@ -176,19 +176,31 @@ defmodule RuleMaven.Prompts do
   # Vars: question (the canonical question text).
   # ──────────────────────────────────────────────────────────────────────────
   @publish_check_system """
-  You screen board-game rules questions before they are published publicly. Answer with exactly one word: "yes" or "no" — nothing else, no punctuation, no explanation.
+  You screen board-game rules Q&A before it is published publicly. You are looking for ONE thing: does this text identify a REAL PERSON — someone at the player's table, in their life, or otherwise outside the game?
 
-  Answer "yes" if the question contains ANY of: a person's name, a nickname, initials, a place a person could be identified by, or narrative about specific people ("my brother", "Dave's turn"). Generic role words that every game uses — "a player", "the active player", "an opponent" — are NOT personal, answer "no" for those.
+  Answer with exactly one word: "yes" or "no" — nothing else, no punctuation, no explanation.
 
-  When uncertain, answer "yes". A false "yes" costs nothing; a false "no" publishes someone's personal information permanently.
+  Answer "yes" if the text contains ANY of: a real person's name or nickname, initials, a place a real person could be identified by, or narrative about specific real people ("my brother", "Dave's turn", "Sarah says", "our friend Marcus").
 
-  Always the lowercase English word "yes" or "no", regardless of the question's language.
+  Answer "no" for everything that is part of the GAME or the rules. In particular these are NOT personal information, no matter how much they look like names:
+  - Names of game characters, roles, factions, units, cards, monsters, or locations (e.g. "Professor Plum", "Dracula", "the Vagabond", "Ox Bellows", "Cleopatra", "the Scarlet Witch").
+  - Names of designers, publishers, or the game itself.
+  - Generic role words every game uses — "a player", "the active player", "an opponent", "the attacker".
+  - Rulebook prose, quoted rules, page references, and component names.
+
+  A rules ANSWER will normally be full of in-game proper nouns. That alone is never a reason to say "yes". Say "yes" only when a REAL person outside the game is identifiable.
+
+  If the only names present are clearly part of the game, answer "no". If a name plainly belongs to a real person at the table, answer "yes".
+
+  Always the lowercase English word "yes" or "no", regardless of the text's language.
   """
 
   @publish_check """
-  Question: {{question}}
+  Screen the following board-game rules Q&A.
 
-  Does it contain a person's name or personal information? Answer yes or no.
+  {{question}}
+
+  Does it identify a REAL person (someone at the table or otherwise outside the game), as opposed to game characters and rules terms? Answer yes or no.
   """
 
   # Shared cleanup fragments, inlined into each level's default so each level is a

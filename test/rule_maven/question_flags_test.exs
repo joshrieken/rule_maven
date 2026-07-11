@@ -18,7 +18,13 @@ defmodule RuleMaven.QuestionFlagsTest do
         game_id: game.id,
         question: "How does scoring work?",
         answer: "You count points.",
-        user_id: author && author.id
+        user_id: author && author.id,
+        # A reportable row is one the reporter could actually have SEEN: an answer
+        # served to them from the pool, or a community row. A private, unpooled row
+        # surfaces to nobody, and reporting it by id is the IDOR that
+        # reject_unreachable_report/2 closes.
+        pooled: true,
+        citation_valid: true
       })
 
     q

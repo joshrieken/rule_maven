@@ -567,6 +567,9 @@ defmodule RuleMavenWeb.GameLive.Show do
         role: :user,
         content: shown_question(g.primary, current_user_id),
         cleaned_question: g.primary.cleaned_question,
+        # Carried so build_recent_pairs/1 can tell whether this turn was actually
+        # scrubbed before quoting it into another ask's prompt.
+        question_normalized: g.primary.question_normalized,
         # The RAW question is the asker's verbatim prose. Only ever hand it to
         # the person who typed it: an admin, or a row pulled in by an upvote,
         # must never see another user's original wording (that is the whole
@@ -1974,8 +1977,8 @@ defmodule RuleMavenWeb.GameLive.Show do
               # commons through the side door: the crew pulled it, and copying the
               # text into a fresh row does not un-pull it.
               never_pool:
-                (protect_existing? || false) or (socket.assigns[:keep_in_crew] || false) or
-                  (old_q && not is_nil(old_q.retracted_at)) || false,
+                ((protect_existing? || false) or (socket.assigns[:keep_in_crew] || false) or
+                   (old_q && not is_nil(old_q.retracted_at))) || false,
               # Without the voice a persona user's regenerate skips the
               # single-call persona path and pays a separate restyle call.
               voice: socket.assigns.default_voice
@@ -2178,6 +2181,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               msg
               |> Map.put(:content, shown_question(ql, socket.assigns.current_user.id))
               |> Map.put(:cleaned_question, ql.cleaned_question)
+              |> Map.put(:question_normalized, ql.question_normalized)
               |> Map.put(
                 :original_question,
                 own_raw_question(ql, socket.assigns.current_user.id)
@@ -4529,29 +4533,39 @@ defmodule RuleMavenWeb.GameLive.Show do
     msgs
     |> Enum.zip(Enum.drop(msgs, 1))
     |> Enum.filter(fn {a, b} -> a.role == :user && b.role == :assistant end)
+    # A turn whose text was never scrubbed is DROPPED from the context, not
+    # substituted. Preferring `cleaned_question` and falling back to `content` was
+    # a no-op on exactly the turns that matter: a `skip_normalize` row stores
+    # `cleaned_question: nil`, so it fell straight back to `content` — which is
+    # `display_question/1` for your own row, i.e. the RAW column. It only ever
+    # substituted clean text for rows that were already clean.
+    #
+    # This matters because the NEXT turn's answer is generated with this text in
+    # its prompt, and that next turn pools and publishes on the strength of its
+    # OWN clean question. Ask turn 1 verbatim in a crew, then ask an innocuous
+    # turn 2 — even with the crew switched off, since the thread's conversation
+    # survives in the socket — and turn 1's names ride into the commons inside
+    # turn 2's answer, on a row the publish screen never even looks at.
+    |> Enum.filter(fn {user, _asst} -> scrubbed_turn?(user) end)
     |> Enum.map(fn {user, asst} -> %{q: recent_q(user), a: asst.content} end)
     |> Enum.take(-2)
   end
 
-  # The SCRUBBED form of the prior turn, never the rendered bubble.
-  #
-  # `content` is `shown_question/2`, which for the reader's OWN row is
-  # `display_question/1` — i.e. the raw column. These pairs are shipped into the
-  # answer system prompt (`RECENT CONVERSATION`), so the raw text of turn 1 was
-  # reaching the model that writes turn 2's answer — and turn 2's answer pools and
-  # publishes on the strength of turn 2's own clean question. A crew member could
-  # ask turn 1 verbatim ("Dave says my rogue can sneak past…"), which round 7
-  # correctly keeps out of the pool, and then launder the name into the commons
-  # through an innocuous turn 2 in the same thread.
-  #
-  # `cleaned_question` is what normalize produced, which is the form the pool and
-  # the publish gate are built around; falling back to `content` keeps pronoun
-  # resolution working for rows that have no scrub (they carry no answer yet).
-  defp recent_q(%{cleaned_question: cleaned}) when is_binary(cleaned) do
-    if String.trim(cleaned) == "", do: "", else: cleaned
-  end
+  # Only a turn the normalize step actually rewrote may be quoted into another
+  # ask's prompt. The optimistic/pending message maps carry no `:question_normalized`
+  # key at all, and a map pattern simply fails to match — so they are dropped too,
+  # which is right: they have no answer yet and nothing to contribute as context.
+  defp scrubbed_turn?(%{question_normalized: true, cleaned_question: cleaned})
+       when is_binary(cleaned),
+       do: String.trim(cleaned) != ""
 
-  defp recent_q(msg), do: msg.content
+  defp scrubbed_turn?(_msg), do: false
+
+  # The SCRUBBED form of the prior turn. `scrubbed_turn?/1` has already guaranteed
+  # this row was really normalized, so there is no fallback to `content` (the
+  # rendered bubble, which is the raw column for your own row) — that fallback was
+  # the bug.
+  defp recent_q(%{cleaned_question: cleaned}) when is_binary(cleaned), do: cleaned
 
   defp find_question_for_answer(conversation, assistant_msg) do
     {_, question} =

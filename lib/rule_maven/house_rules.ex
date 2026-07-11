@@ -30,8 +30,7 @@ defmodule RuleMaven.HouseRules do
   def community_for_game(game_id, exclude_user_id \\ nil) do
     base =
       from h in HouseRule,
-        where:
-          h.game_id == ^game_id and h.visibility == "community" and h.blocked == false,
+        where: h.game_id == ^game_id and h.visibility == "community" and h.blocked == false,
         order_by: [desc: h.inserted_at]
 
     query =

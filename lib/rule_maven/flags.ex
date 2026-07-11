@@ -69,9 +69,14 @@ defmodule RuleMaven.Flags do
     Registry.fetch!(flag)
 
     cond do
-      ratio <= 0 -> FunWithFlags.clear(flag, for_percentage: true)
-      ratio >= 1 -> raise ArgumentError, "percentage must be < 1.0 (use the boolean toggle for 100%)"
-      true -> FunWithFlags.enable(flag, for_percentage_of: {:actors, ratio / 1})
+      ratio <= 0 ->
+        FunWithFlags.clear(flag, for_percentage: true)
+
+      ratio >= 1 ->
+        raise ArgumentError, "percentage must be < 1.0 (use the boolean toggle for 100%)"
+
+      true ->
+        FunWithFlags.enable(flag, for_percentage_of: {:actors, ratio / 1})
     end
   end
 
@@ -90,10 +95,17 @@ defmodule RuleMaven.Flags do
 
     Enum.reduce(gate_list, %{boolean: nil, percentage: nil, actors: []}, fn gate, acc ->
       case gate do
-        %FunWithFlags.Gate{type: :boolean, enabled: e} -> %{acc | boolean: e}
-        %FunWithFlags.Gate{type: :percentage_of_actors, for: r} -> %{acc | percentage: r}
-        %FunWithFlags.Gate{type: :actor, for: target, enabled: true} -> %{acc | actors: [target | acc.actors]}
-        _ -> acc
+        %FunWithFlags.Gate{type: :boolean, enabled: e} ->
+          %{acc | boolean: e}
+
+        %FunWithFlags.Gate{type: :percentage_of_actors, for: r} ->
+          %{acc | percentage: r}
+
+        %FunWithFlags.Gate{type: :actor, for: target, enabled: true} ->
+          %{acc | actors: [target | acc.actors]}
+
+        _ ->
+          acc
       end
     end)
   end
@@ -122,7 +134,8 @@ defmodule RuleMaven.Flags do
   end
 
   def variant(_flag, other) do
-    raise ArgumentError, "variant/2 expects a %RuleMaven.Users.User{} or nil, got: #{inspect(other)}"
+    raise ArgumentError,
+          "variant/2 expects a %RuleMaven.Users.User{} or nil, got: #{inspect(other)}"
   end
 
   @doc "Assignment counts per variant. %{control: n, treatment: m}."

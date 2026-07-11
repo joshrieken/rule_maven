@@ -19,10 +19,13 @@ defmodule RuleMaven.Workers.AskWorkerTimeoutTest do
 
   test "returns a timeout error when the fun overruns the cap" do
     assert {:error, reason} =
-             AskWorker.run_bounded(fn ->
-               Process.sleep(5_000)
-               {:ok, %{answer: "too late"}}
-             end, 50)
+             AskWorker.run_bounded(
+               fn ->
+                 Process.sleep(5_000)
+                 {:ok, %{answer: "too late"}}
+               end,
+               50
+             )
 
     # The word "timeout" is what the AskWorker error branch matches to flip the
     # row to the friendly "took too long" answer with error_kind "timeout".

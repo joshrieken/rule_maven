@@ -86,7 +86,11 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
       if from =~ ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/ do
         Settings.set_mail_from(from)
-        Audit.log(socket.assigns.current_user, "email.set_mail_from", metadata: %{mail_from: from})
+
+        Audit.log(socket.assigns.current_user, "email.set_mail_from",
+          metadata: %{mail_from: from}
+        )
+
         {:noreply, socket |> assign(mail_from: from) |> put_flash(:info, "Sender saved.")}
       else
         {:noreply, put_flash(socket, :error, "Enter a valid email address.")}
@@ -144,7 +148,9 @@ defmodule RuleMavenWeb.AdminLive.Index do
             type="button"
             phx-click="toggle_email"
             data-confirm={
-              if !@email_disabled, do: "Pause all outbound email (confirmation, password reset)?", else: false
+              if !@email_disabled,
+                do: "Pause all outbound email (confirmation, password reset)?",
+                else: false
             }
             class="btn-sm"
             style={"flex-shrink:0;border:1px solid #{if @email_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};color:#{if @email_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};background:none"}
@@ -176,7 +182,8 @@ defmodule RuleMavenWeb.AdminLive.Index do
           style="display:flex;align-items:center;gap:0.4rem;margin-top:0.6rem;font-size:0.75rem;color:var(--text-muted);cursor:pointer"
         >
           <input type="checkbox" checked={@mail_dev_live} phx-click="toggle_mail_dev_live" />
-          Send real email from dev via Resend (off = <code>/dev/mailbox</code> preview)
+          Send real email from dev via Resend (off = <code>/dev/mailbox</code>
+          preview)
         </label>
       </div>
 

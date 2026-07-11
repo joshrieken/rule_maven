@@ -58,8 +58,15 @@ defmodule RuleMavenWeb.GameLive.ToolFlagGateTest do
 
   test "a flagged-off Expansions pill is absent from the table-context strip even with a linked expansion",
        %{conn: conn} do
-    base = published_game_fixture(%{name: "Flag Base", bgg_id: System.unique_integer([:positive])})
-    exp = published_game_fixture(%{name: "Flag Expansion", bgg_id: System.unique_integer([:positive])})
+    base =
+      published_game_fixture(%{name: "Flag Base", bgg_id: System.unique_integer([:positive])})
+
+    exp =
+      published_game_fixture(%{
+        name: "Flag Expansion",
+        bgg_id: System.unique_integer([:positive])
+      })
+
     RuleMaven.Games.link_expansion(exp.id, base.id)
 
     {:ok, _} = RuleMaven.Flags.disable(:tool_expansions)

@@ -136,10 +136,26 @@ defmodule RuleMaven.LLM do
       # a second row instead of redirecting. Check own-exact first so a repeat
       # always collapses to the one existing Q&A.
       user_exact ->
-        serve_from_cache(user_exact, question_embedding, cleaned, game.id, user_id, true, normalized?)
+        serve_from_cache(
+          user_exact,
+          question_embedding,
+          cleaned,
+          game.id,
+          user_id,
+          true,
+          normalized?
+        )
 
       user_semantic ->
-        serve_from_cache(user_semantic, question_embedding, cleaned, game.id, user_id, true, normalized?)
+        serve_from_cache(
+          user_semantic,
+          question_embedding,
+          cleaned,
+          game.id,
+          user_id,
+          true,
+          normalized?
+        )
 
       pool_hit =
           find_pool_hit(
@@ -158,7 +174,16 @@ defmodule RuleMaven.LLM do
         # anonymized duplicate copy.
         {pool_row, _tier} = pool_hit
         same_user? = user_id != nil and pool_row.user_id == user_id
-        serve_from_cache(pool_hit, question_embedding, cleaned, game.id, user_id, same_user?, normalized?)
+
+        serve_from_cache(
+          pool_hit,
+          question_embedding,
+          cleaned,
+          game.id,
+          user_id,
+          same_user?,
+          normalized?
+        )
 
       true ->
         call_llm(
@@ -191,11 +216,27 @@ defmodule RuleMaven.LLM do
   # none do we pay the tiebreaker, and then on the NEAREST candidates first.
   @max_tiebreaker_calls 2
 
-  defp find_pool_hit(_game, nil, _expansion_ids, _skip_pool, _match_text, _user_id, _active_group_id),
-    do: nil
+  defp find_pool_hit(
+         _game,
+         nil,
+         _expansion_ids,
+         _skip_pool,
+         _match_text,
+         _user_id,
+         _active_group_id
+       ),
+       do: nil
 
-  defp find_pool_hit(_game, _embedding, _expansion_ids, true, _match_text, _user_id, _active_group_id),
-    do: nil
+  defp find_pool_hit(
+         _game,
+         _embedding,
+         _expansion_ids,
+         true,
+         _match_text,
+         _user_id,
+         _active_group_id
+       ),
+       do: nil
 
   defp find_pool_hit(
          game,
@@ -323,7 +364,15 @@ defmodule RuleMaven.LLM do
   # Serves answer text only — never the source row's question wording or author.
   # `same_user?` marks a hit on the asker's OWN prior row, so AskWorker can drop
   # the provisional row and redirect to the source instead of copying it.
-  defp serve_from_cache({row, tier}, question_embedding, cleaned, game_id, user_id, same_user?, normalized?) do
+  defp serve_from_cache(
+         {row, tier},
+         question_embedding,
+         cleaned,
+         game_id,
+         user_id,
+         same_user?,
+         normalized?
+       ) do
     RuleMaven.LLM.Savings.record_cache_hit("ask", game_id, user_id)
 
     {:ok,
@@ -2718,6 +2767,25 @@ defmodule RuleMaven.LLM do
     alias RuleMaven.{LLM.Pricing, Repo}
     import Ecto.Query
 
+    # `detail` holds per-call input/output PREVIEWS — and for a crew row that means
+    # the NORMALIZE call's input is the asker's raw, pre-scrub question, and the ASK
+    # call's output is the full JSON envelope (`also_asked` and all). The trace panel
+    # renders both to any admin, on any row in the game, and an admin's thread list
+    # carries every user's rows.
+    #
+    # Rounds 6 and 7 withheld exactly those two strings from admins (`own_raw_question/2`,
+    # `own_raw_response/2`) on this very page. Leaving them readable through a
+    # `▸ LLM trace` toggle next to the same answer bubble made that decision theater.
+    # The panel exists for tokens, cost, latency and model — it keeps all of those.
+    crew_row? =
+      case Repo.get(RuleMaven.Games.QuestionLog, question_log_id) do
+        # No row (a deleted question, or a log written in a test) — there is no crew
+        # boundary left to protect, and the trace panel only ever loads ids that are
+        # on the page.
+        nil -> false
+        q -> RuleMaven.Games.QuestionLog.crew_origin?(q)
+      end
+
     calls =
       Repo.all(
         from l in RuleMaven.LLM.Log,
@@ -2737,7 +2805,7 @@ defmodule RuleMaven.LLM do
           duration_ms: l.duration_ms,
           success: l.success,
           error_message: l.error_message,
-          detail: l.detail || %{}
+          detail: scrub_detail(l.detail || %{}, crew_row?)
         }
       end)
 
@@ -2749,6 +2817,16 @@ defmodule RuleMaven.LLM do
     }
 
     %{calls: calls, totals: totals}
+  end
+
+  # Keep the numbers, drop the prose. A crew row's trace shows what it cost and how
+  # long it took; it does not show the asker's words to someone who isn't the asker.
+  defp scrub_detail(detail, false), do: detail
+
+  defp scrub_detail(detail, true) do
+    detail
+    |> Map.drop(["input", "output"])
+    |> Map.put("redacted", "input/output withheld — crew row")
   end
 
   defp build_system_prompt(game_name, category, full_text, recent_context, voice, game) do

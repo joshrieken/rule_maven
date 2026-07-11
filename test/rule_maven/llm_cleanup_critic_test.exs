@@ -22,11 +22,15 @@ defmodule RuleMaven.LLMCleanupCriticTest do
   end
 
   test "verdict is case/spacing tolerant" do
-    assert %{verdict: :content_lost} = LLM.parse_critic_verdict("verdict:  Content_Lost\n- DROPPED: setup step 3")
+    assert %{verdict: :content_lost} =
+             LLM.parse_critic_verdict("verdict:  Content_Lost\n- DROPPED: setup step 3")
   end
 
   test "faithful verdict with NONE yields no defects" do
-    assert LLM.parse_critic_verdict("VERDICT: faithful\nNONE") == %{verdict: :faithful, defects: []}
+    assert LLM.parse_critic_verdict("VERDICT: faithful\nNONE") == %{
+             verdict: :faithful,
+             defects: []
+           }
   end
 
   test "missing verdict line falls back to faithful (critic never blocks)" do

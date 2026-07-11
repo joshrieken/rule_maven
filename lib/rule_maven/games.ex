@@ -1417,10 +1417,33 @@ defmodule RuleMaven.Games do
   """
   def report_answer(question_log_id, user, reason \\ nil) do
     with :ok <- reject_admin_report(user),
+         :ok <- reject_unreachable_report(question_log_id, user),
          :ok <- reject_self_report(question_log_id, user),
          :ok <- check_flag_quota(user),
          {:ok, _flag} <- flag_question(question_log_id, user.id, reason) do
       {:ok, %{pulled: maybe_auto_pull(question_log_id)}}
+    end
+  end
+
+  # You may only report a row that actually SURFACES to you. `votable?/2` is the
+  # same reachability test `toggle_answer_favorite/2` already applies, and for the
+  # same reason — a pooled-but-unbrowsable crew row surfaces to nobody outside the
+  # crew, so it must not be reportable by id either.
+  #
+  # Without this, `find_question_log/2` (scoped by GAME only) let any logged-in
+  # stranger push `open_report` with a guessed id and flag a crew's private row.
+  # One flag was enough: a crew row's trust_score is 0 by construction (every crew
+  # vote is weight 0 on an unbrowsable row), so `pool_tier/2` reads `:provisional`
+  # and `maybe_auto_pull/1` sets `needs_review` on the FIRST report — no quorum.
+  # That one click killed the crew's own private cache, blocked re-pooling of the
+  # whole matching topic cluster for every user in the game via `under_review?/3`,
+  # doubled the asker's moderation abuse-risk score, and put their raw, never-
+  # screened question on the moderator dashboard next to a Delete button. An
+  # outsider got to CHOOSE whose private prose a moderator reads.
+  defp reject_unreachable_report(question_log_id, user) do
+    case Repo.get(QuestionLog, question_log_id) do
+      nil -> {:error, :not_found}
+      q -> if votable?(q, user.id), do: :ok, else: {:error, :not_found}
     end
   end
 
@@ -2555,7 +2578,19 @@ defmodule RuleMaven.Games do
     query =
       if search && search != "" do
         term = "%#{search}%"
-        from(q in query, where: ilike(q.question, ^term) or ilike(q.answer, ^term))
+
+        # Search the text the list actually RENDERS (`listed_question/1`), never the
+        # raw column. Matching on hidden text is the search-oracle shape: the row
+        # appears and disappears on substrings the viewer is never shown, which is
+        # enough to reconstruct a crew member's verbatim question a character at a
+        # time. The admin list renders `listed_question/1` now, so the filter has to
+        # agree with it or the oracle survives the render fix.
+        from(q in query,
+          where:
+            ilike(q.answer, ^term) or
+              ilike(fragment("coalesce(?, ?)", q.canonical_question, q.cleaned_question), ^term) or
+              (q.browsable == true and is_nil(q.group_id) and ilike(q.question, ^term))
+        )
       else
         query
       end
@@ -2661,18 +2696,21 @@ defmodule RuleMaven.Games do
       if active_group_id do
         dynamic(
           [q],
+          # The crew's private cache carries the SAME grounded-citation gate as
+          # the other two branches. `mark_pooled/1` refuses to pool an answer
+          # whose citation isn't grounded because that is the system's own signal
+          # that it may be hallucinated — and re-serving it as a cache hit is
+          # precisely what that gate exists to prevent. A crew got no such
+          # protection: its ungrounded answers were cached and re-served to every
+          # member indefinitely, labelled as a hit rather than re-asked.
           q.pooled == true or (q.visibility == "community" and q.citation_valid == true) or
-            # The crew's private cache carries the SAME grounded-citation gate as
-            # the other two branches. `mark_pooled/1` refuses to pool an answer
-            # whose citation isn't grounded because that is the system's own signal
-            # that it may be hallucinated — and re-serving it as a cache hit is
-            # precisely what that gate exists to prevent. A crew got no such
-            # protection: its ungrounded answers were cached and re-served to every
-            # member indefinitely, labelled as a hit rather than re-asked.
             (q.group_id == ^active_group_id and q.citation_valid == true)
         )
       else
-        dynamic([q], q.pooled == true or (q.visibility == "community" and q.citation_valid == true))
+        dynamic(
+          [q],
+          q.pooled == true or (q.visibility == "community" and q.citation_valid == true)
+        )
       end
 
     Repo.all(
@@ -2882,10 +2920,10 @@ defmodule RuleMaven.Games do
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
           where: q.answer != "Thinking..." and not is_nil(q.answer),
-        # A failed answer must never be served as a cache hit — a repeat ask
-        # would collapse onto the error row with no way to re-ask out of it.
-        # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
-        where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
+          # A failed answer must never be served as a cache hit — a repeat ask
+          # would collapse onto the error row with no way to re-ask out of it.
+          # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
+          where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
           where:
             fragment("lower(?) = ?", q.cleaned_question, ^cleaned) or
               (is_nil(q.cleaned_question) and fragment("lower(?) = ?", q.question, ^raw)),
@@ -2965,10 +3003,10 @@ defmodule RuleMaven.Games do
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
           where: q.answer != "Thinking..." and not is_nil(q.answer),
-        # A failed answer must never be served as a cache hit — a repeat ask
-        # would collapse onto the error row with no way to re-ask out of it.
-        # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
-        where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
+          # A failed answer must never be served as a cache hit — a repeat ask
+          # would collapse onto the error row with no way to re-ask out of it.
+          # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
+          where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
           where: not is_nil(q.question_embedding),
           where:
             fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec) <= ^threshold,
@@ -3012,10 +3050,10 @@ defmodule RuleMaven.Games do
             q.refused == false and q.blocked == false and q.needs_review == false and
               q.stale == false,
           where: q.answer != "Thinking..." and not is_nil(q.answer),
-        # A failed answer must never be served as a cache hit — a repeat ask
-        # would collapse onto the error row with no way to re-ask out of it.
-        # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
-        where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
+          # A failed answer must never be served as a cache hit — a repeat ask
+          # would collapse onto the error row with no way to re-ask out of it.
+          # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
+          where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
           where:
             fragment("btrim(lower(regexp_replace(?, '\\s+', ' ', 'g'))) = ?", q.answer, ^norm),
           order_by: [desc: q.inserted_at, desc: q.id],
@@ -4047,8 +4085,7 @@ defmodule RuleMaven.Games do
           join: g in Game,
           on: g.id == d.game_id,
           # Taken-down games (base or expansion) must never be retrieved from.
-          where:
-            d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
+          where: d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
           select: %{
             id: c.id,
             content: c.content,
@@ -4127,8 +4164,7 @@ defmodule RuleMaven.Games do
           join: g in Game,
           on: g.id == d.game_id,
           # Taken-down games (base or expansion) must never be retrieved from.
-          where:
-            d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
+          where: d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
           order_by: [asc: d.game_id, asc: d.id],
           select: %{
             full_text:
@@ -4171,8 +4207,7 @@ defmodule RuleMaven.Games do
           join: g in Game,
           on: g.id == d.game_id,
           # Taken-down games (base or expansion) must never be retrieved from.
-          where:
-            d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
+          where: d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
           select: %{
             id: c.id,
             content: c.content,
@@ -4409,8 +4444,12 @@ defmodule RuleMaven.Games do
     # vanished row is routine, not an error. `Repo.get!` raised and burned all
     # three Oban attempts on it.
     cond do
-      is_nil(q) -> :skipped
-      is_nil(q.question_embedding) -> :skipped
+      is_nil(q) ->
+        :skipped
+
+      is_nil(q.question_embedding) ->
+        :skipped
+
       true ->
         q_vec = q.question_embedding
 
