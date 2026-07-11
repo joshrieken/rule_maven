@@ -4587,3 +4587,141 @@ body:has([data-phx-main].phx-connected)::after {
     padding: 0.25rem 0;
   }
 }
+
+/* ===== Admin: feature flags ===== */
+/* The list was a bare <ul class="flag-list"> with no rule behind it, so it fell
+   back to default browser bullets, and every row carried its own inline styles. */
+.flag-intro {
+  /* A measure this long is hard to scan; cap it so the eye returns cleanly. */
+  max-width: 60ch;
+  margin-bottom: 1.75rem;
+}
+
+.flag-section + .flag-section {
+  margin-top: 2rem;
+}
+
+.flag-section__title {
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.flag-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.flag-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem 0;
+}
+
+.flag-row + .flag-row {
+  border-top: 1px solid var(--border);
+}
+
+/* Name left, the On/Off gate hard right. min-width:0 lets a long flag id shrink
+   instead of shoving the toggle off the row. */
+.flag-row__head {
+  display: flex;
+  /* flex-start, not center: when the name + code chip wrap to two lines (narrow
+     screens, long flag ids) a centered toggle floats between them and reads as
+     detached from the row it controls. */
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.flag-row__head > button {
+  flex-shrink: 0;
+}
+
+.flag-row__name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.flag-row__code {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+}
+
+.flag-row__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1.25rem;
+  font-size: 0.85rem;
+}
+
+.flag-form {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.flag-form input[type="text"] {
+  width: 11rem;
+}
+
+.flag-form input[type="number"] {
+  width: 4.5rem;
+}
+
+.flag-meta {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.flag-grant {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.2rem 0.05rem 0.5rem;
+}
+
+@media (max-width: 480px) {
+  /* Each control form takes its own line; the username box fills the width.
+     flex-wrap only wraps on BASE widths, so the input must be allowed to
+     shrink or the row overflows instead of wrapping. */
+  .flag-form {
+    flex: 1 1 100%;
+  }
+
+  .flag-form input[type="text"] {
+    width: auto;
+    flex: 1 1 6rem;
+    min-width: 0;
+  }
+}
+
+/* Grant/Set/Clear are btn-xs (22px) — under the touch floor. Same treatment the
+   view tabs and category pills already get. */
+@media (max-width: 640px) and (pointer: coarse) {
+  .flag-row button,
+  .flag-form input {
+    min-height: 36px;
+  }
+}
