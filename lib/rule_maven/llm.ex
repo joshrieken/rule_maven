@@ -1742,6 +1742,30 @@ defmodule RuleMaven.LLM do
     {:error, "Rate limited after #{attempt - 1} attempts"}
   end
 
+  defp do_request(body, attempt, opts) do
+    case spend_call() do
+      {:error, :call_budget_exhausted} ->
+        require Logger
+
+        Logger.error(
+          "exhausted the LLM call budget (operation=#{opts[:operation]}, game_id=#{opts[:game_id]}) — refusing further calls"
+        )
+
+        {:error, "exceeded the LLM call budget"}
+
+      :ok ->
+        # Test-mode mock injection point. Set via Application.put_env(:rule_maven, :llm_mock, fn body -> ... end)
+        result =
+          if mock = Application.get_env(:rule_maven, :llm_mock) do
+            do_request_mock(body, opts, mock)
+          else
+            do_request_real(body, attempt, opts)
+          end
+
+        maybe_retry_truncated(result, body, attempt, opts)
+    end
+  end
+
   # Every LLM HTTP call in the app funnels through here (mock included), so it
   # is the one place a per-ask ceiling can be enforced without threading a
   # counter through the whole retry/escalation cascade.
@@ -1827,30 +1851,6 @@ defmodule RuleMaven.LLM do
           :atomics.add(ref, @slot_denied, 1)
           {:error, :call_budget_exhausted}
         end
-    end
-  end
-
-  defp do_request(body, attempt, opts) do
-    case spend_call() do
-      {:error, :call_budget_exhausted} ->
-        require Logger
-
-        Logger.error(
-          "exhausted the LLM call budget (operation=#{opts[:operation]}, game_id=#{opts[:game_id]}) — refusing further calls"
-        )
-
-        {:error, "exceeded the LLM call budget"}
-
-      :ok ->
-        # Test-mode mock injection point. Set via Application.put_env(:rule_maven, :llm_mock, fn body -> ... end)
-        result =
-          if mock = Application.get_env(:rule_maven, :llm_mock) do
-            do_request_mock(body, opts, mock)
-          else
-            do_request_real(body, attempt, opts)
-          end
-
-        maybe_retry_truncated(result, body, attempt, opts)
     end
   end
 

@@ -2392,7 +2392,6 @@ defmodule RuleMaven.Games do
     Repo.delete(q)
   end
 
-  @doc "True if any votes have been cast on this question row."
   @doc """
   True when the row carries a real community vote — one that moved trust.
 
@@ -3966,7 +3965,7 @@ defmodule RuleMaven.Games do
   # equally authoritative, equally scoped chunks — where `Enum.min_by` otherwise
   # kept whichever it happened to see first, which could discard the chunk the
   # semantic search ranked closest to the question.
-  defp pick_authoritative(candidates, base_game_id, rank \\ %{}) do
+  defp pick_authoritative(candidates, base_game_id, rank) do
     Enum.min_by(candidates, fn c ->
       {RuleMaven.Games.Document.authority(c.kind), if(c.game_id == base_game_id, do: 0, else: 1),
        Map.get(rank, c.id, 0)}

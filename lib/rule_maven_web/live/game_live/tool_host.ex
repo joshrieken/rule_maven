@@ -371,33 +371,6 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
      |> refresh_expansion_deltas()}
   end
 
-  # Only the Q&A screen carries `expansion_deltas` (it drives the "How does my
-  # rule change this answer?" overlay there). Community has no such assign,
-  # and recomputing it unconditionally would raise on that page.
-  defp refresh_expansion_deltas(socket) do
-    if Map.has_key?(socket.assigns, :expansion_deltas) do
-      assign(socket,
-        expansion_deltas:
-          load_expansion_deltas(socket.assigns.expansions, socket.assigns.included_expansions)
-      )
-    else
-      socket
-    end
-  end
-
-  # Deltas for the currently-included expansions that have one stored, in
-  # expansion-name order (the `expansions` assign is already name-sorted).
-  def load_expansion_deltas(expansions, included) do
-    expansions
-    |> Enum.filter(&Map.get(included, &1.id))
-    |> Enum.flat_map(fn exp ->
-      case RuleMaven.ExpansionDelta.stored(exp.id) do
-        nil -> []
-        delta -> [{exp, delta}]
-      end
-    end)
-  end
-
   # ── House rules ──────────────────────────────────────────────────────────
 
   def handle_tool_event("toggle_house_rules_card", _params, socket) do
@@ -521,6 +494,33 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
     end
 
     {:noreply, refresh_house_rules(socket)}
+  end
+
+  # Only the Q&A screen carries `expansion_deltas` (it drives the "How does my
+  # rule change this answer?" overlay there). Community has no such assign,
+  # and recomputing it unconditionally would raise on that page.
+  defp refresh_expansion_deltas(socket) do
+    if Map.has_key?(socket.assigns, :expansion_deltas) do
+      assign(socket,
+        expansion_deltas:
+          load_expansion_deltas(socket.assigns.expansions, socket.assigns.included_expansions)
+      )
+    else
+      socket
+    end
+  end
+
+  # Deltas for the currently-included expansions that have one stored, in
+  # expansion-name order (the `expansions` assign is already name-sorted).
+  def load_expansion_deltas(expansions, included) do
+    expansions
+    |> Enum.filter(&Map.get(included, &1.id))
+    |> Enum.flat_map(fn exp ->
+      case RuleMaven.ExpansionDelta.stored(exp.id) do
+        nil -> []
+        delta -> [{exp, delta}]
+      end
+    end)
   end
 
   # ── Shared helpers (also used by Show) ───────────────────────────────────
