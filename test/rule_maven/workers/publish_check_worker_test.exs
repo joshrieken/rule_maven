@@ -59,6 +59,18 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
     on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
   end
 
+  # Mimics the REAL shape LLM.chat/3 returns: chat/3 decodes a JSON "answer" key
+  # and falls back to "" when the reply isn't JSON, so a bare-word reply like this
+  # prompt's arrives via :raw_response, with :answer empty. If `raw: true` were
+  # ever dropped from the worker, this stub would make it read "" instead of "no".
+  defp stub_llm_raw(reply) do
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      {:ok, %{answer: "", raw_response: reply, finish_reason: "stop"}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+  end
+
   defp stub_llm_error do
     Application.put_env(:rule_maven, :llm_mock, fn _body -> {:error, :timeout} end)
     on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
@@ -67,6 +79,19 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
   describe "perform/1" do
     test "a clean canonical question becomes browsable" do
       stub_llm("no")
+
+      ql =
+        group_question_fixture(
+          canonical_question: "May a player retract a move?",
+          browsable: false
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == true
+    end
+
+    test "a clean canonical question becomes browsable (raw_response shape)" do
+      stub_llm_raw("no")
 
       ql =
         group_question_fixture(
@@ -104,7 +129,7 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
       assert Repo.reload!(ql).browsable == false
     end
 
-    test "an LLM error fails closed" do
+    test "an LLM error fails closed and lets Oban retry" do
       stub_llm_error()
 
       ql =
@@ -113,8 +138,17 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
           browsable: false
         )
 
-      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert {:error, :timeout} = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
       assert Repo.reload!(ql).browsable == false
+
+      run =
+        Repo.get_by!(RuleMaven.Jobs.JobRun,
+          scope_type: "question_log",
+          scope_id: ql.id,
+          kind: "publish_check"
+        )
+
+      assert run.state == "failed"
     end
 
     test "a garbage LLM reply fails closed" do

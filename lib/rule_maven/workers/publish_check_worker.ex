@@ -55,7 +55,10 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
 
   defp decide(ql, canonical, oban_id) do
     run =
-      Jobs.start_run("publish_check", {"question_log", ql.id}, "Publish check — question ##{ql.id}",
+      Jobs.start_run(
+        "publish_check",
+        {"question_log", ql.id},
+        "Publish check — question ##{ql.id}",
         oban_job_id: oban_id
       )
 
@@ -77,15 +80,21 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
         maybe_publish(ql, reply, run)
 
       {:error, reason} ->
-        Jobs.finish_run(run, "failed", "LLM error: #{inspect(reason)} — left unbrowsable.")
-        :ok
+        Jobs.finish_run(
+          run,
+          "failed",
+          "LLM error: #{inspect(reason)} — left unbrowsable, retrying."
+        )
+
+        {:error, reason}
     end
   end
 
   # Fail closed: ONLY a bare "no" publishes. Anything else — "yes", a hedge, a
   # sentence, empty — leaves the row unbrowsable.
   defp maybe_publish(ql, reply, run) do
-    normalized = reply |> to_string() |> String.trim() |> String.downcase() |> String.trim_trailing(".")
+    normalized =
+      reply |> to_string() |> String.trim() |> String.downcase() |> String.trim_trailing(".")
 
     if normalized == "no" do
       case ql |> QuestionLog.changeset(%{browsable: true}) |> Repo.update() do
