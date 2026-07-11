@@ -2,32 +2,10 @@ defmodule RuleMavenWeb.Feature.SmokeTest do
   use RuleMavenWeb.FeatureCase, async: false
 
   @moduledoc """
-  Smoke tests verifying the app loads and renders with theme-appropriate CSS.
-  These run in a real headless Chrome via Wallaby.
+  Browser-only smoke tests: things a real rendering engine must verify.
+  Plain HTML-presence smoke tests live in test/rule_maven_web/smoke_flow_test.exs
+  (ConnCase — milliseconds, no Chrome).
   """
-
-  feature "app loads and renders root page", %{session: session} do
-    session
-    |> visit("/")
-    |> assert_has(css("body"))
-    |> assert_has(css(".app-shell"))
-  end
-
-  feature "header brand renders", %{session: session} do
-    session
-    |> visit("/")
-    |> assert_has(css(".header"))
-    |> assert_has(css(".header-brand"))
-  end
-
-  feature "theme selector exists with light and dark options", %{session: session} do
-    # The light/dark defaults are the "fresh-deck"/"night-owl" themes.
-    session
-    |> visit("/")
-    |> assert_has(css("select#theme-select"))
-    |> assert_has(css("select#theme-select option[value='fresh-deck']"))
-    |> assert_has(css("select#theme-select option[value='night-owl']"))
-  end
 
   feature "theme CSS custom properties are defined on :root", %{session: session} do
     session
@@ -47,16 +25,6 @@ defmodule RuleMavenWeb.Feature.SmokeTest do
 
     assert has_vars,
            "expected :root CSS custom properties (--text, --bg, --accent, --red, --green) to be set"
-  end
-
-  feature "login page renders themed text", %{session: session} do
-    session
-    |> visit("/")
-
-    page_source = session |> Wallaby.Browser.page_source()
-
-    # Verify theme variables are used in rendered inline styles
-    assert page_source =~ "color:var(--text-secondary)"
   end
 
   feature "page renders without JavaScript errors", %{session: session} do
