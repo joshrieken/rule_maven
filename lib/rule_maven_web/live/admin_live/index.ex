@@ -83,7 +83,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
   @impl true
   def handle_event("save_resend_key", %{"resend_api_key" => key}, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
+    if Users.can?(socket.assigns.current_user, :superadmin) do
       case String.trim(key) do
         "" ->
           {:noreply, put_flash(socket, :error, "Enter a key, or use Clear to remove it.")}
@@ -104,7 +104,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
   @impl true
   def handle_event("clear_resend_key", _params, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
+    if Users.can?(socket.assigns.current_user, :superadmin) do
       Settings.set_resend_api_key("")
       Audit.log(socket.assigns.current_user, "email.set_resend_api_key", metadata: %{key_set: false})
 
@@ -250,6 +250,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
         </form>
 
         <form
+          :if={@super_admin?}
           id="resend-key-form"
           phx-submit="save_resend_key"
           style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.6rem"
@@ -359,12 +360,14 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="Provider, API keys, answer/cleanup/vision models."
         />
         <.card
+          :if={@super_admin?}
           navigate={~p"/admin/embeddings"}
           icon="🧬"
           title="Embeddings & Proxy"
           desc="Embedding provider/model and LLM proxy routing."
         />
         <.card
+          :if={@super_admin?}
           navigate={~p"/admin/automation"}
           icon="🧵"
           title="Automation"
@@ -378,6 +381,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="API token and login used to import games and PDFs."
         />
         <.card
+          :if={@super_admin?}
           navigate={~p"/admin/prompts"}
           icon="📝"
           title="Prompts"
@@ -406,6 +410,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="LLM token spend per user, daily budget cap, and estimated savings."
         />
         <.card
+          :if={@super_admin?}
           navigate={~p"/admin/db"}
           icon="🗄️"
           title="DB Admin"
