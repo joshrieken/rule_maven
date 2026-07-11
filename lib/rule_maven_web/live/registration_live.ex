@@ -58,8 +58,8 @@ defmodule RuleMavenWeb.RegistrationLive do
         password == "" ->
           Map.put(errors, :password, "Required.")
 
-        String.length(password) < 4 ->
-          Map.put(errors, :password, "Must be at least 4 characters.")
+        not Users.valid_password?(password) ->
+          Map.put(errors, :password, Users.password_requirements())
 
         true ->
           errors
@@ -172,7 +172,7 @@ defmodule RuleMavenWeb.RegistrationLive do
           <input
             type="password"
             name="password"
-            placeholder="Min 4 characters"
+            placeholder="At least 10 characters, with a letter and a number"
             style="width:100%;border:1px solid var(--border);border-radius:0.375rem;padding:0.45rem 0.6rem;font-size:0.85rem;background:var(--bg);color:var(--text)"
           />
           <%= if @errors[:password] do %>

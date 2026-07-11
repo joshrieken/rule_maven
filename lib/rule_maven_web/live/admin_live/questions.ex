@@ -69,7 +69,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   # Game filter typeahead. Avoids loading the entire ~150k catalog into a
   # <select>; matches are searched on demand, mirroring the game-form picker.
   def handle_event("search_game", %{"value" => query}, socket) do
-    query = String.trim(query)
+    query = query |> String.trim() |> String.slice(0, 200)
     results = if query == "", do: [], else: Games.search_catalog(query, limit: 15)
     {:noreply, assign(socket, game_query: query, game_results: results)}
   end
@@ -94,7 +94,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   end
 
   def handle_event("search", %{"search" => q}, socket) do
-    {:noreply, socket |> assign(search: q) |> reload()}
+    {:noreply, socket |> assign(search: String.slice(q, 0, 200)) |> reload()}
   end
 
   def handle_event("clear_search", _params, socket) do

@@ -7,6 +7,12 @@ defmodule RuleMaven.Users do
   alias RuleMaven.Repo
   alias RuleMaven.Users.{User, UserToken, UserNotifier}
 
+  @doc "Human-readable password rule, for forms and error messages (see User.password_requirements/0)."
+  def password_requirements, do: User.password_requirements()
+
+  @doc "Pre-check mirroring the changeset password rule, for LiveView inline validation."
+  def valid_password?(password), do: User.valid_password?(password)
+
   def get_user(id), do: Repo.get(User, id)
 
   def get_user_by_username(username) do
@@ -332,19 +338,36 @@ defmodule RuleMaven.Users do
     unless Bcrypt.verify_pass(current_password, user.password_hash) do
       {:error, "Current password is incorrect."}
     else
-      if String.length(new_password) < 4 do
-        {:error, "New password must be at least 4 characters."}
-      else
-        password_hash = Bcrypt.hash_pwd_salt(new_password)
+      case User.password_changeset(user, %{password: new_password}) do
+        %Ecto.Changeset{valid?: true} = changeset ->
+          password_hash = Ecto.Changeset.get_change(changeset, :password_hash)
 
-        user
-        |> User.changeset(%{password_hash: password_hash})
-        |> Repo.update()
+          user
+          |> User.changeset(%{password_hash: password_hash})
+          |> Repo.update()
+
+        changeset ->
+          message =
+            changeset
+            |> Ecto.Changeset.traverse_errors(&interpolate_error/1)
+            |> Map.get(:password, ["is invalid"])
+            |> Enum.join(", ")
+
+          {:error, message}
       end
     end
   end
 
+  defp interpolate_error({msg, opts}) do
+    Enum.reduce(opts, msg, fn {key, value}, acc ->
+      String.replace(acc, "%{#{key}}", to_string(value))
+    end)
+  end
+
+  # Base32's alphabet (A-Z2-7) omits a digit in ~6% of draws, which would fail
+  # the same strength rule this password is meant to satisfy — retry until it does.
   defp generate_temp_password do
-    :crypto.strong_rand_bytes(10) |> Base.encode32(padding: false)
+    password = :crypto.strong_rand_bytes(10) |> Base.encode32(padding: false)
+    if User.valid_password?(password), do: password, else: generate_temp_password()
   end
 end
