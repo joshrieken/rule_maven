@@ -58,4 +58,20 @@ defmodule RuleMaven.Users.UserNotifier do
     If you didn't request this, ignore this email — your password won't change.
     """)
   end
+
+  @doc "Sends the passwordless sign-in link."
+  def deliver_magic_link_instructions(user, url) do
+    deliver(user.email, "Your Rule Maven sign-in link", """
+
+    Hi #{user.username},
+
+    Use this link to sign in without a password (it expires in 15 minutes and
+    works once):
+
+    #{url}
+
+    If you didn't request this, ignore this email — no one can sign in without
+    clicking the link above.
+    """)
+  end
 end
