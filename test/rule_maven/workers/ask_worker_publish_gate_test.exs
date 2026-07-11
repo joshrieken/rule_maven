@@ -1,0 +1,228 @@
+defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
+  @moduledoc """
+  Task 4: AskWorker writes a group ask unbrowsable and enqueues the publish
+  check — except on the `skip_normalize` ("Ask exactly this") path, where the
+  canonical question IS the raw user text and must never publish. Also
+  verifies the per-group `contribute_to_community: false` switch folds into
+  `never_pool` so a non-contributing group's asks are neither pooled nor
+  browsable.
+  """
+  use RuleMaven.DataCase
+  use Oban.Testing, repo: RuleMaven.Repo
+
+  alias RuleMaven.{Games, Repo}
+  alias RuleMaven.GroupsFixtures
+  alias RuleMaven.Games.Chunk
+  alias RuleMaven.Workers.{AskWorker, PublishCheckWorker}
+
+  # `PublishCheckWorker.enqueue/1` (and `TagQuestionWorker.enqueue/2`) no-op
+  # under `Application.get_env(:rule_maven, Oban)[:testing] == :manual` — the
+  # value `config/test.exs` sets, and the same value that keeps the Oban
+  # supervisor itself out of the app's supervision tree in test
+  # (`RuleMaven.Application.maybe_add_oban/1`). Without both a real named
+  # `Oban` instance running AND that guard flipped off, `assert_enqueued`/
+  # `refute_enqueued` on `PublishCheckWorker` can't distinguish "the call
+  # happened" from "the call always no-ops in test" — see
+  # `test/mix/tasks/backfill_weight_test.exs` for the same pattern used
+  # against `BggEnrichWorker`.
+  setup do
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
+    orig = Application.get_env(:rule_maven, Oban)
+    Application.put_env(:rule_maven, Oban, Keyword.put(orig, :testing, :disabled))
+    on_exit(fn -> Application.put_env(:rule_maven, Oban, orig) end)
+
+    :ok
+  end
+
+  defp user(prefix) do
+    n = System.unique_integer([:positive])
+
+    {:ok, u} =
+      RuleMaven.Users.create_user(%{
+        username: "#{prefix}_#{n}",
+        email: "#{prefix}_#{n}@test.com",
+        password: "testpass1234"
+      })
+
+    u
+  end
+
+  defp perform(args),
+    do: AskWorker.perform(%Oban.Job{id: System.unique_integer([:positive]), args: args})
+
+  defp seeded_game(bgg_id) do
+    {:ok, game} =
+      Games.create_game(%{
+        name: "PublishGateGame #{System.unique_integer([:positive])}",
+        bgg_id: bgg_id
+      })
+
+    {:ok, doc} =
+      Games.create_document(%{
+        game_id: game.id,
+        label: "Core rules",
+        kind: "rulebook",
+        full_text: "seed"
+      })
+
+    {:ok, doc} = Games.update_document(doc, %{status: "published"})
+
+    Repo.insert!(%Chunk{
+      document_id: doc.id,
+      chunk_index: 0,
+      content: "[Page 1]\nRoll the die to start.",
+      page_number: 1,
+      embedding: Pgvector.new(List.duplicate(0.1, 768))
+    })
+
+    game
+  end
+
+  defp stub_ask(answer) do
+    Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, List.duplicate(0.1, 768)} end)
+
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      {:ok,
+       %{
+         answer: answer,
+         citations: [
+           %{"quote" => "Roll the die to start.", "page" => 1, "source" => "Core rules"}
+         ],
+         verdict: "info",
+         followups: [],
+         also_asked: []
+       }}
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:rule_maven, :embed_mock)
+      Application.delete_env(:rule_maven, :llm_mock)
+    end)
+  end
+
+  test "a group ask is written unbrowsable and enqueues the publish check" do
+    game = seeded_game(9201)
+    owner = user("pgw_group")
+    grp = GroupsFixtures.group_fixture(owner)
+    stub_ask("You roll the die to start.")
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: owner.id,
+        question: "How do I start?",
+        answer: "Thinking...",
+        visibility: "private",
+        group_id: grp.id
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => owner.id,
+               "group_id" => grp.id,
+               "skip_pool" => true
+             })
+
+    assert Repo.reload!(ql).browsable == false
+    assert_enqueued(worker: PublishCheckWorker, args: %{"question_log_id" => ql.id})
+  end
+
+  test "a non-group ask stays browsable and enqueues no publish check" do
+    game = seeded_game(9202)
+    u = user("pgw_solo")
+    stub_ask("You roll the die to start.")
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: u.id,
+        question: "How do I start?",
+        answer: "Thinking...",
+        visibility: "private"
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => u.id,
+               "skip_pool" => true
+             })
+
+    assert Repo.reload!(ql).browsable == true
+    refute_enqueued(worker: PublishCheckWorker)
+  end
+
+  test "a skip_normalize group ask never enqueues the publish check" do
+    game = seeded_game(9203)
+    owner = user("pgw_verbatim")
+    grp = GroupsFixtures.group_fixture(owner)
+    stub_ask("You roll the die to start.")
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: owner.id,
+        question: "How do I start, Dave?",
+        answer: "Thinking...",
+        visibility: "private",
+        group_id: grp.id
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => owner.id,
+               "group_id" => grp.id,
+               "skip_pool" => true,
+               "skip_normalize" => true
+             })
+
+    assert Repo.reload!(ql).browsable == false
+    refute_enqueued(worker: PublishCheckWorker)
+  end
+
+  test "a group with contribute_to_community: false does not pool its asks" do
+    game = seeded_game(9204)
+    owner = user("pgw_noshare")
+    grp = GroupsFixtures.group_fixture(owner, %{contribute_to_community: false})
+    stub_ask("You roll the die to start.")
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: owner.id,
+        question: "How do I start?",
+        answer: "Thinking...",
+        visibility: "private",
+        group_id: grp.id
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => owner.id,
+               "group_id" => grp.id,
+               "skip_pool" => true
+             })
+
+    updated = Repo.reload!(ql)
+    assert updated.pooled == false
+    assert updated.browsable == false
+  end
+end

@@ -30,7 +30,15 @@ defmodule RuleMaven.Workers.AskWorker do
     user_id = args["user_id"]
     group_id = args["group_id"]
     skip_pool = args["skip_pool"] || false
-    never_pool = args["never_pool"] || false
+
+    # Folds in the per-group community-contribution switch (Task 6's composer
+    # toggle sets `never_pool` directly for a one-off "keep this in the crew"
+    # ask; a group with `contribute_to_community: false` makes EVERY ask from
+    # it never_pool, with no per-ask opt-in needed).
+    never_pool =
+      (args["never_pool"] || false) or
+        not RuleMaven.Groups.contribute_to_community?(args["group_id"])
+
     skip_normalize = args["skip_normalize"] || false
     voice = args["voice"] || "neutral"
 
@@ -352,7 +360,11 @@ defmodule RuleMaven.Workers.AskWorker do
                     llm_provider: llm_result[:provider],
                     llm_model: llm_result[:model],
                     pool_source_id: llm_result[:source_question_log_id],
-                    question_embedding: llm_result[:question_embedding]
+                    question_embedding: llm_result[:question_embedding],
+                    # A group row's question text is unbrowsable until
+                    # PublishCheckWorker clears it. A non-group row is browsable, as
+                    # it always has been.
+                    browsable: is_nil(group_id)
                   }
 
                   case Games.log_question_update(ql, update_attrs) do
@@ -380,6 +392,14 @@ defmodule RuleMaven.Workers.AskWorker do
                             :ok
                           else
                             Games.mark_pooled(updated)
+
+                            # A group row's canonical text must clear the publish
+                            # check before it may be listed publicly. `skip_normalize`
+                            # rows are excluded outright: on that path the canonical
+                            # text IS the raw user text, which must never publish.
+                            if group_id && not skip_normalize do
+                              RuleMaven.Workers.PublishCheckWorker.enqueue(question_log_id)
+                            end
                           end
                         end
                       end
@@ -640,7 +660,8 @@ defmodule RuleMaven.Workers.AskWorker do
         Phoenix.PubSub.broadcast(
           RuleMaven.PubSub,
           "game:#{game_id}",
-          {:ask_error, %{question_log_id: question_log_id, question: ql.question, error: ql.answer}}
+          {:ask_error,
+           %{question_log_id: question_log_id, question: ql.question, error: ql.answer}}
         )
       else
         broadcast_complete(ql, %{
