@@ -1,5 +1,5 @@
 defmodule RuleMaven.LLMSavingsTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   import Ecto.Query
 

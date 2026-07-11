@@ -1,5 +1,5 @@
 defmodule RuleMaven.GamesVoteSettlementTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.{Games, Repo}
   alias RuleMaven.Games.{QuestionLog, QuestionVote}

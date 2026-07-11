@@ -1,5 +1,5 @@
 defmodule RuleMaven.RateLimitTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   import RuleMaven.GamesFixtures
 

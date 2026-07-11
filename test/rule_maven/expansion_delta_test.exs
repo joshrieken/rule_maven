@@ -1,5 +1,5 @@
 defmodule RuleMaven.ExpansionDeltaTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   test "delta prompts are registered with their vars" do
     assert RuleMaven.Prompts.template("expansion_delta_system") =~ "expansion"

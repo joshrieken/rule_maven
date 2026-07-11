@@ -1,5 +1,5 @@
 defmodule RuleMaven.LLMCostTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.{LLM, Users, Repo}
   alias RuleMaven.LLM.Pricing

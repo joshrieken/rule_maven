@@ -1,5 +1,5 @@
 defmodule RuleMaven.InviteCodesTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.{InviteCodes, Repo, Users}
 

@@ -1,5 +1,5 @@
 defmodule RuleMaven.PromptsTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.Prompts
 
