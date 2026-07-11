@@ -77,12 +77,12 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
   end
 
   describe "perform/1" do
-    test "a clean canonical question becomes browsable" do
+    test "a clean cleaned_question becomes browsable" do
       stub_llm("no")
 
       ql =
         group_question_fixture(
-          canonical_question: "May a player retract a move?",
+          cleaned_question: "May a player retract a move?",
           browsable: false
         )
 
@@ -90,12 +90,12 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
       assert Repo.reload!(ql).browsable == true
     end
 
-    test "a clean canonical question becomes browsable (raw_response shape)" do
+    test "a clean cleaned_question becomes browsable (raw_response shape)" do
       stub_llm_raw("no")
 
       ql =
         group_question_fixture(
-          canonical_question: "May a player retract a move?",
+          cleaned_question: "May a player retract a move?",
           browsable: false
         )
 
@@ -108,7 +108,7 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
 
       ql =
         group_question_fixture(
-          canonical_question: "Can Dave retract his move?",
+          cleaned_question: "Can Dave retract his move?",
           browsable: false
         )
 
@@ -116,14 +116,36 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
       assert Repo.reload!(ql).browsable == false
     end
 
-    test "a missing canonical question stays unbrowsable and makes no LLM call" do
+    test "a missing cleaned_question stays unbrowsable and makes no LLM call" do
       Application.put_env(:rule_maven, :llm_mock, fn _body ->
-        raise "LLM should not be called for a row with no canonical question"
+        raise "LLM should not be called for a row with no cleaned_question"
       end)
 
       on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
-      ql = group_question_fixture(canonical_question: nil, browsable: false)
+      ql = group_question_fixture(cleaned_question: nil, browsable: false)
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == false
+    end
+
+    test "a skip_normalize row (cleaned_question nil, canonical_question set) never publishes and makes no LLM call" do
+      Application.put_env(:rule_maven, :llm_mock, fn _body ->
+        raise "LLM should not be called for a skip_normalize row"
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      # Mimics a skip_normalize ("Ask exactly this") row: LLM.ask/5 sets
+      # cleaned = "" for skip_normalize, and AskWorker stores that as nil.
+      # canonical_question is admin-curated FAQ text and unrelated to this
+      # gate — it may or may not be set, but must never be read here.
+      ql =
+        group_question_fixture(
+          cleaned_question: nil,
+          canonical_question: "May a player retract a move?",
+          browsable: false
+        )
 
       assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
       assert Repo.reload!(ql).browsable == false
@@ -134,7 +156,7 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
 
       ql =
         group_question_fixture(
-          canonical_question: "May a player retract a move?",
+          cleaned_question: "May a player retract a move?",
           browsable: false
         )
 
@@ -156,7 +178,7 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
 
       ql =
         group_question_fixture(
-          canonical_question: "May a player retract a move?",
+          cleaned_question: "May a player retract a move?",
           browsable: false
         )
 
@@ -174,7 +196,7 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
       ql =
         question_fixture(
           group_id: nil,
-          canonical_question: "May a player retract a move?",
+          cleaned_question: "May a player retract a move?",
           browsable: true
         )
 

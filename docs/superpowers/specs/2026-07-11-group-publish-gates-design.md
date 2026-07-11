@@ -61,8 +61,9 @@ and a leak here is permanent and public. Hence gate 2.
 
 ### Gate 2 — an independent publish check
 
-Before a group row becomes *browsable*, one cheap yes/no call on the canonical
-text alone: does this contain a person's name or personal information?
+Before a group row becomes *browsable*, one cheap yes/no call on the
+`cleaned_question` text alone: does this contain a person's name or personal
+information?
 
 - Same shape as `pool_tiebreaker` — one-word output, tiny prompt, tiny cost.
 - Runs **once per row, off the critical path**, in an Oban worker. Never on the
@@ -76,13 +77,22 @@ browse listing is withheld), so the check is tuned to be paranoid.
 ### Gate 3 — `skip_normalize` rows never browse
 
 Deterministic, no LLM involved. "Ask exactly this" (`llm.ex:76`) deliberately
-bypasses normalize and pins the **raw user text** as the canonical form. That text
+bypasses normalize and pins the **raw user text** as the match text. That text
 is verbatim user prose and must never be published. `AskWorker` knows
 `skip_normalize` from its own args and writes the row unbrowsable, permanently.
 
 Without this gate, the entire mitigation has a hole straight through it: a user
 who forces verbatim text would be publishing exactly the text the other gates
 exist to scrub.
+
+This gate is enforced **twice**, once by policy and once by the data. `AskWorker`
+never enqueues `PublishCheckWorker` for a `skip_normalize` group row, but even if
+it did, the row's `cleaned_question` is `nil` for a `skip_normalize` ask — the
+normalize step never ran, so nothing was written there (`llm.ex:82` sets
+`cleaned = ""`, and `ask_worker.ex:358` stores `nil` for an empty cleaned value).
+`PublishCheckWorker`'s guard requires `cleaned_question` to be a non-blank
+binary, so a `skip_normalize` row fails that guard outright and can never reach
+the LLM check, let alone publish — belt and suspenders.
 
 ### Gate 4 — human override
 
@@ -138,8 +148,10 @@ Three reads gate on `browsable`; everything else is untouched.
    A row that may not be listed must not be auto-promoted to `community`, since
    promotion makes it listable everywhere.
 3. **Browse rendering** — surfaces that list a group-origin row render
-   `canonical_question`, never `question`. A group row with no canonical text is
-   not browsable (it cannot have passed gate 2, which reads canonical text).
+   `QuestionLog.display_question/1` (canonical/cleaned/raw fallback chain),
+   never the raw `question` column directly. A group row with no
+   `cleaned_question` is not browsable (it cannot have passed gate 2, which
+   reads `cleaned_question`).
 
 `find_pool_candidates/3` is **not** changed. It never exposed question text, so it
 was never the leak. Its `pooled == true` branch continues to serve group answers
@@ -154,9 +166,9 @@ and manual promotion is a deliberate act by a trusted actor.
 only, alongside the existing `TagQuestionWorker` enqueue.
 
 - Loads the row; bails unless `group_id` is set, `browsable == false`,
-  `canonical_question` is present and non-empty, and the row is pooled and not
+  `cleaned_question` is present and non-empty, and the row is pooled and not
   refused/errored.
-- Runs the publish-check prompt on `canonical_question`.
+- Runs the publish-check prompt on `cleaned_question`.
 - `"no"` ⇒ `browsable = true`. Anything else (including any error) ⇒ leave `false`.
 - Reports to the unified Jobs log, per the standing job-log convention.
 
@@ -184,13 +196,15 @@ but it is not zero. The failure mode is a stray first name inside a rules questi
 - `unverified_pool_questions/2` excludes `browsable == false`.
 - `DirectPromotionWorker` never promotes a non-browsable row, even above the trust
   floor with quorum.
-- `PublishCheckWorker`: clean canonical ⇒ browsable; PII-flagged ⇒ stays false;
-  missing canonical ⇒ stays false; LLM error ⇒ stays false (fail-closed).
+- `PublishCheckWorker`: clean `cleaned_question` ⇒ browsable; PII-flagged ⇒ stays
+  false; missing/`nil` `cleaned_question` ⇒ stays false and makes no LLM call
+  (this doubles as the gate-3 sabotage-proof case: a `skip_normalize` row looks
+  exactly like this); LLM error ⇒ stays false (fail-closed).
 - `AskWorker`: a group ask inserts `browsable == false`; a non-group ask inserts
   `true`; a `skip_normalize` group ask is never enqueued for the check.
 - Group setting off ⇒ ask is `never_pool` ⇒ neither pooled nor browsable.
 - Composer toggle sets `never_pool`.
-- Browse surfaces render `canonical_question` for group rows.
+- Browse surfaces render `QuestionLog.display_question/1` for group rows.
 
 Each gate gets a **sabotage check**: remove the guard, confirm the test goes red,
 restore.

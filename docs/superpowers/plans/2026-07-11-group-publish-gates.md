@@ -236,7 +236,7 @@ git commit -am "feat(prompts): normalize scrubs personal content; add publish-ch
 - Test: `test/rule_maven/workers/publish_check_worker_test.exs`
 
 **Interfaces:**
-- Consumes: `Prompts.render("publish_check", %{question: canonical})`,
+- Consumes: `Prompts.render("publish_check", %{question: cleaned})`,
   `QuestionLog.browsable` (Task 1).
 - Produces: `PublishCheckWorker.enqueue(question_log_id)` — called by `AskWorker`
   in Task 4.
@@ -248,36 +248,36 @@ git commit -am "feat(prompts): normalize scrubs personal content; add publish-ch
 
 ```elixir
 describe "perform/1" do
-  test "a clean canonical question becomes browsable" do
+  test "a clean cleaned question becomes browsable" do
     # stub the LLM to return "no"
-    ql = group_question_fixture(canonical_question: "May a player retract a move?", browsable: false)
+    ql = group_question_fixture(cleaned_question: "May a player retract a move?", browsable: false)
     assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
     assert Repo.reload!(ql).browsable == true
   end
 
   test "a flagged question stays unbrowsable" do
     # stub the LLM to return "yes"
-    ql = group_question_fixture(canonical_question: "Can Dave retract his move?", browsable: false)
+    ql = group_question_fixture(cleaned_question: "Can Dave retract his move?", browsable: false)
     assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
     assert Repo.reload!(ql).browsable == false
   end
 
-  test "a missing canonical question stays unbrowsable and makes no LLM call" do
-    ql = group_question_fixture(canonical_question: nil, browsable: false)
+  test "a missing cleaned question stays unbrowsable and makes no LLM call" do
+    ql = group_question_fixture(cleaned_question: nil, browsable: false)
     assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
     assert Repo.reload!(ql).browsable == false
   end
 
   test "an LLM error fails closed" do
     # stub the LLM to return {:error, :timeout}
-    ql = group_question_fixture(canonical_question: "May a player retract a move?", browsable: false)
+    ql = group_question_fixture(cleaned_question: "May a player retract a move?", browsable: false)
     assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
     assert Repo.reload!(ql).browsable == false
   end
 
   test "a garbage LLM reply fails closed" do
     # stub the LLM to return "Sure! I think no."
-    ql = group_question_fixture(canonical_question: "May a player retract a move?", browsable: false)
+    ql = group_question_fixture(cleaned_question: "May a player retract a move?", browsable: false)
     assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
     assert Repo.reload!(ql).browsable == false
   end
@@ -304,13 +304,13 @@ Expected: FAIL — module does not exist.
 ```elixir
 defmodule RuleMaven.Workers.PublishCheckWorker do
   @moduledoc """
-  Screens a GROUP question's canonical text before it may be listed on a public
+  Screens a GROUP question's cleaned text before it may be listed on a public
   browse surface (the Unverified tab, community promotion).
 
   A group row is written `browsable: false` by AskWorker. This worker is the ONLY
   thing that flips it true, and it does so only on an unambiguous "no" from the
   publish-check prompt. Every other outcome — "yes", a malformed reply, an LLM
-  error, a missing canonical question — leaves the row unbrowsable.
+  error, a missing cleaned question — leaves the row unbrowsable.
 
   Failing closed means a worker outage degrades to "group questions don't get
   listed", never to "group questions get listed unchecked".
@@ -335,23 +335,23 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
     end
   end
 
-  # Only a group row that is still unbrowsable and actually has canonical text is
+  # Only a group row that is still unbrowsable and actually has cleaned text is
   # a candidate. Everything else is a no-op — including a non-group row, which
   # must never be demoted by this worker.
-  defp screen(%QuestionLog{group_id: gid, browsable: false, canonical_question: canonical} = ql)
-       when not is_nil(gid) and is_binary(canonical) do
-    if String.trim(canonical) == "" do
+  defp screen(%QuestionLog{group_id: gid, browsable: false, cleaned_question: cleaned} = ql)
+       when not is_nil(gid) and is_binary(cleaned) do
+    if String.trim(cleaned) == "" do
       :ok
     else
-      decide(ql, canonical)
+      decide(ql, cleaned)
     end
   end
 
   defp screen(_ql), do: :ok
 
-  defp decide(ql, canonical) do
+  defp decide(ql, cleaned) do
     system = Prompts.template("publish_check_system")
-    prompt = Prompts.render("publish_check", %{question: canonical})
+    prompt = Prompts.render("publish_check", %{question: cleaned})
 
     # raw: true — chat/3 decodes a JSON "answer" key and returns "" otherwise, and
     # this prompt returns a bare word.
@@ -426,7 +426,11 @@ test "a non-group ask stays browsable and enqueues no publish check" do
 end
 
 test "a skip_normalize group ask never enqueues the publish check" do
-  # canonical_question is the RAW user text on this path — it must never publish
+  # cleaned_question is nil on this path (normalize never ran; the raw text
+  # is pinned as match_text instead) — it must never publish. Belt and
+  # suspenders: even if this enqueue guard were ever removed,
+  # PublishCheckWorker's own is_binary(cleaned_question) guard would still
+  # reject the row, since a skip_normalize row's cleaned_question is nil.
   assert Repo.reload!(ql).browsable == false
   refute_enqueued worker: RuleMaven.Workers.PublishCheckWorker
 end
@@ -490,10 +494,11 @@ In the `unless pool_hit? or never_pool do` block, beside the existing
 ```elixir
                             Games.mark_pooled(updated)
 
-                            # A group row's canonical text must clear the publish
+                            # A group row's cleaned_question must clear the publish
                             # check before it may be listed publicly. `skip_normalize`
-                            # rows are excluded outright: on that path the canonical
-                            # text IS the raw user text, which must never publish.
+                            # rows are excluded outright: on that path cleaned_question
+                            # is nil (normalize never ran) and the raw user text is
+                            # pinned as match_text instead, which must never publish.
                             if group_id && not skip_normalize do
                               RuleMaven.Workers.PublishCheckWorker.enqueue(question_log_id)
                             end
@@ -575,19 +580,21 @@ check.
 with a comment: a row that may not be listed must not be promoted, since promotion
 makes it listable everywhere.
 
-- [ ] **Step 5: Render canonical text for group rows on browse surfaces**
+- [ ] **Step 5: Render cleaned text for group rows on browse surfaces**
 
 Find the browse surface(s) with `rg -n 'unverified_pool_questions' lib/`. Wherever
 a listed row's question text is rendered, a row with a `group_id` must render
-`canonical_question`, never `question`. Add one helper next to the surface rather
+`cleaned_question`, never `question`. Add one helper next to the surface rather
 than duplicating the conditional:
 
 ```elixir
-  # A group row publishes only its scrubbed canonical form — never the asker's
-  # raw wording. A group row without canonical text cannot be browsable (the
-  # publish check reads canonical text), so the fallback is unreachable; it is
-  # here so a future caller can't accidentally leak raw text.
-  defp listed_question(%{group_id: gid, canonical_question: c}) when not is_nil(gid),
+  # A group row publishes only its scrubbed, normalized form — never the
+  # asker's raw wording. A group row without cleaned_question cannot be
+  # browsable (the publish check reads cleaned_question, and rejects nil/blank
+  # outright — this is also what makes a skip_normalize row unreachable here),
+  # so the fallback is unreachable; it is here so a future caller can't
+  # accidentally leak raw text.
+  defp listed_question(%{group_id: gid, cleaned_question: c}) when not is_nil(gid),
     do: c || "(question withheld)"
 
   defp listed_question(q), do: q.cleaned_question || q.question

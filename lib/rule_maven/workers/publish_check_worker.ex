@@ -1,15 +1,22 @@
 defmodule RuleMaven.Workers.PublishCheckWorker do
   @moduledoc """
-  Screens a GROUP question's canonical text before it may be listed on a public
-  browse surface (the Unverified tab, community promotion).
+  Screens a GROUP question's scrubbed, normalized text (`cleaned_question`)
+  before it may be listed on a public browse surface (the Unverified tab,
+  community promotion).
 
   A group row is written `browsable: false` by AskWorker. This worker is the ONLY
   thing that flips it true, and it does so only on an unambiguous "no" from the
   publish-check prompt. Every other outcome — "yes", a malformed reply, an LLM
-  error, a missing canonical question — leaves the row unbrowsable.
+  error, a missing/nil `cleaned_question` — leaves the row unbrowsable.
 
   Failing closed means a worker outage degrades to "group questions don't get
   listed", never to "group questions get listed unchecked".
+
+  `cleaned_question` is nil for `skip_normalize` ("Ask exactly this") rows —
+  see `RuleMaven.LLM.ask/5` and `AskWorker` — so gate 3 (skip_normalize rows
+  never publish) is enforced twice: once by the enqueue guard in AskWorker,
+  and once here by the data itself (the `is_binary` guard below rejects nil
+  before any LLM call is made).
 
   The row's ANSWER is unaffected: it is already `pooled` (if applicable) and
   already serves the cross-user cache, which never exposes the asker's wording
@@ -36,24 +43,25 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
     end
   end
 
-  # Only a group row that is still unbrowsable and actually has canonical text is
+  # Only a group row that is still unbrowsable and actually has cleaned text is
   # a candidate. Everything else is a no-op — including a non-group row, which
-  # must never be touched by this worker.
+  # must never be touched by this worker, and a skip_normalize row, whose
+  # cleaned_question is nil.
   defp screen(
-         %QuestionLog{group_id: gid, browsable: false, canonical_question: canonical} = ql,
+         %QuestionLog{group_id: gid, browsable: false, cleaned_question: cleaned} = ql,
          oban_id
        )
-       when not is_nil(gid) and is_binary(canonical) do
-    if String.trim(canonical) == "" do
+       when not is_nil(gid) and is_binary(cleaned) do
+    if String.trim(cleaned) == "" do
       :ok
     else
-      decide(ql, canonical, oban_id)
+      decide(ql, cleaned, oban_id)
     end
   end
 
   defp screen(_ql, _oban_id), do: :ok
 
-  defp decide(ql, canonical, oban_id) do
+  defp decide(ql, cleaned, oban_id) do
     run =
       Jobs.start_run(
         "publish_check",
@@ -63,7 +71,7 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
       )
 
     system = Prompts.template("publish_check_system")
-    prompt = Prompts.render("publish_check", %{question: canonical})
+    prompt = Prompts.render("publish_check", %{question: cleaned})
 
     # raw: true — chat/3 decodes a JSON "answer" key and returns "" otherwise, and
     # this prompt returns a bare word.
