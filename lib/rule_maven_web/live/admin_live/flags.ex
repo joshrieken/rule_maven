@@ -138,6 +138,7 @@ defmodule RuleMavenWeb.AdminLive.Flags do
       f
       |> Map.put(:on?, Flags.enabled?(f.id, nil))
       |> Map.put(:gates, gate_view(f.id))
+      |> Map.put(:counts, if(f.kind == :experiment, do: Flags.assignment_counts(f.id), else: nil))
     end)
     |> Enum.group_by(& &1.kind)
   end
@@ -238,6 +239,10 @@ defmodule RuleMavenWeb.AdminLive.Flags do
                     title={"Revoke #{a.username}"}
                   >×</button>
                 </span>
+              </div>
+
+              <div :if={f.counts} style="margin-top:0.35rem;font-size:0.8rem" class="text-secondary">
+                Assignments — control: {f.counts.control} · treatment: {f.counts.treatment}
               </div>
             </li>
           <% end %>

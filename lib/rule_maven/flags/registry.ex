@@ -40,7 +40,11 @@ defmodule RuleMaven.Flags.Registry do
     %{id: :outbound_email, label: "Outbound email", kind: :ops, default: true}
   ]
 
-  @flags @tool_flags ++ @kill_switches
+  @experiments [
+    %{id: :exp_ask_pipeline, label: "Experiment: new ask pipeline", kind: :experiment, default: false}
+  ]
+
+  @flags @tool_flags ++ @kill_switches ++ @experiments
 
   @doc "All flag descriptors."
   def all, do: @flags
