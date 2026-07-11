@@ -18,6 +18,59 @@
 - Run only the test files touched by this change; do not run the full suite (per run-only-necessary-tests rule). Tee test output to `./tmp/<task>.log`.
 - Context boundary: all group logic lives in a new `RuleMaven.Groups` context module; do not scatter it into `Games`.
 
+### Test helper conventions (BINDING — overrides the illustrative test code below)
+
+This repo has **no** `AccountsFixtures`, no `user_fixture/0`, and no
+`log_in_user/2`. The task test snippets in this plan use those names as
+shorthand. Ignore those names and use the real conventions:
+
+- **Create a user** — `RuleMaven.Users.create_user/1` returns `{:ok, user}`.
+  Define a local helper in each test file (this is the established pattern):
+
+```elixir
+  defp create_user(prefix, attrs \\ %{}) do
+    {:ok, user} =
+      RuleMaven.Users.create_user(
+        Map.merge(
+          %{
+            username: "#{prefix}_user",
+            email: "#{prefix}_user@test.com",
+            password: "password1234"
+          },
+          attrs
+        )
+      )
+
+    user
+  end
+```
+
+- **Log in (LiveView/ConnCase tests)** — define locally:
+
+```elixir
+  defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
+```
+
+- **Create a game** — `RuleMaven.GamesFixtures.game_fixture/1` exists. It
+  defaults `bgg_id: 42`; if a test creates more than one game, pass a distinct
+  `bgg_id` to avoid the unique constraint.
+- **Create a group** — Task 2/3 add `test/support/fixtures/groups_fixtures.ex`:
+
+```elixir
+defmodule RuleMaven.GroupsFixtures do
+  def group_fixture(owner, attrs \\ %{}) do
+    {:ok, group} =
+      RuleMaven.Groups.create_group(owner, Enum.into(attrs, %{name: "Test Crew"}))
+
+    group
+  end
+end
+```
+
+Every task's tests must use these. Where a snippet below says
+`user_fixture()` read `create_user("a")`; where it says `log_in_user(conn, u)`
+read `login(conn, u)`.
+
 ---
 
 ### Task 1: Migration — groups, group_memberships, questions_log.group_id
