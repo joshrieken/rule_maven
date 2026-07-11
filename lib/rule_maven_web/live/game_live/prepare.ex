@@ -14,7 +14,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     CheatSheet,
     Voices,
     Repo,
-    Workers
+    Workers,
+    RulebookDownloader
   }
 
   alias RuleMaven.Games.Chunk
@@ -180,6 +181,37 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       review_pages: review_pages,
       question_count: Games.question_count(game)
     )
+    |> assign_two_up_suspects(docs)
+  end
+
+  # Doc ids whose PDF looks like a 2-up spread (wide first sheet) but isn't
+  # flagged yet — drives the hint next to the toggle. Only unextracted docs are
+  # probed. The pdfinfo probe result is cached in the socket by doc id (the
+  # stored PDF's bytes never change) because load/1 reruns on every job event —
+  # during an extraction that would otherwise be a pdfinfo call per progress
+  # line.
+  defp assign_two_up_suspects(socket, docs) do
+    cache = Map.get(socket.assigns, :two_up_probe_cache, %{})
+
+    cache =
+      Enum.reduce(docs, cache, fn d, acc ->
+        if is_binary(d.pdf_path) and is_nil(d.extracted_at) and not Map.has_key?(acc, d.id) do
+          Map.put(acc, d.id, RulebookDownloader.two_up_suspect?(d.pdf_path))
+        else
+          acc
+        end
+      end)
+
+    suspects =
+      for d <- docs,
+          is_nil(d.extracted_at),
+          not d.two_up,
+          Map.get(cache, d.id, false),
+          into: MapSet.new() do
+        d.id
+      end
+
+    assign(socket, two_up_suspects: suspects, two_up_probe_cache: cache)
   end
 
   # Table tools (sub-bar → floating windows) are shared by every game screen.
@@ -475,6 +507,37 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   def handle_event("cancel_rename", _params, socket) do
     {:noreply, assign(socket, renaming_doc_id: nil)}
+  end
+
+  # Sheet-layout flag: split (or stop splitting) each PDF sheet into two
+  # logical pages. Takes effect on the next extraction, so an already-extracted
+  # doc needs a re-run — the flash says so.
+  def handle_event("toggle_two_up", %{"id" => id}, socket) do
+    doc = Games.get_document(id)
+
+    cond do
+      is_nil(doc) or doc.game_id != socket.assigns.game.id ->
+        {:noreply, put_flash(socket, :error, "That source doesn’t exist.")}
+
+      true ->
+        case Games.update_document(doc, %{two_up: !doc.two_up}) do
+          {:ok, updated} ->
+            note =
+              if updated.extracted_at,
+                do: " Re-run Extract to apply it to the stored text.",
+                else: ""
+
+            label = if updated.two_up, do: "on", else: "off"
+
+            {:noreply,
+             socket
+             |> put_flash(:info, "2-pages-per-sheet #{label} for “#{updated.label}”.#{note}")
+             |> load()}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Could not update the source.")}
+        end
+    end
   end
 
   def handle_event("rename_document", %{"doc_id" => id, "label" => label}, socket) do
@@ -874,6 +937,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               log={Map.get(@step_logs, step.id)}
               next?={step.id == @next_step_id}
               renaming_doc_id={@renaming_doc_id}
+              two_up_suspects={@two_up_suspects}
             />
           <% end %>
         </div>
@@ -896,6 +960,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   attr :log, :any, default: nil
   attr :next?, :boolean, default: false
   attr :renaming_doc_id, :any, default: nil
+  attr :two_up_suspects, :any, default: nil
 
   defp step_row(assigns) do
     # A row is collapsible when it has a result to preview *or* an action to
@@ -961,6 +1026,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           id={@step.id}
           preview={@preview}
           renaming_doc_id={@renaming_doc_id}
+          two_up_suspects={@two_up_suspects}
         />
         <.step_actions step={@step} game={@game} running={@running} />
         <.step_log log={@log} />
@@ -1095,6 +1161,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   attr :id, :atom, required: true
   attr :preview, :any, required: true
   attr :renaming_doc_id, :any, default: nil
+  attr :two_up_suspects, :any, default: nil
 
   defp preview_body(assigns) do
     ~H"""
@@ -1152,6 +1219,25 @@ defmodule RuleMavenWeb.GameLive.Prepare do
                 target="_blank"
                 style="margin-left:0.4rem;font-size:0.75rem"
               >View PDF</.link>
+              <label
+                :if={is_binary(d.pdf_path)}
+                title="Each PDF sheet holds two rulebook pages side by side (spread scan / print-and-play). Extraction splits every sheet into left and right pages."
+                style="display:inline-flex;align-items:center;gap:0.3rem;margin-left:0.4rem;font-size:0.75rem;color:var(--text-secondary);cursor:pointer;white-space:nowrap"
+              >
+                <input
+                  type="checkbox"
+                  checked={d.two_up}
+                  phx-click="toggle_two_up"
+                  phx-value-id={d.id}
+                  style="accent-color:var(--accent);margin:0"
+                /> 2 pages per sheet
+              </label>
+              <span
+                :if={@two_up_suspects && MapSet.member?(@two_up_suspects, d.id) && !d.two_up}
+                style="margin-left:0.3rem;font-size:0.72rem;font-weight:600;color:var(--warn-ink, var(--warn, #b45309))"
+              >
+                Wide sheets — 2-up spread?
+              </span>
             </li>
           </ul>
         <% id when id in [:extract, :cleanup] -> %>

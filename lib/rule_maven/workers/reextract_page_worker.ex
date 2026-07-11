@@ -90,16 +90,27 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
 
           page ->
             label =
-              if page.printed,
-                do: "sheet #{page.sheet} (page #{page.printed})",
-                else: "sheet #{page.sheet}"
+              cond do
+                # Two-up: page.sheet is the logical page index; name the
+                # physical sheet + half so the log matches the PDF viewer.
+                doc.two_up ->
+                  {phys, half} = RuleMaven.Extract.TwoUp.map_page(page.sheet)
+                  "page #{page.printed || page.sheet} (sheet #{phys}, #{half} half)"
+
+                page.printed ->
+                  "sheet #{page.sheet} (page #{page.printed})"
+
+                true ->
+                  "sheet #{page.sheet}"
+              end
 
             log.("Re-extracting #{label} with the stronger model…", "info")
 
             case RulebookDownloader.reextract_page(doc.pdf_path, page.sheet,
                    on_log: log,
                    label: label,
-                   game_id: doc.game_id
+                   game_id: doc.game_id,
+                   two_up: doc.two_up
                  ) do
               {:ok, result} ->
                 case Games.replace_page(doc, index, result) do

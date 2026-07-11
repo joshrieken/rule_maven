@@ -102,6 +102,11 @@ defmodule RuleMaven.Games.Document do
     field :page_count, :integer
     field :printed_offset, :integer
     field :from_ocr, :boolean, default: false
+    # Sheet layout: true when each physical PDF sheet carries two printed
+    # rulebook pages side by side (spread scans, print-and-play). Extraction
+    # then splits every sheet into left/right logical pages. Set before
+    # extraction; flipping it requires a re-extract.
+    field :two_up, :boolean, default: false
     field :extracted_at, :utc_datetime
     field :status, :string, default: "pending_review"
     field :file_hash, :string
@@ -136,6 +141,7 @@ defmodule RuleMaven.Games.Document do
       :page_count,
       :printed_offset,
       :from_ocr,
+      :two_up,
       :extracted_at,
       :status,
       :file_hash,
