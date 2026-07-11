@@ -1,5 +1,5 @@
 defmodule RuleMaven.UsersTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.Users
   alias RuleMaven.Users.User

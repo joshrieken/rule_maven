@@ -5,7 +5,7 @@ defmodule RuleMaven.GamesErrorRetryTest do
   failed asks don't burn the user's billable quota.
   """
 
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.{Games, Repo}
   alias RuleMaven.Games.{QuestionFlag, QuestionLog}

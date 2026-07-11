@@ -1,5 +1,5 @@
 defmodule RuleMaven.VoicesTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.{Games, Repo, Voices}
   alias RuleMaven.Voices.{AnswerVoice, GameVoice, PersonaEvent}

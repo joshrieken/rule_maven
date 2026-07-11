@@ -1,5 +1,5 @@
 defmodule RuleMaven.AuditTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.{Audit, Users}
 

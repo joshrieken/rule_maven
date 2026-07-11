@@ -1,5 +1,5 @@
 defmodule RuleMavenWeb.PageControllerTest do
-  use RuleMavenWeb.ConnCase
+  use RuleMavenWeb.ConnCase, async: true
 
   test "GET / redirects to login when unauthenticated", %{conn: conn} do
     conn = get(conn, ~p"/")

@@ -1,5 +1,5 @@
 defmodule RuleMaven.GamesDocumentKindTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
   alias RuleMaven.Games
   alias RuleMaven.Games.Document
 
