@@ -58,12 +58,25 @@ defmodule RuleMaven.Games.RateLimitHouseRulesTest do
     {:ok, user} = Users.set_quota(user, 2)
     game = game_fixture()
 
-    RuleMaven.Repo.insert!(%QuestionLog{
-      game_id: game.id,
+    ql =
+      RuleMaven.Repo.insert!(%QuestionLog{
+        game_id: game.id,
+        user_id: user.id,
+        question: "How many cards?",
+        answer: "Six.",
+        pool_source_id: nil
+      })
+
+    # A fresh ask is billed via its "ask" llm_logs row, not the surviving
+    # questions_log row (see the doc comment on Games.recent_question_count/2).
+    RuleMaven.Repo.insert!(%RuleMaven.LLM.Log{
+      operation: "ask",
       user_id: user.id,
-      question: "How many cards?",
-      answer: "Six.",
-      pool_source_id: nil
+      game_id: game.id,
+      question_log_id: ql.id,
+      model: "test",
+      provider: "test",
+      success: true
     })
 
     RuleMaven.Repo.insert!(%RuleMaven.LLM.Log{
