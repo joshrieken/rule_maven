@@ -89,5 +89,30 @@ defmodule RuleMavenWeb.AdminRawTextRedactionTest do
 
       assert ^rows = Db.__redact_for_test__(rows, "answer_voices", true)
     end
+
+    test "masks house_rule_deltas.delta — the note restates the crew Q&A" do
+      rows = [%{"id" => 1, "delta" => "With your rule, Sarah's card is now legal."}]
+
+      masked = Db.__redact_for_test__(rows, "house_rule_deltas", false)
+
+      assert [%{"delta" => "«redacted»", "id" => 1}] = masked
+      refute inspect(masked) =~ "Sarah"
+    end
+
+    test "masks groups.invite_code — reading it lets an admin join the crew" do
+      rows = [%{"id" => 1, "name" => "Poker Night", "invite_code" => "SECRETJOINCODE"}]
+
+      masked = Db.__redact_for_test__(rows, "groups", false)
+
+      assert [%{"invite_code" => "«redacted»", "name" => "Poker Night", "id" => 1}] = masked
+    end
+
+    test "masks question_flags.reason — reporter free-text can name real people" do
+      rows = [%{"id" => 1, "reason" => "wrong, Dave never rolled that"}]
+
+      masked = Db.__redact_for_test__(rows, "question_flags", false)
+
+      assert [%{"reason" => "«redacted»", "id" => 1}] = masked
+    end
   end
 end

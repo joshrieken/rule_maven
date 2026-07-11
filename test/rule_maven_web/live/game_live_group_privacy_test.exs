@@ -210,6 +210,44 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
     assert html =~ "(answer withheld)"
   end
 
+  test "an admin's version-history panel does NOT reveal a withheld crew answer", ctx do
+    # The inline admin "History" panel prints prior versions' `metadata["answer"]`
+    # (the raw snapshot delete_question writes). A crew answer restates the private
+    # question, so the panel must withhold it for a row the admin can't see live.
+    live_row =
+      group_row!(ctx.game, ctx.member, ctx.group, %{
+        cleaned_question: "Can a smuggler cheat?",
+        answer: "No."
+      })
+
+    # A prior version of the same crew thread, deleted → snapshotted to the audit
+    # log with its raw answer. chain_walk matches it to live_row by shared text.
+    prior =
+      group_row!(ctx.game, ctx.member, ctx.group, %{
+        cleaned_question: "Can a smuggler cheat?",
+        answer: "No, HISTORYSECRET, the smuggler is caught."
+      })
+
+    {:ok, _} = RuleMaven.Games.delete_question(prior, ctx.member)
+
+    admin = user!("hist_admin", %{role: "admin"})
+    conn = login(build_conn(), admin)
+
+    {:ok, view, _html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(live_row.id)}"
+      )
+
+    html =
+      render_click(view, "toggle_question_history", %{
+        "id" => to_string(live_row.id),
+        "question" => "Can a smuggler cheat?"
+      })
+
+    refute html =~ "HISTORYSECRET", "the version-history panel leaked a withheld crew answer"
+  end
+
   test "the asker still sees their own crew ANSWER in the bubble", ctx do
     q =
       group_row!(ctx.game, ctx.member, ctx.group, %{

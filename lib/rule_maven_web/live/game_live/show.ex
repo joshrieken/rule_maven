@@ -1561,13 +1561,23 @@ defmodule RuleMavenWeb.GameLive.Show do
       else
         history =
           Map.put_new_lazy(socket.assigns.question_history, id, fn ->
-            seeds =
-              case find_question_log(socket.assigns.game, id) do
-                nil -> [question]
-                ql -> [question, ql.question, ql.cleaned_question, ql.canonical_question]
-              end
+            # Every prior version in this panel is a snapshot of the row's ANSWER
+            # (audit `metadata["answer"]`, rendered raw below). A crew answer
+            # restates the private question, so the panel is withheld from anyone
+            # who cannot see the live answer — the same `answer_visible?` gate the
+            # bubble one line above uses. Fail closed when the live row is gone.
+            case find_question_log(socket.assigns.game, id) do
+              nil ->
+                []
 
-            RuleMaven.Audit.question_history(socket.assigns.game.id, seeds)
+              ql ->
+                if answer_visible?(ql, socket.assigns.current_user.id) do
+                  seeds = [question, ql.question, ql.cleaned_question, ql.canonical_question]
+                  RuleMaven.Audit.question_history(socket.assigns.game.id, seeds)
+                else
+                  []
+                end
+            end
           end)
 
         {:noreply, assign(socket, history_open: MapSet.put(open, id), question_history: history)}

@@ -408,6 +408,18 @@ defmodule RuleMavenWeb.AdminLive.Db do
     # (question_log_id, voice) with no crew gate on write, so a plain admin
     # reading this table verbatim bypasses listed_answer/answer_visible entirely.
     "answer_voices" => ~w(content),
+    # The LLM note explaining how a house rule changes an answer — the prompt is
+    # fed the crew row's question + answer (llm.ex house_rule_delta/3), so the
+    # note restates that private prose. Reachable for a crew row: request_delta/3
+    # gates on reachable_by?/2, which a crew member passes for their own row.
+    "house_rule_deltas" => ~w(delta),
+    # A crew's join secret. A plain admin reading it here could join the crew via
+    # join_by_code/2 and then read ALL its Q&A directly as a member — defeating
+    # the entire "an admin must not read crew prose" boundary in one step.
+    "groups" => ~w(invite_code),
+    # Reporter-authored free-text; a crew member reporting their own row can type
+    # crew-answer prose / real names into it. Parity with game_support_requests.
+    "question_flags" => ~w(reason),
     "llm_logs" => ~w(detail messages),
     "audit_logs" => ~w(metadata),
     "house_rules" => ~w(body),
