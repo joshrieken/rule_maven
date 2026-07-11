@@ -82,6 +82,9 @@ config :phoenix_test,
   base_url: "http://localhost:#{test_port}",
   playwright: [
     browser: :chromium,
+    # Grace period before the Ecto sandbox owner exits at test end, so a
+    # LiveView mid-query in the browser doesn't crash into a dead owner.
+    ecto_sandbox_stop_owner_delay: 200,
     assets_dir: Path.expand("../assets", __DIR__),
     headless: true,
     timeout: :timer.seconds(4)
