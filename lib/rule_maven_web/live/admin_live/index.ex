@@ -430,6 +430,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="Toggle features on or off for everyone."
         />
         <.card
+          :if={@super_admin?}
           href="/oban"
           target="_blank"
           icon="⚙️"

@@ -39,9 +39,14 @@ defmodule RuleMavenWeb.AdminLive.IndexSuperAdminCardsTest do
     refute html =~ ~s|href="/admin/bgg"|
     refute html =~ ~s|href="/admin/security"|
     refute html =~ ~s|href="/admin/flags"|
+    refute html =~ ~s|href="/admin/embeddings"|
+    refute html =~ ~s|href="/admin/automation"|
+    refute html =~ ~s|href="/admin/prompts"|
+    refute html =~ ~s|href="/admin/db"|
+    refute html =~ ~s|href="/oban"|
 
     assert html =~ ~s|href="/admin/users"|
-    assert html =~ ~s|href="/admin/embeddings"|
+    assert html =~ ~s|href="/admin/health"|
   end
 
   test "super admin sees every card", %{conn: conn} do
@@ -51,5 +56,10 @@ defmodule RuleMavenWeb.AdminLive.IndexSuperAdminCardsTest do
     assert html =~ ~s|href="/admin/bgg"|
     assert html =~ ~s|href="/admin/security"|
     assert html =~ ~s|href="/admin/flags"|
+    assert html =~ ~s|href="/admin/embeddings"|
+    assert html =~ ~s|href="/admin/automation"|
+    assert html =~ ~s|href="/admin/prompts"|
+    assert html =~ ~s|href="/admin/db"|
+    assert html =~ ~s|href="/oban"|
   end
 end

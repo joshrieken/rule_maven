@@ -18,6 +18,23 @@ defmodule RuleMavenWeb.UserLiveAuth do
     RuleMavenWeb.GameLive.Form
   ]
 
+  # LiveViews whose mount already requires :superadmin (raw credentials, DB
+  # writes, security config, feature flags, system-wide LLM/prompt behavior).
+  # A plain :admin_reauth check would let a demoted super_admin keep firing
+  # these pages' mutating events on a stale open socket until the page next
+  # reloads — reauth_event/4 below checks against this list instead of
+  # blanket :admin so the per-event re-check matches what mount required.
+  @superadmin_views [
+    RuleMavenWeb.AdminLive.Llm,
+    RuleMavenWeb.AdminLive.Bgg,
+    RuleMavenWeb.AdminLive.Security,
+    RuleMavenWeb.AdminLive.Flags,
+    RuleMavenWeb.AdminLive.Embeddings,
+    RuleMavenWeb.AdminLive.Prompts,
+    RuleMavenWeb.AdminLive.Automation,
+    RuleMavenWeb.AdminLive.Db
+  ]
+
   def on_mount(:app, _params, session, socket) do
     case active_user(session) do
       nil ->
@@ -31,13 +48,16 @@ defmodule RuleMavenWeb.UserLiveAuth do
           Users.can?(user, :admin) ->
             # A LiveView socket outlives its mount: if an admin is demoted or
             # suspended mid-session, the connection stays open and could keep
-            # firing mutating events. Re-verify admin standing before EVERY
-            # event so revocation takes effect on the next interaction,
-            # uniformly across all admin LiveViews (DB Admin, Security, etc.)
-            # without each having to remember its own per-event check.
+            # firing mutating events. Re-verify standing before EVERY event so
+            # revocation takes effect on the next interaction, uniformly
+            # across all admin LiveViews without each having to remember its
+            # own per-event check. Pages gated to :superadmin at mount get the
+            # same bar re-checked here, not just :admin.
+            required = if superadmin_view?(socket.view), do: :superadmin, else: :admin
+
             socket
             |> mount_user(user, session)
-            |> attach_hook(:admin_reauth, :handle_event, &reauth_event/3)
+            |> attach_hook(:admin_reauth, :handle_event, &reauth_event(required, &1, &2, &3))
             |> then(&{:cont, &1})
 
           true ->
@@ -59,6 +79,9 @@ defmodule RuleMavenWeb.UserLiveAuth do
       String.starts_with?(Atom.to_string(view), "Elixir.RuleMavenWeb.AdminLive.")
   end
 
+  @doc "Whether `view` requires :superadmin (checked at mount by the view itself)."
+  def superadmin_view?(view), do: view in @superadmin_views
+
   # A socket outlives its mount, so a user suspended (or force-logged-out) after
   # connecting would otherwise keep a live session with full event access.
   # Re-verify suspension/session validity before EVERY event so revocation takes
@@ -74,17 +97,18 @@ defmodule RuleMavenWeb.UserLiveAuth do
     |> attach_hook(:suspension_reauth, :handle_event, &default_reauth_event/3)
   end
 
-  # Re-checks admin standing from the DB on each event. Halts (redirects) the
-  # moment a once-admin loses the capability or is suspended, so a stale socket
-  # can't keep mutating after revocation. Re-fetches fresh — the socket's
-  # assigned user is a snapshot from mount.
-  defp reauth_event(_event, _params, socket) do
+  # Re-checks standing from the DB on each event, against `required` (:admin
+  # or :superadmin — whichever the view's own mount enforced). Halts
+  # (redirects) the moment a once-qualified user loses the capability or is
+  # suspended, so a stale socket can't keep mutating after revocation.
+  # Re-fetches fresh — the socket's assigned user is a snapshot from mount.
+  defp reauth_event(required, _event, _params, socket) do
     user = socket.assigns[:current_user]
 
     with %{id: id} <- user,
          fresh when not is_nil(fresh) <- Users.get_user(id),
          false <- Users.suspended?(fresh),
-         true <- Users.can?(fresh, :admin) do
+         true <- Users.can?(fresh, required) do
       {:cont, assign(socket, :current_user, fresh)}
     else
       _ -> {:halt, redirect(socket, to: "/")}
