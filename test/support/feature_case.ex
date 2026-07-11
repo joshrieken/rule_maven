@@ -18,6 +18,9 @@ defmodule RuleMavenWeb.FeatureCase do
     quote do
       use Wallaby.Feature
 
+      # Lets `mix test.fast` skip browser E2E tests (~50s of the suite).
+      @moduletag :feature
+
       import Wallaby.Browser
       import Wallaby.Query
       import RuleMavenWeb.FeatureCase

@@ -2362,8 +2362,14 @@ if ("serviceWorker" in navigator) {
     });
   });
 
+  // Reload so an UPDATED worker's fresh assets take effect — but only when a
+  // controller already existed. On a first visit, skipWaiting()+clients.claim()
+  // also fire controllerchange, and reloading there restarts every brand-new
+  // page one beat after load (visible flash; stale-element races in E2E tests).
+  let hadController = !!navigator.serviceWorker.controller;
   let refreshing = false;
   navigator.serviceWorker.addEventListener("controllerchange", function() {
+    if (!hadController) { hadController = true; return; }
     if (refreshing) return;
     refreshing = true;
     window.location.reload();

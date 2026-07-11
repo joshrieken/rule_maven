@@ -27,7 +27,7 @@ defmodule RuleMaven.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test]
+      preferred_envs: [precommit: :test, "test.fast": :test]
     ]
   end
 
@@ -83,6 +83,7 @@ defmodule RuleMaven.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate", "rule_maven.flags.sync", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      "test.fast": ["ecto.create --quiet", "ecto.migrate --quiet", "test --exclude feature"],
       precommit: ["compile --warnings-as-errors", "format", "credo --strict", "test"]
     ]
   end
