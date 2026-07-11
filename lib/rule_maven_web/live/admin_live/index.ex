@@ -308,6 +308,39 @@ defmodule RuleMavenWeb.AdminLive.Index do
         />
       </.section>
 
+      <.section title="AI & Integrations">
+        <.card
+          navigate={~p"/admin/llm"}
+          icon="🤖"
+          title="LLM Provider"
+          desc="Provider, API keys, answer/cleanup/vision models."
+        />
+        <.card
+          navigate={~p"/admin/embeddings"}
+          icon="🧬"
+          title="Embeddings & Proxy"
+          desc="Embedding provider/model and LLM proxy routing."
+        />
+        <.card
+          navigate={~p"/admin/automation"}
+          icon="🧵"
+          title="Automation"
+          desc="Auto-approve thresholds for uploads and FAQ drafts."
+        />
+        <.card
+          navigate={~p"/admin/bgg"}
+          icon="🎲"
+          title="BoardGameGeek"
+          desc="API token and login used to import games and PDFs."
+        />
+        <.card
+          navigate={~p"/admin/prompts"}
+          icon="📝"
+          title="Prompts"
+          desc="Edit the LLM prompts used across the app."
+        />
+      </.section>
+
       <.section title="System">
         <.card
           navigate={~p"/admin/security"}
@@ -344,12 +377,6 @@ defmodule RuleMavenWeb.AdminLive.Index do
           icon="🚩"
           title="Feature Flags"
           desc="Toggle features on or off for everyone."
-        />
-        <.card
-          navigate={~p"/settings"}
-          icon="🔧"
-          title="Settings"
-          desc="LLM provider, model, API keys, rate limits."
         />
         <.card
           href="/oban"
