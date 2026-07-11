@@ -17,7 +17,8 @@ defmodule RuleMavenWeb.AdminLive.Index do
          public_url: Settings.public_url(),
          mail_dev_live: Settings.mail_dev_live?(),
          resend_key_set: Settings.resend_api_key() != nil,
-         dev_routes: Application.get_env(:rule_maven, :dev_routes, false)
+         dev_routes: Application.get_env(:rule_maven, :dev_routes, false),
+         super_admin?: Users.can?(socket.assigns.current_user, :superadmin)
        )}
     else
       {:ok, push_navigate(socket, to: ~p"/")}
@@ -351,6 +352,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
       <.section title="AI & Integrations">
         <.card
+          :if={@super_admin?}
           navigate={~p"/admin/llm"}
           icon="🤖"
           title="LLM Provider"
@@ -369,6 +371,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="Auto-approve thresholds for uploads and FAQ drafts."
         />
         <.card
+          :if={@super_admin?}
           navigate={~p"/admin/bgg"}
           icon="🎲"
           title="BoardGameGeek"
@@ -384,6 +387,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
       <.section title="System">
         <.card
+          :if={@super_admin?}
           navigate={~p"/admin/security"}
           icon="🛡️"
           title="Security"
@@ -414,6 +418,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="Which themes users have selected."
         />
         <.card
+          :if={@super_admin?}
           navigate={~p"/admin/flags"}
           icon="🚩"
           title="Feature Flags"
