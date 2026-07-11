@@ -1,5 +1,5 @@
 defmodule RuleMaven.GamesPoolInvalidationTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   import Ecto.Query
   alias RuleMaven.{Games, Repo}

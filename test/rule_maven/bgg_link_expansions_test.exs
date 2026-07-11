@@ -1,5 +1,5 @@
 defmodule RuleMaven.BGGLinkExpansionsTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
   alias RuleMaven.{BGG, Games}
 
   defp game(name, bgg_id) do

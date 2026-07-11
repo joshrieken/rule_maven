@@ -1,5 +1,5 @@
 defmodule RuleMaven.FaqTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.{Faq, Games}
 

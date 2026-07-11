@@ -1,5 +1,5 @@
 defmodule RuleMaven.ReadinessTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.{Games, Readiness, Repo, Settings}
   alias RuleMaven.Games.{Document, Chunk}

@@ -43,6 +43,10 @@ config :rule_maven, RuleMavenWeb.Endpoint,
 # Wallaby E2E tests need the server on a different port.
 config :rule_maven, :wallaby, endpoint_port: test_port
 
+# Bcrypt's default cost (12) burns ~270ms per hash. Tests create hundreds of
+# users; the minimum cost keeps them exercising the real hashing path at ~1ms.
+config :bcrypt_elixir, log_rounds: 4
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

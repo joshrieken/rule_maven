@@ -1,5 +1,5 @@
 defmodule RuleMaven.GamesExpansionLinksTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
   alias RuleMaven.Games
 
   defp game(name) do

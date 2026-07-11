@@ -1,5 +1,5 @@
 defmodule RuleMaven.Extract.CalibrateTest do
-  use RuleMaven.DataCase
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.Extract.Calibrate
   alias RuleMaven.Settings
