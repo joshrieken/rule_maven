@@ -3,8 +3,9 @@ defmodule RuleMaven.Users.UserToken do
   Hashed, expiring tokens for transactional email flows.
 
   The raw token is mailed to the user; only its SHA-256 hash is stored. Validity
-  depends on the context: `"confirm"` (email confirmation) lasts a week, while
-  `"reset"` (password reset) is short-lived.
+  depends on the context: `"confirm"` (email confirmation) lasts a week,
+  `"reset"` (password reset) is a day, `"magic_link"` (passwordless sign-in) is
+  15 minutes.
   """
   use Ecto.Schema
   import Ecto.Query
@@ -15,7 +16,8 @@ defmodule RuleMaven.Users.UserToken do
   # Token lifetimes in seconds, by context.
   @validity_seconds %{
     "confirm" => 7 * 24 * 3600,
-    "reset" => 24 * 3600
+    "reset" => 24 * 3600,
+    "magic_link" => 15 * 60
   }
   @default_validity 24 * 3600
 

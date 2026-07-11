@@ -292,6 +292,50 @@ defmodule RuleMaven.Users do
     end
   end
 
+  # --- magic-link sign-in -----------------------------------------------------
+
+  @doc """
+  Sends a passwordless sign-in link to the account with this email, if one
+  exists. `url_fun` receives the raw token and returns the absolute sign-in
+  URL. Returns `:ok` when no account matches — same no-enumeration contract as
+  `deliver_password_reset_instructions/2`.
+  """
+  def deliver_magic_link_instructions(email, url_fun) when is_function(url_fun, 1) do
+    case get_user_by_email(email) do
+      %User{} = user ->
+        {encoded, token} = UserToken.build_email_token(user, "magic_link")
+        Repo.insert!(token)
+        UserNotifier.deliver_magic_link_instructions(user, url_fun.(encoded))
+
+      _ ->
+        :ok
+    end
+  end
+
+  @doc """
+  Consumes a magic-link token: verifies it, burns every outstanding magic-link
+  token for that user (single-use), and returns the user to log in. Returns
+  `{:ok, user}`, `{:error, :suspended}`, or `:error` for a bad/expired token.
+  """
+  def consume_magic_link(encoded_token) do
+    with {:ok, query} <- UserToken.verify_email_token_query(encoded_token, "magic_link"),
+         %User{} = user <- Repo.one(query) do
+      {:ok, _} =
+        Repo.transaction(
+          Ecto.Multi.new()
+          |> Ecto.Multi.delete_all(:tokens, UserToken.by_user_and_contexts_query(user, ["magic_link"]))
+        )
+
+      if User.suspended?(user) do
+        {:error, :suspended}
+      else
+        {:ok, user}
+      end
+    else
+      _ -> :error
+    end
+  end
+
   def authenticate(username, password) do
     user = get_user_by_username(username)
 
