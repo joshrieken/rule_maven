@@ -23,9 +23,11 @@ defmodule RuleMaven.Extract.TwoUp do
   def logical_count(sheets) when is_integer(sheets) and sheets >= 0, do: sheets * 2
 
   @doc """
-  Poppler crop flags (`-x -y -W -H`) selecting one half of a sheet whose media
-  box is `width_pts × height_pts`, rendered at `dpi`. The right half absorbs
-  any odd pixel so the two halves tile the sheet exactly.
+  Poppler crop flags (`-x -y -W -H`) selecting one half of a sheet whose
+  *rendered* size is `width_pts × height_pts`, at `dpi`. The right half absorbs
+  any odd pixel so the two halves tile the sheet exactly. Callers must pass
+  rotation-corrected dimensions (see `parse_sheet_size/2`) — poppler applies
+  `/Rotate` before the pixel-space crop.
   """
   def crop_args(width_pts, height_pts, dpi, half) when half in [:left, :right] do
     w = round(width_pts * dpi / 72)
@@ -42,15 +44,25 @@ defmodule RuleMaven.Extract.TwoUp do
   end
 
   @doc """
-  Parses one sheet's media-box size (points) out of `pdfinfo -f n -l n` output.
-  Returns `{:ok, {width_pts, height_pts}}` or `{:error, :no_size}`.
+  Parses one sheet's *rendered* size (points) out of `pdfinfo -f n -l n`
+  output. pdfinfo reports the unrotated media box plus a separate `rot:` line,
+  while pdftoppm/pdftotext render (and crop) after applying `/Rotate` — so a
+  90/270 rotation swaps the reported width and height here, and callers can use
+  the result directly for crop math. Returns `{:ok, {width_pts, height_pts}}`
+  or `{:error, :no_size}`.
   """
-  def parse_sheet_size(pdfinfo_out, sheet) do
-    case Regex.run(
-           ~r/^Page\s+#{sheet} size:\s+([\d.]+) x ([\d.]+) pts/m,
-           pdfinfo_out
-         ) do
-      [_, w, h] -> {:ok, {parse_float(w), parse_float(h)}}
+  def parse_sheet_size(pdfinfo_out, sheet) when is_integer(sheet) do
+    with [_, w, h] <-
+           Regex.run(~r/^Page\s+#{sheet} size:\s+([\d.]+) x ([\d.]+) pts/m, pdfinfo_out) do
+      rot =
+        case Regex.run(~r/^Page\s+#{sheet} rot:\s+(\d+)/m, pdfinfo_out) do
+          [_, r] -> String.to_integer(r)
+          _ -> 0
+        end
+
+      {w, h} = {parse_float(w), parse_float(h)}
+      if rem(rot, 180) == 90, do: {:ok, {h, w}}, else: {:ok, {w, h}}
+    else
       _ -> {:error, :no_size}
     end
   end

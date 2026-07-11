@@ -1757,6 +1757,7 @@ defmodule RuleMaven.Games do
       index: p.index,
       sheet: p.sheet,
       printed: p.printed,
+      half: Map.get(p, :half),
       text: p.text || "",
       cleaned: p.cleaned,
       confidence: Map.get(p, :confidence),
@@ -3296,7 +3297,20 @@ defmodule RuleMaven.Games do
     anchor = max(page_one_sheet, 1)
 
     Enum.map(pages, fn p ->
-      printed = if p.sheet >= anchor, do: p.sheet - anchor + 1, else: nil
+      printed =
+        cond do
+          p.sheet < anchor ->
+            nil
+
+          # 2-up page (physical sheet + half): two printed pages per sheet,
+          # printed 1 = left half of the anchor sheet.
+          Map.get(p, :half) in ["left", "right"] ->
+            2 * (p.sheet - anchor) + if(p.half == "left", do: 1, else: 2)
+
+          true ->
+            p.sheet - anchor + 1
+        end
+
       Map.put(p, :printed, printed)
     end)
   end

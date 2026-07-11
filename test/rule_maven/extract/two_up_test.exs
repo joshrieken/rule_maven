@@ -58,6 +58,28 @@ defmodule RuleMaven.Extract.TwoUpTest do
       assert TwoUp.parse_sheet_size(out, 3) == {:ok, {1224.0, 792.0}}
     end
 
+    test "swaps dimensions for 90/270-rotated sheets (scanner output)" do
+      # pdfinfo reports the unrotated media box; poppler renders after /Rotate,
+      # so a portrait media box rotated 90° renders landscape.
+      out = """
+      Page    1 size:  612 x 792 pts
+      Page    1 rot:   90
+      Page    2 size:  612 x 792 pts
+      Page    2 rot:   270
+      Page    3 size:  612 x 792 pts
+      Page    3 rot:   180
+      """
+
+      assert TwoUp.parse_sheet_size(out, 1) == {:ok, {792.0, 612.0}}
+      assert TwoUp.parse_sheet_size(out, 2) == {:ok, {792.0, 612.0}}
+      assert TwoUp.parse_sheet_size(out, 3) == {:ok, {612.0, 792.0}}
+    end
+
+    test "missing rot line means no rotation" do
+      out = "Page    1 size:  842 x 595 pts\n"
+      assert TwoUp.parse_sheet_size(out, 1) == {:ok, {842.0, 595.0}}
+    end
+
     test "errors when the size line is missing" do
       assert TwoUp.parse_sheet_size("nonsense", 2) == {:error, :no_size}
     end

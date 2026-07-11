@@ -216,7 +216,12 @@ defmodule RuleMaven.RulebookDownloader do
       # Number pages (printed page when detectable, else physical sheet) so the
       # reader can distinguish them.
       pages = String.split(raw_text, "\f")
-      page_structs = Games.paginate(pages) |> attach_page_meta(page_meta)
+
+      page_structs =
+        Games.paginate(pages)
+        |> attach_page_meta(page_meta)
+        |> apply_two_up_layout(doc.two_up)
+
       text = Games.rebuild_full_text(page_structs)
 
       Games.update_document(
@@ -261,6 +266,20 @@ defmodule RuleMaven.RulebookDownloader do
       end)
 
     merged ++ Enum.drop(pages, length(merged))
+  end
+
+  # Page identity on a 2-up document: `Games.paginate` numbers `sheet` by
+  # position in the extracted text, which is the *logical* page index there —
+  # rewrite it to the true physical sheet and record which half, so every
+  # consumer of page.sheet (citations, markers, review UI, printed-page anchor,
+  # per-page re-extract) sees real sheet numbers with no 2-up awareness needed.
+  defp apply_two_up_layout(pages, false), do: pages
+
+  defp apply_two_up_layout(pages, true) do
+    Enum.map(pages, fn p ->
+      {sheet, half} = TwoUp.map_page(p.index + 1)
+      p |> Map.put(:sheet, sheet) |> Map.put(:half, to_string(half))
+    end)
   end
 
   defp file_size(path) do
@@ -682,7 +701,7 @@ defmodule RuleMaven.RulebookDownloader do
         game_id: game_id,
         pdf_path: nil,
         page: 1,
-        two_up: false
+        layout: false
       })
 
     if String.trim(r.text) == "" do
@@ -750,17 +769,30 @@ defmodule RuleMaven.RulebookDownloader do
   # 2-up legacy path: the whole-document text layer would land two printed
   # pages per "\f" page, so the trust branch uses the half-cropped layer pages
   # instead. An unusable layer falls through to OCR over half-cropped renders.
+  # Unlike the cross-check engine (which gates per page via column_suspect?),
+  # this trust branch stores the layer verbatim — so a column-suspect page
+  # anywhere sends the whole book to OCR rather than trusting misordered text.
   defp legacy_extract(full_path, on_progress, game_id, true) do
     on_progress.(:extracting)
 
-    with {:ok, sheets} <- sheet_count(full_path),
-         pages when pages != [] <- pdftext_pages(full_path, true, sheets),
-         text = Enum.join(pages, "\f"),
-         false <- String.trim(text) == "" do
-      {:ok, text, false, nil}
+    pages = legacy_two_up_layer(full_path)
+    text = Enum.join(pages, "\f")
+
+    usable? =
+      pages != [] and String.trim(text) != "" and
+        not Enum.any?(pages, &Gate.column_suspect?/1)
+
+    if usable?,
+      do: {:ok, text, false, nil},
+      else: run_ocr(full_path, on_progress, game_id, true)
+  end
+
+  defp legacy_two_up_layer(full_path) do
+    with {:ok, sheets} when sheets > 0 <- sheet_count(full_path),
+         {:ok, sizes} <- sheet_sizes(full_path, 1, sheets) do
+      pdftext_pages_two_up(full_path, sizes, sheets)
     else
-      {:error, reason} when is_binary(reason) -> {:error, reason}
-      _ -> run_ocr(full_path, on_progress, game_id, true)
+      _ -> []
     end
   end
 
@@ -786,74 +818,14 @@ defmodule RuleMaven.RulebookDownloader do
         {:ok, sheets} ->
           # A 2-up book reads as two logical pages per physical sheet; every
           # page index from here down (budget, layer alignment, render, meta)
-          # is logical.
-          total = if two_up, do: TwoUp.logical_count(sheets), else: sheets
-          on_progress.(:ocr)
+          # is logical. `layout` carries the per-sheet media-box sizes read
+          # once here, so per-page renders never re-probe pdfinfo.
+          case build_layout(full_path, sheets, two_up) do
+            {:ok, layout} ->
+              run_crosscheck(full_path, on_progress, game_id, layout, sheets)
 
-          # Bound what one document can spend. A page normally costs 0–2 model
-          # calls; the escalation ladder's worst case is ~9 (two cheap reads, a
-          # high-DPI re-read, a mid read, a strong read, then the critic loop).
-          # Budgeting @llm_calls_per_page across the whole book lets a genuinely
-          # hard page climb the full ladder while capping a pathological one —
-          # a corrupt scan where every page escalates — at a knowable ceiling.
-          RuleMaven.LLM.start_call_budget(total * llm_calls_per_page())
-          budget = RuleMaven.LLM.call_budget_handle()
-
-          log(
-            on_progress,
-            "Reading #{total} page(s) — trusting clean text, cross-checking the rest…"
-          )
-
-          # Positional layer↔sheet pairing is only safe when the text-layer page
-          # count matches the sheet count. On any mismatch we discard the
-          # layer entirely (every page cross-checks via OCR/vision) rather than
-          # risk attaching a page's text to the wrong sheet — silent corruption is
-          # the one thing accuracy-first must never do. A few extra vision calls
-          # on a rare mismatch is the right trade.
-          layer_pages = aligned_layers(pdftext_pages(full_path, two_up, sheets), total)
-
-          # Read the drift-sample rate once for the whole book (avoids a Settings
-          # DB read per page).
-          drift_rate = Calibrate.drift_rate()
-
-          results =
-            1..total
-            |> Task.async_stream(
-              fn page ->
-                # Pages run in child processes: adopt the document's budget so
-                # they spend from one shared allowance, not one each.
-                RuleMaven.LLM.adopt_call_budget(budget)
-                layer = String.trim(Enum.at(layer_pages, page - 1) || "")
-                ctx = %{game_id: game_id, pdf_path: full_path, page: page, two_up: two_up}
-                r = decide_page_lazy(layer, drift_rate, ctx)
-                log(on_progress, page_line(page, total, r), page_kind(r))
-                r
-              end,
-              max_concurrency: @vision_concurrency,
-              ordered: true,
-              timeout: :infinity
-            )
-            |> Enum.map(fn
-              {:ok, r} -> r
-              _ -> %{text: "", confidence: 0.0, lane: "vision", source: "error"}
-            end)
-
-          text = results |> Enum.map(& &1.text) |> Enum.join("\f")
-
-          if String.trim(text) == "" do
-            {:error, "Extraction produced no readable text"}
-          else
-            # from_ocr: true unless every page came straight off the text layer.
-            from_ocr = Enum.any?(results, &(&1.lane != "text_layer"))
-            flagged = Enum.count(results, &(&1.source in ["critic_residual", "error"]))
-
-            log(
-              on_progress,
-              "Read #{total} page(s) — #{total - flagged} clean, #{flagged} flagged for review",
-              :info
-            )
-
-            {:ok, text, from_ocr, results}
+            {:error, reason} ->
+              {:error, reason}
           end
 
         {:error, reason} ->
@@ -862,6 +834,104 @@ defmodule RuleMaven.RulebookDownloader do
     else
       {:error, :no_renderer}
     end
+  end
+
+  defp build_layout(_full_path, _sheets, false), do: {:ok, false}
+
+  defp build_layout(full_path, sheets, true) do
+    case sheet_sizes(full_path, 1, sheets) do
+      {:ok, sizes} -> {:ok, {:two_up, sizes}}
+      _ -> {:error, "could not read sheet sizes — 2-up extraction needs pdfinfo (poppler)"}
+    end
+  end
+
+  defp run_crosscheck(full_path, on_progress, game_id, layout, sheets) do
+    total =
+      case layout do
+        {:two_up, _} -> TwoUp.logical_count(sheets)
+        false -> sheets
+      end
+
+    on_progress.(:ocr)
+
+    # Bound what one document can spend. A page normally costs 0–2 model
+    # calls; the escalation ladder's worst case is ~9 (two cheap reads, a
+    # high-DPI re-read, a mid read, a strong read, then the critic loop).
+    # Budgeting @llm_calls_per_page across the whole book lets a genuinely
+    # hard page climb the full ladder while capping a pathological one —
+    # a corrupt scan where every page escalates — at a knowable ceiling.
+    RuleMaven.LLM.start_call_budget(total * llm_calls_per_page())
+    budget = RuleMaven.LLM.call_budget_handle()
+
+    log(
+      on_progress,
+      "Reading #{total} page(s) — trusting clean text, cross-checking the rest…"
+    )
+
+    # Positional layer↔page pairing is only safe when the text-layer page
+    # count matches the expected page count. On any mismatch we discard the
+    # layer entirely (every page cross-checks via OCR/vision) rather than
+    # risk attaching a page's text to the wrong sheet — silent corruption is
+    # the one thing accuracy-first must never do. A few extra vision calls
+    # on a rare mismatch is the right trade.
+    layer_pages = crosscheck_layers(full_path, layout, sheets, total)
+
+    # Read the drift-sample rate once for the whole book (avoids a Settings
+    # DB read per page).
+    drift_rate = Calibrate.drift_rate()
+
+    results =
+      1..total
+      |> Task.async_stream(
+        fn page ->
+          # Pages run in child processes: adopt the document's budget so
+          # they spend from one shared allowance, not one each.
+          RuleMaven.LLM.adopt_call_budget(budget)
+          layer = String.trim(Enum.at(layer_pages, page - 1) || "")
+          ctx = %{game_id: game_id, pdf_path: full_path, page: page, layout: layout}
+          r = decide_page_lazy(layer, drift_rate, ctx)
+          log(on_progress, page_line(page, total, r), page_kind(r))
+          r
+        end,
+        max_concurrency: @vision_concurrency,
+        ordered: true,
+        timeout: :infinity
+      )
+      |> Enum.map(fn
+        {:ok, r} -> r
+        _ -> %{text: "", confidence: 0.0, lane: "vision", source: "error"}
+      end)
+
+    text = results |> Enum.map(& &1.text) |> Enum.join("\f")
+
+    if String.trim(text) == "" do
+      {:error, "Extraction produced no readable text"}
+    else
+      # from_ocr: true unless every page came straight off the text layer.
+      from_ocr = Enum.any?(results, &(&1.lane != "text_layer"))
+      flagged = Enum.count(results, &(&1.source in ["critic_residual", "error"]))
+
+      log(
+        on_progress,
+        "Read #{total} page(s) — #{total - flagged} clean, #{flagged} flagged for review",
+        :info
+      )
+
+      {:ok, text, from_ocr, results}
+    end
+  end
+
+  # Text-layer pages aligned to the expected logical page count. The 2-up
+  # variant returns exactly 2×sheets entries positionally, so it needs (and
+  # must not get) the trailing-empty trim aligned_layers applies — a blank
+  # final right half is structural whenever the printed page count is odd
+  # (inside back cover), and trimming it would discard the whole layer.
+  defp crosscheck_layers(full_path, false, _sheets, total),
+    do: aligned_layers(pdftext_pages(full_path), total)
+
+  defp crosscheck_layers(full_path, {:two_up, sizes}, sheets, total) do
+    pages = pdftext_pages_two_up(full_path, sizes, sheets)
+    if length(pages) == total, do: pages, else: []
   end
 
   # Sheet count via pdfinfo (ships with poppler alongside pdftoppm/pdftotext).
@@ -903,7 +973,7 @@ defmodule RuleMaven.RulebookDownloader do
   # Gate.column_suspect?/1 detects that shape; such pages skip the text layer
   # and are read from the image (OCR + vision) instead. Empty list on failure —
   # every page then falls through to OCR/vision.
-  defp pdftext_pages(full_path, false, _sheets) do
+  defp pdftext_pages(full_path) do
     case cmd("pdftotext", ["-layout", full_path, "-"], @pdftotext_timeout) do
       {:ok, {text, 0}} -> String.split(text, "\f")
       _ -> []
@@ -913,35 +983,31 @@ defmodule RuleMaven.RulebookDownloader do
   # 2-up: extract each sheet's text layer twice, cropped to the left and right
   # halves (pdftotext crop flags are pixels at its default 72 dpi = points, so
   # the crop matches the rendered-image crop exactly). Keeps the T0
-  # trusted-layer fast path working for born-digital 2-up books. Any failure
-  # (no pdfinfo, unreadable size) returns [] — every page then cross-checks
-  # from the image, the same stance aligned_layers takes on a count mismatch.
-  defp pdftext_pages(full_path, true, sheets) when is_integer(sheets) do
-    with {:ok, sizes} <- sheet_sizes(full_path, sheets) do
-      pages =
-        Enum.flat_map(1..sheets, fn sheet ->
-          {w, h} = Map.fetch!(sizes, sheet)
+  # trusted-layer fast path working for born-digital 2-up books. Any failed
+  # run returns [] — every page then cross-checks from the image, the same
+  # stance aligned_layers takes on a count mismatch. `sizes` comes from
+  # sheet_sizes/3 (page texts are binaries, so the :error sentinel can't
+  # collide).
+  defp pdftext_pages_two_up(full_path, sizes, sheets) do
+    pages =
+      Enum.flat_map(1..sheets, fn sheet ->
+        {w, h} = Map.fetch!(sizes, sheet)
 
-          Enum.map([:left, :right], fn half ->
-            args =
-              ["-layout", "-f", to_string(sheet), "-l", to_string(sheet)] ++
-                TwoUp.crop_args(w, h, 72, half) ++ [full_path, "-"]
+        Enum.map([:left, :right], fn half ->
+          args =
+            ["-layout", "-f", to_string(sheet), "-l", to_string(sheet)] ++
+              TwoUp.crop_args(w, h, 72, half) ++ [full_path, "-"]
 
-            case cmd("pdftotext", args, @pdftotext_timeout) do
-              # Trailing \f from the single-page run would smuggle in an empty
-              # extra "page" and break 1:1 alignment.
-              {:ok, {text, 0}} -> {:ok, String.trim_trailing(text, "\f")}
-              _ -> :error
-            end
-          end)
+          case cmd("pdftotext", args, @pdftotext_timeout) do
+            # Trailing \f from the single-page run would smuggle in an empty
+            # extra "page" and break 1:1 alignment.
+            {:ok, {text, 0}} -> String.trim_trailing(text, "\f")
+            _ -> :error
+          end
         end)
+      end)
 
-      if Enum.any?(pages, &(&1 == :error)),
-        do: [],
-        else: Enum.map(pages, fn {:ok, t} -> t end)
-    else
-      _ -> []
-    end
+    if :error in pages, do: [], else: pages
   end
 
   @doc """
@@ -963,25 +1029,23 @@ defmodule RuleMaven.RulebookDownloader do
 
   def two_up_suspect?(_), do: false
 
-  # One sheet's media-box size (points). {:ok, {w_pts, h_pts}} | {:error, _}.
+  # One sheet's rendered size (points, rotation-corrected). {:ok, {w, h}} | :error | {:error, _}.
   defp sheet_size(full_path, sheet) do
-    with true <- System.find_executable("pdfinfo") != nil,
-         s = to_string(sheet),
-         {:ok, {out, 0}} <- cmd("pdfinfo", ["-f", s, "-l", s, full_path], @pdftotext_timeout) do
-      TwoUp.parse_sheet_size(out, sheet)
-    else
-      _ -> {:error, :no_pdfinfo}
+    with {:ok, sizes} <- sheet_sizes(full_path, sheet, sheet) do
+      Map.fetch(sizes, sheet)
     end
   end
 
-  # Media-box sizes (points) for sheets 1..n from one pdfinfo pass.
+  # Rendered sizes (points, rotation-corrected — see TwoUp.parse_sheet_size/2)
+  # for sheets first..last from one pdfinfo pass.
   # {:ok, %{sheet => {w_pts, h_pts}}} | {:error, reason}.
-  defp sheet_sizes(full_path, n) do
+  defp sheet_sizes(full_path, first, last) do
+    args = ["-f", to_string(first), "-l", to_string(last), full_path]
+
     with true <- System.find_executable("pdfinfo") != nil,
-         {:ok, {out, 0}} <-
-           cmd("pdfinfo", ["-f", "1", "-l", to_string(n), full_path], @pdftotext_timeout) do
+         {:ok, {out, 0}} <- cmd("pdfinfo", args, @pdftotext_timeout) do
       sizes =
-        Enum.reduce_while(1..n, %{}, fn sheet, acc ->
+        Enum.reduce_while(first..last, %{}, fn sheet, acc ->
           case TwoUp.parse_sheet_size(out, sheet) do
             {:ok, wh} -> {:cont, Map.put(acc, sheet, wh)}
             {:error, _} -> {:halt, :error}
@@ -1007,7 +1071,7 @@ defmodule RuleMaven.RulebookDownloader do
     if trusted? and not sampled? do
       %{text: layer, confidence: 0.9, lane: "text_layer", source: "text_layer", escalated: false}
     else
-      case render_one_page(ctx.pdf_path, ctx.page, @render_dpi, ctx.two_up) do
+      case render_one_page(ctx.pdf_path, ctx.page, @render_dpi, Map.get(ctx, :layout, false)) do
         {:ok, img} ->
           try do
             decide_page(img, layer, sampled?, ctx)
@@ -1123,7 +1187,7 @@ defmodule RuleMaven.RulebookDownloader do
   # Still split → try the mid model on the same sharp image. Only a genuine
   # three/four-way conflict falls through to T3 (top model + critic).
   defp escalate_tiers(image, reads, signals, ctx) do
-    case render_one_page(ctx.pdf_path, ctx.page, @t2_dpi, ctx.two_up) do
+    case render_one_page(ctx.pdf_path, ctx.page, @t2_dpi, Map.get(ctx, :layout, false)) do
       {:ok, hi} ->
         try do
           # T2a: same cheap model, higher DPI. `reads` (indices 0,1) is the
@@ -1181,10 +1245,12 @@ defmodule RuleMaven.RulebookDownloader do
   def reextract_page(doc_path, sheet, opts \\ []) when is_integer(sheet) do
     full = Application.app_dir(:rule_maven, "priv/static/#{doc_path}")
     log = Keyword.get(opts, :on_log, fn _t, _k -> :ok end)
-    label = Keyword.get(opts, :label, "sheet #{sheet}")
-    # On a two_up document `sheet` is the page's logical index (Games.paginate
-    # numbers by position); render_one_page derives the physical sheet + half.
-    two_up = Keyword.get(opts, :two_up, false)
+    # `sheet` is always the physical PDF sheet. `half:` ("left" | "right") is
+    # the page's *stored* layout from extraction time — deliberately not the
+    # document's live two_up flag, which the admin may have flipped since; the
+    # stored half always matches the text being replaced.
+    half = Keyword.get(opts, :half)
+    label = Keyword.get(opts, :label, default_reextract_label(sheet, half))
 
     cond do
       image?(doc_path) ->
@@ -1193,7 +1259,7 @@ defmodule RuleMaven.RulebookDownloader do
       System.find_executable("pdftoppm") ->
         log.("Rendering #{label} at #{@reextract_dpi} DPI…", "info")
 
-        case render_one_page(full, sheet, @reextract_dpi, two_up) do
+        case render_reextract(full, sheet, half) do
           {:ok, path} ->
             log.("Rendered #{label}.", "info")
             # try/after so the temp image is removed even if escalate_page raises.
@@ -1211,6 +1277,25 @@ defmodule RuleMaven.RulebookDownloader do
         {:error, "no renderer available"}
     end
   end
+
+  defp default_reextract_label(sheet, half) when half in ["left", "right"],
+    do: "sheet #{sheet} (#{half} half)"
+
+  defp default_reextract_label(sheet, _), do: "sheet #{sheet}"
+
+  defp render_reextract(full, sheet, half) when half in ["left", "right"] do
+    case sheet_size(full, sheet) do
+      {:ok, {w, h}} ->
+        crop = TwoUp.crop_args(w, h, @reextract_dpi, String.to_existing_atom(half))
+        do_render_one_sheet(full, sheet, @reextract_dpi, crop)
+
+      _ ->
+        {:error, :no_sheet_size}
+    end
+  end
+
+  defp render_reextract(full, sheet, _half),
+    do: render_one_page(full, sheet, @reextract_dpi, false)
 
   # Disagreement escalation: re-read the page with the strong/high-res model, take
   # the richer of that and the cheap candidate, then run the adversarial critic
@@ -1384,19 +1469,20 @@ defmodule RuleMaven.RulebookDownloader do
   # Caller deletes the image. {:ok, path} | {:error, reason}. nil pdf_path (a
   # single-image source, nothing to render) short-circuits so callers skip
   # render-dependent tiers.
-  defp render_one_page(nil, _page, _dpi, _two_up), do: {:error, :no_pdf}
+  defp render_one_page(nil, _page, _dpi, _layout), do: {:error, :no_pdf}
 
   # 2-up: `page` is logical — render its owning sheet cropped to the owning
-  # half (pdftoppm crop flags are pixels at the render dpi). The sheet's media
-  # box is read per sheet, so mixed-size PDFs crop correctly.
-  defp render_one_page(pdf_path, page, dpi, true) do
+  # half (pdftoppm crop flags are pixels at the render dpi). `sizes` is the
+  # per-sheet map read once per document (build_layout / render_pages), so
+  # mixed-size PDFs crop correctly with no pdfinfo call per render.
+  defp render_one_page(pdf_path, page, dpi, {:two_up, sizes}) do
     {sheet, half} = TwoUp.map_page(page)
 
-    case sheet_size(pdf_path, sheet) do
+    case Map.fetch(sizes, sheet) do
       {:ok, {w, h}} ->
         do_render_one_sheet(pdf_path, sheet, dpi, TwoUp.crop_args(w, h, dpi, half))
 
-      _ ->
+      :error ->
         {:error, :no_sheet_size}
     end
   end
@@ -1468,9 +1554,15 @@ defmodule RuleMaven.RulebookDownloader do
   # pdftoppm calls instead of the whole-document batch — the legacy path is a
   # rare fallback and correctness beats render throughput here.
   defp render_pages(pdf_path, true) do
-    with {:ok, sheets} when sheets > 0 <- sheet_count(pdf_path) do
+    with {:ok, sheets} when sheets > 0 <- sheet_count(pdf_path),
+         {:ok, sizes} <- sheet_sizes(pdf_path, 1, sheets) do
+      layout = {:two_up, sizes}
+
       results =
-        Enum.map(1..TwoUp.logical_count(sheets), &render_one_page(pdf_path, &1, @render_dpi, true))
+        Enum.map(
+          1..TwoUp.logical_count(sheets),
+          &render_one_page(pdf_path, &1, @render_dpi, layout)
+        )
 
       images = for {:ok, img} <- results, do: img
 

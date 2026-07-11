@@ -185,34 +185,59 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   end
 
   # Doc ids whose PDF looks like a 2-up spread (wide first sheet) but isn't
-  # flagged yet — drives the hint next to the toggle. Only unextracted docs are
-  # probed. The pdfinfo probe result is cached in the socket by doc id (the
-  # stored PDF's bytes never change) because load/1 reruns on every job event —
-  # during an extraction that would otherwise be a pdfinfo call per progress
-  # line.
+  # flagged yet — drives the hint next to the toggle. Only unextracted PDF
+  # sources are probed. The pdfinfo shell-out runs via start_async — never in
+  # the LiveView process, where a corrupt PDF could stall mount for the full
+  # command timeout — and the result is cached in the socket by doc id (the
+  # stored PDF's bytes never change), because load/1 reruns on every job event.
   defp assign_two_up_suspects(socket, docs) do
     cache = Map.get(socket.assigns, :two_up_probe_cache, %{})
+    inflight = Map.get(socket.assigns, :two_up_probe_inflight, MapSet.new())
 
-    cache =
-      Enum.reduce(docs, cache, fn d, acc ->
-        if is_binary(d.pdf_path) and is_nil(d.extracted_at) and not Map.has_key?(acc, d.id) do
-          Map.put(acc, d.id, RulebookDownloader.two_up_suspect?(d.pdf_path))
-        else
-          acc
-        end
-      end)
-
-    suspects =
+    pending =
       for d <- docs,
+          pdf_source?(d),
           is_nil(d.extracted_at),
-          not d.two_up,
-          Map.get(cache, d.id, false),
-          into: MapSet.new() do
-        d.id
+          not Map.has_key?(cache, d.id),
+          not MapSet.member?(inflight, d.id),
+          do: {d.id, d.pdf_path}
+
+    socket =
+      if pending == [] or not connected?(socket) do
+        socket
+      else
+        socket
+        |> assign(:two_up_probe_inflight, MapSet.union(inflight, MapSet.new(pending, &elem(&1, 0))))
+        |> start_async(:two_up_probe, fn ->
+          Map.new(pending, fn {id, path} -> {id, RulebookDownloader.two_up_suspect?(path)} end)
+        end)
       end
 
-    assign(socket, two_up_suspects: suspects, two_up_probe_cache: cache)
+    socket
+    |> assign_new(:two_up_probe_inflight, fn -> inflight end)
+    |> assign(
+      two_up_suspects: two_up_suspect_set(cache, docs),
+      two_up_probe_cache: cache
+    )
   end
+
+  defp two_up_suspect_set(cache, docs) do
+    for d <- docs,
+        is_nil(d.extracted_at),
+        not d.two_up,
+        Map.get(cache, d.id, false),
+        into: MapSet.new() do
+      d.id
+    end
+  end
+
+  # The 2-up toggle only means anything for a real PDF: images and native
+  # formats (docx/odt/…) are also stored in pdf_path, but extraction routes
+  # them to paths with no sheets to split.
+  defp pdf_source?(d) do
+    is_binary(d.pdf_path) and String.ends_with?(String.downcase(d.pdf_path), ".pdf")
+  end
+
 
   # Table tools (sub-bar → floating windows) are shared by every game screen.
   @impl true
@@ -511,13 +536,19 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   # Sheet-layout flag: split (or stop splitting) each PDF sheet into two
   # logical pages. Takes effect on the next extraction, so an already-extracted
-  # doc needs a re-run — the flash says so.
+  # doc needs a re-run — the flash says so. Blocked mid-extraction: the worker
+  # read the flag at start, so a mid-run flip would end with pages that don't
+  # match the flag and no sign anything is stale.
   def handle_event("toggle_two_up", %{"id" => id}, socket) do
-    doc = Games.get_document(id)
+    doc = Games.get_game_document(socket.assigns.game, id)
 
     cond do
-      is_nil(doc) or doc.game_id != socket.assigns.game.id ->
+      is_nil(doc) ->
         {:noreply, put_flash(socket, :error, "That source doesn’t exist.")}
+
+      Games.extract_running?(doc.id) ->
+        {:noreply,
+         put_flash(socket, :error, "Extraction is running — wait for it to finish first.")}
 
       true ->
         case Games.update_document(doc, %{two_up: !doc.two_up}) do
@@ -723,6 +754,30 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   def handle_async(:retag_categories, {:exit, reason}, socket) do
     {:noreply, put_flash(socket, :error, "Re-tag failed: #{inspect(reason)}")}
+  end
+
+  def handle_async(:two_up_probe, {:ok, results}, socket) do
+    cache = Map.merge(Map.get(socket.assigns, :two_up_probe_cache, %{}), results)
+    docs = socket.assigns.previews.source
+
+    inflight =
+      MapSet.difference(
+        Map.get(socket.assigns, :two_up_probe_inflight, MapSet.new()),
+        MapSet.new(Map.keys(results))
+      )
+
+    {:noreply,
+     assign(socket,
+       two_up_probe_cache: cache,
+       two_up_probe_inflight: inflight,
+       two_up_suspects: two_up_suspect_set(cache, docs)
+     )}
+  end
+
+  def handle_async(:two_up_probe, {:exit, _reason}, socket) do
+    # Probe crashed (corrupt PDF, missing pdfinfo) — drop the inflight marks so
+    # a later load can retry; the hint simply doesn't show meanwhile.
+    {:noreply, assign(socket, :two_up_probe_inflight, MapSet.new())}
   end
 
   @impl true
@@ -1220,7 +1275,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
                 style="margin-left:0.4rem;font-size:0.75rem"
               >View PDF</.link>
               <label
-                :if={is_binary(d.pdf_path)}
+                :if={pdf_source?(d)}
                 title="Each PDF sheet holds two rulebook pages side by side (spread scan / print-and-play). Extraction splits every sheet into left and right pages."
                 style="display:inline-flex;align-items:center;gap:0.3rem;margin-left:0.4rem;font-size:0.75rem;color:var(--text-secondary);cursor:pointer;white-space:nowrap"
               >

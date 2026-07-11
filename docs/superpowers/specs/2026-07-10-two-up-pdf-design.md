@@ -39,34 +39,59 @@ Rejected alternatives:
 ## Page identity
 
 With `two_up`, logical page `n` (1-based) maps to physical sheet
-`div(n + 1, 2)`; odd `n` is the left half, even `n` the right. `Games.paginate`
-already numbers pages by position in the `\f`-joined text, so `page.sheet`
-becomes the logical page number — printed-page detection, citations, HTML,
-chunking, and cleanup are untouched (and printed detection *improves*: each
-logical page owns its own footer number).
+`div(n + 1, 2)`; odd `n` is the left half, even `n` the right. Logical indices
+exist only *inside* extraction: after pagination the stored page maps are
+rewritten to carry the true physical `sheet` plus a `half` field
+("left"/"right", a new Page embed field — JSONB, no migration). Every consumer
+of `page.sheet` (citations, `SHEET N` markers, review UI, printed-page anchor,
+per-page re-extract) therefore sees real sheet numbers with no 2-up awareness;
+UI labels append "(left/right)" where a bare sheet number would be ambiguous.
+Per-page re-extract renders from the *stored* `half`, never the live `two_up`
+flag — flipping the toggle after extraction can't corrupt existing pages.
+`assign_printed_from_anchor` assigns two printed numbers per anchored sheet
+when halves are present. Printed-page detection *improves*: each logical page
+owns its own footer number.
 
 `RuleMaven.Extract.TwoUp` holds the pure mapping + crop-geometry math
-(logical→{sheet, half}, pixel/point crop args) so it is unit-testable.
+(logical→{sheet, half}, pixel/point crop args, pdfinfo size parsing). Sheet
+sizes are rotation-corrected: pdfinfo reports the unrotated media box plus a
+`rot:` line, while poppler renders after `/Rotate`, so 90°/270° sheets swap
+width/height before crop math.
 
 ## Pipeline changes (`RuleMaven.RulebookDownloader`)
 
-1. `extract_document` threads `doc.two_up` down to both extraction paths.
-2. Vision cross-check path: logical total = 2 × `sheet_count`;
-   `render_one_page` renders the owning sheet with a half-width crop
-   (`pdfinfo -f s -l s` page width in points → pixels at the render dpi).
-3. `pdftext_pages` (text layer): per sheet, two `pdftotext -f s -l s` runs
-   cropped to each half (points; pdftotext default resolution is 72). The T0
-   trusted-layer fast path keeps working for born-digital 2-up books.
-4. Legacy OCR path: `render_pages` loops the cropped `render_one_page` per
-   half; the legacy whole-`pdftotext` trust branch uses the split layer pages.
-5. `reextract_page` accepts the logical index + `two_up:` option and derives
-   sheet/half; `ReextractPageWorker` passes `doc.two_up`.
+1. `extract_document` threads `doc.two_up` down to both extraction paths and
+   rewrites the paginated pages to physical sheet + half.
+2. Vision cross-check path: logical total = 2 × `sheet_count`. Per-sheet sizes
+   are read **once** (`sheet_sizes/3`, one `pdfinfo -f 1 -l N` pass) into a
+   `{:two_up, sizes}` layout tuple carried in the per-page ctx — no pdfinfo
+   spawn per render. Missing sizes fail the extraction fast with a clear error.
+3. `pdftext_pages_two_up` (text layer): per sheet, two `pdftotext -f s -l s`
+   runs cropped to each half (points; pdftotext default resolution is 72). The
+   T0 trusted-layer fast path keeps working for born-digital 2-up books. The
+   2-up layer skips `aligned_layers`' trailing-empty trim — a blank final
+   right half is structural on odd-page books and must not discard the layer.
+4. Legacy OCR path: `render_pages` builds the sizes map once and loops the
+   cropped render per half; the trust branch uses the split layer pages and
+   sends the whole book to OCR if any page is `column_suspect?` (`-layout`
+   reordering protection the cross-check engine gets per page).
+5. `reextract_page` takes the physical sheet + a `half:` option (the page's
+   stored layout); `ReextractPageWorker` passes `page.half`.
 
 ## Error handling
 
-- `pdfinfo` width lookup failure → render error for that page; existing
-  per-page error handling (flag for review, keep layer text) applies.
-- Sheets of differing sizes are handled: width is read per sheet, not once.
+- `pdfinfo` size lookup failure → 2-up extraction errors out up front
+  (cross-check) or falls to OCR/plain paths (legacy/suspect probe).
+- Sheets of differing sizes are handled: sizes are per sheet, not global.
+
+## UI safeguards
+
+- Toggle shown only for real `.pdf` sources (images/native formats share
+  `pdf_path` but have no sheets to split).
+- Toggle blocked while an extraction is running (the worker read the flag at
+  start; a mid-run flip would leave pages inconsistent with the flag).
+- The wide-sheet hint probe runs via `start_async` with a per-doc socket
+  cache — never a shell-out in the LiveView process during mount/reload.
 
 ## Testing
 

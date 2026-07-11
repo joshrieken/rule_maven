@@ -44,6 +44,11 @@ defmodule RuleMaven.Games.Document do
       field :index, :integer
       field :sheet, :integer
       field :printed, :integer
+      # 2-up documents only: which half of the physical sheet this page is
+      # ("left" | "right"). nil on normal documents and on 2-up pages that
+      # round-tripped through marker text (markers don't carry the half) —
+      # per-page re-extract needs it to crop the correct half.
+      field :half, :string
       field :text, :string
       field :cleaned, :string
       field :confidence, :float
@@ -74,6 +79,7 @@ defmodule RuleMaven.Games.Document do
           :index,
           :sheet,
           :printed,
+          :half,
           :text,
           :cleaned,
           :confidence,

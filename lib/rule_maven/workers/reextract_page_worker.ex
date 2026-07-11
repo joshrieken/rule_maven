@@ -89,19 +89,18 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
             :noop
 
           page ->
+            # page.sheet is the physical PDF sheet; page.half ("left"/"right")
+            # is set on pages extracted from a 2-up book and tells
+            # reextract_page which half of the sheet to render. Stored layout,
+            # not doc.two_up — the flag may have been flipped since extraction.
+            half = Map.get(page, :half)
+
             label =
               cond do
-                # Two-up: page.sheet is the logical page index; name the
-                # physical sheet + half so the log matches the PDF viewer.
-                doc.two_up ->
-                  {phys, half} = RuleMaven.Extract.TwoUp.map_page(page.sheet)
-                  "page #{page.printed || page.sheet} (sheet #{phys}, #{half} half)"
-
-                page.printed ->
-                  "sheet #{page.sheet} (page #{page.printed})"
-
-                true ->
-                  "sheet #{page.sheet}"
+                page.printed && half -> "page #{page.printed} (sheet #{page.sheet}, #{half} half)"
+                page.printed -> "sheet #{page.sheet} (page #{page.printed})"
+                half -> "sheet #{page.sheet} (#{half} half)"
+                true -> "sheet #{page.sheet}"
               end
 
             log.("Re-extracting #{label} with the stronger model…", "info")
@@ -110,7 +109,7 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
                    on_log: log,
                    label: label,
                    game_id: doc.game_id,
-                   two_up: doc.two_up
+                   half: half
                  ) do
               {:ok, result} ->
                 case Games.replace_page(doc, index, result) do
