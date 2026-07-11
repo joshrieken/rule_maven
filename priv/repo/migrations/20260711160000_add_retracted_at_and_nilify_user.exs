@@ -42,20 +42,32 @@ defmodule RuleMaven.Repo.Migrations.AddRetractedAtAndNilifyUser do
     end
 
     # Rows the pre-round-6 `retract_contributions/1` already closed carry no
-    # marker (it only wrote pooled/browsable). Reconstruct what we can: a group
-    # row that is closed on both axes was either retracted or is simply awaiting
-    # its publish check. The latter is `pooled: true` (AskWorker pools first,
-    # then enqueues the check), so `pooled: false AND browsable: false` on a
-    # group row is a retraction. Marking a not-yet-checked row as retracted would
-    # only withhold it, never expose it, so this errs closed either way.
+    # marker (it only wrote pooled/browsable), so the stamp has to be
+    # reconstructed. The tempting rule — "a group row with pooled = false AND
+    # browsable = false was retracted" — is WRONG, and stamping on it would be
+    # irreversible: the column is not in the changeset cast and is never cleared.
+    #
+    # A crew row is BORN `browsable: false` and `pooled: false`, and stays unpooled
+    # for several perfectly ordinary reasons that are not retractions: the "keep
+    # this in the crew" toggle, a refused or ungrounded-citation answer, and any
+    # row still in flight when this migration runs. All of those would have been
+    # marked permanently withdrawn.
+    #
+    # The only rows we can honestly identify as retracted are the ones whose crew
+    # currently has contribution switched OFF — `set_contribute(false)` is the one
+    # retraction path that leaves the group itself behind as evidence. (The other
+    # two, group delete and sole-owner account deletion, take the group with them,
+    # so their rows are unrecoverable here; they are already closed on both flags,
+    # and `AskWorker`'s `is_nil(group_id) and not browsable` check still catches
+    # them.)
     execute(
       """
-      UPDATE questions_log
+      UPDATE questions_log q
          SET retracted_at = NOW()
-       WHERE group_id IS NOT NULL
-         AND pooled = false
-         AND browsable = false
-         AND visibility <> 'community'
+        FROM groups g
+       WHERE q.group_id = g.id
+         AND g.contribute_to_community = false
+         AND q.visibility <> 'community'
       """,
       ""
     )

@@ -115,6 +115,28 @@ defmodule RuleMaven.Games.QuestionLog do
   def listed_question(q),
     do: q.canonical_question || q.cleaned_question || "(question withheld)"
 
+  @doc """
+  Did this row come out of a crew? The question is NOT "is `group_id` set" —
+  that column is `on_delete: :nilify_all`, so a deleted crew's rows keep their
+  unscreened text and lose the only marker saying where it came from. Any guard
+  keyed on `group_id` alone silently opens for exactly those rows.
+
+  Three signals, any of which is proof of crew provenance, and two of which
+  survive the nilify:
+
+    * `group_id` — the crew still exists.
+    * `retracted_at` — only `Groups.retract_contributions/1` writes it, and it
+      writes it to crew rows only. Set before the group is deleted, so it
+      outlives the FK.
+    * `browsable == false` — a non-group row is born `browsable: true` (schema
+      default); only the group insert-time gate and a retraction close it. So a
+      closed row with no crew is a crew row whose crew is gone.
+  """
+  def crew_origin?(%{group_id: gid}) when not is_nil(gid), do: true
+  def crew_origin?(%{retracted_at: at}) when not is_nil(at), do: true
+  def crew_origin?(%{browsable: false}), do: true
+  def crew_origin?(_q), do: false
+
   @doc false
   def changeset(question_log, attrs) do
     question_log

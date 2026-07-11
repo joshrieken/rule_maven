@@ -483,4 +483,50 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
     refute_enqueued(worker: PublishCheckWorker, args: %{"question_log_id" => ql.id})
   end
 
+  # The crew's ANSWER feeding the commons is the one thing about a crew row that
+  # publishes BY DESIGN — and it was the only artifact with no gate on it.
+  #
+  # The scrub that strips names is NORMALIZE, not the publish check. On the
+  # skip_normalize ("Ask exactly this") path, LLM.ask sets match_text to the RAW
+  # question, so the answer is generated from the asker's verbatim prose — and the
+  # answer prompt's ARGUMENT-SETTLING rule explicitly tells the model to open with
+  # the disputing players' names ("or the stated names"). That answer was then
+  # pooled and served verbatim to the next stranger who asked something similar.
+  # No scrub, no contribution.
+  test "a skip_normalize crew ask never pools its answer (it was built from raw text)" do
+    game = seeded_game(9212)
+    owner = user("pgw_verbatim")
+    grp = GroupsFixtures.group_fixture(owner)
+    stub_ask("Dave is right — a prone figure can be snuck past.")
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: owner.id,
+        question: "Dave says my rogue can sneak past because he is prone, Sam says no",
+        answer: "Thinking...",
+        visibility: "private",
+        group_id: grp.id
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => owner.id,
+               "group_id" => grp.id,
+               "skip_pool" => true,
+               "skip_normalize" => true
+             })
+
+    row = Repo.reload!(ql)
+
+    refute row.pooled,
+           "a crew answer generated from unscrubbed text was served to the commons"
+
+    refute row.browsable
+    refute_enqueued(worker: PublishCheckWorker, args: %{"question_log_id" => ql.id})
+  end
 end

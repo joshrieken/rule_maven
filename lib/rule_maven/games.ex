@@ -3068,10 +3068,23 @@ defmodule RuleMaven.Games do
     # Pool only when the citation is grounded in the source (not merely present),
     # so a hallucinated citation can't earn cross-user serving.
     if q.citation_valid do
-      case log_question_update(q, %{pooled: true}) do
-        {:ok, updated} -> updated
-        _ -> q
-      end
+      # A conditional UPDATE, not a changeset write on a struct read earlier. This
+      # is the one statement that puts an answer into the commons, and
+      # `retract_contributions/1` (an `update_all`) can commit between the caller's
+      # consent check and this write — which would set `pooled: true` back on a row
+      # the crew had just withdrawn. `retracted_at` is the durable stamp, so the
+      # database decides, not a stale in-memory struct.
+      {updated_count, _} =
+        Repo.update_all(
+          from(x in QuestionLog,
+            where: x.id == ^q.id,
+            where: x.pooled == false,
+            where: is_nil(x.retracted_at)
+          ),
+          set: [pooled: true, updated_at: DateTime.utc_now()]
+        )
+
+      if updated_count == 1, do: %{q | pooled: true}, else: q
     else
       q
     end
@@ -3171,16 +3184,25 @@ defmodule RuleMaven.Games do
             set: [needs_review: true]
           )
 
-        # `needs_review` as well as `pooled`. Clearing `pooled` retires an answer
-        # from the CROSS-USER cache, but the crew branch of `find_pool_candidates/3`
+        # `stale` as well as `pooled`. Clearing `pooled` retires an answer from the
+        # CROSS-USER cache, but the crew branch of `find_pool_candidates/3`
         # deliberately does not require `pooled` (so a "keep this in the crew" row
         # still feeds its own crew's cache) — so demotion was a no-op inside the
         # crew, and the answer went on being served, as a labelled cache hit, to
-        # exactly the members who had just reported it wrong. `needs_review` is a
-        # base filter on that query and stops all three branches at once.
+        # exactly the members who had just reported it wrong.
+        #
+        # `stale`, NOT `needs_review`: both are base filters on the pool query and
+        # either would stop the serve, but `needs_review` also drives the moderator
+        # abuse-risk score (`needs_review * 2` in moderation.ex) and the "pulled from
+        # the pool" queue, which renders the RAW question. `invalidate_pool/1` scopes
+        # its own `needs_review` write to community rows for exactly this reason.
+        # Using it here would have made the mismatch button a free griefing lever:
+        # pool-hit asks are quota-exempt, so three throwaway accounts could flag a
+        # stranger's PRIVATE row, inflate the author's abuse score, and put their
+        # private question text in front of a moderator with a delete button on it.
         q.visibility != "community" and (q.pooled or not is_nil(q.group_id)) ->
           Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
-            set: [pooled: false, needs_review: true]
+            set: [pooled: false, stale: true]
           )
 
         true ->

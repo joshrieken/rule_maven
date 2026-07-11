@@ -32,6 +32,35 @@ defmodule RuleMaven.Repo.Migrations.BackfillGroupUnbrowsable do
      WHERE group_id IS NOT NULL
        AND visibility = 'community'
     """)
+
+    # Both statements above key on `group_id IS NOT NULL` — the exact inference
+    # the rest of this codebase forbids, and for the exact reason: the column is
+    # `on_delete: :nilify_all`. A crew DELETED during the pre-gate window (between
+    # CreateGroups and AddPublishGates, when no gate existed at all) left rows with
+    # a NULL group_id, never-screened text, and — courtesy of AddPublishGates'
+    # `default: true` — `browsable: true`. `listed_question/1` matches
+    # `%{browsable: true, group_id: nil}` and falls through to the RAW question
+    # column. Those rows are listed, verbatim, on the public Unverified tab, and
+    # the two statements above cannot see them. The backfill made the mistake it
+    # was written to fix.
+    #
+    # Their provenance marker is gone for good, so this errs SHUT rather than open:
+    # close every row that could plausibly be one — authored by someone who belongs
+    # to a crew, written after crews existed, not already public. That over-closes
+    # some ordinary personal rows of crew members. The cost of over-closing is that
+    # a row stays off the Unverified tab (its owner still sees it, and its answer
+    # still serves the pool); the cost of under-closing is publishing someone's
+    # verbatim private question. Those are not comparable.
+    execute("""
+    UPDATE questions_log
+       SET browsable = false
+     WHERE group_id IS NULL
+       AND browsable = true
+       AND visibility <> 'community'
+       AND EXISTS (SELECT 1 FROM groups)
+       AND inserted_at >= (SELECT min(inserted_at) FROM groups)
+       AND user_id IN (SELECT user_id FROM group_memberships)
+    """)
   end
 
   def down do

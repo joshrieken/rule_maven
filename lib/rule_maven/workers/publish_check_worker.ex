@@ -166,11 +166,22 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
   Public so the gate's input can be asserted on directly: the bug this closes was
   that `also_asked` never reached the screen at all.
   """
-  def screen_text(%QuestionLog{also_asked: also}, cleaned) when is_list(also) and also != [] do
-    Enum.join([cleaned | Enum.filter(also, &is_binary/1)], "\n")
-  end
+  def screen_text(%QuestionLog{} = ql, cleaned) do
+    # `followups` rides along too. It is model-authored rather than copied
+    # verbatim, so it is a weaker leak than `also_asked` — but it is generated FROM
+    # the crew's raw question in the same JSON response, it routinely echoes the
+    # question's proper nouns, nothing scrubs it, and it renders in the same
+    # "Related questions" box. Screening the row means screening every string on it
+    # that a reader can see.
+    extras =
+      [ql.also_asked, ql.followups]
+      |> Enum.flat_map(fn
+        list when is_list(list) -> Enum.filter(list, &is_binary/1)
+        _ -> []
+      end)
 
-  def screen_text(_ql, cleaned), do: cleaned
+    Enum.join([cleaned | extras], "\n")
+  end
 
   # Fail closed: ONLY a bare "no" publishes. Anything else — "yes", a hedge, a
   # sentence, empty — leaves the row unbrowsable.

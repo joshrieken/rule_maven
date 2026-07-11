@@ -356,4 +356,92 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
     refute reasked.browsable,
            "the raw wording behind a CLEARED crew row was published verbatim"
   end
+
+  describe "the other columns that carry the asker's words" do
+    # `also_asked` is a SECOND copy of the raw question — the answer prompt asks the
+    # model for "the exact text of the additional questions". It lives outside the
+    # question/cleaned/canonical triad that every gate mediates, and the conversation
+    # rendered it as "Related questions" chips to anyone who could open the row.
+    #
+    # Note the fixtures in the rest of this file all set `also_asked: []`, which is
+    # exactly why six rounds of review walked past this.
+    @secret_also "and does the Persephone house rule about turn order break the endgame?"
+
+    test "a stranger who upvoted the pooled answer does not see the crew's also_asked",
+         ctx do
+      # A CLEARED crew row (the publish screen passed its scrubbed primary text), so
+      # it is legitimately listable — this is the state where the leak was live.
+      q =
+        group_row!(ctx.game, ctx.member, ctx.group, %{
+          browsable: true,
+          also_asked: [@secret_also],
+          followups: ["Can the Persephone smuggler be searched twice?"]
+        })
+
+      stranger = user!("stranger")
+      Games.set_community_vote(q.id, stranger.id, "up", false)
+
+      {:ok, view, _html} =
+        live(
+          login(build_conn(), stranger),
+          ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
+        )
+
+      html = render(view)
+
+      refute html =~ "Persephone house rule",
+             "a stranger read the crew's raw secondary question from also_asked"
+
+      refute html =~ "SECRETWORDING"
+    end
+
+    test "an admin does not see the crew's also_asked, followups, or raw_response", ctx do
+      admin = user!("aa_admin", %{role: "admin"})
+
+      q =
+        group_row!(ctx.game, ctx.member, ctx.group, %{
+          also_asked: [@secret_also],
+          followups: ["Can the Persephone smuggler be searched twice?"],
+          raw_response: ~s({"answer":"Yes.","also_asked":["#{@secret_also}"]})
+        })
+
+      {:ok, view, _html} =
+        live(
+          login(build_conn(), admin),
+          ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
+        )
+
+      html = render(view)
+
+      # An admin's thread list carries every user's rows, which is precisely why
+      # shown_question/2 already routes them through listed_question/1. The same
+      # rule has to hold for every other column that carries the asker's words —
+      # including raw_response, which is the model's full JSON envelope and holds
+      # a verbatim copy of also_asked.
+      refute html =~ "Persephone house rule",
+             "an admin read the crew's raw secondary question"
+
+      refute html =~ "searched twice",
+             "an admin read followups derived from the crew's unscreened question"
+    end
+
+    test "the asker still sees their own also_asked and followups", ctx do
+      q =
+        group_row!(ctx.game, ctx.member, ctx.group, %{
+          also_asked: [@secret_also],
+          followups: ["Can the Persephone smuggler be searched twice?"]
+        })
+
+      {:ok, view, _html} =
+        live(
+          login(build_conn(), ctx.member),
+          ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
+        )
+
+      html = render(view)
+
+      assert html =~ "Persephone house rule", "the asker lost their own related questions"
+      assert html =~ "searched twice"
+    end
+  end
 end

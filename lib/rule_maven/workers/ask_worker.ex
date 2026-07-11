@@ -425,7 +425,8 @@ defmodule RuleMaven.Workers.AskWorker do
                         # group's LIVE contribute flag (re-resolved through the row, so
                         # a group deleted mid-ask reads as gone rather than as the
                         # stale id captured at line 41).
-                        unless pool_hit? or never_pool or consent_withdrawn?(question_log_id) do
+                        unless pool_hit? or never_pool or consent_withdrawn?(question_log_id) or
+                                 unscrubbed_crew_row?(group_id, skip_normalize, updated) do
                           if Games.under_review?(
                                game_id,
                                expansion_ids,
@@ -813,6 +814,43 @@ defmodule RuleMaven.Workers.AskWorker do
       %QuestionLog{browsable: browsable} -> browsable
       _ -> true
     end
+  end
+
+  # The crew's ANSWER may feed the commons — that is the deal, and it is the ONE
+  # artifact of a crew row that publishes by design. The premise underneath it is
+  # that the answer contains no personal text. That premise rests entirely on the
+  # NORMALIZE step, which is the thing that strips names ("Remove anything
+  # personal: player names, proper nouns that are not game terms, and any narrative
+  # about who did what" — the normalize prompt). The publish check screens the
+  # QUESTION; nothing has ever screened the ANSWER.
+  #
+  # And the answer is generated from `match_text`, which is the RAW question
+  # whenever normalize didn't run or didn't take:
+  #
+  #   * `skip_normalize` ("Ask exactly this") — LLM.ask sets cleaned = "" and
+  #     match_text = the raw question, by design.
+  #   * a normalize FALLBACK — any provider error, or a rewrite `accept_normalized?`
+  #     rejects, returns the raw question.
+  #
+  # The answer prompt then does the rest: its ARGUMENT-SETTLING rule tells the model
+  # to open with a verdict naming the disputing players — "(or the stated names)".
+  # So "Dave says my rogue can sneak past; my brother Sam says no" comes back as
+  # "⚖️ **Dave is right.**", gets pooled, and is served verbatim to the next
+  # stranger who asks a similar rules question. The gate on the question text was
+  # never the leak; the answer was.
+  #
+  # No scrub, no contribution. The crew keeps its own private cache either way —
+  # the `active_group_id` branch of `find_pool_candidates/3` does not require
+  # `pooled`, so the crew still gets its answer back; it just stays theirs.
+  defp unscrubbed_crew_row?(nil, _skip_normalize, _row), do: false
+
+  defp unscrubbed_crew_row?(_group_id, true, _row), do: true
+
+  defp unscrubbed_crew_row?(_group_id, _skip_normalize, %QuestionLog{} = row) do
+    cleaned = row.cleaned_question
+
+    not is_binary(cleaned) or String.trim(cleaned) == "" or
+      String.trim(cleaned) == String.trim(row.question || "")
   end
 
   # Durable withdrawal stamp. Unlike the browsable/pooled flags it cannot be

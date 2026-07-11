@@ -510,6 +510,33 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp own_also_asked(_q, _current_user_id), do: []
 
+  # `followups` are model-authored, not copied verbatim — so unlike `also_asked`
+  # they are not automatically the asker's prose, and withholding them from every
+  # non-author would gut the "Related questions" feature on ordinary community
+  # rows. But they ARE generated from the crew's raw question in the same response,
+  # they echo its proper nouns, and nothing scrubs them.
+  #
+  # So the test is CLEARANCE, not authorship: the author always sees their own, and
+  # anyone else sees them only once the row has been cleared for listing. For a crew
+  # row that means the publish screen passed — and `screen_text/2` now submits the
+  # followups along with the question, so what cleared is what shows.
+  defp shown_followups(%{user_id: uid, followups: f}, uid) when not is_nil(uid), do: f || []
+
+  defp shown_followups(%{browsable: true, followups: f}, _uid), do: f || []
+  defp shown_followups(%{visibility: "community", followups: f}, _uid), do: f || []
+  defp shown_followups(_q, _current_user_id), do: []
+
+  # The model's full JSON envelope — verdict, citation quotes, followups, AND a
+  # verbatim copy of `also_asked`. It renders in an admin-only <details> block, and
+  # an admin's thread list carries every user's rows, so gating the `also_asked`
+  # FIELD while leaving this beside it just moved the leak one key over. Admins keep
+  # the debug view for public rows; a crew row's envelope is withheld like its text.
+  defp own_raw_response(%{user_id: uid, raw_response: raw}, uid) when not is_nil(uid), do: raw
+
+  defp own_raw_response(q, _current_user_id) do
+    if QuestionLog.crew_origin?(q), do: nil, else: q.raw_response
+  end
+
   # The question text to DISPLAY for a row in the thread list / conversation.
   #
   # Your own row shows your own wording (display_question's raw fallback is your
@@ -569,8 +596,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         refused: g.primary.refused,
         feedback: g.primary.feedback,
         favorited: g.primary.favorited,
-        raw_response: g.primary.raw_response,
-        followups: g.primary.followups,
+        raw_response: own_raw_response(g.primary, current_user_id),
+        followups: shown_followups(g.primary, current_user_id),
         also_asked: own_also_asked(g.primary, current_user_id),
         error_kind: g.primary.error_kind,
         error_retries: g.primary.error_retries,
@@ -592,8 +619,8 @@ defmodule RuleMavenWeb.GameLive.Show do
             llm_model: h.llm_model,
             verified: h.verified,
             refused: h.refused,
-            raw_response: h.raw_response,
-            followups: h.followups,
+            raw_response: own_raw_response(h, current_user_id),
+            followups: shown_followups(h, current_user_id),
             also_asked: own_also_asked(h, current_user_id),
             timestamp: h.inserted_at,
             history: true
@@ -1816,10 +1843,16 @@ defmodule RuleMavenWeb.GameLive.Show do
         # member's question removed that Q&A from the crew's feed permanently, for
         # everyone, with no trace and no way back. The crew's shared history is not
         # the admin's to rewrite; the regen goes to a fresh private copy instead.
+        #
+        # `crew_origin?/1`, not `group_id` — the nilify trap. Keyed on the column,
+        # this guard was blind to precisely the rows that need it most: a DELETED
+        # crew's rows, whose text was never screened and which no longer carry the
+        # marker saying so.
         protect_existing? =
           old_q &&
             (Games.has_votes?(old_q.id) or old_q.visibility == "community" or
-               (not is_nil(old_q.group_id) and old_q.user_id != socket.assigns.current_user.id))
+               (QuestionLog.crew_origin?(old_q) and
+                  old_q.user_id != socket.assigns.current_user.id))
 
         # Drop cached persona restyles only when the row's answer is actually
         # going away. A PROTECTED row keeps its answer (the regen goes to a
@@ -1875,12 +1908,19 @@ defmodule RuleMavenWeb.GameLive.Show do
         # readable by people who were never in the room. Falling through to
         # `live_group_id/1` is only correct when the source row had no crew of its
         # own to inherit.
+        #
+        # The crew-provenance test is `crew_origin?/1`, not `source_group_id`: for a
+        # DELETED crew the id is already nil, so the group_id-keyed version fell
+        # straight through to the actor's own crew — laundering the retraction
+        # `delete_group/2` had just performed.
+        crew_row? = old_q && QuestionLog.crew_origin?(old_q)
+
         group_id =
           cond do
             source_group_id && RuleMaven.Groups.member_of_group_id?(uid, source_group_id) ->
               source_group_id
 
-            source_group_id ->
+            crew_row? ->
               nil
 
             true ->
@@ -1896,9 +1936,12 @@ defmodule RuleMavenWeb.GameLive.Show do
         # RAW column, which is precisely what the scrub removed. Inheriting
         # `browsable` would therefore wave through exactly the rows whose raw text
         # a screen has already judged unsafe to publish.
+        # `crew_origin?/1` rather than `old_q.group_id` — same nilify trap. A
+        # deleted crew's row has a nil group_id and unscreened text, and this test
+        # used to wave it straight through as `browsable: true`.
         browsable =
           is_nil(group_id) and
-            (is_nil(old_q) or (is_nil(old_q.group_id) and old_q.browsable))
+            (is_nil(old_q) or (not crew_row? and old_q.browsable))
 
         case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
                game_id: game.id,
@@ -1927,8 +1970,12 @@ defmodule RuleMavenWeb.GameLive.Show do
               # answer out of the shared pool. `protect_existing?` is `old_q && (...)`,
               # which can be `nil` (not a strict boolean) when there's no prior row —
               # `||` tolerates that where `or` would raise.
+              # A re-ask of a WITHDRAWN row must not put its answer back into the
+              # commons through the side door: the crew pulled it, and copying the
+              # text into a fresh row does not un-pull it.
               never_pool:
-                (protect_existing? || false) or (socket.assigns[:keep_in_crew] || false),
+                (protect_existing? || false) or (socket.assigns[:keep_in_crew] || false) or
+                  (old_q && not is_nil(old_q.retracted_at)) || false,
               # Without the voice a persona user's regenerate skips the
               # single-call persona path and pays a separate restyle call.
               voice: socket.assigns.default_voice
@@ -2148,12 +2195,12 @@ defmodule RuleMavenWeb.GameLive.Show do
                 |> Map.put(:cited_source, data[:cited_source] || ql.cited_source)
                 |> Map.put(:citations, ql.citations)
                 |> Map.put(:verdict, data[:verdict] || ql.verdict)
-                |> Map.put(:followups, data[:followups] || ql.followups)
+                |> Map.put(:followups, shown_followups(ql, socket.assigns.current_user.id))
                 # Re-gated on every live update, not just at build_conversation
                 # time — otherwise the broadcast quietly puts the raw text back.
                 |> Map.put(:also_asked, own_also_asked(ql, socket.assigns.current_user.id))
                 |> Map.put(:refused, ql.refused)
-                |> Map.put(:raw_response, ql.raw_response)
+                |> Map.put(:raw_response, own_raw_response(ql, socket.assigns.current_user.id))
                 |> Map.put(:llm_provider, ql.llm_provider)
                 |> Map.put(:llm_model, ql.llm_model)
                 |> Map.put(:pool_hit, ql.llm_provider == "pool")
