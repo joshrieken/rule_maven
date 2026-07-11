@@ -48,4 +48,29 @@ defmodule RuleMavenWeb.AdminEmailControlsTest do
 
     assert Settings.mail_from() == "hello@rulemaven.app"
   end
+
+  test "resend key saves, blank submit is a no-op, clear removes it", %{conn: conn} do
+    on_exit(fn -> Settings.delete("resend_api_key") end)
+
+    {:ok, view, html} = conn |> login(create_admin()) |> live(~p"/admin")
+
+    assert html =~ "Resend key not set"
+
+    view
+    |> form("#resend-key-form", %{"resend_api_key" => "re_test_123"})
+    |> render_submit()
+
+    assert Settings.resend_api_key() == "re_test_123"
+    assert render(view) =~ "Resend key: set."
+
+    view
+    |> form("#resend-key-form", %{"resend_api_key" => ""})
+    |> render_submit()
+
+    assert Settings.resend_api_key() == "re_test_123"
+
+    view |> element("button[phx-click=clear_resend_key]") |> render_click()
+    assert Settings.resend_api_key() == nil
+    assert render(view) =~ "Resend key not set"
+  end
 end
