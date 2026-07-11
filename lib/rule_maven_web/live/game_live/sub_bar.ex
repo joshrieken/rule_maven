@@ -32,6 +32,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :expansions, :list, default: []
   attr :included_expansions, :map, default: %{}
   attr :house_rule_count, :integer, default: 0
+  attr :my_groups, :list, default: []
+  attr :active_group_id, :integer, default: nil
   attr :class, :string, default: nil, doc: "extra classes for the chrome element"
   slot :inner_block
 
@@ -57,6 +59,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         expansions={@expansions}
         included_expansions={@included_expansions}
         house_rule_count={@house_rule_count}
+        my_groups={@my_groups}
+        active_group_id={@active_group_id}
       >
         {render_slot(@inner_block)}
       </.game_header>
@@ -78,6 +82,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :expansions, :list, default: []
   attr :included_expansions, :map, default: %{}
   attr :house_rule_count, :integer, default: 0
+  attr :my_groups, :list, default: []
+  attr :active_group_id, :integer, default: nil
   slot :inner_block, doc: "page-specific controls, right-aligned (e.g. the Q&A sidebar toggle)"
 
   @doc """
@@ -133,6 +139,17 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           included_expansions={@included_expansions}
           house_rule_count={@house_rule_count}
           current_user={@current_user}
+        />
+        <%!-- Its own flex item (not nested inside `.table-context`, which is
+              deliberately `flex-wrap: nowrap` and squeeze-fits a *fixed* pair
+              of pills) — a variable-length group list needs to wrap as a
+              whole onto the next line at narrow widths, and wrap internally
+              too if a user belongs to several groups. Same reason it's not on
+              the Edit screen: no group ask-context there either. --%>
+        <.group_selector
+          :if={@current != :edit and @my_groups != []}
+          my_groups={@my_groups}
+          active_group_id={@active_group_id}
         />
       </div>
       <div class="game-header-row__right">
@@ -284,6 +301,63 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       >
         <span aria-hidden="true">🏠</span>
         <span>{if @house_rule_count == 0, do: "Add", else: @house_rule_count}</span>
+      </button>
+    </div>
+    """
+  end
+
+  attr :my_groups, :list, required: true
+  attr :active_group_id, :integer, default: nil
+
+  # The sticky "who am I asking for" selector: "Just me" (the default) plus one
+  # pill per group the user belongs to. Sets the ask context server-side via
+  # `set_active_group` — see `GameLive.Show.handle_event/3` for the security
+  # check (a `phx-value-group` token is client-controlled and is re-verified
+  # with `Groups.member?/2` before it's ever trusted). Renders nothing for a
+  # user with no groups, so joining is opt-in with zero UI change otherwise.
+  defp group_selector(assigns) do
+    ~H"""
+    <div
+      class="group-selector"
+      data-testid="group-selector"
+      data-tour="group-selector"
+      style="display:inline-flex;align-items:center;gap:0.3rem;flex-wrap:wrap"
+    >
+      <button
+        type="button"
+        phx-click="set_active_group"
+        phx-value-group=""
+        title="Ask just for yourself"
+        aria-pressed={to_string(is_nil(@active_group_id))}
+        class={["pill-link", @active_group_id == nil && "pill-link-accent"]}
+      >
+        <span aria-hidden="true">🙋</span> Just me
+      </button>
+      <button
+        :for={g <- @my_groups}
+        type="button"
+        phx-click="set_active_group"
+        phx-value-group={Phoenix.Param.to_param(g)}
+        title={"Ask for the group: #{g.name}"}
+        aria-pressed={to_string(@active_group_id == g.id)}
+        class={["pill-link", @active_group_id == g.id && "pill-link-accent"]}
+      >
+        <span aria-hidden="true">👥</span> {g.name}
+      </button>
+      <%!-- Only meaningful once a group is actually active — no active group,
+            no toggle, no clutter. Opens via the shared tool-panel machinery
+            (`open_tool`/`ToolRegistry`), same as every other table tool. --%>
+      <button
+        :if={@active_group_id}
+        type="button"
+        phx-click="open_tool"
+        phx-value-tool="group_feed"
+        data-testid="group-feed-toggle"
+        title="Group question feed"
+        aria-label="Group question feed"
+        class="pill-link"
+      >
+        <span aria-hidden="true">📰</span> Feed
       </button>
     </div>
     """

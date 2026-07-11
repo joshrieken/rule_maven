@@ -37,6 +37,9 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:ok,
      assign(socket,
        is_admin: RuleMaven.Users.can?(socket.assigns.current_user, :admin),
+       my_groups: [],
+       active_group_id: nil,
+       group_feed: [],
        # Per-page-load seed (set by the :put_dyk_seed plug). Identical across the
        # dead render and the connected mount, so the "Did you know?" card picks
        # the same fact on both; re-rolls on a real refresh.
@@ -315,6 +318,27 @@ defmodule RuleMavenWeb.GameLive.Show do
     # Tool data + window state load once per mount (seeded_before gates first
     # vs later handle_params) — a thread patch must not reset open windows.
     socket = if seeded_before, do: socket, else: ToolHost.mount_tools(socket, game)
+
+    # Active-group selector (sticky per {user, game}): loaded once per mount,
+    # same seeded_before gate as the tool windows above — a thread patch must
+    # not re-derive it. Stickiness only honors a stashed group the user is
+    # still a member of (they may have been removed since the last visit).
+    socket =
+      if seeded_before do
+        socket
+      else
+        my_groups = RuleMaven.Groups.list_for_user(socket.assigns.current_user)
+
+        sticky =
+          RuleMaven.TableSession.get(socket.assigns.current_user.id, game.id)[:active_group_id]
+
+        active_group_id =
+          if sticky && Enum.any?(my_groups, &(&1.id == sticky)), do: sticky, else: nil
+
+        socket
+        |> assign(my_groups: my_groups, active_group_id: active_group_id)
+        |> assign_group_feed()
+      end
 
     # Restyle the just-loaded thread's answers to the current voice (switching
     # threads, ?t navigation, reload). No-op on first mount where the default is
@@ -662,6 +686,32 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def handle_event("toggle_refused", _params, socket) do
     {:noreply, assign(socket, show_refused: !socket.assigns.show_refused)}
+  end
+
+  # Sticky active-group selector in the sub-bar: "" (or a missing/garbage/
+  # not-a-member token) always resolves to nil ("Just me") — `phx-value-*` is
+  # client-controlled, so the group must be re-verified server-side via
+  # `member?/2` rather than trusted from the token alone.
+  def handle_event("set_active_group", %{"group" => token}, socket) do
+    user = socket.assigns.current_user
+
+    group_id =
+      case token do
+        "" ->
+          nil
+
+        t ->
+          case RuleMaven.Groups.get_group_by_token(t) do
+            %{} = group -> if RuleMaven.Groups.member?(user, group), do: group.id, else: nil
+            nil -> nil
+          end
+      end
+
+    game = socket.assigns.game
+    snap = RuleMaven.TableSession.get(user.id, game.id)
+    RuleMaven.TableSession.put(user.id, game.id, Map.put(snap, :active_group_id, group_id))
+
+    {:noreply, socket |> assign(:active_group_id, group_id) |> assign_group_feed()}
   end
 
   # Table tools (window state, quiz, turn wizard, checklist, house rules) are
@@ -1768,6 +1818,21 @@ defmodule RuleMavenWeb.GameLive.Show do
     RuleMaven.Repo.one(from q in QuestionLog, where: q.id == ^id)
   end
 
+  # The active group's question feed (Task 11): newest-first, attributed,
+  # scoped to this game + this group by `Games.recent_questions/3`. Reloaded
+  # (never patched in place) on group switch and on a matching `:ask_complete`
+  # broadcast — a full re-query is authorized here and sidesteps duplicate-row
+  # bugs a targeted prepend would risk.
+  defp assign_group_feed(socket) do
+    case socket.assigns.active_group_id do
+      nil ->
+        assign(socket, :group_feed, [])
+
+      gid ->
+        assign(socket, :group_feed, Games.recent_questions(socket.assigns.game, 20, group_id: gid))
+    end
+  end
+
   defp matches_search?(_t, ""), do: true
 
   defp matches_search?(t, query) do
@@ -1957,6 +2022,28 @@ defmodule RuleMavenWeb.GameLive.Show do
       # The answered question now has an embedding — surface any of the user's
       # house rules that sit near it.
       socket = if answer_ready?, do: load_hr_overlay(socket), else: socket
+
+      # Task 11: this broadcast is game-wide, so every viewer's session gets
+      # it — not just the asker's. When the answered question was asked under
+      # the SAME group this viewer currently has active, refresh the group
+      # feed panel so it live-appends. Folded into this single existing
+      # clause (not a second `handle_info({:ask_complete, ...})` clause)
+      # deliberately: Elixir matches clauses top-down, and a second clause
+      # guarded on `group_id` would have to sit either before this one (where
+      # it would swallow every group ask before the asker's own conversation
+      # update above ever ran) or after it (dead code, since this clause
+      # matches every `:ask_complete` payload shape already). Reusing the
+      # already-computed `question_log_id`/`data` here keeps both behaviors —
+      # the asker's own conversation update and the group feed refresh —
+      # running for the exact same message.
+      socket =
+        case Map.get(data, :group_id) do
+          gid when not is_nil(gid) and gid == socket.assigns.active_group_id ->
+            assign_group_feed(socket)
+
+          _ ->
+            socket
+        end
 
       # First real answer this user has ever seen: walk them through its
       # anatomy (verdict, confidence, citations, voting → curator points).
@@ -2426,6 +2513,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         expansions={@expansions}
         included_expansions={@included_expansions}
         house_rule_count={length(@house_rules)}
+        my_groups={@my_groups}
+        active_group_id={@active_group_id}
       >
         <%!-- Sidebar toggle: kept first so it is the leftmost control on
               whichever row this group wraps onto on narrow screens. The

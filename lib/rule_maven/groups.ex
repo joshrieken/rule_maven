@@ -58,6 +58,14 @@ defmodule RuleMaven.Groups do
     end
   end
 
+  @doc """
+  Looks up a group by its invite code, regardless of whether the code is
+  currently active. Used by the join flow to show the group's name even
+  when the invite has been turned off or capped, so the error screen can
+  say *what* you were trying to join. Returns nil for an unknown code.
+  """
+  def get_group_by_code(code), do: Repo.get_by(Group, invite_code: code)
+
   @doc "Returns the user's role in the group, or nil if not a member. Tolerates a nil user."
   def role_of(nil, _group), do: nil
 
@@ -362,6 +370,14 @@ defmodule RuleMaven.Groups do
     cond do
       not role_at_least?(actor, group, :admin) ->
         {:error, :forbidden}
+
+      # Removing yourself is `leave/2`, not `remove_member/3`. Without this an
+      # admin could delete their OWN membership row here, after which the caller
+      # holds a page for a group they are no longer in (role comes back nil).
+      # Routing self-removal through leave/2 also keeps the owner-must-transfer
+      # guard in one place.
+      actor.id == target_user_id ->
+        {:error, :use_leave}
 
       true ->
         case Repo.get_by(Membership, group_id: group.id, user_id: target_user_id) do

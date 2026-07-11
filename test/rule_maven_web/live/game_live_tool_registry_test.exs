@@ -7,7 +7,10 @@ defmodule RuleMavenWeb.GameLive.ToolRegistryTest do
       assert is_atom(t.id)
       assert is_binary(t.emoji) and t.emoji != ""
       assert is_binary(t.label) and t.label != ""
-      assert t.group in [:play, :learn]
+      # :group_feed is deliberately not in any Play/Learn menu — its toggle
+      # is a dedicated pill in the group selector, shown only while a group
+      # is active (see SubBar.group_selector/1).
+      assert t.group in [:play, :learn, :group_feed]
     end
   end
 

@@ -20,7 +20,13 @@ defmodule RuleMavenWeb.GameLive.ToolRegistry do
     %{id: :quiz, emoji: "🎓", label: "Rules quiz", group: :learn},
     %{id: :mistakes, emoji: "⚠️", label: "Rules tables get wrong", group: :learn},
     %{id: :dyk, emoji: "💡", label: "Did you know", group: :learn},
-    %{id: :house_rules, emoji: "🏠", label: "House rules", group: :learn}
+    %{id: :house_rules, emoji: "🏠", label: "House rules", group: :learn},
+    # The group question feed: not listed in the Play/Learn menus (`group:
+    # :group_feed` matches no `group/2` call in SubBar) — its toggle is a
+    # dedicated pill in `group_selector/1`, shown only while a group is
+    # active. Registering it here still gets it the shared window chrome
+    # (drag/resize desktop, bottom-sheet mobile) for free via ToolPanel.
+    %{id: :group_feed, emoji: "📰", label: "Group feed", group: :group_feed}
   ]
 
   def tools, do: @tools

@@ -12,6 +12,7 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
   """
   use RuleMavenWeb, :html
   import RuleMavenWeb.GameLive.ToolHelpers
+  alias RuleMaven.Games.QuestionLog
   alias RuleMavenWeb.GameLive.ToolRegistry
 
   # `assigns` is the full LiveView assigns map (needs every tool's state).
@@ -651,6 +652,46 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
         {exp.name}
       </label>
     </div>
+    """
+  end
+
+  # The active group's question feed: everyone at the table asking through
+  # this group sees each other's questions land here, newest first — the
+  # headline "everyone can see new questions come in" UX. `@group_feed` is
+  # loaded/refreshed by Show's `assign_group_feed/1` (mount, group switch,
+  # and a matching `:ask_complete` broadcast); this clause only renders it.
+  defp render_tool(%{tool: :group_feed} = assigns) do
+    # Only Show assigns `@group_feed` (it's the only host with an active-group
+    # selector). `tool_states`/`tool_order` persist per {user, game} in
+    # TableSession and are re-hydrated on EVERY game LiveView mount, so a tool
+    # left open on Show can arrive here on Community/Prepare/Review/Edit with
+    # no `@group_feed` assign at all — default it rather than KeyError/500.
+    assigns = Map.put_new(assigns, :group_feed, [])
+
+    ~H"""
+    <%= if @group_feed == [] do %>
+      <p style="color:var(--text-muted);font-size:0.82rem;line-height:1.5;margin:0">
+        No questions yet for this group — asks made with it active will show up here.
+      </p>
+    <% else %>
+      <div style="display:flex;flex-direction:column;gap:0.6rem">
+        <div
+          :for={row <- @group_feed}
+          data-testid="group-feed-row"
+          style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.65rem;overflow-wrap:break-word"
+        >
+          <div style="font-size:0.68rem;font-weight:700;color:var(--text-muted);margin-bottom:0.2rem">
+            <span aria-hidden="true">🙋</span> {row.user && row.user.username} asked
+          </div>
+          <p style="font-size:0.82rem;font-weight:600;color:var(--text);margin:0 0 0.3rem;line-height:1.5">
+            {QuestionLog.display_question(row)}
+          </p>
+          <p style="font-size:0.8rem;color:var(--text-secondary);margin:0;line-height:1.5">
+            {row.answer}
+          </p>
+        </div>
+      </div>
+    <% end %>
     """
   end
 
