@@ -1,0 +1,236 @@
+defmodule RuleMaven.Workers.PublishCheckWorkerTest do
+  use RuleMaven.DataCase, async: false
+  use Oban.Testing, repo: RuleMaven.Repo
+
+  alias RuleMaven.{Games, Repo, Users}
+  alias RuleMaven.Workers.PublishCheckWorker
+
+  import RuleMaven.GamesFixtures
+  import RuleMaven.GroupsFixtures
+
+  defp user_fixture do
+    n = System.unique_integer([:positive])
+
+    {:ok, u} =
+      Users.create_user(%{
+        username: "pub_user_#{n}",
+        email: "pub_user_#{n}@test.com",
+        password: "testpass1234"
+      })
+
+    u
+  end
+
+  defp question_fixture(attrs) do
+    game = game_fixture()
+    owner = user_fixture()
+
+    base = %{
+      game_id: game.id,
+      user_id: owner.id,
+      question: "some question",
+      answer: "some answer",
+      browsable: true
+    }
+
+    {:ok, ql} =
+      base
+      |> Map.merge(Map.new(attrs))
+      |> Games.log_question()
+
+    ql
+  end
+
+  defp group_question_fixture(attrs) do
+    owner = user_fixture()
+    group = group_fixture(owner)
+
+    attrs
+    |> Map.new()
+    |> Map.put_new(:group_id, group.id)
+    # AskWorker only enqueues the check for rows it actually pooled, and the
+    # worker's guard head now requires it — an unpooled row never surfaces
+    # cross-user, so there is nothing to publish and no call worth paying for.
+    |> Map.put_new(:pooled, true)
+    |> then(&question_fixture(&1))
+  end
+
+  defp stub_llm(reply) do
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      {:ok, %{answer: reply, finish_reason: "stop"}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+  end
+
+  # Mimics the REAL shape LLM.chat/3 returns: chat/3 decodes a JSON "answer" key
+  # and falls back to "" when the reply isn't JSON, so a bare-word reply like this
+  # prompt's arrives via :raw_response, with :answer empty. If `raw: true` were
+  # ever dropped from the worker, this stub would make it read "" instead of "no".
+  defp stub_llm_raw(reply) do
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      {:ok, %{answer: "", raw_response: reply, finish_reason: "stop"}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+  end
+
+  defp stub_llm_error do
+    Application.put_env(:rule_maven, :llm_mock, fn _body -> {:error, :timeout} end)
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+  end
+
+  describe "perform/1" do
+    test "a clean cleaned_question becomes browsable" do
+      stub_llm("no")
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "May a player retract a move?",
+          browsable: false
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == true
+    end
+
+    test "a clean cleaned_question becomes browsable (raw_response shape)" do
+      stub_llm_raw("no")
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "May a player retract a move?",
+          browsable: false
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == true
+    end
+
+    test "a flagged question stays unbrowsable" do
+      stub_llm("yes")
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "Can Dave retract his move?",
+          browsable: false
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == false
+    end
+
+    test "a missing cleaned_question stays unbrowsable and makes no LLM call" do
+      Application.put_env(:rule_maven, :llm_mock, fn _body ->
+        raise "LLM should not be called for a row with no cleaned_question"
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      ql = group_question_fixture(cleaned_question: nil, browsable: false)
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == false
+    end
+
+    test "a skip_normalize row (cleaned_question nil, canonical_question set) never publishes and makes no LLM call" do
+      Application.put_env(:rule_maven, :llm_mock, fn _body ->
+        raise "LLM should not be called for a skip_normalize row"
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      # Mimics a skip_normalize ("Ask exactly this") row: LLM.ask/5 sets
+      # cleaned = "" for skip_normalize, and AskWorker stores that as nil.
+      # canonical_question is admin-curated FAQ text and unrelated to this
+      # gate — it may or may not be set, but must never be read here.
+      ql =
+        group_question_fixture(
+          cleaned_question: nil,
+          canonical_question: "May a player retract a move?",
+          browsable: false
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == false
+    end
+
+    test "an LLM error fails closed and lets Oban retry" do
+      stub_llm_error()
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "May a player retract a move?",
+          browsable: false
+        )
+
+      assert {:error, :timeout} = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == false
+
+      run =
+        Repo.get_by!(RuleMaven.Jobs.JobRun,
+          scope_type: "question_log",
+          scope_id: ql.id,
+          kind: "publish_check"
+        )
+
+      assert run.state == "failed"
+    end
+
+    test "a garbage LLM reply fails closed" do
+      stub_llm("Sure! I think no.")
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "May a player retract a move?",
+          browsable: false
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == false
+    end
+
+    test "a non-group row is never touched" do
+      Application.put_env(:rule_maven, :llm_mock, fn _body ->
+        raise "LLM should not be called for a non-group row"
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      ql =
+        question_fixture(
+          group_id: nil,
+          cleaned_question: "May a player retract a move?",
+          browsable: true
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == true
+    end
+
+    test "an unpooled group row is never screened (no LLM call, stays unbrowsable)" do
+      # mark_pooled/1 no-ops on an ungrounded citation, so a group ask can reach
+      # this worker having never entered the pool. It never surfaces cross-user,
+      # so screening it would be a wasted LLM call — and must never publish it.
+      Application.put_env(:rule_maven, :llm_mock, fn _body ->
+        raise "LLM should not be called for an unpooled row"
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      ql =
+        group_question_fixture(
+          cleaned_question: "May a player retract a move?",
+          browsable: false,
+          pooled: false
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+      assert Repo.reload!(ql).browsable == false
+    end
+
+    test "a nonexistent row is a no-op" do
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => -1})
+    end
+  end
+end

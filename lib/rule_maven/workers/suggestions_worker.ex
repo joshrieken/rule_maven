@@ -16,6 +16,7 @@ defmodule RuleMaven.Workers.SuggestionsWorker do
     ]
 
   alias RuleMaven.{Games, Jobs, Settings}
+  alias RuleMaven.Games.QuestionLog
 
   def topic(game_id), do: "suggestions:#{game_id}"
 
@@ -38,10 +39,16 @@ defmodule RuleMaven.Workers.SuggestionsWorker do
         oban_job_id: oban_id
       )
 
+    # This list is handed to a PUBLIC-output LLM call (the suggestions are shown
+    # to every visitor), so it must never carry a group asker's wording: drop
+    # group rows that haven't cleared the publish check, and use the scrubbed
+    # display text rather than the raw `question` column for everything else.
     already_asked =
       game
       |> Games.recent_questions(100)
-      |> Enum.map(& &1.question)
+      |> Enum.reject(&(&1.group_id && not &1.browsable))
+      |> Enum.map(&QuestionLog.display_question/1)
+      |> Enum.reject(&(is_nil(&1) or &1 == ""))
       |> Enum.uniq()
 
     Jobs.event(

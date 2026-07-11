@@ -39,6 +39,9 @@ defmodule RuleMavenWeb.GameLive.Show do
        is_admin: RuleMaven.Users.can?(socket.assigns.current_user, :admin),
        my_groups: [],
        active_group_id: nil,
+       # "Keep this in the crew" composer checkbox — never_pool for this ask.
+       # Only rendered/read while a group is active; reset on group switch.
+       keep_in_crew: false,
        group_feed: [],
        # Per-page-load seed (set by the :put_dyk_seed plug). Identical across the
        # dead render and the connected mount, so the "Did you know?" card picks
@@ -243,7 +246,8 @@ defmodule RuleMavenWeb.GameLive.Show do
           nil
       end
 
-    conversation = build_conversation_for_thread(grouped, active_thread_id)
+    conversation =
+      build_conversation_for_thread(grouped, active_thread_id, socket.assigns.current_user.id)
 
     # Compute pending count from threads list
     pending_count = Enum.count(threads, & &1.pending)
@@ -464,15 +468,24 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
+  # The verbatim text as typed, but only for the asker's own row. `nil` for any
+  # foreign row (including admin views), so the "↳ You asked:" disclosure —
+  # which renders `original_question` verbatim — can never expose someone
+  # else's raw wording, group or otherwise.
+  defp own_raw_question(%{user_id: uid, question: question}, uid) when not is_nil(uid),
+    do: question
+
+  defp own_raw_question(_q, _current_user_id), do: nil
+
   # Build flat conversation for a single thread (root + regen history).
-  defp build_conversation_for_thread(grouped, thread_id) do
+  defp build_conversation_for_thread(grouped, thread_id, current_user_id) do
     case Enum.find(grouped, &(&1.primary.id == thread_id)) do
       nil -> []
-      g -> build_conversation([g])
+      g -> build_conversation([g], current_user_id)
     end
   end
 
-  defp build_conversation(grouped) do
+  defp build_conversation(grouped, current_user_id) do
     grouped
     |> Enum.flat_map(fn g ->
       user_msg = %{
@@ -480,7 +493,11 @@ defmodule RuleMavenWeb.GameLive.Show do
         role: :user,
         content: QuestionLog.display_question(g.primary),
         cleaned_question: g.primary.cleaned_question,
-        original_question: g.primary.question,
+        # The RAW question is the asker's verbatim prose. Only ever hand it to
+        # the person who typed it: an admin, or a row pulled in by an upvote,
+        # must never see another user's original wording (that is the whole
+        # point of the scrubbed `cleaned_question`).
+        original_question: own_raw_question(g.primary, current_user_id),
         refused: g.primary.refused,
         timestamp: g.primary.inserted_at
       }
@@ -558,6 +575,17 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   # Source rows behind pool hits in the current thread — so their vote
   # counts/state load alongside the community list.
+  # Every question_log id this page rendered a vote control for: the community
+  # list, the open thread's own answers, and the pool sources behind pool hits
+  # (the Helpful thumb on a pool hit targets the source row). Anything outside
+  # this set is a forged id.
+  defp rendered_vote_ids(socket) do
+    conversation = socket.assigns[:conversation] || []
+
+    Enum.map(socket.assigns[:community_questions] || [], & &1.id) ++
+      conversation_source_ids(conversation) ++ conversation_answer_ids(conversation)
+  end
+
   defp conversation_source_ids(conversation) do
     conversation
     |> Enum.filter(& &1[:pool_source_id])
@@ -711,7 +739,16 @@ defmodule RuleMavenWeb.GameLive.Show do
     snap = RuleMaven.TableSession.get(user.id, game.id)
     RuleMaven.TableSession.put(user.id, game.id, Map.put(snap, :active_group_id, group_id))
 
-    {:noreply, socket |> assign(:active_group_id, group_id) |> assign_group_feed()}
+    {:noreply,
+     socket
+     |> assign(active_group_id: group_id, keep_in_crew: false)
+     |> assign_group_feed()}
+  end
+
+  # Per-ask "Keep this in the crew" checkbox: a one-off never_pool for the
+  # NEXT ask, independent of the group's own contribute_to_community setting.
+  def handle_event("toggle_keep_in_crew", _params, socket) do
+    {:noreply, assign(socket, :keep_in_crew, not socket.assigns.keep_in_crew)}
   end
 
   # Table tools (window state, quiz, turn wizard, checklist, house rules) are
@@ -834,11 +871,12 @@ defmodule RuleMavenWeb.GameLive.Show do
     # A fresh up-vote (not removing an existing one) earns a fun thank-you toast.
     new_upvote? = value == "up" && Map.get(socket.assigns.community_user_votes, id) != "up"
 
-    # Scope to this game so a forged id from another game can't be voted on from
-    # here — `set_community_vote/4` only checks that the row is votable, not
-    # which game it belongs to, and ids reach the client as raw phx-values.
-    # Same guard as open_report/flag_question below.
-    if find_question_log(socket.assigns.game, id) do
+    # Scope to the rows this page actually rendered a vote control for (the same
+    # guard Community.handle_event("vote", ...) uses), not merely to this game:
+    # `set_community_vote/4` only checks that the row is votable, and ids reach
+    # the client as raw phx-values, so a game-wide check would let a forged id
+    # vote on a row the viewer was never shown.
+    if id in rendered_vote_ids(socket) do
       do_community_vote(socket, id, uid, value, new_upvote?)
     else
       {:noreply, socket}
@@ -1061,6 +1099,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       recent_context: recent,
                       user_id: socket.assigns.current_user.id,
                       group_id: socket.assigns[:active_group_id],
+                      never_pool: socket.assigns[:keep_in_crew] || false,
                       voice: socket.assigns.default_voice
                     }
                     |> RuleMaven.Workers.AskWorker.new()
@@ -1070,6 +1109,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                      socket
                      |> assign(
                        question: "",
+                       keep_in_crew: false,
                        active_thread_id: question_log.id,
                        rule_card: ToolHost.fact_card(socket.assigns.dyk_facts),
                        pending_count: socket.assigns.pending_count + 1,
@@ -1169,7 +1209,12 @@ defmodule RuleMavenWeb.GameLive.Show do
        )
        |> push_patch(to: ~p"/games/#{game}")}
     else
-      conversation = build_conversation_for_thread(grouped, socket.assigns.active_thread_id)
+      conversation =
+        build_conversation_for_thread(
+          grouped,
+          socket.assigns.active_thread_id,
+          socket.assigns.current_user.id
+        )
 
       {:noreply,
        assign(socket,
@@ -1318,7 +1363,14 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
 
     grouped = Games.grouped_questions(game, question_group_opts(socket))
-    conversation = build_conversation_for_thread(grouped, socket.assigns.active_thread_id)
+
+    conversation =
+      build_conversation_for_thread(
+        grouped,
+        socket.assigns.active_thread_id,
+        socket.assigns.current_user.id
+      )
+
     threads = build_thread_summaries(grouped, socket.assigns.current_user.id)
 
     {:noreply,
@@ -1550,7 +1602,14 @@ defmodule RuleMavenWeb.GameLive.Show do
         Games.update_question_visibility(q, "private")
 
         grouped = Games.grouped_questions(game, question_group_opts(socket))
-        conversation = build_conversation_for_thread(grouped, socket.assigns.active_thread_id)
+
+        conversation =
+          build_conversation_for_thread(
+            grouped,
+            socket.assigns.active_thread_id,
+            socket.assigns.current_user.id
+          )
+
         threads = build_thread_summaries(grouped, socket.assigns.current_user.id)
         community = Games.community_questions(game, socket.assigns.current_user.id)
 
@@ -1737,7 +1796,13 @@ defmodule RuleMavenWeb.GameLive.Show do
               group_id: socket.assigns[:active_group_id],
               skip_pool: skip_pool,
               skip_normalize: verbatim,
-              never_pool: protect_existing?,
+              # Either a private one-off (regenerate/report redo of an already-voted
+              # answer) or the composer's "keep this in the crew" toggle keeps the
+              # answer out of the shared pool. `protect_existing?` is `old_q && (...)`,
+              # which can be `nil` (not a strict boolean) when there's no prior row —
+              # `||` tolerates that where `or` would raise.
+              never_pool:
+                (protect_existing? || false) or (socket.assigns[:keep_in_crew] || false),
               # Without the voice a persona user's regenerate skips the
               # single-call persona path and pays a separate restyle call.
               voice: socket.assigns.default_voice
@@ -1829,7 +1894,11 @@ defmodule RuleMavenWeb.GameLive.Show do
         assign(socket, :group_feed, [])
 
       gid ->
-        assign(socket, :group_feed, Games.recent_questions(socket.assigns.game, 20, group_id: gid))
+        assign(
+          socket,
+          :group_feed,
+          Games.recent_questions(socket.assigns.game, 20, group_id: gid)
+        )
     end
   end
 
@@ -3091,9 +3160,13 @@ defmodule RuleMavenWeb.GameLive.Show do
                           {render_markdown(v_content || msg.content)}
                         </div>
                         <%!-- Disclose that we rewrote the asker's raw question into
-                              a normalized form. Only the asker (own questions) and
-                              admins reach this branch — the main-chat query scopes
-                              non-admins to their own rows. --%>
+                              a normalized form. The raw text is shown ONLY to the
+                              person who typed it: `build_conversation/2` sets
+                              `original_question` to nil on any row the viewer does
+                              not own (a foreign row can reach this chat via an
+                              upvote on a pooled answer, and admins see every row),
+                              and `@reask_typed` only ever holds text this session
+                              typed. --%>
                         <% asked_as = Map.get(@reask_typed, msg[:id]) || msg[:original_question] %>
                         <%= if msg.role == :user &&
                                normalization_changed?(asked_as, msg.content) do %>
@@ -4028,6 +4101,26 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </button>
               </div>
             </div>
+            <%!-- Per-ask privacy override (Gate 4): only shown with a group active.
+                  Checked ⇒ never_pool for this one ask — the answer never joins
+                  the community cache and the question is never publish-checked,
+                  regardless of the group's own contribute_to_community setting. --%>
+            <label
+              :if={@active_group_id}
+              for="keep-in-crew-toggle"
+              class="crew-toggle composer-keep-crew"
+            >
+              <input
+                type="checkbox"
+                id="keep-in-crew-toggle"
+                phx-click="toggle_keep_in_crew"
+                checked={@keep_in_crew}
+              />
+              <span class="crew-toggle__text">
+                <span class="crew-toggle__label">Keep this in the crew</span>
+                <span class="crew-toggle__hint">Don't share this answer with the wider community.</span>
+              </span>
+            </label>
             <button
               type="button"
               id="voice-ask-btn"

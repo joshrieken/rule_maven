@@ -112,4 +112,31 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
     assert Repo.get(QuestionLog, row.id).visibility == "private"
   end
+
+  test "never promotes an unbrowsable row, even above the floor with full quorum",
+       %{game: game, author: author} do
+    row = pooled_row(game, author, Enum.to_list(1..768))
+
+    # Same conditions as the passing-promotion test above (two confirmed,
+    # distinct, non-author upvotes clear the floor with quorum) — the ONLY
+    # thing that should stop promotion here is browsable == false.
+    #
+    # The votes are cast BEFORE the row is made unbrowsable because
+    # `Games.votable?/1` now refuses an unbrowsable row outright — voting first
+    # is the only way to build a genuine above-floor, quorum-backed row and so
+    # leave `browsable` as the single variable under test. That refusal is the
+    # first line of defence; this test pins the second (the worker's own query),
+    # so a row that reaches high trust by any route still cannot be promoted.
+    Games.set_community_vote(row.id, confirmed_user("v1").id, "up")
+    Games.set_community_vote(row.id, confirmed_user("v2").id, "up")
+
+    assert Repo.get(QuestionLog, row.id).trust_score >= 3.0
+
+    Repo.update_all(
+      from(r in QuestionLog, where: r.id == ^row.id),
+      set: [browsable: false]
+    )
+    assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
+    assert Repo.get(QuestionLog, row.id).visibility == "private"
+  end
 end

@@ -722,6 +722,18 @@ defmodule RuleMavenWeb.GameLive.Community do
     end
   end
 
+  # A group row publishes only scrubbed text — never the asker's raw wording.
+  # This is `display_question/1` minus its final `|| q.question` fallback:
+  # `cleaned_question` is the normalize step's scrubbed output (and the exact
+  # text PublishCheckWorker screened before flipping `browsable`), while
+  # `question` is the asker's verbatim prose. A group row with neither cannot
+  # be browsable, so the withheld fallback is unreachable in practice — it's
+  # here so a future caller can't accidentally leak raw text.
+  defp listed_question(%{group_id: gid} = q) when not is_nil(gid),
+    do: q.canonical_question || q.cleaned_question || "(question withheld)"
+
+  defp listed_question(q), do: QuestionLog.display_question(q)
+
   defp question_card(assigns) do
     ~H"""
     <div style="padding:0.75rem;border:1px solid var(--border);border-radius:0.45rem;background:var(--bg-surface)">
@@ -742,7 +754,7 @@ defmodule RuleMavenWeb.GameLive.Community do
                 else: "Show the full answer and rulebook citations"
             }
           >
-            {QuestionLog.display_question(@q)}
+            {listed_question(@q)}
             <span style="color:var(--text-muted);font-weight:400">
               {if MapSet.member?(@expanded, @q.id), do: "▴", else: "▾"}
             </span>
@@ -868,7 +880,7 @@ defmodule RuleMavenWeb.GameLive.Community do
                 type="button"
                 id={"community-copy-#{@q.id}"}
                 phx-hook="ClipboardCopy"
-                data-clipboard-text={"Q: #{QuestionLog.display_question(@q)}\n\nA: #{strip_markdown(@q.canonical_answer || @q.answer || "")}"}
+                data-clipboard-text={"Q: #{listed_question(@q)}\n\nA: #{strip_markdown(@q.canonical_answer || @q.answer || "")}"}
                 class="card-menu__item"
                 title="Copy question and answer"
               >📋 Copy Q&amp;A</button>
@@ -877,7 +889,7 @@ defmodule RuleMavenWeb.GameLive.Community do
                 id={"community-share-#{@q.id}"}
                 phx-hook="ShareCard"
                 data-share-game={@game.name}
-                data-share-question={QuestionLog.display_question(@q)}
+                data-share-question={listed_question(@q)}
                 data-share-answer={strip_markdown(@q.canonical_answer || @q.answer || "")}
                 data-share-page={@q.cited_page}
                 class="card-menu__item"

@@ -29,6 +29,11 @@ defmodule RuleMaven.Games.QuestionLog do
     field :trust_score, :float, default: 0.0
     field :citation_valid, :boolean, default: false
     field :pooled, :boolean, default: false
+    # May this row's QUESTION TEXT be listed to a non-asker? Distinct from
+    # `pooled` (may its ANSWER serve the cross-user cache — which never exposes
+    # the asker's wording or identity). Group rows are written false and are
+    # flipped true only by PublishCheckWorker, which fails closed.
+    field :browsable, :boolean, default: true
     field :pool_source_id, :integer
     # Set when a rulebook content change may have invalidated a community answer.
     # The pool lookup skips flagged rows so they stop serving until re-approved.
@@ -106,6 +111,7 @@ defmodule RuleMaven.Games.QuestionLog do
       :trust_score,
       :citation_valid,
       :pooled,
+      :browsable,
       :pool_source_id,
       :needs_review,
       :stale,

@@ -42,6 +42,19 @@ defmodule RuleMaven.Groups do
     end
   end
 
+  @doc """
+  Whether a group contributes its answers to the community cache. `true` for a
+  nil group_id — a non-group ask always contributes, as it always has.
+  """
+  def contribute_to_community?(nil), do: true
+
+  def contribute_to_community?(group_id) do
+    case Repo.get(Group, group_id) do
+      nil -> true
+      group -> group.contribute_to_community
+    end
+  end
+
   @doc "Looks up a group by its opaque hashid token. Returns nil for a garbage token."
   def get_group_by_token(token) do
     case RuleMaven.Hashid.decode(token) do
@@ -173,9 +186,7 @@ defmodule RuleMaven.Groups do
   def member_of_group_id?(_user_id, nil), do: false
 
   def member_of_group_id?(user_id, group_id) do
-    Repo.exists?(
-      from m in Membership, where: m.user_id == ^user_id and m.group_id == ^group_id
-    )
+    Repo.exists?(from m in Membership, where: m.user_id == ^user_id and m.group_id == ^group_id)
   end
 
   @doc """
@@ -227,6 +238,28 @@ defmodule RuleMaven.Groups do
     if role_at_least?(actor, group, :admin) do
       group
       |> Group.changeset(%{name: name})
+      |> Repo.update()
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  @doc """
+  Sets whether the group's answers contribute to the community cache
+  (`contribute_to_community`). Requires the actor to be at least an admin —
+  same authorization shape as `rename/3`, via `role_at_least?/3`. A caller
+  without permission gets `{:error, :forbidden}`, like every other function in
+  this module.
+
+  When off, `AskWorker` forces `never_pool` for every ask made under this
+  group (see `contribute_to_community?/1`); the group's questions stay
+  private either way, this only affects whether the *answers* feed the
+  shared community cache.
+  """
+  def set_contribute(group, actor, contribute?) when is_boolean(contribute?) do
+    if role_at_least?(actor, group, :admin) do
+      group
+      |> Group.changeset(%{contribute_to_community: contribute?})
       |> Repo.update()
     else
       {:error, :forbidden}
@@ -404,8 +437,12 @@ defmodule RuleMaven.Groups do
   """
   def leave(user, group) do
     case Repo.get_by(Membership, group_id: group.id, user_id: user.id) do
-      nil -> {:error, :not_member}
-      %Membership{role: "owner"} -> {:error, :owner_must_transfer}
+      nil ->
+        {:error, :not_member}
+
+      %Membership{role: "owner"} ->
+        {:error, :owner_must_transfer}
+
       membership ->
         Repo.delete!(membership)
         {:ok, :left}
