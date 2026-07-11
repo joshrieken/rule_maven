@@ -661,6 +661,13 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
   # loaded/refreshed by Show's `assign_group_feed/1` (mount, group switch,
   # and a matching `:ask_complete` broadcast); this clause only renders it.
   defp render_tool(%{tool: :group_feed} = assigns) do
+    # Only Show assigns `@group_feed` (it's the only host with an active-group
+    # selector). `tool_states`/`tool_order` persist per {user, game} in
+    # TableSession and are re-hydrated on EVERY game LiveView mount, so a tool
+    # left open on Show can arrive here on Community/Prepare/Review/Edit with
+    # no `@group_feed` assign at all — default it rather than KeyError/500.
+    assigns = Map.put_new(assigns, :group_feed, [])
+
     ~H"""
     <%= if @group_feed == [] do %>
       <p style="color:var(--text-muted);font-size:0.82rem;line-height:1.5;margin:0">

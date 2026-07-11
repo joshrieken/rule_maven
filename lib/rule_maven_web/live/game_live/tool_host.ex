@@ -129,8 +129,22 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
       hr_form_open: false,
       hr_editing_id: nil
     )
+    |> ensure_group_feed_default()
     |> ensure_checklist_defaults()
     |> hydrate(game, user)
+  end
+
+  # Only Show has an active-group selector and assigns real `@group_feed`
+  # data (mount, group switch, `:ask_complete`). The other four hosts
+  # (Community, Prepare, Review, Edit) never touch it, but `tool_states` is
+  # a persisted session key shared by all of them — a feed left open on Show
+  # is re-hydrated here on every subsequent mount regardless of host, so
+  # every host must carry at least an empty default or `ToolPanel`'s
+  # `:group_feed` render clause hits an undefined assign.
+  defp ensure_group_feed_default(socket) do
+    if Map.has_key?(socket.assigns, :group_feed),
+      do: socket,
+      else: assign(socket, :group_feed, [])
   end
 
   # Community has no expansion machinery; the checklist tool renders

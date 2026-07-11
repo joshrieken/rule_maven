@@ -371,6 +371,14 @@ defmodule RuleMaven.Groups do
       not role_at_least?(actor, group, :admin) ->
         {:error, :forbidden}
 
+      # Removing yourself is `leave/2`, not `remove_member/3`. Without this an
+      # admin could delete their OWN membership row here, after which the caller
+      # holds a page for a group they are no longer in (role comes back nil).
+      # Routing self-removal through leave/2 also keeps the owner-must-transfer
+      # guard in one place.
+      actor.id == target_user_id ->
+        {:error, :use_leave}
+
       true ->
         case Repo.get_by(Membership, group_id: group.id, user_id: target_user_id) do
           nil ->

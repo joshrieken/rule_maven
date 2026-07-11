@@ -216,4 +216,26 @@ defmodule RuleMavenWeb.GameLive.GroupPanelTest do
     refute panel =~ "belongs to other group"
     refute panel =~ "belongs to other game"
   end
+
+  # CRITICAL 1 regression: `tool_states`/`tool_order` persist per {user, game}
+  # in TableSession and are re-hydrated on every game LiveView mount, but only
+  # Show assigns `@group_feed`. Opening the feed on Show and then navigating
+  # to this game's Community page must not 500.
+  test "opening the group feed on Show and then visiting Community does not crash", %{
+    conn: conn
+  } do
+    user = create_user("crossnav")
+    game = published_game_fixture(%{bgg_id: 205})
+    grp = group_fixture(user)
+    conn = login(conn, user)
+
+    {:ok, lv, _html} = live(conn, ~p"/games/#{game}")
+    lv |> element("[phx-value-group='#{Phoenix.Param.to_param(grp)}']") |> render_click()
+    open_group_feed(lv)
+
+    {:ok, community_lv, html} = live(conn, ~p"/games/#{game}/community")
+
+    assert html =~ game.name
+    assert render(community_lv)
+  end
 end

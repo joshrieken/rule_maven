@@ -31,17 +31,31 @@ defmodule RuleMavenWeb.GroupLive.Show do
     end
   end
 
+  # Also the post-mutation RE-AUTHORIZATION point. An event can end the actor's
+  # own membership (an admin removing themselves, or someone else removing them
+  # while this page is open), and a stale page must not keep rendering a group
+  # the viewer no longer belongs to — `role` would come back nil and the template
+  # would crash on it. Membership is re-derived on every reload; losing it
+  # redirects instead of assigning nil.
   defp load_group(socket) do
     user = socket.assigns.current_user
     group = Groups.get_group_by_token(Phoenix.Param.to_param(socket.assigns.group))
 
-    socket
-    |> assign(
-      group: group,
-      members: Groups.list_members(group),
-      role: Groups.role_of(user, group),
-      rename_form: to_form(%{"name" => group.name}, as: :group)
-    )
+    case group && Groups.role_of(user, group) do
+      nil ->
+        socket
+        |> put_flash(:info, "You're no longer a member of that group.")
+        |> push_navigate(to: ~p"/groups")
+
+      role ->
+        socket
+        |> assign(
+          group: group,
+          members: Groups.list_members(group),
+          role: role,
+          rename_form: to_form(%{"name" => group.name}, as: :group)
+        )
+    end
   end
 
   # --- Rename (admin+) --------------------------------------------------
@@ -94,12 +108,11 @@ defmodule RuleMavenWeb.GroupLive.Show do
     actor = socket.assigns.current_user
     group = socket.assigns.group
 
-    case Groups.set_role(actor, group, String.to_integer(user_id), role) do
-      {:ok, _membership} ->
-        {:noreply, load_group(socket)}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, error_message(reason))}
+    with {:ok, id} <- parse_user_id(user_id),
+         {:ok, _membership} <- Groups.set_role(actor, group, id, role) do
+      {:noreply, load_group(socket)}
+    else
+      {:error, reason} -> {:noreply, put_flash(socket, :error, error_message(reason))}
     end
   end
 
@@ -107,12 +120,11 @@ defmodule RuleMavenWeb.GroupLive.Show do
     actor = socket.assigns.current_user
     group = socket.assigns.group
 
-    case Groups.transfer_ownership(actor, group, String.to_integer(user_id)) do
-      {:ok, _group} ->
-        {:noreply, socket |> put_flash(:info, "Ownership transferred.") |> load_group()}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, error_message(reason))}
+    with {:ok, id} <- parse_user_id(user_id),
+         {:ok, _group} <- Groups.transfer_ownership(actor, group, id) do
+      {:noreply, socket |> put_flash(:info, "Ownership transferred.") |> load_group()}
+    else
+      {:error, reason} -> {:noreply, put_flash(socket, :error, error_message(reason))}
     end
   end
 
@@ -122,12 +134,11 @@ defmodule RuleMavenWeb.GroupLive.Show do
     actor = socket.assigns.current_user
     group = socket.assigns.group
 
-    case Groups.remove_member(actor, group, String.to_integer(user_id)) do
-      {:ok, :removed} ->
-        {:noreply, socket |> put_flash(:info, "Member removed.") |> load_group()}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, error_message(reason))}
+    with {:ok, id} <- parse_user_id(user_id),
+         {:ok, :removed} <- Groups.remove_member(actor, group, id) do
+      {:noreply, socket |> put_flash(:info, "Member removed.") |> load_group()}
+    else
+      {:error, reason} -> {:noreply, put_flash(socket, :error, error_message(reason))}
     end
   end
 
@@ -163,6 +174,18 @@ defmodule RuleMavenWeb.GroupLive.Show do
     end
   end
 
+  # `phx-value-user_id` is client-controlled: a socket can push any string.
+  # `String.to_integer/1` raises on garbage, taking the LiveView down and
+  # putting the client into a reconnect loop.
+  defp parse_user_id(user_id) when is_binary(user_id) do
+    case Integer.parse(user_id) do
+      {id, ""} -> {:ok, id}
+      _ -> {:error, :not_member}
+    end
+  end
+
+  defp parse_user_id(_), do: {:error, :not_member}
+
   defp error_message(:forbidden), do: "You don't have permission to do that."
   defp error_message(:cannot_remove_owner), do: "The group's owner can't be removed."
   defp error_message(:owner_must_transfer), do: "Transfer ownership before you leave."
@@ -175,6 +198,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
   defp error_message(:inactive), do: "This group's invite link is off."
   defp error_message(:invalid_code), do: "That invite code isn't valid."
   defp error_message(:not_member), do: "That person isn't a member of this group."
+  defp error_message(:use_leave), do: "Use \"Leave group\" to remove yourself."
   defp error_message(other), do: "Something went wrong (#{other})."
 
   defp invite_url(group), do: url(~p"/groups/join/#{group.invite_code}")
@@ -221,7 +245,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
             Copy
           </button>
           <button
-            :if={Groups.role_at_least?(@current_user, @group, :admin)}
+            :if={@role in ["admin", "owner"]}
             type="button"
             phx-click="regenerate_code"
             data-confirm="Regenerate the invite link? The old link will stop working."
@@ -231,7 +255,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
             Regenerate
           </button>
           <button
-            :if={Groups.role_at_least?(@current_user, @group, :admin)}
+            :if={@role in ["admin", "owner"]}
             type="button"
             phx-click="toggle_invite"
             class="btn-sm"
@@ -297,7 +321,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
               </button>
               <button
                 :if={
-                  Groups.role_at_least?(@current_user, @group, :admin) and m.role != "owner" and
+                  @role in ["admin", "owner"] and m.role != "owner" and
                     m.user_id != @current_user.id
                 }
                 type="button"
@@ -315,7 +339,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
 
       <!-- Rename (admin+) -->
       <section
-        :if={Groups.role_at_least?(@current_user, @group, :admin)}
+        :if={@role in ["admin", "owner"]}
         style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:1.25rem"
       >
         <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">Rename group</h2>

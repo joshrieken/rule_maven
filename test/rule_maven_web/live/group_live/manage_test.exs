@@ -169,4 +169,54 @@ defmodule RuleMavenWeb.GroupLive.ManageTest do
       assert html =~ "forbidden" or html =~ "owner" or html =~ "permission"
     end
   end
+
+  describe "GroupLive.Show — self-removal and malformed params (IMPORTANT 2/3)" do
+    test "an admin cannot remove themselves via remove_member — they must Leave", %{
+      conn: conn
+    } do
+      owner = create_user("owner_selfrm")
+      grp = group_fixture(owner)
+      admin = create_user("admin_selfrm")
+      {:ok, _} = RuleMaven.Groups.join_by_code(admin, grp.invite_code)
+      {:ok, _} = RuleMaven.Groups.set_role(owner, grp, admin.id, :admin)
+      conn = login(conn, admin)
+
+      {:ok, lv, _html} = live(conn, ~p"/groups/#{grp}")
+
+      # Hiding the "Remove" button on your own row is not a security control —
+      # a socket can push the event directly with its own user_id. Self-removal
+      # is routed to leave/2 instead: it used to delete the actor's own row,
+      # after which load_group/1 re-derived role: nil and the template crashed
+      # on String.capitalize(nil).
+      html = render_click(lv, "remove_member", %{"user_id" => to_string(admin.id)})
+
+      refute html =~ "FunctionClauseError"
+      assert html =~ "Leave group"
+      assert RuleMaven.Groups.member?(admin, grp), "self-removal must be rejected, not applied"
+      assert RuleMaven.Groups.role_of(admin, grp) == "admin"
+
+      # ...and the supported path still works, without a nil-role crash.
+      assert {:ok, :left} = RuleMaven.Groups.leave(admin, grp)
+      refute RuleMaven.Groups.member?(admin, grp)
+    end
+
+    test "a garbage user_id on set_role/transfer_ownership/remove_member does not crash", %{
+      conn: conn
+    } do
+      owner = create_user("owner_garbage")
+      grp = group_fixture(owner)
+      conn = login(conn, owner)
+
+      {:ok, lv, _html} = live(conn, ~p"/groups/#{grp}")
+
+      html = render_click(lv, "set_role", %{"user_id" => "not-a-number", "role" => "admin"})
+      assert is_binary(html)
+
+      html = render_click(lv, "transfer_ownership", %{"user_id" => "not-a-number"})
+      assert is_binary(html)
+
+      html = render_click(lv, "remove_member", %{"user_id" => "not-a-number"})
+      assert is_binary(html)
+    end
+  end
 end
