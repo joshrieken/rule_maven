@@ -89,10 +89,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
         columns = fetch_columns(table)
         {pk, _} = find_pk(table, columns)
 
-        rows =
-          table
-          |> fetch_rows(columns)
-          |> redact_sensitive(table, Users.can?(live_user(socket), :superadmin))
+        rows = load_rows(socket, table, columns)
 
         assign(socket,
           table_name: table,
@@ -142,7 +139,16 @@ defmodule RuleMavenWeb.AdminLive.Db do
 
     if writable?(table, live_user(socket)) do
       try do
-        SQL.query!(Repo, "DELETE FROM #{safe(table)} WHERE #{safe(pk)} = $1", [id])
+        # Cast the id to the pk's column type — `id` arrives as a string from
+        # phx-value, and binding it raw against an integer pk raises a
+        # DBConnection.EncodeError (which the rescue below does not catch), so a
+        # delete on any integer-keyed table crashed the LiveView.
+        pk_type =
+          Enum.find_value(socket.assigns.columns, "integer", fn {c, t} -> c == pk && t end)
+
+        SQL.query!(Repo, "DELETE FROM #{safe(table)} WHERE #{safe(pk)} = $1", [
+          parse_for_db(id, pk_type)
+        ])
 
         Audit.log(socket.assigns.current_user, "db.delete",
           target_type: "row",
@@ -151,7 +157,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
           metadata: %{"table" => table}
         )
 
-        rows = fetch_rows(table, socket.assigns.columns)
+        rows = load_rows(socket, table, socket.assigns.columns)
         {:noreply, assign(socket, rows: rows, delete_id: nil)}
       rescue
         e in [Postgrex.Error, DBConnection.ConnectionError] ->
@@ -271,10 +277,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
         metadata: %{"table" => table, "columns" => set_cols}
       )
 
-      rows =
-        table
-        |> fetch_rows(columns)
-        |> redact_sensitive(table, Users.can?(live_user(socket), :superadmin))
+      rows = load_rows(socket, table, columns)
 
       {:noreply,
        assign(socket, rows: rows, mode: nil, editing_id: nil, form_data: %{}, form_errors: %{})}
@@ -341,6 +344,16 @@ defmodule RuleMavenWeb.AdminLive.Db do
         {col, type} = hd(columns)
         {col, type}
     end
+  end
+
+  # The ONLY way the list view gets its rows. Every sink that assigns `@rows`
+  # (initial load, post-save, post-delete) goes through here so sensitive-column
+  # masking cannot be forgotten at one call site — which is exactly how the delete
+  # path re-rendered raw crew prose after the load path was hardened.
+  defp load_rows(socket, table, columns) do
+    table
+    |> fetch_rows(columns)
+    |> redact_sensitive(table, Users.can?(live_user(socket), :superadmin))
   end
 
   defp fetch_rows(table, columns) do
