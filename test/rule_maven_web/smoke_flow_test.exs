@@ -2,7 +2,7 @@ defmodule RuleMavenWeb.SmokeFlowTest do
   use RuleMavenWeb.ConnCase, async: true
 
   @moduledoc """
-  Server-rendered smoke and flow assertions migrated off Wallaby: none of
+  Server-rendered smoke and flow assertions that never needed a browser:
   these needed a real browser — they only assert HTML the server produced.
   As LiveViewTest/ConnCase they run in milliseconds instead of seconds and
   can't flake on Chrome. Tests that genuinely exercise browser behavior
@@ -37,7 +37,7 @@ defmodule RuleMavenWeb.SmokeFlowTest do
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
 
   describe "smoke: logged-out chrome (root layout, served at /login)" do
-    # Anonymous "/" redirects to /login (the Wallaby versions of these tests
+    # Anonymous "/" redirects to /login (the old browser versions of these tests
     # followed that redirect transparently); the header, nav, and theme picker
     # live in the root layout, so /login carries them all.
     test "anonymous / redirects to the login page", %{conn: conn} do

@@ -32,8 +32,6 @@ boardgame-*.tar
 /priv/static/rulebooks
 
 # Browser binaries for E2E tests (Wallaby)
-/priv/browser/chrome-*
-/priv/browser/chromedriver-*
 
 # Wallaby test screenshots
 /screenshots/
@@ -52,3 +50,4 @@ boardgame-*.tar
 
 # Node deps (symlinked into worktrees)
 /node_modules
+/assets/node_modules

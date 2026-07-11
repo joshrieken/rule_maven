@@ -66,7 +66,7 @@ defmodule RuleMaven.MixProject do
       {:swoosh, "~> 1.16"},
       {:resend, "~> 0.4.5"},
       {:finch, "~> 0.18"},
-      {:wallaby, "~> 0.30", only: :test, runtime: false},
+      {:phoenix_test_playwright, "~> 0.15", only: :test, runtime: false},
       {:fun_with_flags, "~> 1.13"}
     ]
   end
