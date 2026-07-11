@@ -9,7 +9,10 @@ defmodule RuleMaven.Flags do
   `fun_with_flags` gate precedence puts group above boolean.
   """
 
+  import Ecto.Query, only: [from: 2]
+
   alias RuleMaven.Flags.Registry
+  alias RuleMaven.Flags.ExperimentAssignment
 
   @doc "Whether `flag` is enabled, optionally for a specific user (nil = anonymous)."
   def enabled?(flag, user \\ nil) do
@@ -93,5 +96,57 @@ defmodule RuleMaven.Flags do
         _ -> acc
       end
     end)
+  end
+
+  @doc """
+  The experiment variant for `user`, recording first exposure. `:treatment` iff the
+  flag's gate is on for the user, else `:control`. Requires a `kind: :experiment` flag.
+  A nil user is `:control` and is not recorded.
+  """
+  def variant(flag, user \\ nil)
+
+  def variant(flag, nil) do
+    ensure_experiment!(flag)
+    :control
+  end
+
+  def variant(flag, %RuleMaven.Users.User{} = user) do
+    ensure_experiment!(flag)
+    variant = if FunWithFlags.enabled?(flag, for: user), do: :treatment, else: :control
+    record_assignment(user.id, flag, variant)
+    variant
+  end
+
+  @doc "Assignment counts per variant. %{control: n, treatment: m}."
+  def assignment_counts(flag) do
+    Registry.fetch!(flag)
+
+    rows =
+      RuleMaven.Repo.all(
+        from a in ExperimentAssignment,
+          where: a.experiment == ^to_string(flag),
+          group_by: a.variant,
+          select: {a.variant, count(a.id)}
+      )
+      |> Map.new()
+
+    %{control: Map.get(rows, "control", 0), treatment: Map.get(rows, "treatment", 0)}
+  end
+
+  defp ensure_experiment!(flag) do
+    case Registry.fetch!(flag) do
+      %{kind: :experiment} -> :ok
+      _ -> raise ArgumentError, "variant/2 requires a :experiment flag, got #{inspect(flag)}"
+    end
+  end
+
+  defp record_assignment(user_id, flag, variant) do
+    %ExperimentAssignment{}
+    |> ExperimentAssignment.changeset(%{
+      user_id: user_id,
+      experiment: to_string(flag),
+      variant: to_string(variant)
+    })
+    |> RuleMaven.Repo.insert(on_conflict: :nothing, conflict_target: [:user_id, :experiment])
   end
 end

@@ -16,14 +16,16 @@ defmodule RuleMaven.FlagsTest do
     u
   end
 
-  test "registry declares the 11 tool flags plus the two kill switches" do
+  test "registry declares the 11 tool flags plus the two kill switches plus the experiment" do
     ids = Registry.ids()
     assert :tool_quiz in ids
     assert :tool_house_rules in ids
     assert :asks in ids
     assert :outbound_email in ids
-    assert length(Registry.all()) == 13
-    assert Enum.all?(Registry.all(), &(&1.kind == :ops))
+    assert :exp_ask_pipeline in ids
+    assert length(Registry.all()) == 14
+    assert Enum.count(Registry.all(), &(&1.kind == :ops)) == 13
+    assert Enum.count(Registry.all(), &(&1.kind == :experiment)) == 1
   end
 
   test "enabled?/2 raises on an unregistered id" do
