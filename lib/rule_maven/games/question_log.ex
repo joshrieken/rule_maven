@@ -78,6 +78,24 @@ defmodule RuleMaven.Games.QuestionLog do
   def display_question(%__MODULE__{} = q),
     do: q.canonical_question || q.cleaned_question || q.question
 
+  @doc """
+  Question text safe to show to someone outside the asker's group.
+
+  Same as `display_question/1` for an ordinary row, but a group row NEVER falls
+  back to the raw `question` column — that fallback is exactly the asker's
+  verbatim prose, and on the "ask exactly this" path it's the row's only text.
+
+  Use this anywhere a row can reach a non-member: rendering, and — just as
+  importantly — SEARCHING. Filtering a list on `question` while rendering
+  `display_question/1` turns the search box into an oracle: the card appears and
+  disappears on substrings of text the viewer is never shown, which is enough to
+  reconstruct it a character at a time.
+  """
+  def listed_question(%{group_id: gid} = q) when not is_nil(gid),
+    do: q.canonical_question || q.cleaned_question || "(question withheld)"
+
+  def listed_question(q), do: display_question(q)
+
   @doc false
   def changeset(question_log, attrs) do
     question_log

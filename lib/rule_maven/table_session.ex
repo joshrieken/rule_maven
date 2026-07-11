@@ -34,11 +34,9 @@ defmodule RuleMaven.TableSession do
   un-stuck the crew, and the next ask went private.
   """
   def put(user_id, game_id, snapshot) when is_map(snapshot) do
-    merged = Map.merge(get(user_id, game_id), snapshot)
-    :ets.insert(@table, {{user_id, game_id}, merged, System.monotonic_time(:millisecond)})
-    :ok
-  rescue
-    ArgumentError -> :ok
+    GenServer.call(__MODULE__, {:put, user_id, game_id, snapshot})
+  catch
+    :exit, _ -> :ok
   end
 
   @doc "Drop entries idle longer than ttl_ms. Called on a timer; public for tests."
@@ -59,6 +57,19 @@ defmodule RuleMaven.TableSession do
 
     Process.send_after(self(), :sweep, @sweep_ms)
     {:ok, %{}}
+  end
+
+  # Serialized here rather than done inline in the caller: the merge is a
+  # read-modify-write, and two sockets for the same {user, game} (two tabs, or
+  # Show racing a tool event) could otherwise interleave read/read/write/write
+  # and drop one side's keys — which is exactly the lost-`active_group_id` bug
+  # the merge exists to prevent, just in a narrower window. Writes are rare
+  # (one per tool event) so a single serializing process is not a bottleneck.
+  @impl true
+  def handle_call({:put, user_id, game_id, snapshot}, _from, state) do
+    merged = Map.merge(get(user_id, game_id), snapshot)
+    :ets.insert(@table, {{user_id, game_id}, merged, System.monotonic_time(:millisecond)})
+    {:reply, :ok, state}
   end
 
   @impl true

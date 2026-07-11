@@ -1528,8 +1528,11 @@ defmodule RuleMavenWeb.GameLive.Show do
       RuleMaven.Audit.log(user, "question.ask_verbatim",
         target_type: "question",
         target_id: q.id,
-        target_label: q.question,
-        metadata: %{"original" => q.question, "cleaned" => q.cleaned_question}
+        target_label: QuestionLog.listed_question(q),
+        metadata: %{
+          "original" => QuestionLog.listed_question(q),
+          "cleaned" => q.cleaned_question
+        }
       )
 
       Games.record_pool_mismatch(q, user.id)
@@ -2714,7 +2717,10 @@ defmodule RuleMavenWeb.GameLive.Show do
               Community
             </div>
             <%= for q <- @community_questions do %>
-              <%= if @search_query == "" || String.contains?(String.downcase(q.question), String.downcase(@search_query)) do %>
+              <%!-- listed_question, not the raw `question` column: searching a
+                    field the viewer is never shown turns this box into an oracle
+                    that reconstructs a crew member's wording a letter at a time. --%>
+              <%= if @search_query == "" || String.contains?(String.downcase(QuestionLog.listed_question(q)), String.downcase(@search_query)) do %>
                 <button
                   id={"community-#{q.id}"}
                   type="button"
@@ -2727,7 +2733,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <%= if MapSet.member?(@favorited_answer_ids, q.id) do %>
                       <span style="color:#e05c2a;font-size:0.55rem">♥</span>
                     <% end %>
-                    {QuestionLog.display_question(q)}
+                    {QuestionLog.listed_question(q)}
                   </span>
                 </button>
               <% end %>
@@ -2827,7 +2833,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
           <%= if @search_query != "" &&
                Enum.all?(@threads, fn t -> not matches_search?(t, @search_query) end) &&
-               Enum.all?(@community_questions, fn q -> @search_query == "" || not String.contains?(String.downcase(q.question), String.downcase(@search_query)) end) do %>
+               Enum.all?(@community_questions, fn q -> @search_query == "" || not String.contains?(String.downcase(QuestionLog.listed_question(q)), String.downcase(@search_query)) end) do %>
             <div style="padding:0.5rem 0.75rem;color:var(--text-muted);font-size:0.72rem;font-style:italic">
               No matching questions
             </div>

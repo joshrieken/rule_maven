@@ -44,7 +44,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
             Audit.log(socket.assigns.current_user, "security.unblock",
               target_type: "question",
               target_id: q.id,
-              target_label: q.question
+              target_label: RuleMaven.Games.QuestionLog.listed_question(q)
             )
 
             expansion_ids = []
@@ -87,7 +87,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
             Audit.log(socket.assigns.current_user, "security.delete_blocked",
               target_type: "question",
               target_id: q.id,
-              target_label: q.question
+              target_label: RuleMaven.Games.QuestionLog.listed_question(q)
             )
 
             {:noreply, load_blocked(socket)}

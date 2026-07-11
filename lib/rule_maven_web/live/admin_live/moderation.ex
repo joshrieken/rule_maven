@@ -121,7 +121,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
       Audit.log(socket.assigns.current_user, "question.reapprove",
         target_type: "question",
         target_id: qid,
-        target_label: q.question
+        target_label: RuleMaven.Games.QuestionLog.listed_question(q)
       )
 
       {:noreply, socket |> put_flash(:info, "Re-approved — back in the pool.") |> load()}

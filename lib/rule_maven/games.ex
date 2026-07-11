@@ -1464,7 +1464,7 @@ defmodule RuleMaven.Games do
           Audit.log(user, "question.pull_for_review",
             target_type: "question",
             target_id: q.id,
-            target_label: q.question
+            target_label: QuestionLog.listed_question(q)
           )
 
           {:ok, %{pulled: !q.needs_review}}
@@ -2042,7 +2042,12 @@ defmodule RuleMaven.Games do
   # So an admin verifying a crew row that the publish check has not cleared
   # (or has rejected) would publish the asker's verbatim wording. Group rows
   # have to clear the screen first; non-group rows are unaffected.
-  defp publishable?(%QuestionLog{group_id: nil}), do: true
+  #
+  # Keyed on `browsable` alone, NOT on `group_id`: questions_log.group_id is
+  # `on_delete: :nilify_all`, so a `group_id == nil -> allow` head would let an
+  # admin publish a deleted crew's never-screened rows. Non-group rows are
+  # written browsable (schema default, and explicitly at both insert sites), so
+  # this costs them nothing.
   defp publishable?(%QuestionLog{browsable: browsable}), do: browsable == true
 
   defp do_verify(%QuestionLog{} = q) do
@@ -2167,8 +2172,7 @@ defmodule RuleMaven.Games do
     {:ok, updated}
   end
 
-  def update_question_visibility(%QuestionLog{group_id: gid} = q, "community")
-      when not is_nil(gid) do
+  def update_question_visibility(%QuestionLog{} = q, "community") do
     if publishable?(q),
       do: do_update_question_visibility(q, "community"),
       else: {:error, :not_publishable}
@@ -2429,7 +2433,7 @@ defmodule RuleMaven.Games do
     Audit.log(actor, "question.delete",
       target_type: "question",
       target_id: q.id,
-      target_label: q.question,
+      target_label: QuestionLog.listed_question(q),
       metadata: metadata
     )
 

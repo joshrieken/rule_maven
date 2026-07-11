@@ -352,17 +352,95 @@ defmodule RuleMaven.GroupGateHolesTest do
              "the crew member's raw wording reached the provider under a stranger's ask"
     end
 
-    test "a group row WITH scrubbed text tiebreaks on the scrubbed text", ctx do
+    test "an unscreened group row does not tiebreak at all — not even on its scrubbed text", ctx do
+      # `browsable`, not `group_id`, is the flag that records the screen's
+      # verdict. An unbrowsable crew row is either not yet screened or actively
+      # REJECTED (the scrubber left a real name in), so even its cleaned_question
+      # is text that must not leave the group. It misses the tiebreak entirely.
       ctx.game
       |> group_question!(ctx.member, ctx.grp)
       |> with_embedding!(@near_miss_vec_a)
 
       bodies = llm_bodies!(ctx.game, "can a smuggler get caught cheating?")
 
-      assert Enum.any?(bodies, &(&1 =~ "Can a smuggler cheat?")),
-             "the tiebreaker never ran on the scrubbed text"
+      refute Enum.any?(bodies, &(&1 =~ "Can a smuggler cheat?")),
+             "an unscreened crew question reached the provider under a stranger's ask"
 
       refute Enum.any?(bodies, &(&1 =~ "SECRETWORDING"))
+    end
+
+    test "a CLEARED group row tiebreaks on its scrubbed text", ctx do
+      ctx.game
+      |> group_question!(ctx.member, ctx.grp, %{browsable: true})
+      |> with_embedding!(@near_miss_vec_a)
+
+      bodies = llm_bodies!(ctx.game, "can a smuggler get caught cheating?")
+
+      assert Enum.any?(bodies, &(&1 =~ "Can a smuggler cheat?")),
+             "the tiebreaker never ran on the cleared row's scrubbed text"
+
+      refute Enum.any?(bodies, &(&1 =~ "SECRETWORDING"))
+    end
+  end
+
+  describe "listed_question/1 — the one text a stranger may see" do
+    test "a group row never falls back to the raw column", ctx do
+      q = group_question!(ctx.game, ctx.member, ctx.grp, %{cleaned_question: nil})
+
+      assert QuestionLog.listed_question(q) == "(question withheld)"
+      refute QuestionLog.listed_question(q) =~ "SECRETWORDING"
+    end
+
+    test "a group row with scrubbed text shows the scrubbed text", ctx do
+      q = group_question!(ctx.game, ctx.member, ctx.grp)
+
+      assert QuestionLog.listed_question(q) == "Can a smuggler cheat?"
+    end
+
+    test "an ordinary row is unchanged", ctx do
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: ctx.game.id,
+          user_id: ctx.member.id,
+          question: "How do I win?",
+          answer: "Score points."
+        })
+
+      assert QuestionLog.listed_question(q) == "How do I win?"
+    end
+  end
+
+  describe "durable admin surfaces never store raw crew wording" do
+    test "the Jobs run label for a crew ask is generic", ctx do
+      # job_runs.label is rendered in the admin Jobs panel — a shared surface
+      # outside the group — and persists long after the ask.
+      q = group_question!(ctx.game, ctx.member, ctx.grp, %{answer: "Thinking..."})
+
+      start_supervised!(
+        {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+      )
+
+      Application.put_env(:rule_maven, :llm_mock, fn _body ->
+        {:ok, %{answer: "No.", finish_reason: "stop"}}
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      RuleMaven.Workers.AskWorker.perform(%Oban.Job{
+        id: nil,
+        args: %{
+          "game_id" => ctx.game.id,
+          "question_log_id" => q.id,
+          "question" => q.question,
+          "user_id" => ctx.member.id,
+          "group_id" => ctx.grp.id
+        }
+      })
+
+      labels = RuleMaven.Jobs.list_runs(limit: 50) |> Enum.map(& &1.label)
+
+      refute Enum.any?(labels, &(&1 =~ "SECRETWORDING")),
+             "the crew member's raw wording was written to the shared Jobs log"
     end
   end
 end

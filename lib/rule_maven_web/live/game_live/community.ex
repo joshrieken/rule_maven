@@ -362,9 +362,12 @@ defmodule RuleMavenWeb.GameLive.Community do
   defp matches_search?(q, query) do
     needle = String.downcase(query)
 
+    # listed_question, not display_question: the card renders the withheld form,
+    # so searching the raw column would let a stranger probe for text that is
+    # never displayed to them.
     haystack =
       String.downcase(
-        QuestionLog.display_question(q) <> " " <> (q.canonical_answer || q.answer || "")
+        QuestionLog.listed_question(q) <> " " <> (q.canonical_answer || q.answer || "")
       )
 
     String.contains?(haystack, needle)
@@ -729,10 +732,7 @@ defmodule RuleMavenWeb.GameLive.Community do
   # `question` is the asker's verbatim prose. A group row with neither cannot
   # be browsable, so the withheld fallback is unreachable in practice — it's
   # here so a future caller can't accidentally leak raw text.
-  defp listed_question(%{group_id: gid} = q) when not is_nil(gid),
-    do: q.canonical_question || q.cleaned_question || "(question withheld)"
-
-  defp listed_question(q), do: QuestionLog.display_question(q)
+  defp listed_question(q), do: QuestionLog.listed_question(q)
 
   defp question_card(assigns) do
     ~H"""

@@ -149,7 +149,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
             Audit.log(socket.assigns.current_user, "question.set_visibility",
               target_type: "question",
               target_id: q.id,
-              target_label: q.question,
+              target_label: RuleMaven.Games.QuestionLog.listed_question(q),
               metadata: %{from: q.visibility, to: vis}
             )
 
@@ -174,7 +174,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
             Audit.log(socket.assigns.current_user, "question.reapprove",
               target_type: "question",
               target_id: q.id,
-              target_label: q.question
+              target_label: RuleMaven.Games.QuestionLog.listed_question(q)
             )
 
             {:noreply, reload(socket)}

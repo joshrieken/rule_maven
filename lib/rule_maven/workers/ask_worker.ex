@@ -66,7 +66,7 @@ defmodule RuleMaven.Workers.AskWorker do
     # admin can toggle it on. Every terminal branch below closes this run, so it
     # never lingers as "running".
     run =
-      Jobs.start_run("ask", {"question", question_log_id}, ask_label(question),
+      Jobs.start_run("ask", {"question", question_log_id}, ask_label(question, group_id),
         oban_job_id: oban_id
       )
 
@@ -748,12 +748,17 @@ defmodule RuleMaven.Workers.AskWorker do
   end
 
   # Short left-rail label: the question, truncated.
-  defp ask_label(question) when is_binary(question) do
+  # The label is written durably to job_runs and rendered in the admin Jobs panel
+  # — a shared surface outside the group. A crew ask is labelled generically: the
+  # raw wording has no business there, and nothing keys on the label.
+  defp ask_label(_question, group_id) when not is_nil(group_id), do: "Ask (crew)"
+
+  defp ask_label(question, _group_id) when is_binary(question) do
     q = String.trim(question)
     if String.length(q) > 60, do: String.slice(q, 0, 57) <> "…", else: q
   end
 
-  defp ask_label(_), do: "Ask"
+  defp ask_label(_question, _group_id), do: "Ask"
 
   defp get_question_log(id) do
     import Ecto.Query

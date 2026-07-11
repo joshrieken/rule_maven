@@ -235,20 +235,18 @@ defmodule RuleMaven.LLM do
   # a candidate the asker was already within 0.85-0.92 cosine similarity of,
   # which just serves an already-vetted, rulebook-derived pool answer early.
   defp paraphrase_equivalent?(row, asker_question, game, user_id) do
-    # For a GROUP row, `display_question/1` is not safe here: its last fallback
-    # is the raw `question` column, and a group row asked via "ask exactly this"
-    # (skip_normalize) is pooled with `cleaned_question: nil` — so that fallback
-    # would ship a crew member's verbatim wording to the provider under a
-    # stranger's ask. A group row therefore tiebreaks on its scrubbed text or
-    # not at all (it just misses). Non-group rows keep the raw fallback: their
-    # wording is already public, and plenty of community rows have no
-    # `cleaned_question` at all, so dropping it would silently cost pool hits.
+    # The tiebreaker is a real provider call made on behalf of the ASKER, who is
+    # very often a stranger to the crew that owns the candidate row — pool
+    # candidates include group rows by design (their ANSWERS feed the commons).
+    # So the candidate's text may only be used if it is cleared for publication.
+    #
+    # Gated on `browsable`, which is the flag that records the publish check's
+    # verdict — not on `group_id`. An unbrowsable crew row is either not yet
+    # screened or actively REJECTED (the scrubber left a real name in, say), and
+    # in both cases even its `cleaned_question` is exactly the text that must not
+    # leave the group. Such a row simply misses the tiebreak.
     candidate_question =
-      if is_nil(row.group_id) do
-        RuleMaven.Games.QuestionLog.display_question(row)
-      else
-        row.canonical_question || row.cleaned_question
-      end
+      if row.browsable, do: RuleMaven.Games.QuestionLog.display_question(row)
 
     if is_nil(candidate_question) do
       false
