@@ -34,9 +34,23 @@ defmodule RuleMaven.LLM do
   """
   def ask(game, question, expansion_ids \\ [], recent_context \\ [], opts \\ []) do
     skip_pool = Keyword.get(opts, :skip_pool, false)
-    # Carried through for Task 7's group-scoped cache lookup; not yet used to
-    # change any lookup behavior here.
-    _group_id = Keyword.get(opts, :group_id)
+    # `group_id` is downstream of a client (LiveView assign -> Oban job arg),
+    # so it is NOT proof the acting user actually belongs to that group — a
+    # forged/stale Oban arg could name any group. Verify membership HERE,
+    # against the also-passed `user_id`, before the group_id is allowed to
+    # widen anything. This is the single point every ask path funnels
+    # through (LLM.ask/5), so a bypass would require skipping this function
+    # entirely, not just the LiveView that normally calls it.
+    active_group_id =
+      case Keyword.get(opts, :group_id) do
+        nil ->
+          nil
+
+        group_id ->
+          if RuleMaven.Groups.member_of_group_id?(opts[:user_id], group_id),
+            do: group_id
+      end
+
     # Canonical sorted form — cache rows store and match this exact set.
     expansion_ids = Enum.sort(expansion_ids)
 
@@ -119,7 +133,15 @@ defmodule RuleMaven.LLM do
         serve_from_cache(user_semantic, question_embedding, cleaned, game.id, user_id, true)
 
       pool_hit =
-          find_pool_hit(game, question_embedding, expansion_ids, skip_pool, match_text, user_id) ->
+          find_pool_hit(
+            game,
+            question_embedding,
+            expansion_ids,
+            skip_pool,
+            match_text,
+            user_id,
+            active_group_id
+          ) ->
         # The pool is user-agnostic, so the asker's OWN pooled row can land
         # here (a paraphrase in the 0.92–0.95 band misses the stricter
         # user_semantic tier but clears the pool floor). Flag it same-user so
@@ -159,14 +181,26 @@ defmodule RuleMaven.LLM do
   # none do we pay the tiebreaker, and then on the NEAREST candidates first.
   @max_tiebreaker_calls 2
 
-  defp find_pool_hit(_game, nil, _expansion_ids, _skip_pool, _match_text, _user_id), do: nil
-  defp find_pool_hit(_game, _embedding, _expansion_ids, true, _match_text, _user_id), do: nil
+  defp find_pool_hit(_game, nil, _expansion_ids, _skip_pool, _match_text, _user_id, _active_group_id),
+    do: nil
 
-  defp find_pool_hit(game, question_embedding, expansion_ids, false, match_text, user_id) do
+  defp find_pool_hit(_game, _embedding, _expansion_ids, true, _match_text, _user_id, _active_group_id),
+    do: nil
+
+  defp find_pool_hit(
+         game,
+         question_embedding,
+         expansion_ids,
+         false,
+         match_text,
+         user_id,
+         active_group_id
+       ) do
     candidates =
       RuleMaven.Games.find_pool_candidates(game.id, question_embedding,
         expansion_ids: expansion_ids,
-        threshold: RuleMaven.Games.pool_tiebreaker_distance_threshold()
+        threshold: RuleMaven.Games.pool_tiebreaker_distance_threshold(),
+        active_group_id: active_group_id
       )
 
     floor = RuleMaven.Games.pool_similarity_floor()

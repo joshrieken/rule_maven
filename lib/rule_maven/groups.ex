@@ -154,6 +154,23 @@ defmodule RuleMaven.Groups do
   def member?(user, group), do: role_of(user, group) != nil
 
   @doc """
+  True if `user_id` currently belongs to the group identified by `group_id`,
+  checked directly against the membership table (no struct fetch required).
+  Tolerates a nil `user_id` or `group_id` (always false). Used to verify a
+  caller-supplied `group_id` — e.g. one that arrived via an Oban job arg or
+  LiveView assign — actually belongs to the acting user before it is trusted
+  for anything privileged, since `group_id` alone is not proof of membership.
+  """
+  def member_of_group_id?(nil, _group_id), do: false
+  def member_of_group_id?(_user_id, nil), do: false
+
+  def member_of_group_id?(user_id, group_id) do
+    Repo.exists?(
+      from m in Membership, where: m.user_id == ^user_id and m.group_id == ^group_id
+    )
+  end
+
+  @doc """
   True if `user`'s role in `group` is at least `role` (member < admin < owner).
   `role` may be an atom or a string. Tolerates a nil user (always false).
   """
