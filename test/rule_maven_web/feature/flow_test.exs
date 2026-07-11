@@ -58,24 +58,15 @@ defmodule RuleMavenWeb.Feature.FlowTest do
   end
 
   feature "login fails with bad credentials", %{session: session} do
+    # fill_in/3 re-queries the element on each call, so a late defer-script
+    # touching the DOM can't leave us holding a stale element reference (the
+    # reason this test previously needed a Process.sleep after visit).
     session
     |> visit("/login")
-
-    Process.sleep(500)
-
-    Wallaby.Browser.find(session, css("input#session_username"), fn el ->
-      Wallaby.Element.fill_in(el, with: "nonexistent")
-    end)
-
-    Wallaby.Browser.find(session, css("input#session_password"), fn el ->
-      Wallaby.Element.fill_in(el, with: "wrongpassword")
-    end)
-
-    Wallaby.Browser.find(session, css("button", text: "Log In"), fn el ->
-      Wallaby.Element.click(el)
-    end)
-
-    assert_has(session, css(".alert-error"))
+    |> fill_in(css("input#session_username"), with: "nonexistent")
+    |> fill_in(css("input#session_password"), with: "wrongpassword")
+    |> click(css("button", text: "Log In"))
+    |> assert_has(css(".alert-error"))
   end
 
   feature "admin can open a game's Prepare (readiness) page", %{session: session} do
@@ -174,8 +165,6 @@ defmodule RuleMavenWeb.Feature.FlowTest do
   feature "theme persists across page navigation", %{session: session} do
     session
     |> visit("/login")
-
-    Process.sleep(500)
 
     # Set theme via JS. Use a current slug ("deep-space") — retired slugs like
     # "nebula" get rewritten by the theme-migration script on load.
