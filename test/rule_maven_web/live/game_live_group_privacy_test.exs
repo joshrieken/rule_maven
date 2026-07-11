@@ -158,6 +158,46 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
     assert html =~ "Can a smuggler be caught?"
   end
 
+  test "an admin does NOT see another user's raw crew ANSWER in the bubble", ctx do
+    # The twin of the question leak: an admin's thread carries every user's rows,
+    # the question is scrubbed to "(question withheld)"/cleaned — and then the
+    # answer bubble one line below restated the crew member's private question
+    # ("Yes, SECRETANSWER…"), handing back the very wording the scrub removed.
+    q =
+      group_row!(ctx.game, ctx.member, ctx.group, %{
+        answer: "Yes, SECRETANSWER on a failed roll."
+      })
+
+    admin = user!("ans_admin", %{role: "admin"})
+    conn = login(build_conn(), admin)
+
+    {:ok, _view, html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
+      )
+
+    refute html =~ "SECRETANSWER"
+    assert html =~ "(answer withheld)"
+  end
+
+  test "the asker still sees their own crew ANSWER in the bubble", ctx do
+    q =
+      group_row!(ctx.game, ctx.member, ctx.group, %{
+        answer: "Yes, SECRETANSWER on a failed roll."
+      })
+
+    conn = login(build_conn(), ctx.member)
+
+    {:ok, _view, html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
+      )
+
+    assert html =~ "SECRETANSWER"
+  end
+
   test "a forged community_vote id the page never rendered is ignored", ctx do
     q = group_row!(ctx.game, ctx.member, ctx.group, %{browsable: true})
 

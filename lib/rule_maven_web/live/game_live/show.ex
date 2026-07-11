@@ -551,6 +551,19 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   defp shown_question(q, _current_user_id), do: QuestionLog.listed_question(q)
 
+  # The answer text to DISPLAY in the assistant bubble. The exact twin of
+  # `shown_question/2`, and for the same reason: an admin's `question_group_opts/1`
+  # drops the user scope, so their thread carries every user's rows including
+  # crew rows — and a crew answer restates the asker's private question ("No,
+  # Sarah can't palm a card"), carrying the very names `shown_question` withheld
+  # one bubble above. Gating the question while painting the answer raw is no
+  # scrub at all. Your own row shows your own answer; anyone else's goes through
+  # `listed_answer/1`, which withholds an unbrowsable crew answer.
+  defp shown_answer(%{user_id: uid} = q, uid) when not is_nil(uid),
+    do: q.canonical_answer || q.answer
+
+  defp shown_answer(q, _current_user_id), do: QuestionLog.listed_answer(q)
+
   # Build flat conversation for a single thread (root + regen history).
   defp build_conversation_for_thread(grouped, thread_id, current_user_id) do
     case Enum.find(grouped, &(&1.primary.id == thread_id)) do
@@ -585,7 +598,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       assistant_msg = %{
         id: g.primary.id,
         role: :assistant,
-        content: g.primary.answer,
+        content: shown_answer(g.primary, current_user_id),
         cited_passage: g.primary.cited_passage,
         cited_page: g.primary.cited_page,
         cited_source: g.primary.cited_source,
@@ -615,7 +628,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           %{
             id: h.id,
             role: :assistant,
-            content: h.answer,
+            content: shown_answer(h, current_user_id),
             cited_passage: h.cited_passage,
             cited_page: h.cited_page,
             cited_source: h.cited_source,
@@ -2253,7 +2266,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               else
                 msg
                 |> Map.delete(:pending)
-                |> Map.put(:content, ql.answer)
+                |> Map.put(:content, shown_answer(ql, socket.assigns.current_user.id))
                 |> Map.put(:cited_passage, ql.cited_passage)
                 |> Map.put(:cited_page, data[:cited_page] || ql.cited_page)
                 |> Map.put(:cited_source, data[:cited_source] || ql.cited_source)
