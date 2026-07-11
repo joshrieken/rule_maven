@@ -16,7 +16,11 @@ defmodule Mix.Tasks.RuleMaven.Flags.SyncTest do
   end
 
   test "seeds missing flags at their defaults and is idempotent" do
-    # nothing persisted yet
+    # The tool flags now ship seeded (20260711020000_seed_tool_flags), so
+    # "missing" is no longer the database's default state — establish the
+    # precondition this test is actually about by clearing one first.
+    FunWithFlags.clear(:tool_quiz)
+
     {:ok, before} = FunWithFlags.all_flag_names()
     refute :tool_quiz in before
 
