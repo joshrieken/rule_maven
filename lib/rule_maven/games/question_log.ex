@@ -60,6 +60,7 @@ defmodule RuleMaven.Games.QuestionLog do
     belongs_to :user, RuleMaven.Users.User
     belongs_to :document, RuleMaven.Games.Document
     belongs_to :parent_question, RuleMaven.Games.QuestionLog
+    belongs_to :group, RuleMaven.Groups.Group
 
     timestamps(type: :utc_datetime)
   end
@@ -111,7 +112,8 @@ defmodule RuleMaven.Games.QuestionLog do
       :favorited,
       :expansion_ids,
       :error_kind,
-      :error_retries
+      :error_retries,
+      :group_id
     ])
     |> validate_required([:question, :answer, :game_id])
     |> validate_inclusion(:visibility, ~w(private community))

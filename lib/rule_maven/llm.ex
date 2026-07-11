@@ -34,6 +34,9 @@ defmodule RuleMaven.LLM do
   """
   def ask(game, question, expansion_ids \\ [], recent_context \\ [], opts \\ []) do
     skip_pool = Keyword.get(opts, :skip_pool, false)
+    # Carried through for Task 7's group-scoped cache lookup; not yet used to
+    # change any lookup behavior here.
+    _group_id = Keyword.get(opts, :group_id)
     # Canonical sorted form — cache rows store and match this exact set.
     expansion_ids = Enum.sort(expansion_ids)
 

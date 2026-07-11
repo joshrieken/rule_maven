@@ -1027,6 +1027,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                        answer: "Thinking...",
                        user_id: socket.assigns.current_user.id,
                        visibility: visibility,
+                       group_id: socket.assigns[:active_group_id],
                        expansion_ids: Enum.sort(expansion_ids)
                      }) do
                   {:ok, question_log} ->
@@ -1037,6 +1038,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       expansion_ids: expansion_ids,
                       recent_context: recent,
                       user_id: socket.assigns.current_user.id,
+                      group_id: socket.assigns[:active_group_id],
                       voice: socket.assigns.default_voice
                     }
                     |> RuleMaven.Workers.AskWorker.new()
@@ -1670,6 +1672,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                answer: "Thinking...",
                user_id: socket.assigns.current_user.id,
                visibility: visibility,
+               group_id: socket.assigns[:active_group_id],
                expansion_ids: Enum.sort(expansion_ids),
                error_retries: carried_retries
              }) do
@@ -1681,6 +1684,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               expansion_ids: expansion_ids,
               recent_context: recent,
               user_id: socket.assigns.current_user.id,
+              group_id: socket.assigns[:active_group_id],
               skip_pool: skip_pool,
               skip_normalize: verbatim,
               never_pool: protect_existing?,

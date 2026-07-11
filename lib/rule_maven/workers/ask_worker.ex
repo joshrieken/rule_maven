@@ -27,6 +27,7 @@ defmodule RuleMaven.Workers.AskWorker do
     question = args["question"]
     expansion_ids = args["expansion_ids"] || []
     user_id = args["user_id"]
+    group_id = args["group_id"]
     skip_pool = args["skip_pool"] || false
     never_pool = args["never_pool"] || false
     skip_normalize = args["skip_normalize"] || false
@@ -169,6 +170,7 @@ defmodule RuleMaven.Workers.AskWorker do
           case run_bounded(fn ->
                  RuleMaven.LLM.ask(game, question, expansion_ids, recent_context,
                    user_id: user_id,
+                   group_id: group_id,
                    skip_pool: skip_pool,
                    skip_normalize: skip_normalize,
                    voice: voice
