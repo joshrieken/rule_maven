@@ -677,11 +677,39 @@ defmodule RuleMaven.GroupGateHolesTest do
           also_asked: ["and does Dave's house rule break the endgame?"]
         })
 
-      # The worker screens question + also_asked as one blob; assert the blob it
-      # actually submits carries the secondary text.
-      assert RuleMaven.Workers.PublishCheckWorker.screen_text(q, q.cleaned_question) =~
-               "Dave's house rule",
+      # Asserted through the WORKER, not through `screen_text/2` in isolation.
+      # Asserting on the pure helper stopped one seam short of the gate: it never
+      # proved that `decide/3` feeds the helper's output into the prompt, so
+      # reverting the fix (rendering the bare `cleaned` instead of the blob) left
+      # the old assertion green.
+      test_pid = self()
+
+      Application.put_env(:rule_maven, :llm_mock, fn body ->
+        send(test_pid, {:screened, inspect(body)})
+        # The name is in `also_asked`, so a screen that actually reads it says yes.
+        {:ok, %{answer: "yes", finish_reason: "stop"}}
+      end)
+
+      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+      start_supervised!(
+        {Oban,
+         repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+      )
+
+      assert :ok =
+               RuleMaven.Workers.PublishCheckWorker.perform(%Oban.Job{
+                 id: 1,
+                 args: %{"question_log_id" => q.id}
+               })
+
+      assert_received {:screened, body}
+
+      assert body =~ "Dave&#39;s house rule" or body =~ "Dave's house rule",
              "also_asked never reached the privacy screen"
+
+      row = Repo.get(QuestionLog, q.id)
+      refute row.browsable, "a name in also_asked did not withhold the row"
     end
   end
 
@@ -848,6 +876,80 @@ defmodule RuleMaven.GroupGateHolesTest do
       q = q |> Ecto.Changeset.change(%{group_id: nil}) |> Repo.update!()
 
       assert {:error, :not_votable} = Games.set_community_vote(q.id, voter.id, "up")
+    end
+  end
+
+  describe "round 11 — a screen-REJECTED turn is not quoted into a solo ask" do
+    # `question_normalized: true` means normalize RAN, not that it WORKED.
+    # PublishCheckWorker exists because it doesn't always work: an unambiguous
+    # "yes" is the system proving the scrub failed — the screen read the row's text
+    # and found a real person still in it. Such a row keeps question_normalized:
+    # true and a cleaned_question that still says "Dave", and is withheld
+    # (browsable: false).
+    #
+    # Quoting it into a SOLO follow-up in the same thread (flip the crew selector
+    # to "Just me"; the conversation survives in the socket) put those names into
+    # the new ask's prompt — and the new row is born browsable and gets pooled, so
+    # the names ride into an answer served to strangers, on a row the screen never
+    # even looks at.
+    test "the rejected crew turn is dropped from a solo ask's context", ctx do
+      # A row the screen REJECTED: normalize ran, the scrub missed a name, withheld.
+      rejected =
+        group_question!(ctx.game, ctx.member, ctx.grp, %{
+          cleaned_question: "Can Dave's rogue steal from Sarah's satchel?",
+          question_normalized: true,
+          browsable: false,
+          pooled: false
+        })
+
+      convo = [
+        %{
+          id: rejected.id,
+          role: :user,
+          content: rejected.question,
+          cleaned_question: rejected.cleaned_question,
+          question_normalized: rejected.question_normalized,
+          group_id: rejected.group_id,
+          browsable: rejected.browsable
+        },
+        %{id: rejected.id, role: :assistant, content: rejected.answer}
+      ]
+
+      # dest_group_id: nil = a solo ask, which is born browsable and gets pooled.
+      solo = RuleMavenWeb.GameLive.Show.recent_pairs_for_test(convo, nil)
+
+      refute Enum.any?(solo, &(&1.q =~ "Dave")),
+             "a screen-rejected crew question rode into a poolable solo ask's prompt"
+
+      assert solo == []
+    end
+
+    test "but it IS still quoted back into its own crew, where the text already lives",
+         ctx do
+      rejected =
+        group_question!(ctx.game, ctx.member, ctx.grp, %{
+          cleaned_question: "Can Dave's rogue steal from Sarah's satchel?",
+          question_normalized: true,
+          browsable: false,
+          pooled: false
+        })
+
+      convo = [
+        %{
+          id: rejected.id,
+          role: :user,
+          content: rejected.question,
+          cleaned_question: rejected.cleaned_question,
+          question_normalized: rejected.question_normalized,
+          group_id: rejected.group_id,
+          browsable: rejected.browsable
+        },
+        %{id: rejected.id, role: :assistant, content: rejected.answer}
+      ]
+
+      same_crew = RuleMavenWeb.GameLive.Show.recent_pairs_for_test(convo, ctx.grp.id)
+
+      assert [%{q: "Can Dave's rogue steal from Sarah's satchel?"}] = same_crew
     end
   end
 end

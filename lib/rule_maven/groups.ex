@@ -351,9 +351,16 @@ defmodule RuleMaven.Groups do
   """
   def regenerate_code(actor, group) do
     if role_at_least?(actor, group, :admin) do
-      group
-      |> Group.changeset(%{invite_code: generate_code()})
-      |> Repo.update()
+      # Same critical section as `join_by_code/2` and `remove_member/3`: a
+      # rotation that doesn't hold the lock can be straddled by a join that
+      # already read the old code, which then lands anyway.
+      Repo.transaction(fn ->
+        Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
+
+        group
+        |> Group.changeset(%{invite_code: generate_code()})
+        |> Repo.update!()
+      end)
     else
       {:error, :forbidden}
     end
@@ -509,7 +516,18 @@ defmodule RuleMaven.Groups do
             #
             # Rotating costs the crew a re-share of the link; not rotating makes
             # removal decorative.
+            #
+            # Under the SAME advisory lock `join_by_code/2` takes. A lock only
+            # serializes the transactions that TAKE it: the joiner re-reads the
+            # code inside the lock, but if the remover doesn't hold it, the two
+            # still interleave — the joiner reads the group (code still valid),
+            # the removal commits (row deleted, code rotated), and the joiner's
+            # `role_of` then sees no membership and re-inserts the row that was
+            # just deleted. Removal is only durable if the remover is inside the
+            # same critical section the joiner is racing against.
             Repo.transaction(fn ->
+              Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
+
               Repo.delete!(membership)
 
               group

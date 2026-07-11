@@ -22,7 +22,63 @@ defmodule RuleMaven.Workers.AskWorker do
   @ask_hard_timeout_ms 180_000
 
   @impl Oban.Worker
-  def perform(%Oban.Job{id: oban_id, args: args}) do
+  def perform(%Oban.Job{attempt: attempt, max_attempts: max_attempts, args: args} = job) do
+    do_perform(job)
+  rescue
+    e ->
+      # Every terminal write on this row — the "⚠️" answer, the :ask_error
+      # broadcast, the closed job_run — lives on a RETURN-VALUE path
+      # (`{:error, reason}` from LLM.ask, or run_bounded's timeout). A RAISE
+      # bypasses all of them, and `run_bounded/2` doesn't help: Task.async links,
+      # so an abnormal exit kills this process before `Task.yield` ever returns.
+      #
+      # The row is then stranded on "Thinking..." with no `error_kind`, which means
+      # no retry button — and `pending_count` is recomputed from the DB on every
+      # mount, so the row permanently consumes one of the user's concurrency slots
+      # for that game. Unreachable, unclearable, forever.
+      #
+      # Only finalize on the LAST attempt: a transient raise should still get its
+      # Oban retry. Then reraise, so Oban records the exception and discards the
+      # job rather than silently swallowing a bug.
+      if attempt >= max_attempts do
+        finalize_crashed_ask(args, e)
+      end
+
+      reraise e, __STACKTRACE__
+  end
+
+  # Puts the row into the same terminal shape the `{:error, reason}` branch
+  # produces, so a crashed ask is indistinguishable from a failed one to the UI.
+  defp finalize_crashed_ask(args, exception) do
+    question_log_id = args["question_log_id"]
+    game_id = args["game_id"]
+
+    Logger.error(
+      "AskWorker crashed for question #{inspect(question_log_id)}: #{Exception.message(exception)}"
+    )
+
+    with id when not is_nil(id) <- question_log_id,
+         %QuestionLog{} = ql <- Games.get_question_log(id),
+         true <- is_nil(ql.error_kind) do
+      Games.log_question_update(ql, %{
+        answer: "⚠️ Something went wrong. Please retry.",
+        error_kind: "unknown"
+      })
+
+      Phoenix.PubSub.broadcast(
+        RuleMaven.PubSub,
+        "game:#{game_id}",
+        {:ask_error, %{question_log_id: id, error: "crashed"}}
+      )
+    end
+
+    Jobs.fail_running_runs({"question_log", question_log_id}, "Worker crashed.")
+  rescue
+    # Never let the cleanup itself mask the original exception.
+    e -> Logger.error("AskWorker crash finalizer failed: #{inspect(e)}")
+  end
+
+  defp do_perform(%Oban.Job{id: oban_id, args: args}) do
     game_id = args["game_id"]
     question_log_id = args["question_log_id"]
     question = args["question"]

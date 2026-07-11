@@ -567,9 +567,12 @@ defmodule RuleMavenWeb.GameLive.Show do
         role: :user,
         content: shown_question(g.primary, current_user_id),
         cleaned_question: g.primary.cleaned_question,
-        # Carried so build_recent_pairs/1 can tell whether this turn was actually
-        # scrubbed before quoting it into another ask's prompt.
+        # Carried so build_recent_pairs/2 can tell whether this turn was actually
+        # scrubbed before quoting it into another ask's prompt — and, since
+        # "normalize ran" is NOT "normalize worked", whose boundary it belongs to.
         question_normalized: g.primary.question_normalized,
+        group_id: g.primary.group_id,
+        browsable: g.primary.browsable,
         # The RAW question is the asker's verbatim prose. Only ever hand it to
         # the person who typed it: an admin, or a row pulled in by an upvote,
         # must never see another user's original wording (that is the whole
@@ -1167,12 +1170,15 @@ defmodule RuleMavenWeb.GameLive.Show do
                 # The old `m.id == active_thread_id` filter kept ONLY the root
                 # pair — whose id equals the thread id — silently dropping every
                 # followup, so a continued conversation lost its recent turns.
+                group_id = live_group_id(socket)
+
+                # The DESTINATION decides what may be quoted: an unscreened crew
+                # turn may go home to its own crew, but never into a solo row that
+                # will be pooled and listed.
                 recent =
                   convo
                   |> Enum.reject(&(&1[:pending] || &1[:history]))
-                  |> build_recent_pairs()
-
-                group_id = live_group_id(socket)
+                  |> build_recent_pairs(group_id)
 
                 case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
                        game_id: game.id,
@@ -1198,6 +1204,26 @@ defmodule RuleMavenWeb.GameLive.Show do
                     }
                     |> RuleMaven.Workers.AskWorker.new()
                     |> Oban.insert()
+                    |> case do
+                      {:ok, _job} ->
+                        :ok
+
+                      # The row is already committed with answer: "Thinking...". If
+                      # the job never enqueues, nothing will ever finish it: the row
+                      # is stranded non-terminal, and `pending_count` (recomputed
+                      # from the DB on every mount) permanently eats one of the
+                      # user's concurrency slots for this game. Mark it failed so it
+                      # gets the normal retry affordance.
+                      {:error, reason} ->
+                        require Logger
+
+                        Logger.error("AskWorker enqueue failed: #{inspect(reason)}")
+
+                        Games.log_question_update(question_log, %{
+                          answer: "⚠️ Couldn't start that question. Please retry.",
+                          error_kind: "unknown"
+                        })
+                    end
 
                     {:noreply,
                      socket
@@ -1899,12 +1925,6 @@ defmodule RuleMavenWeb.GameLive.Show do
         # Scope context to the retried thread only
         retried_tid = id
 
-        recent =
-          remaining_convo
-          |> Enum.filter(fn m -> m.id == retried_tid end)
-          |> Enum.reject(& &1[:pending])
-          |> build_recent_pairs()
-
         # A re-ask inherits the SOURCE row's boundary — it must not be able to
         # take its text from one context and its publishability from another.
         #
@@ -1960,6 +1980,15 @@ defmodule RuleMavenWeb.GameLive.Show do
           is_nil(group_id) and
             (is_nil(old_q) or (not crew_row? and old_q.browsable))
 
+        # Computed here, not above: the filter needs the DESTINATION group, which
+        # only exists once the row's boundary has been resolved. An unscreened crew
+        # turn must not ride into a solo re-ask's prompt.
+        recent =
+          remaining_convo
+          |> Enum.filter(fn m -> m.id == retried_tid end)
+          |> Enum.reject(& &1[:pending])
+          |> build_recent_pairs(group_id)
+
         case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
                game_id: game.id,
                question: question,
@@ -1999,6 +2028,23 @@ defmodule RuleMavenWeb.GameLive.Show do
             }
             |> RuleMaven.Workers.AskWorker.new()
             |> Oban.insert()
+            |> case do
+              {:ok, _job} ->
+                :ok
+
+              # Same stranded-row hazard as the composer path: the row is already
+              # committed on "Thinking...", so a dropped enqueue leaves it
+              # non-terminal and permanently pending.
+              {:error, reason} ->
+                require Logger
+
+                Logger.error("AskWorker re-ask enqueue failed: #{inspect(reason)}")
+
+                Games.log_question_update(question_log, %{
+                  answer: "⚠️ Couldn't start that question. Please retry.",
+                  error_kind: "unknown"
+                })
+            end
 
             # Build threads list — remove old thread, add new pending one
             threads =
@@ -4543,7 +4589,17 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   # Pair consecutive user→assistant messages, ignore history/refused entries.
   # Returns last 2 valid Q&A pairs for followup context.
-  defp build_recent_pairs(msgs) do
+  @doc """
+  Test seam for `build_recent_pairs/2` — the filter that decides which prior turns
+  may be quoted into a new ask's prompt.
+
+  This is a privacy boundary (an unscreened crew turn must not ride into a solo,
+  poolable row), and it is otherwise reachable only through a full LiveView ask,
+  which needs a live LLM. Exposed so the rule itself can be asserted directly.
+  """
+  def recent_pairs_for_test(msgs, dest_group_id), do: build_recent_pairs(msgs, dest_group_id)
+
+  defp build_recent_pairs(msgs, dest_group_id) do
     msgs
     |> Enum.zip(Enum.drop(msgs, 1))
     |> Enum.filter(fn {a, b} -> a.role == :user && b.role == :assistant end)
@@ -4560,10 +4616,49 @@ defmodule RuleMavenWeb.GameLive.Show do
     # turn 2 — even with the crew switched off, since the thread's conversation
     # survives in the socket — and turn 1's names ride into the commons inside
     # turn 2's answer, on a row the publish screen never even looks at.
-    |> Enum.filter(fn {user, _asst} -> scrubbed_turn?(user) end)
+    |> Enum.filter(fn {user, _asst} -> quotable_turn?(user, dest_group_id) end)
     |> Enum.map(fn {user, asst} -> %{q: recent_q(user), a: asst.content} end)
     |> Enum.take(-2)
   end
+
+  # May this prior turn be quoted into the prompt of a new ask that is being made
+  # into `dest_group_id` (nil = a solo, poolable, browsable row)?
+  #
+  # Two conditions, and the second is the one a whole round missed.
+  #
+  # 1. The turn must actually have been SCRUBBED. `question_normalized` records
+  #    that normalize ran; a turn it never rewrote is dropped, not substituted.
+  #
+  # 2. `question_normalized: true` means normalize RAN — not that it WORKED.
+  #    PublishCheckWorker exists precisely because it doesn't always work: an
+  #    unambiguous "yes" is the system proving the scrub failed, i.e. the screen
+  #    read this row's text and found a real person still in it. Such a row keeps
+  #    `question_normalized: true` and a `cleaned_question` that still says "Dave",
+  #    and it is withheld — `browsable: false`.
+  #
+  #    So a crew turn that has not been CLEARED may only be quoted back into its
+  #    OWN crew, where its text already lives. Quote it into a solo ask and the new
+  #    row is born `browsable: true` and gets pooled — carrying the names into an
+  #    answer served to strangers, on a row the screen never even looks at. Flipping
+  #    the crew selector to "Just me" and asking a follow-up in the same thread was
+  #    enough, since the thread's conversation survives in the socket.
+  defp quotable_turn?(msg, dest_group_id) do
+    scrubbed_turn?(msg) and cleared_for?(msg, dest_group_id)
+  end
+
+  # Cleared = the screen passed it (`browsable`), or it is going home to the same
+  # crew it came from, or it never came from a crew at all.
+  defp cleared_for?(%{browsable: true}, _dest), do: true
+
+  defp cleared_for?(%{group_id: gid}, dest_group_id)
+       when not is_nil(gid) and not is_nil(dest_group_id),
+       do: gid == dest_group_id
+
+  # A row with no group marker and `browsable: false` is crew-origin too (the
+  # nilify trap: `group_id` is `on_delete: :nilify_all`). Withhold it.
+  defp cleared_for?(%{group_id: nil, browsable: false}, _dest), do: false
+  defp cleared_for?(%{group_id: nil}, _dest), do: true
+  defp cleared_for?(_msg, _dest), do: false
 
   # Only a turn the normalize step actually rewrote may be quoted into another
   # ask's prompt. The optimistic/pending message maps carry no `:question_normalized`

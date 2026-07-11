@@ -118,8 +118,22 @@ defmodule RuleMavenWeb.AdminLive.Audit do
 
   defp format_meta(meta) when meta == %{} or is_nil(meta), do: ""
 
+  # Question and answer TEXT never renders in the audit list.
+  #
+  # `delete_question/3` and the "ask exactly this" handler both record the raw
+  # `question` column in `metadata` for forensics — including for crew rows, whose
+  # raw text is the asker's verbatim prose. Their `target_label` is deliberately
+  # scrubbed because the list is a scanning surface... and then this dumped the
+  # whole metadata map into the very same row, next to the scrubbed label. The
+  # scrub bought nothing.
+  #
+  # The audit ROW still holds the text (that is the point of an audit record); it
+  # just isn't painted onto a screen that lists every user's questions.
+  @redacted_meta_keys ~w(question cleaned_question canonical_question answer original)
+
   defp format_meta(meta) do
     meta
+    |> Enum.reject(fn {k, _v} -> to_string(k) in @redacted_meta_keys end)
     |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
     |> Enum.join(", ")
   end

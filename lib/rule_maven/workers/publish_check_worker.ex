@@ -157,12 +157,33 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
     fence =
       "===UNTRUSTED-" <> Base.encode32(:crypto.strong_rand_bytes(10), padding: false) <> "==="
 
-    prompt =
-      Prompts.render("publish_check", %{
-        question: ql |> screen_text(cleaned) |> strip_fence(fence),
-        fence: fence
-      })
+    blob = ql |> screen_text(cleaned) |> strip_fence(fence)
+    prompt = Prompts.render("publish_check", %{question: blob, fence: fence})
 
+    # The prompt lives in an EDITABLE registry, so the template that actually
+    # renders may be a stored override — including one saved before the fence
+    # existed, or an admin edit that dropped `{{question}}`. `Prompts.render/2`
+    # substitutes what it finds and silently ignores the rest, so both failures are
+    # invisible AND both fail OPEN: a template with no `{{fence}}` puts the asker's
+    # verbatim `also_asked` back into the bare instruction (steerable), and one with
+    # no `{{question}}` screens an empty string, which the model happily calls "no"
+    # — rubber-stamping every crew row.
+    #
+    # The gate must not run on a prompt that doesn't contain what it is gating.
+    if String.contains?(prompt, fence) and String.contains?(prompt, blob) do
+      ask_screen(ql, prompt, system, run)
+    else
+      Jobs.finish_run(
+        run,
+        "failed",
+        "publish_check prompt is missing {{fence}} or {{question}} — refusing to screen. Reset the template in the prompt registry."
+      )
+
+      :ok
+    end
+  end
+
+  defp ask_screen(ql, prompt, system, run) do
     # raw: true — chat/3 decodes a JSON "answer" key and returns "" otherwise, and
     # this prompt returns a bare word.
     result =

@@ -303,14 +303,22 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
     test "a flagged question never lets the ANSWER into the pool either" do
       stub_llm("yes")
 
+      # `pooled: true` ON PURPOSE. The fixture defaults to `pooled: false` (a crew
+      # row reaches the screen unpooled), and with that default the un-pool
+      # `update_all` — which is guarded on `where: q.pooled == true` — matches zero
+      # rows and never executes. The closing `refute row.pooled` then cannot fail,
+      # and deleting the entire un-pool branch left this test green. To exercise the
+      # branch at all, the row has to actually be in the pool: a legacy row, or one
+      # pooled by an older path, which is exactly the case the "yes" pull exists for.
       ql =
         group_question_fixture(
           cleaned_question: "Can Marcus's wizard counterspell mine?",
           answer: "Marcus's wizard can indeed counterspell a counterspell.",
+          pooled: true,
           browsable: false
         )
 
-      refute Repo.reload!(ql).pooled, "precondition: a crew row is not pooled before the screen"
+      assert Repo.reload!(ql).pooled, "precondition: this test needs a row that IS pooled"
 
       assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
 

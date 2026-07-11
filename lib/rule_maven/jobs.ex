@@ -131,6 +131,28 @@ defmodule RuleMaven.Jobs do
       :ok
   end
 
+  @doc """
+  Closes every still-`running` run for a scope as `failed`.
+
+  For crash cleanup: a worker that RAISES never reaches its own `finish_run/3`,
+  so its run row sits `running` forever and the Jobs panel shows a job that never
+  ends. The crashing worker usually no longer has the run struct in hand (the
+  exception unwound past it), so this closes by scope instead.
+  """
+  def fail_running_runs({scope_type, scope_id}, summary) when not is_nil(scope_id) do
+    Repo.all(
+      from r in JobRun,
+        where:
+          r.scope_type == ^to_string(scope_type) and r.scope_id == ^scope_id and
+            r.state == "running"
+    )
+    |> Enum.each(&finish_run(&1, "failed", summary))
+
+    :ok
+  end
+
+  def fail_running_runs(_scope, _summary), do: :ok
+
   # --- Readiness integration -------------------------------------------------
   #
   # A run's LLM/embedding spend, stamped onto the row so the admin log and the

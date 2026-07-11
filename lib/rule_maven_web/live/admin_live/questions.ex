@@ -196,10 +196,15 @@ defmodule RuleMavenWeb.AdminLive.Questions do
         {:noreply, socket}
 
       q ->
+        # `listed_question/1`, not the raw column. The list itself renders a crew
+        # row as "(question withheld)" — and then this handler poured the asker's
+        # verbatim prose into a textarea one click away. Same rule as the render:
+        # the raw text is reachable only for a row that is both cleared and not
+        # crew-marked, and an unnormalized `cleaned_question` is not a scrub.
         {:noreply,
          assign(socket,
            editing_canonical_id: id,
-           canon_q: q.canonical_question || q.cleaned_question || q.question,
+           canon_q: q.canonical_question || QuestionLog.listed_question(q),
            canon_a: q.canonical_answer || q.answer || ""
          )}
     end
