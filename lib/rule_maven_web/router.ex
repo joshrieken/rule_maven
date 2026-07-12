@@ -93,6 +93,8 @@ defmodule RuleMavenWeb.Router do
       live "/admin/audit", AdminLive.Audit, :index
       live "/admin/usage", AdminLive.Usage, :index
       live "/admin/users", AdminLive.Users, :index
+      live "/admin/groups", AdminLive.Groups, :index
+      live "/admin/groups/:token", AdminLive.GroupShow, :show
       live "/admin/invites", AdminLive.Invites, :index
       live "/admin/catalog", AdminLive.Catalog, :index
       live "/admin/themes", AdminLive.Themes, :index
