@@ -182,4 +182,40 @@ defmodule RuleMaven.GroupsTest do
 
     assert {:error, :not_member} = Groups.admin_remove_member(group, outsider.id)
   end
+
+  test "admin_delete_group deletes without being in the group" do
+    owner = create_user("admindelete_owner")
+    {:ok, group} = Groups.create_group(owner, %{name: "Delete Crew"})
+
+    assert {:ok, :deleted} = Groups.admin_delete_group(group)
+    assert Groups.get_group_by_token(Phoenix.Param.to_param(group)) == nil
+  end
+
+  test "list_all returns every group with member_count and owner_username" do
+    owner1 = create_user("listall_owner1")
+    owner2 = create_user("listall_owner2")
+    {:ok, group1} = Groups.create_group(owner1, %{name: "Alpha Crew"})
+    {:ok, group2} = Groups.create_group(owner2, %{name: "Beta Crew"})
+    member = create_user("listall_member")
+    {:ok, _} = Groups.join_by_code(member, group1.invite_code)
+
+    rows = Groups.list_all()
+    ids = Enum.map(rows, & &1.group.id)
+    assert group1.id in ids
+    assert group2.id in ids
+
+    row1 = Enum.find(rows, &(&1.group.id == group1.id))
+    assert row1.member_count == 2
+    assert row1.owner_username == owner1.username
+  end
+
+  test "list_all filters by name search, case-insensitive" do
+    owner = create_user("listall_search_owner")
+    {:ok, _} = Groups.create_group(owner, %{name: "Searchable Crew"})
+    {:ok, _} = Groups.create_group(owner, %{name: "Other Crew"})
+
+    rows = Groups.list_all("searchable")
+    assert length(rows) == 1
+    assert hd(rows).group.name == "Searchable Crew"
+  end
 end

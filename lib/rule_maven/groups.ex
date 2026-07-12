@@ -276,6 +276,34 @@ defmodule RuleMaven.Groups do
     )
   end
 
+  @doc """
+  Lists every group in the system, for admin browsing. Each row is a map
+  with `:group`, `:member_count`, and `:owner_username`. Optionally
+  filtered by a case-insensitive substring match on the group name.
+  Ordered by name.
+  """
+  def list_all(search \\ nil) do
+    query =
+      from g in Group,
+        join: owner in RuleMaven.Users.User,
+        on: owner.id == g.owner_id,
+        left_join: m in Membership,
+        on: m.group_id == g.id,
+        group_by: [g.id, owner.username],
+        order_by: [asc: g.name],
+        select: %{group: g, member_count: count(m.id), owner_username: owner.username}
+
+    query =
+      if search && String.trim(search) != "" do
+        pattern = "%#{String.trim(search)}%"
+        from [g, owner, m] in query, where: ilike(g.name, ^pattern)
+      else
+        query
+      end
+
+    Repo.all(query)
+  end
+
   @doc "Lists a group's members as plain maps with user_id, username, role."
   def list_members(%Group{id: group_id}) do
     Repo.all(
@@ -678,14 +706,21 @@ defmodule RuleMaven.Groups do
   """
   def delete_group(actor, group) do
     if role_at_least?(actor, group, :owner) do
-      Repo.transaction(fn ->
-        retract_contributions(group)
-        Repo.delete!(group)
-        :deleted
-      end)
+      do_delete_group(group)
     else
       {:error, :forbidden}
     end
+  end
+
+  @doc "Same as `delete_group/2`, no membership check. Site-admin callers only."
+  def admin_delete_group(%Group{} = group), do: do_delete_group(group)
+
+  defp do_delete_group(group) do
+    Repo.transaction(fn ->
+      retract_contributions(group)
+      Repo.delete!(group)
+      :deleted
+    end)
   end
 
   @doc """
