@@ -216,7 +216,7 @@ defmodule RuleMavenWeb.AdminLive.GroupShow do
 
   defp error_message(other), do: "Something went wrong (#{other})."
 
-  defp invite_url(group), do: url(~p"/groups/join/#{group.invite_code}")
+  defp invite_url(group), do: RuleMavenWeb.public_url(~p"/groups/join/#{group.invite_code}")
 
   @impl true
   def render(assigns) do
