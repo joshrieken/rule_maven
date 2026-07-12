@@ -102,4 +102,39 @@ defmodule RuleMaven.GroupsTest do
     updated = Groups.admin_regenerate_code(group)
     assert updated.invite_code != old_code
   end
+
+  test "admin_set_role promotes a member without being in the group" do
+    owner = create_user("adminrole_owner")
+    {:ok, group} = Groups.create_group(owner, %{name: "Role Crew"})
+    member = create_user("adminrole_member")
+    {:ok, _} = Groups.join_by_code(member, group.invite_code)
+
+    assert {:ok, membership} = Groups.admin_set_role(group, member.id, "admin")
+    assert membership.role == "admin"
+  end
+
+  test "admin_set_role refuses to touch an owner row" do
+    owner = create_user("adminrole_owner2")
+    {:ok, group} = Groups.create_group(owner, %{name: "Role Crew 2"})
+
+    assert {:error, :last_owner} = Groups.admin_set_role(group, owner.id, "member")
+  end
+
+  test "admin_set_role refuses to promote to owner" do
+    owner = create_user("adminrole_owner3")
+    {:ok, group} = Groups.create_group(owner, %{name: "Role Crew 3"})
+    member = create_user("adminrole_member3")
+    {:ok, _} = Groups.join_by_code(member, group.invite_code)
+
+    assert {:error, :use_transfer_ownership} = Groups.admin_set_role(group, member.id, "owner")
+  end
+
+  test "admin_set_role rejects a garbage role" do
+    owner = create_user("adminrole_owner4")
+    {:ok, group} = Groups.create_group(owner, %{name: "Role Crew 4"})
+    member = create_user("adminrole_member4")
+    {:ok, _} = Groups.join_by_code(member, group.invite_code)
+
+    assert {:error, :invalid_role} = Groups.admin_set_role(group, member.id, "wizard")
+  end
 end

@@ -423,20 +423,37 @@ defmodule RuleMaven.Groups do
   membership row that currently holds "owner" (use `transfer_ownership/3`
   to move ownership), and it cannot promote anyone to "owner" either.
 
-  Returns `{:error, :forbidden}` if the actor isn't the owner,
-  `{:error, :not_member}` if the target doesn't belong to the group,
-  `{:error, :last_owner}` if the target currently holds "owner", or
-  `{:error, :use_transfer_ownership}` if the requested role is "owner".
+  Returns `{:error, :forbidden}` if the actor isn't the owner or the
+  requested role is invalid, `{:error, :not_member}` if the target doesn't
+  belong to the group, `{:error, :last_owner}` if the target currently
+  holds "owner", or `{:error, :use_transfer_ownership}` if the requested
+  role is "owner".
   """
   def set_role(actor, group, target_user_id, role) do
+    if role_at_least?(actor, group, :owner) do
+      case do_set_role(group, target_user_id, role) do
+        {:error, :invalid_role} -> {:error, :forbidden}
+        other -> other
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  @doc """
+  Same as `set_role/4`, no membership/ownership check. Site-admin callers
+  only. Returns `{:error, :invalid_role}` instead of `{:error, :forbidden}`
+  for a role outside `Membership.roles()`, since there is no permission
+  failure on this path — only a validation one.
+  """
+  def admin_set_role(group, target_user_id, role), do: do_set_role(group, target_user_id, role)
+
+  defp do_set_role(group, target_user_id, role) do
     role = to_string(role)
 
     cond do
-      not role_at_least?(actor, group, :owner) ->
-        {:error, :forbidden}
-
       role not in Membership.roles() ->
-        {:error, :forbidden}
+        {:error, :invalid_role}
 
       role == "owner" ->
         {:error, :use_transfer_ownership}
