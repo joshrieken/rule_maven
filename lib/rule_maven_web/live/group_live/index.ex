@@ -82,11 +82,11 @@ defmodule RuleMavenWeb.GroupLive.Index do
         <ul :if={@groups != []} style="list-style:none;margin:0;padding:0">
           <li
             :for={group <- @groups}
-            style="border:1px solid var(--border);border-radius:0.75rem;padding:0.8rem 1rem;background:var(--bg-surface);margin-bottom:0.6rem"
+            style="border:1px solid var(--border);border-radius:0.75rem;background:var(--bg-surface);margin-bottom:0.6rem"
           >
             <.link
               navigate={~p"/groups/#{group}"}
-              style="font-weight:700;text-decoration:none;color:var(--text);display:block"
+              style="font-weight:700;text-decoration:none;color:var(--text);display:block;padding:0.8rem 1rem"
             >
               {group.name}
             </.link>
