@@ -66,6 +66,33 @@ defmodule RuleMavenWeb.AdminLive.QuestionsTest do
     refute html =~ "withheld"
   end
 
+  test "expanded answer shows the citation source and page, not just the bare quote", %{
+    conn: conn
+  } do
+    admin = create_super_admin("qsuper3")
+    asker = create_user("qasker3")
+    g = game()
+
+    {:ok, q} =
+      Games.log_question(%{
+        game_id: g.id,
+        user_id: asker.id,
+        question: "can I play it immediately?",
+        answer: "with one exception...",
+        cited_passage: "That card, however, may not be a card you bought this turn.",
+        cited_source: "Catan Rulebook",
+        cited_page: 7
+      })
+
+    {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/questions")
+
+    html = render_click(view, "expand", %{"id" => to_string(q.id)})
+
+    assert html =~ "Catan Rulebook"
+    assert html =~ "p.7"
+    assert html =~ "That card, however"
+  end
+
   test "questions list can be filtered down to a single user", %{conn: conn} do
     admin = create_super_admin("qsuper2")
     target = create_user("qtarget")

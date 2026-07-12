@@ -2273,7 +2273,11 @@ defmodule RuleMaven.Games do
   end
 
   defp blank_to_nil(nil), do: nil
-  defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: s)
+
+  defp blank_to_nil(s) when is_binary(s) do
+    trimmed = String.trim(s)
+    if trimmed == "", do: nil, else: trimmed
+  end
 
   def set_question_visibility(id, visibility) when is_integer(id) do
     row = Repo.get(QuestionLog, id)
