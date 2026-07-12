@@ -93,4 +93,13 @@ defmodule RuleMaven.GroupsTest do
     refute updated.contribute_to_community
     refute Groups.contribute_to_community?(updated.id)
   end
+
+  test "admin_regenerate_code rotates the code without membership" do
+    owner = create_user("adminregen_owner")
+    {:ok, group} = Groups.create_group(owner, %{name: "Regen Crew"})
+    old_code = group.invite_code
+
+    updated = Groups.admin_regenerate_code(group)
+    assert updated.invite_code != old_code
+  end
 end

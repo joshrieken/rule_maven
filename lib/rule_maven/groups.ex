@@ -390,9 +390,20 @@ defmodule RuleMaven.Groups do
   """
   def regenerate_code(actor, group) do
     if role_at_least?(actor, group, :admin) do
-      # Same critical section as `join_by_code/2` and `remove_member/3`: a
-      # rotation that doesn't hold the lock can be straddled by a join that
-      # already read the old code, which then lands anyway.
+      {:ok, do_regenerate_code(group)}
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  @doc "Same as `regenerate_code/2`, no membership check. Site-admin callers only."
+  def admin_regenerate_code(%Group{} = group), do: do_regenerate_code(group)
+
+  # Same critical section as `join_by_code/2` and `remove_member/3`: a
+  # rotation that doesn't hold the lock can be straddled by a join that
+  # already read the old code, which then lands anyway.
+  defp do_regenerate_code(group) do
+    {:ok, updated} =
       Repo.transaction(fn ->
         Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
 
@@ -400,9 +411,8 @@ defmodule RuleMaven.Groups do
         |> Group.changeset(%{invite_code: generate_code()})
         |> Repo.update!()
       end)
-    else
-      {:error, :forbidden}
-    end
+
+    updated
   end
 
   @doc """
