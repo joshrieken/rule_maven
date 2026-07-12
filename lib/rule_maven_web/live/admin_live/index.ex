@@ -341,6 +341,12 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="Promote users to admins. Manage roles."
         />
         <.card
+          navigate={~p"/admin/groups"}
+          icon="🧑‍🤝‍🧑"
+          title="Manage Groups"
+          desc="View every crew, manage members, rename or delete."
+        />
+        <.card
           navigate={~p"/admin/invites"}
           icon="🎟️"
           title="Invite Codes"
