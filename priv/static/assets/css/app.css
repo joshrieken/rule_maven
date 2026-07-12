@@ -1033,8 +1033,9 @@ a:not([class]):hover {
    stagger in. No animation-fill-mode:forwards anywhere — every animation ends
    at transform:none so the fixed .chat-layout never keeps a transform that
    would make it a containing block for itself (see the .main-content note). */
-/* Q&A screen: fixed three-row frame. Only the middle row (.answer-pane)
-   scrolls, so a growing/streaming answer never moves the chip or composer.
+/* Q&A screen: .qa-column stacks a fixed pager bar (.qa-chip) over the one
+   scroll region (.answer-pane). Only .answer-pane scrolls, so a
+   growing/streaming answer never moves the pager or composer.
    display:flex/flex-direction/height are set inline on the element
    (show.ex) via `calc(100dvh - header - jobpanel)` — that calc, not a plain
    100dvh here, is what keeps the composer above the header, the job panel,

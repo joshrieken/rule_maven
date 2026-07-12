@@ -7,11 +7,12 @@ defmodule RuleMavenWeb.Feature.QaNoShiftTest do
   @moduletag :feature
 
   @moduledoc """
-  390px no-shift guarantee: the fixed three-row Q&A frame (`.qa-chip` /
-  `.answer-pane` / `.chat-input`) must keep the composer's on-screen position
-  identical while asking, while "thinking", and once the answer resolves —
-  only `.answer-pane` (row 2) may scroll. Also asserts a fresh answer lands
-  pinned to the top of that scroll region.
+  390px no-shift guarantee: the fixed Q&A frame (`.qa-chip` / `.answer-pane` /
+  `.chat-input`) must keep the composer's on-screen position identical while
+  asking, while "thinking", and once the answer resolves — only
+  `.answer-pane` may scroll. `.qa-chip` is now the pager-only bar fixed at
+  the top of `.qa-column`, above `.answer-pane`, the single scroll region.
+  Also asserts a fresh answer lands pinned to the top of that scroll region.
 
   Drives a REAL ask end-to-end (fills the composer, clicks Send) rather than
   a pre-seeded thread, so it exercises the actual "Thinking..." → streamed →
