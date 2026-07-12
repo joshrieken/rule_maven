@@ -166,59 +166,33 @@ Hooks.ExternalLink = {
   }
 };
 
-Hooks.ChatScroll = {
+Hooks.AnswerPane = {
   mounted() {
+    // The frame owns the viewport; only this pane scrolls internally.
     document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
-    // Don't auto-scroll on page load — leave the view at the top. Scrolling only
-    // happens on later updates (a new answer arriving) and the scroll_bottom event.
-    this.answerCount = this.countAnswers();
-    this.handleEvent("scroll_bottom", () => this.scrollToBottom());
-    this.handleEvent("scroll_top", () => this.scrollToTop());
+    this.activeKey = this.el.dataset.answerKey || "";
+    this.el.scrollTop = 0;
+    // Pager / thread switch asks us to re-pin to the top of the new answer.
+    this.handleEvent("reset_answer_scroll", () => this.pinTop());
   },
   updated() {
-    // updated() fires on every LiveView patch — voting, toggling the sidebar,
-    // etc. — not just when a new answer arrives. Only scroll when the number of
-    // assistant messages actually grew, otherwise unrelated interactions yank
-    // the page around.
-    const count = this.countAnswers();
-    if (count > this.answerCount) {
-      this.scrollToLatestAnswer();
+    // Pin to top ONLY when the active Q&A actually changed (new question or
+    // pager step). Streaming tokens, votes, restyle, sidebar toggles all keep
+    // the same key — we must NOT move the scroll for those (that was the yank).
+    const key = this.el.dataset.answerKey || "";
+    if (key !== this.activeKey) {
+      this.activeKey = key;
+      this.pinTop();
     }
-    this.answerCount = count;
   },
   destroyed() {
     document.documentElement.style.overflow = "";
     document.body.style.overflow = "";
   },
-  countAnswers() {
-    return this.el.querySelectorAll(".chat-msg:not(.chat-msg-user)").length;
-  },
-  scrollToLatestAnswer() {
-    const el = this.el;
+  pinTop() {
     requestAnimationFrame(() => {
-      // Find the last assistant message and scroll it to the top of the viewport
-      const messages = el.querySelectorAll(".chat-msg:not(.chat-msg-user)");
-      const last = messages[messages.length - 1];
-      if (last) {
-        last.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    });
-  },
-  scrollToBottom() {
-    const el = this.el;
-    requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
-    });
-  },
-  scrollToTop() {
-    const el = this.el;
-    requestAnimationFrame(() => {
-      // Re-baseline first: the incoming thread may have more answers than the
-      // one we left, which would otherwise look like "a new answer arrived" to
-      // updated() and scroll the view back down.
-      this.answerCount = this.countAnswers();
-      el.scrollTo({ top: 0, behavior: "auto" });
+      this.el.scrollTop = 0;
     });
   }
 };
