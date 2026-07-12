@@ -330,24 +330,33 @@ defmodule RuleMaven.Groups do
   """
   def set_contribute(actor, %Group{} = group, contribute?) when is_boolean(contribute?) do
     if role_at_least?(actor, group, :admin) do
-      Repo.transaction(fn ->
-        result =
-          group
-          |> Group.changeset(%{contribute_to_community: contribute?})
-          |> Repo.update()
-
-        case result do
-          {:ok, updated} ->
-            if not contribute?, do: retract_contributions(group)
-            updated
-
-          {:error, changeset} ->
-            Repo.rollback(changeset)
-        end
-      end)
+      do_set_contribute(group, contribute?)
     else
       {:error, :forbidden}
     end
+  end
+
+  @doc "Same as `set_contribute/3`, no membership check. Site-admin callers only."
+  def admin_set_contribute(%Group{} = group, contribute?) when is_boolean(contribute?) do
+    do_set_contribute(group, contribute?)
+  end
+
+  defp do_set_contribute(group, contribute?) do
+    Repo.transaction(fn ->
+      result =
+        group
+        |> Group.changeset(%{contribute_to_community: contribute?})
+        |> Repo.update()
+
+      case result do
+        {:ok, updated} ->
+          if not contribute?, do: retract_contributions(group)
+          updated
+
+        {:error, changeset} ->
+          Repo.rollback(changeset)
+      end
+    end)
   end
 
   # Turning contribution off has to be retroactive, not just future-facing.

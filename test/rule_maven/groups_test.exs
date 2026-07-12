@@ -84,4 +84,13 @@ defmodule RuleMaven.GroupsTest do
 
     assert {:error, %Ecto.Changeset{}} = Groups.admin_set_member_cap(group, 0)
   end
+
+  test "admin_set_contribute turns contribution off without membership" do
+    owner = create_user("admincontrib_owner")
+    {:ok, group} = Groups.create_group(owner, %{name: "Contrib Crew"})
+
+    assert {:ok, updated} = Groups.admin_set_contribute(group, false)
+    refute updated.contribute_to_community
+    refute Groups.contribute_to_community?(updated.id)
+  end
 end
