@@ -183,6 +183,35 @@ defmodule RuleMaven.Games do
     |> Enum.sort_by(&String.downcase(&1.name))
   end
 
+  @doc """
+  Distinct categories present in a DB-paged catalog view, UNFILTERED by the
+  active search/category. The category pill bar must be derived from the whole
+  view's population, not the currently loaded page — otherwise selecting a
+  category collapses the pill list to that one category (and the bar,
+  including "All", unrenders), locking the filter on. nil categories count as
+  "board_game", mirroring the in-memory derivation in GameLive.Index.
+  """
+  def view_categories(view) when view in ~w(playable all needs_bgg) do
+    base =
+      case view do
+        "playable" ->
+          from(g in Game, where: g.playable == true, where: is_nil(g.taken_down_at))
+
+        # No taken_down filter: mirrors search_catalog/2, which serves this view.
+        "all" ->
+          from(g in Game)
+
+        "needs_bgg" ->
+          from(g in Game, where: not is_nil(g.bgg_id), where: is_nil(g.bgg_data))
+      end
+
+    base
+    |> not_expansion()
+    |> select([g], fragment("DISTINCT COALESCE(?, 'board_game')", g.category))
+    |> Repo.all()
+    |> Enum.sort()
+  end
+
   # "Is a base game" filter: not linked as an expansion of anything.
   defp not_expansion(query) do
     where(query, [g], g.id not in subquery(from l in ExpansionLink, select: l.expansion_id))

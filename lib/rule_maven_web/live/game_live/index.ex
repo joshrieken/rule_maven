@@ -229,11 +229,20 @@ defmodule RuleMavenWeb.GameLive.Index do
     filtered = filtered_games(games, search, category)
     visible = Enum.take(filtered, display_count)
 
+    # DB-paged views push search/category into the query, so the loaded page
+    # can't be the source of the pill bar — after selecting a category it would
+    # contain only that category and the bar (including "All") would unrender,
+    # locking the filter on. Derive pills from the whole view's population via
+    # one DISTINCT query instead. In-memory views hold their full set locally.
     present_categories =
-      games
-      |> Enum.map(&(&1.category || "board_game"))
-      |> Enum.uniq()
-      |> Enum.sort()
+      if db_paged?(socket.assigns.view) do
+        Games.view_categories(socket.assigns.view)
+      else
+        games
+        |> Enum.map(&(&1.category || "board_game"))
+        |> Enum.uniq()
+        |> Enum.sort()
+      end
 
     socket =
       assign(socket,
