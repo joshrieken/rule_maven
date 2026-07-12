@@ -1,6 +1,6 @@
 defmodule RuleMavenWeb.AdminLive.JobPanel do
   @moduledoc """
-  Persistent, admin-only DevTools-style background-job panel. Embedded once via
+  Persistent, super-admin-only DevTools-style background-job panel. Embedded once via
   `live_render` in the root layout (so it survives live navigation), it docks to
   the bottom of the viewport: a thin collapsed bar showing the running count, and
   an expanded master/detail view — runs on the left, the selected run's event
@@ -28,7 +28,7 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
         id -> Users.get_user(id)
       end
 
-    admin? = Users.can?(user, :admin)
+    admin? = Users.can?(user, :superadmin)
 
     socket =
       if admin? and connected?(socket) do
@@ -95,7 +95,7 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
 
   # Re-fetch: a role revoked mid-session must take effect on the open socket.
   defp admin_now?(%{assigns: %{viewer_id: nil}}), do: false
-  defp admin_now?(%{assigns: %{viewer_id: id}}), do: Users.can?(Users.get_user(id), :admin)
+  defp admin_now?(%{assigns: %{viewer_id: id}}), do: Users.can?(Users.get_user(id), :superadmin)
 
   # A run opened/closed/changed state — upsert it at the top of the rail.
   @impl true
