@@ -496,48 +496,73 @@ defmodule RuleMaven.Groups do
   doesn't belong to the group.
   """
   def transfer_ownership(actor, group, new_owner_user_id) do
-    result =
-      Repo.transaction(fn ->
-        Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
+    Repo.transaction(fn ->
+      Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
 
-        current_owner = Repo.get_by(Membership, group_id: group.id, role: "owner")
+      current_owner = Repo.get_by(Membership, group_id: group.id, role: "owner")
 
-        cond do
-          is_nil(current_owner) or current_owner.user_id != actor.id ->
-            Repo.rollback(:forbidden)
-
-          true ->
-            case Repo.get_by(Membership, group_id: group.id, user_id: new_owner_user_id) do
-              nil ->
-                Repo.rollback(:not_member)
-
-              target_membership ->
-                current_owner
-                |> Membership.changeset(%{role: "admin"})
-                |> Repo.update!()
-
-                target_membership
-                |> Membership.changeset(%{role: "owner"})
-                |> Repo.update!()
-
-                # `groups.owner_id` is a denormalized pointer that must
-                # track whichever membership row holds role: "owner". Left
-                # stale, it would keep referencing the OLD owner even
-                # though they're now a mere admin — and since that column
-                # is `null: false` while its FK is `on_delete: :nilify_all`,
-                # deleting that former owner's account later would crash
-                # on a not-null violation instead of leaving the group
-                # (which they no longer own) untouched.
-                group
-                |> Group.changeset(%{owner_id: new_owner_user_id})
-                |> Repo.update!()
-            end
+      if is_nil(current_owner) or current_owner.user_id != actor.id do
+        Repo.rollback(:forbidden)
+      else
+        case do_transfer_ownership(group, current_owner, new_owner_user_id) do
+          {:ok, group} -> group
+          {:error, reason} -> Repo.rollback(reason)
         end
-      end)
+      end
+    end)
+  end
 
-    case result do
-      {:ok, group} -> {:ok, group}
-      {:error, reason} -> {:error, reason}
+  @doc """
+  Same as `transfer_ownership/3`, no membership/ownership check on the
+  actor — the current owner is derived from the group itself. Site-admin
+  callers only.
+  """
+  def admin_transfer_ownership(%Group{} = group, new_owner_user_id) do
+    Repo.transaction(fn ->
+      Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
+
+      current_owner = Repo.get_by(Membership, group_id: group.id, role: "owner")
+
+      case do_transfer_ownership(group, current_owner, new_owner_user_id) do
+        {:ok, group} -> group
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  # Runs holding the group's advisory lock (both callers above take it
+  # before calling in). `current_owner` is the membership row currently
+  # holding role "owner" — may be nil in a pathological state, handled below.
+  defp do_transfer_ownership(group, current_owner, new_owner_user_id) do
+    case Repo.get_by(Membership, group_id: group.id, user_id: new_owner_user_id) do
+      nil ->
+        {:error, :not_member}
+
+      target_membership ->
+        if current_owner do
+          current_owner
+          |> Membership.changeset(%{role: "admin"})
+          |> Repo.update!()
+        end
+
+        target_membership
+        |> Membership.changeset(%{role: "owner"})
+        |> Repo.update!()
+
+        # `groups.owner_id` is a denormalized pointer that must
+        # track whichever membership row holds role: "owner". Left
+        # stale, it would keep referencing the OLD owner even
+        # though they're now a mere admin — and since that column
+        # is `null: false` while its FK is `on_delete: :nilify_all`,
+        # deleting that former owner's account later would crash
+        # on a not-null violation instead of leaving the group
+        # (which they no longer own) untouched.
+        updated =
+          group
+          |> Group.changeset(%{owner_id: new_owner_user_id})
+          |> Repo.update!()
+
+        {:ok, updated}
     end
   end
 

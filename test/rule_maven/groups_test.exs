@@ -137,4 +137,24 @@ defmodule RuleMaven.GroupsTest do
 
     assert {:error, :invalid_role} = Groups.admin_set_role(group, member.id, "wizard")
   end
+
+  test "admin_transfer_ownership moves ownership without being in the group" do
+    owner = create_user("admintransfer_owner")
+    {:ok, group} = Groups.create_group(owner, %{name: "Transfer Crew"})
+    member = create_user("admintransfer_member")
+    {:ok, _} = Groups.join_by_code(member, group.invite_code)
+
+    assert {:ok, updated} = Groups.admin_transfer_ownership(group, member.id)
+    assert updated.owner_id == member.id
+    assert Groups.role_of(member, updated) == "owner"
+    assert Groups.role_of(owner, updated) == "admin"
+  end
+
+  test "admin_transfer_ownership rejects a non-member target" do
+    owner = create_user("admintransfer_owner2")
+    {:ok, group} = Groups.create_group(owner, %{name: "Transfer Crew 2"})
+    outsider = create_user("admintransfer_outsider")
+
+    assert {:error, :not_member} = Groups.admin_transfer_ownership(group, outsider.id)
+  end
 end
