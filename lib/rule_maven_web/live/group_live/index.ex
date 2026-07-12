@@ -50,7 +50,7 @@ defmodule RuleMavenWeb.GroupLive.Index do
           for={@form}
           id="new-group"
           phx-submit="create"
-          style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-start"
+          style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center"
         >
           <div style="flex:1;min-width:12rem">
             <input
