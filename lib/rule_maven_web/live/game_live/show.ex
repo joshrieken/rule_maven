@@ -173,7 +173,16 @@ defmodule RuleMavenWeb.GameLive.Show do
        hr_delta_failed: MapSet.new(),
        # Set on the first handle_params load; false until then.
        tour_autostart: false,
-       coarse_pointer: coarse_pointer?(socket)
+       coarse_pointer: coarse_pointer?(socket),
+       # Q&A chip/pager (two-pane no-shift design): which thread the answer
+       # pane shows, its question text, and the full-question overlay's open
+       # state. `qa_active_index` starts nil so the first `assign_qa_nav/1`
+       # call (in handle_params) picks whatever the resolved active thread is
+       # rather than assuming index 0.
+       qa_active_index: nil,
+       qa_total: 0,
+       qa_active_question: nil,
+       qa_show_question: false
      )}
   end
 
@@ -368,8 +377,10 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     socket =
       if not is_nil(prev_thread_id) and prev_thread_id != active_thread_id,
-        do: push_event(socket, "scroll_top", %{}),
+        do: push_event(socket, "reset_answer_scroll", %{}),
         else: socket
+
+    socket = assign_qa_nav(socket)
 
     {:noreply, arm_stale_timer(socket, pending_count)}
   end
@@ -440,7 +451,8 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     # ?t navigation that lands on a different thread than the one on screen
     # (browser back/forward, a pasted link). Event handlers that assign the new
-    # thread before patching push scroll_top themselves, so this never doubles.
+    # thread before patching reset the answer pane's scroll themselves, so
+    # this never doubles.
     prev_thread_id = socket.assigns[:active_thread_id]
 
     socket =
@@ -510,8 +522,10 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     socket =
       if not is_nil(prev_thread_id) and prev_thread_id != active_thread_id,
-        do: push_event(socket, "scroll_top", %{}),
+        do: push_event(socket, "reset_answer_scroll", %{}),
         else: socket
+
+    socket = assign_qa_nav(socket)
 
     # Onboarding: first-ever game page → the Tour hook auto-starts the tour
     # (via the data-tour-autostart attribute). Only computed on the initial
@@ -709,6 +723,52 @@ defmodule RuleMavenWeb.GameLive.Show do
     Enum.sort_by(threads, fn t -> {if(t.favorited, do: 0, else: 1), t.inserted_at} end, fn
       {fa, ta}, {fb, tb} -> fa < fb || (fa == fb && DateTime.compare(ta, tb) == :gt)
     end)
+  end
+
+  # Derives the Q&A chip/pager state from the current `threads` sidebar list
+  # (each entry is one self-contained question — see `Games.grouped_questions/2`,
+  # "no followup threading") and the active thread id. `@qa_active_index` is
+  # simply the active thread's position in that list, so it always stays in
+  # sync with `active_thread_id` without any separate bookkeeping: callers
+  # never need to reset it by hand, only re-run this after `threads` and/or
+  # `active_thread_id` change. Clamped so a stale index (deleted thread,
+  # shrunk list) can't leave the pager pointing out of range.
+  defp assign_qa_nav(socket) do
+    threads = socket.assigns.threads
+    total = length(threads)
+
+    index =
+      case Enum.find_index(threads, &(&1.id == socket.assigns.active_thread_id)) do
+        nil -> max(total - 1, 0)
+        i -> i
+      end
+      |> min(max(total - 1, 0))
+      |> max(0)
+
+    question =
+      case Enum.at(threads, index) do
+        nil -> nil
+        t -> t.question
+      end
+
+    socket
+    |> assign(:qa_total, total)
+    |> assign(:qa_active_index, index)
+    |> assign(:qa_active_question, question)
+    |> assign(:qa_show_question, Map.get(socket.assigns, :qa_show_question, false))
+  end
+
+  # Shared by the sidebar's explicit thread click and the chip pager: swap the
+  # active thread and let `handle_params` (via `push_patch`) rebuild the
+  # conversation for it. `reset_answer_scroll` replaces the old chat-scroll
+  # pushes — the AnswerPane hook pins the new answer to the top of its own
+  # scroll region instead of yanking the page.
+  defp goto_thread(socket, id) do
+    socket
+    |> assign(active_thread_id: id, sidebar_open: false)
+    |> assign_qa_nav()
+    |> push_event("reset_answer_scroll", %{})
+    |> push_patch(to: ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(id)}")
   end
 
   # A `?t=` link (bookmarked, or an "Open in chat" link from Community) can
@@ -1162,6 +1222,50 @@ defmodule RuleMavenWeb.GameLive.Show do
   def handle_event("tour_" <> _ = event, params, socket),
     do: RuleMavenWeb.Tours.handle_event(event, params, socket)
 
+  # Q&A chip pager: step to the previous/next thread in the sidebar list and
+  # let goto_thread/2 (push_patch) rebuild the answer pane for it — same
+  # "replace, don't append" navigation the sidebar's own thread click uses.
+  @impl true
+  def handle_event("qa_prev", _params, socket) do
+    threads = socket.assigns.threads
+
+    case Enum.find_index(threads, &(&1.id == socket.assigns.active_thread_id)) do
+      i when is_integer(i) and i > 0 ->
+        {:noreply, goto_thread(socket, Enum.at(threads, i - 1).id)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("qa_next", _params, socket) do
+    threads = socket.assigns.threads
+
+    case Enum.find_index(threads, &(&1.id == socket.assigns.active_thread_id)) do
+      i when is_integer(i) and i < length(threads) - 1 ->
+        {:noreply, goto_thread(socket, Enum.at(threads, i + 1).id)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("qa_show_question", _params, socket) do
+    {:noreply, assign(socket, :qa_show_question, true)}
+  end
+
+  @impl true
+  def handle_event("qa_hide_question", _params, socket) do
+    {:noreply, assign(socket, :qa_show_question, false)}
+  end
+
+  # The overlay sheet's own click stops propagation via this no-op so a tap
+  # inside it doesn't fall through to the backdrop's "qa_hide_question".
+  @impl true
+  def handle_event("ignore", _params, socket), do: {:noreply, socket}
+
   @impl true
   def handle_event("toggle_sidebar", _params, socket) do
     {:noreply, assign(socket, sidebar_open: !socket.assigns.sidebar_open)}
@@ -1425,11 +1529,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     case Integer.parse(id_str) do
       {id, _} ->
         if Enum.any?(socket.assigns.threads, &(&1.id == id)) do
-          {:noreply,
-           socket
-           |> assign(active_thread_id: id, sidebar_open: false)
-           |> push_event("scroll_top", %{})
-           |> push_patch(to: ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(id)}")}
+          {:noreply, goto_thread(socket, id)}
         else
           {:noreply, socket}
         end
@@ -1519,8 +1619,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                  reask_typed:
                    stash_reask(socket.assigns.reask_typed, cross_thread_dup.id, question)
                )
+               |> assign_qa_nav()
                |> put_flash(:info, "You already asked this — here's your answer.")
-               |> push_event("scroll_top", %{})
+               |> push_event("reset_answer_scroll", %{})
                |> push_patch(
                  to:
                    ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(cross_thread_dup.id)}"
@@ -1649,11 +1750,12 @@ defmodule RuleMavenWeb.GameLive.Show do
                        community_questions:
                          Games.community_questions(game, socket.assigns.current_user.id)
                      )
+                     |> assign_qa_nav()
                      |> sync_ask_stream_subscriptions()
                      |> push_patch(
                        to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}"
                      )
-                     |> push_event("scroll_bottom", %{})}
+                     |> push_event("reset_answer_scroll", %{})}
 
                   {:error, reason} when is_binary(reason) ->
                     {:noreply, put_flash(socket, :error, reason)}
@@ -2638,8 +2740,9 @@ defmodule RuleMavenWeb.GameLive.Show do
          ask_partial: Map.delete(socket.assigns.ask_partial, prov_id),
          ask_stage: Map.delete(socket.assigns.ask_stage, prov_id)
        )
+       |> assign_qa_nav()
        |> put_flash(:info, "You already asked this — here's your answer.")
-       |> push_event("scroll_top", %{})
+       |> push_event("reset_answer_scroll", %{})
        |> push_patch(
          to: ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(source_id)}"
        )}
@@ -2837,18 +2940,12 @@ defmodule RuleMavenWeb.GameLive.Show do
            do: RuleMavenWeb.Tours.push_tour(socket, "answer"),
            else: socket
 
-      # No scroll when the answer finishes — the reader is already at the top of
-      # the answer (or wherever they scrolled to) and shouldn't be yanked down.
-      # The broadcast is game-wide, so `answer_ready?` is false in every OTHER
-      # viewer's session too: without the ownership check, anyone's completed
-      # ask scrolled every other reader on the game to the bottom.
-      own_thread? = Enum.any?(socket.assigns.threads, &(&1.id == question_log_id))
-
-      {:noreply,
-       if(answer_ready? or not own_thread?,
-         do: socket,
-         else: push_event(socket, "scroll_bottom", %{})
-       )}
+      # No scroll when the answer finishes — the AnswerPane hook already pinned
+      # the pane to the top when the thread became active, and the answer pane
+      # is the only scroll region, so it never needs nudging as content lands
+      # below the fold. `threads` (and possibly `active_thread_id`, on a fresh
+      # ask) changed above, so refresh the chip/pager state to match.
+      {:noreply, assign_qa_nav(socket)}
     else
       {:noreply, socket}
     end
@@ -3030,10 +3127,9 @@ defmodule RuleMavenWeb.GameLive.Show do
         styled_done: data[:styled_done] == true
       }
 
-      {:noreply,
-       socket
-       |> assign(ask_partial: Map.put(socket.assigns.ask_partial, ql_id, partial))
-       |> push_event("scroll_bottom", %{})}
+      # No scroll push: the streamed text lands inside the fixed answer pane,
+      # which stays pinned wherever the reader left it (no auto-follow).
+      {:noreply, assign(socket, ask_partial: Map.put(socket.assigns.ask_partial, ql_id, partial))}
     else
       {:noreply, socket}
     end
@@ -3167,8 +3263,8 @@ defmodule RuleMavenWeb.GameLive.Show do
          ask_partial: Map.delete(socket.assigns.ask_partial, question_log_id),
          ask_stage: Map.delete(socket.assigns.ask_stage, question_log_id)
        )
-       |> sync_ask_stream_subscriptions()
-       |> push_event("scroll_bottom", %{})}
+       |> assign_qa_nav()
+       |> sync_ask_stream_subscriptions()}
     end
   end
 
