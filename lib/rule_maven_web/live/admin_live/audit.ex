@@ -50,7 +50,7 @@ defmodule RuleMavenWeb.AdminLive.Audit do
         Append-only record of sensitive admin actions (newest first).
       </p>
 
-      <form phx-change="filter" style="margin-bottom:0.75rem">
+      <form id="audit-filter" phx-change="filter" style="margin-bottom:0.75rem">
         <label style="font-size:0.75rem;color:var(--text-muted);margin-right:0.4rem">Action</label>
         <select
           name="action"

@@ -1069,7 +1069,7 @@ defmodule RuleMaven.LLMTest do
     test "does not retry more than once" do
       test_pid = self()
 
-      mock_llm(fn body ->
+      mock_llm(fn _body ->
         send(test_pid, :call)
         {:ok, %{answer: "partial", finish_reason: "length"}}
       end)

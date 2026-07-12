@@ -5,7 +5,7 @@ defmodule RuleMaven.Users do
 
   import Ecto.Query, warn: false
   alias RuleMaven.Repo
-  alias RuleMaven.Users.{User, UserToken, UserNotifier}
+  alias RuleMaven.Users.{AuthCache, User, UserToken, UserNotifier}
 
   @doc "Human-readable password rule, for forms and error messages (see User.password_requirements/0)."
   def password_requirements, do: User.password_requirements()
@@ -73,7 +73,20 @@ defmodule RuleMaven.Users do
     user
     |> User.changeset(attrs)
     |> Repo.update()
+    |> bust_auth_cache()
   end
+
+  # The per-event LiveView reauth check (RuleMavenWeb.UserLiveAuth) reads the
+  # user through RuleMaven.Users.AuthCache instead of the DB. Every write that
+  # can change login standing (suspension, session validity, role) must drop
+  # that cache entry — synchronously plus a PubSub broadcast for other nodes —
+  # so revocation is visible to the very next event, not after the TTL.
+  defp bust_auth_cache({:ok, %User{} = user} = result) do
+    AuthCache.invalidate(user.id)
+    result
+  end
+
+  defp bust_auth_cache(result), do: result
 
   def update_user_role(%User{} = user, role) do
     unless_super_admin(user, &update_user(&1, %{role: role}))
@@ -105,6 +118,7 @@ defmodule RuleMaven.Users do
     user
     |> User.elevation_changeset(role)
     |> Repo.update()
+    |> bust_auth_cache()
   end
 
   @doc """
@@ -114,7 +128,8 @@ defmodule RuleMaven.Users do
   the app with zero admins. Returns {:ok, user} | {:error, :last_admin} |
   {:error, :not_admin}.
   """
-  def demote_admin(%User{} = user), do: unless_super_admin(user, &do_demote_admin/1)
+  def demote_admin(%User{} = user),
+    do: user |> unless_super_admin(&do_demote_admin/1) |> bust_auth_cache()
 
   defp do_demote_admin(%User{} = user) do
     Repo.transaction(fn ->
@@ -150,6 +165,7 @@ defmodule RuleMaven.Users do
       )
 
     with {:ok, deleted} <- unless_super_admin(user, &do_delete_user/1) do
+      AuthCache.invalidate(deleted.id)
       rows = Repo.all(from q in RuleMaven.Games.QuestionLog, where: q.id in ^voted_on)
       Enum.each(rows, &RuleMaven.Games.Trust.recompute_trust/1)
 
@@ -189,16 +205,22 @@ defmodule RuleMaven.Users do
   def suspended?(user), do: User.suspended?(user)
 
   @doc "Suspends the account: blocks login and denies existing sessions."
-  def suspend_user(%User{} = user),
-    do: unless_super_admin(user, &(&1 |> User.suspension_changeset(true) |> Repo.update()))
+  def suspend_user(%User{} = user) do
+    user
+    |> unless_super_admin(&(&1 |> User.suspension_changeset(true) |> Repo.update()))
+    |> bust_auth_cache()
+  end
 
   @doc "Lifts suspension."
   def unsuspend_user(%User{} = user),
-    do: user |> User.suspension_changeset(false) |> Repo.update()
+    do: user |> User.suspension_changeset(false) |> Repo.update() |> bust_auth_cache()
 
   @doc "Revokes all of a user's live sessions (force logout) without suspending."
-  def force_logout(%User{} = user),
-    do: unless_super_admin(user, &(&1 |> User.force_logout_changeset() |> Repo.update()))
+  def force_logout(%User{} = user) do
+    user
+    |> unless_super_admin(&(&1 |> User.force_logout_changeset() |> Repo.update()))
+    |> bust_auth_cache()
+  end
 
   @doc "Whether a session (login time in unix seconds) is still valid for the user."
   def session_valid?(user, logged_in_at), do: User.session_valid?(user, logged_in_at)

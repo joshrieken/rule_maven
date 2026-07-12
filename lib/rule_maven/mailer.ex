@@ -1,7 +1,10 @@
 defmodule RuleMaven.Mailer do
   @moduledoc """
-  Outbound mail. All sends go through `deliver_email/1`, the single choke point
-  that applies the kill switch and picks the adapter:
+  Outbound mail. All sends go through `deliver_email/1`, which enqueues a
+  background `MailerWorker` job (or falls through synchronously in tests /
+  when opted out — see `deliver_email/1`). Actual delivery happens in
+  `deliver_email_now/1`, the single choke point that applies the kill switch
+  and picks the adapter:
 
     * `:outbound_email` flag disabled → skipped (email is best-effort; callers succeed)
     * test → configured Test adapter (assert_email_sent keeps working)
@@ -15,8 +18,33 @@ defmodule RuleMaven.Mailer do
 
   alias RuleMaven.Settings
 
-  @doc "Delivers an email subject to the kill switch and adapter selection above."
+  @doc """
+  Delivers an email. Normally enqueues a `MailerWorker` job (`{:ok, job}`) so
+  the caller — often an auth controller mid-request — never waits on the mail
+  provider's HTTP round trip; that latency was also a timing oracle for
+  account enumeration (only the "account exists" branch paid it). Delivery is
+  durable and retried by Oban; the worker funnels back into
+  `deliver_email_now/1`.
+
+  Falls back to the synchronous path when Oban runs in `:manual` testing mode
+  (the test suite's Swoosh assertions read the in-process mailbox), or when
+  `config :rule_maven, :mail_async, false` opts out.
+  """
   def deliver_email(%Swoosh.Email{} = email) do
+    if async?() do
+      RuleMaven.Workers.MailerWorker.enqueue(email)
+    else
+      deliver_email_now(email)
+    end
+  end
+
+  defp async? do
+    Application.get_env(:rule_maven, :mail_async, true) and
+      Application.get_env(:rule_maven, Oban)[:testing] != :manual
+  end
+
+  @doc "Synchronously delivers, subject to the kill switch and adapter selection above."
+  def deliver_email_now(%Swoosh.Email{} = email) do
     cond do
       not RuleMaven.Flags.enabled?(:outbound_email) ->
         Logger.info("email disabled by kill switch: skipping #{describe(email)}")

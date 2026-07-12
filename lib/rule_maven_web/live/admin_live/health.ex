@@ -1,9 +1,7 @@
 defmodule RuleMavenWeb.AdminLive.Health do
   use RuleMavenWeb, :live_view
 
-  import Ecto.Query
-
-  alias RuleMaven.{Audit, LLM, Repo, Settings, Users}
+  alias RuleMaven.{Audit, HealthStats, Settings, Users}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -43,34 +41,19 @@ defmodule RuleMavenWeb.AdminLive.Health do
     end
   end
 
+  # The query bundle lives in RuleMaven.HealthStats, shared across every admin
+  # socket on this page: each 15s tick here is an ETS read, and the underlying
+  # queries run at most once per 15s window app-wide instead of once per socket.
   defp load(socket) do
+    stats = HealthStats.get()
+
     assign(socket,
-      oban: oban_counts(),
-      err: LLM.error_rate(24),
-      cost_today: LLM.cost_today(),
-      total_users: Repo.aggregate(Users.User, :count),
-      updated_at: Calendar.strftime(DateTime.utc_now(), "%H:%M:%S UTC")
+      oban: stats.oban,
+      err: stats.err,
+      cost_today: stats.cost_today,
+      total_users: stats.total_users,
+      updated_at: Calendar.strftime(stats.computed_at, "%H:%M:%S UTC")
     )
-  end
-
-  # Oban job counts by state (overall) and per-queue for the "live" states.
-  defp oban_counts do
-    by_state =
-      Repo.all(from j in "oban_jobs", group_by: j.state, select: {j.state, count(j.id)})
-      |> Map.new()
-
-    per_queue =
-      Repo.all(
-        from j in "oban_jobs",
-          where: j.state in ["available", "executing", "retryable", "scheduled"],
-          group_by: [j.queue, j.state],
-          select: {j.queue, j.state, count(j.id)}
-      )
-      |> Enum.group_by(fn {q, _, _} -> q end, fn {_, s, c} -> {s, c} end)
-      |> Enum.map(fn {q, states} -> {q, Map.new(states)} end)
-      |> Enum.sort_by(fn {q, _} -> q end)
-
-    %{by_state: by_state, per_queue: per_queue}
   end
 
   @impl true

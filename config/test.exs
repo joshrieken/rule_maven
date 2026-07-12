@@ -67,6 +67,14 @@ config :rule_maven, Oban, testing: :manual
 # sandboxed tests and producing order-dependent failures.
 config :fun_with_flags, :cache, enabled: false
 
+# Same reason for our own ETS caches: a settings value or user row cached by
+# one sandboxed test would leak into the next. The cache tests re-enable
+# these per-test (async: false) to exercise the caching path.
+config :rule_maven, :cache_settings, false
+config :rule_maven, :cache_reauth, false
+config :rule_maven, :cache_corpus, false
+config :rule_maven, :cache_health_stats, false
+
 # Capture sent emails in-process so tests can assert on them.
 config :rule_maven, RuleMaven.Mailer, adapter: Swoosh.Adapters.Test
 

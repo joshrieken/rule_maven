@@ -62,8 +62,58 @@ defmodule RuleMaven.Embed do
     end
   end
 
+  @doc """
+  Embeds a list of texts, returning `{:ok, vectors}` in input order or
+  `{:error, reason}` (never partial results — one failed API call fails the
+  whole batch, exactly as before).
+
+  Cache-aware: each text is first looked up in `RuleMaven.Embed.Cache` under
+  the same `{model, trimmed text}` key `embed/1` uses, and only the misses are
+  sent to the API (fresh vectors are cached on the way out). Re-cleaning a
+  document re-embeds mostly unchanged chunk text — without this, every one of
+  those repeats re-paid the embedding API.
+  """
   def embed_batch(texts) when is_list(texts) do
     model = model()
+
+    # One cache lookup per text, its result carried forward — re-reading later
+    # could straddle a TTL expiry and turn a hit into a miss mid-batch.
+    looked_up =
+      texts
+      |> Enum.with_index()
+      |> Enum.map(fn {text, i} -> {text, i, RuleMaven.Embed.Cache.get(model, text)} end)
+
+    {hits, misses} = Enum.split_with(looked_up, fn {_, _, res} -> match?({:ok, _}, res) end)
+
+    case embed_batch_misses(Enum.map(misses, fn {text, _, _} -> text end), model) do
+      {:ok, fresh_vectors} ->
+        hit_vectors = Enum.map(hits, fn {_text, i, {:ok, vec}} -> {i, vec} end)
+
+        miss_vectors =
+          misses
+          |> Enum.zip(fresh_vectors)
+          |> Enum.map(fn {{text, i, :miss}, vec} ->
+            RuleMaven.Embed.Cache.put(model, text, vec)
+            {i, vec}
+          end)
+
+        vectors =
+          (hit_vectors ++ miss_vectors)
+          |> Enum.sort_by(&elem(&1, 0))
+          |> Enum.map(&elem(&1, 1))
+
+        {:ok, vectors}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  # The raw API call for the texts the cache couldn't serve. An all-hit (or
+  # empty) batch skips the HTTP request entirely.
+  defp embed_batch_misses([], _model), do: {:ok, []}
+
+  defp embed_batch_misses(texts, model) do
     url = RuleMaven.LLMProxy.embed_url() || api_url()
     key = api_key()
 

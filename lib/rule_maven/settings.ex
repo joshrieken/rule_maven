@@ -5,12 +5,29 @@ defmodule RuleMaven.Settings do
 
   alias RuleMaven.Repo
   alias RuleMaven.Settings.AppSetting
+  alias RuleMaven.Settings.Cache
 
-  @doc "Reads a setting value by key. Returns nil if not set."
+  @doc """
+  Reads a setting value by key. Returns nil if not set.
+
+  Served from `RuleMaven.Settings.Cache` when possible — hot paths read
+  dozens of settings per request. Absent settings cache as nil too, so
+  optional settings don't re-query on every read.
+  """
   def get(key) do
-    case Repo.get(AppSetting, key) do
-      %AppSetting{value: value} -> value
-      nil -> nil
+    case Cache.get(key) do
+      {:ok, value} ->
+        value
+
+      :miss ->
+        value =
+          case Repo.get(AppSetting, key) do
+            %AppSetting{value: value} -> value
+            nil -> nil
+          end
+
+        Cache.put(key, value)
+        value
     end
   end
 
@@ -20,19 +37,30 @@ defmodule RuleMaven.Settings do
   constraint violation — the last writer to reach Postgres wins.
   """
   def put(key, value) do
-    %AppSetting{key: key}
-    |> AppSetting.changeset(%{key: key, value: value})
-    |> Repo.insert(
-      on_conflict: {:replace, [:value, :updated_at]},
-      conflict_target: :key
-    )
+    result =
+      %AppSetting{key: key}
+      |> AppSetting.changeset(%{key: key, value: value})
+      |> Repo.insert(
+        on_conflict: {:replace, [:value, :updated_at]},
+        conflict_target: :key
+      )
+
+    with {:ok, _} <- result, do: Cache.invalidate(key)
+    result
   end
 
   @doc "Deletes a setting by key. No-op if not set."
   def delete(key) do
     case Repo.get(AppSetting, key) do
-      nil -> :ok
-      existing -> Repo.delete(existing)
+      nil ->
+        # The cache may hold a stale value for a row deleted out-of-band.
+        Cache.invalidate(key)
+        :ok
+
+      existing ->
+        result = Repo.delete(existing)
+        with {:ok, _} <- result, do: Cache.invalidate(key)
+        result
     end
   end
 

@@ -4,6 +4,7 @@ defmodule RuleMavenWeb.UserLiveAuth do
   import Plug.Conn, only: [get_session: 2]
 
   alias RuleMaven.Users
+  alias RuleMaven.Users.AuthCache
 
   # LiveViews that only an admin may mount. This list is the admin gate: it used
   # to be a separate `live_session :admin`, but a live_session boundary can't be
@@ -97,43 +98,69 @@ defmodule RuleMavenWeb.UserLiveAuth do
     |> attach_hook(:suspension_reauth, :handle_event, &default_reauth_event/3)
   end
 
-  # Re-checks standing from the DB on each event, against `required` (:admin
+  # Re-checks standing on each event, against `required` (:admin
   # or :superadmin — whichever the view's own mount enforced). Halts
   # (redirects) the moment a once-qualified user loses the capability or is
   # suspended, so a stale socket can't keep mutating after revocation.
-  # Re-fetches fresh — the socket's assigned user is a snapshot from mount.
+  # Standing comes from AuthCache-backed `standing_user/1` (invalidated on
+  # every revocation write, 5s TTL worst case) rather than a per-event DB
+  # read — the socket's assigned user is still refreshed on every DB fetch.
   defp reauth_event(required, _event, _params, socket) do
     user = socket.assigns[:current_user]
 
     with %{id: id} <- user,
-         fresh when not is_nil(fresh) <- Users.get_user(id),
+         {source, fresh} when not is_nil(fresh) <- standing_user(id),
          false <- Users.suspended?(fresh),
          true <- Users.can?(fresh, required) do
-      {:cont, assign(socket, :current_user, fresh)}
+      {:cont, maybe_refresh_user(socket, source, fresh)}
     else
       _ -> {:halt, redirect(socket, to: "/")}
     end
   end
 
-  # Re-checks suspension/session standing from the DB on each event of a
+  # Re-checks suspension/session standing on each event of a
   # :default-session LiveView. Halts (redirects to login) the moment an
   # open socket's user is suspended or their session is invalidated
   # (force-logout), so a stale socket can't keep firing events after
-  # revocation. Re-fetches fresh — the socket's assigned user is a snapshot
-  # from mount.
+  # revocation. Standing comes from AuthCache-backed `standing_user/1`
+  # (invalidated on every revocation write, 5s TTL worst case) rather than a
+  # per-event DB read.
   defp default_reauth_event(_event, _params, socket) do
     user = socket.assigns[:current_user]
     logged_in_at = socket.assigns[:logged_in_at]
 
     with %{id: id} <- user,
-         fresh when not is_nil(fresh) <- Users.get_user(id),
+         {source, fresh} when not is_nil(fresh) <- standing_user(id),
          false <- Users.suspended?(fresh),
          true <- Users.session_valid?(fresh, logged_in_at) do
-      {:cont, assign(socket, :current_user, fresh)}
+      {:cont, maybe_refresh_user(socket, source, fresh)}
     else
       _ -> {:halt, redirect(socket, to: "/login")}
     end
   end
+
+  # Resolves the user for a standing check, via the short-TTL AuthCache.
+  # Returns `{:cache | :db, user_or_nil}` so callers know whether the struct
+  # is fresh. Only found users are cached: a deleted user's socket re-querying
+  # for a few events is cheap, and a nil entry would mask a re-created row.
+  defp standing_user(id) do
+    case AuthCache.get(id) do
+      {:ok, user} ->
+        {:cache, user}
+
+      :miss ->
+        user = Users.get_user(id)
+        if user, do: AuthCache.put(id, user)
+        {:db, user}
+    end
+  end
+
+  # Only a DB fetch may overwrite :current_user. A cached struct (up to 5s
+  # old) is good enough to *check standing*, but assigning it back could
+  # clobber a fresher struct the LiveView itself just assigned (e.g. right
+  # after a profile edit or tour completion).
+  defp maybe_refresh_user(socket, :db, fresh), do: assign(socket, :current_user, fresh)
+  defp maybe_refresh_user(socket, :cache, _fresh), do: socket
 
   # Resolves the session's user, treating a suspended account or a session
   # revoked by force-logout as logged out.

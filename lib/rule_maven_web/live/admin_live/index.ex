@@ -91,7 +91,10 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
         key ->
           Settings.set_resend_api_key(key)
-          Audit.log(socket.assigns.current_user, "email.set_resend_api_key", metadata: %{key_set: true})
+
+          Audit.log(socket.assigns.current_user, "email.set_resend_api_key",
+            metadata: %{key_set: true}
+          )
 
           {:noreply,
            socket
@@ -107,7 +110,10 @@ defmodule RuleMavenWeb.AdminLive.Index do
   def handle_event("clear_resend_key", _params, socket) do
     if Users.can?(socket.assigns.current_user, :superadmin) do
       Settings.set_resend_api_key("")
-      Audit.log(socket.assigns.current_user, "email.set_resend_api_key", metadata: %{key_set: false})
+
+      Audit.log(socket.assigns.current_user, "email.set_resend_api_key",
+        metadata: %{key_set: false}
+      )
 
       {:noreply,
        socket
@@ -125,7 +131,10 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
       if url =~ ~r"^https?://[^\s]+$" do
         Settings.set_public_url(url)
-        Audit.log(socket.assigns.current_user, "settings.set_public_url", metadata: %{public_url: url})
+
+        Audit.log(socket.assigns.current_user, "settings.set_public_url",
+          metadata: %{public_url: url}
+        )
 
         {:noreply,
          socket
@@ -263,7 +272,9 @@ defmodule RuleMavenWeb.AdminLive.Index do
             name="resend_api_key"
             type="password"
             value=""
-            placeholder={if @resend_key_set, do: "•••••••••• (set — enter a new key to replace)", else: "re_..."}
+            placeholder={
+              if @resend_key_set, do: "•••••••••• (set — enter a new key to replace)", else: "re_..."
+            }
             autocomplete="off"
             style="flex:1;min-width:12rem;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--bg);color:var(--text)"
           />

@@ -44,7 +44,8 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   def handle_params(params, _uri, socket) do
     socket =
       case params["status"] do
-        s when s in ["needs_review", "answered", "pending", "refused", "error", "publish_pending"] ->
+        s
+        when s in ["needs_review", "answered", "pending", "refused", "error", "publish_pending"] ->
           socket |> assign(filter_status: s) |> reload()
 
         _ ->
@@ -517,7 +518,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
           <% end %>
         </div>
 
-        <form phx-change="filter_status" phx-submit="filter_status">
+        <form id="questions-filter-status" phx-change="filter_status" phx-submit="filter_status">
           <select
             name="status"
             style="border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text)"
@@ -538,6 +539,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
       </div>
 
       <form
+        id="questions-search"
         phx-change="search"
         phx-submit="search"
         style="display:flex;gap:0.35rem;margin-bottom:1rem"
@@ -722,6 +724,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                 <%!-- Curated FAQ text editor (replaces the old Threads merge) --%>
                 <%= if @editing_canonical_id == q.id do %>
                   <form
+                    id={"canonical-edit-#{q.id}"}
                     phx-change="canonical_change"
                     phx-submit="save_canonical"
                     style="margin-top:0.6rem;padding-top:0.6rem;border-top:1px solid var(--border-subtle)"

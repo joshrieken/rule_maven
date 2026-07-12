@@ -54,6 +54,21 @@ defmodule RuleMaven.CheatSheet do
   end
 
   @doc """
+  Whether ANY of the given documents has an active cheat-sheet version — one
+  `EXISTS` query over the whole id list. The sub-bar's "has a cheatsheet?"
+  pill only needs this boolean; calling `active_version/1` per source loaded
+  every sheet's full content once per game-page mount just to nil-check it.
+  """
+  def any_active?([]), do: false
+
+  def any_active?(document_ids) when is_list(document_ids) do
+    Repo.exists?(
+      from v in RuleMaven.CheatSheet.CheatSheetVersion,
+        where: v.document_id in ^document_ids and v.active == true
+    )
+  end
+
+  @doc """
   Gets a specific version by ID, but only if it belongs to a document under
   the given game. Returns nil on any mismatch (unknown id, or a version that
   belongs to a different game) so callers can 404 without distinguishing the

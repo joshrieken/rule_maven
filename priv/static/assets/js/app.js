@@ -308,8 +308,10 @@ Hooks.Refocus = {
 
 Hooks.GameListScroll = {
   mounted() {
-    this.handleEvent("scroll_to_game", ({idx}) => {
-      const card = document.getElementById("game-card-" + idx);
+    // Cards carry stable ids keyed by game id (not list index), so the server
+    // sends the selected game's id.
+    this.handleEvent("scroll_to_game", ({id}) => {
+      const card = document.getElementById("game-card-" + id);
       if (card) {
         card.scrollIntoView({behavior: "smooth", block: "nearest"});
       }
@@ -360,9 +362,10 @@ Hooks.GameListScroll = {
         }
       }
 
-      // Up arrow on first game: refocus search with text selected
+      // Up arrow on first game: refocus search with text selected.
+      // Cards are id'd by game id now, so "first" is positional in the list.
       if (e.key === "ArrowUp") {
-        const firstCard = document.getElementById("game-card-0");
+        const firstCard = document.querySelector("#game-list > .game-card");
         if (firstCard && firstCard.style.outline) {
           const searchInput = document.getElementById("game-search");
           if (searchInput) {

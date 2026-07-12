@@ -142,12 +142,18 @@ defmodule RuleMaven.LLM.Savings do
     %{tokens: p + c, usd: RuleMaven.LLM.Pricing.cost(model, p, c), model: model}
   end
 
+  # Narrow select: the estimation math only reads prompt/completion tokens, and
+  # full Log structs drag each row's multi-KB `detail` JSONB across the wire on
+  # every pool/cache hit. The where/order shape (success + operation [+ game_id],
+  # inserted_at desc, limit) is written to match the partial index
+  # `llm_logs_savings_idx` on (operation, game_id, inserted_at) WHERE success.
   defp recent_logs(operation, game_id) do
     base =
       from l in RuleMaven.LLM.Log,
         where: l.operation == ^operation and l.success == true,
         order_by: [desc: l.inserted_at],
-        limit: @window
+        limit: @window,
+        select: %{prompt_tokens: l.prompt_tokens, completion_tokens: l.completion_tokens}
 
     base = if game_id, do: where(base, [l], l.game_id == ^game_id), else: base
     Repo.all(base)

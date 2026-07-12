@@ -1414,13 +1414,13 @@ defmodule RuleMavenWeb.GameLive.Form do
   # Copies a freshly uploaded temp file into the static uploads dir under a
   # unique name. Returns the static-relative path for the extraction worker.
   defp save_uploaded_pdf(temp_path, client_name) do
-    upload_dir = Application.app_dir(:rule_maven, "priv/static/uploads/rulebooks")
+    upload_dir = RuleMaven.Uploads.resolve("uploads/rulebooks")
     File.mkdir_p!(upload_dir)
 
     pdf_path =
       Path.join("uploads/rulebooks", "#{System.system_time(:millisecond)}_#{client_name}")
 
-    dest = Application.app_dir(:rule_maven, "priv/static/#{pdf_path}")
+    dest = RuleMaven.Uploads.resolve(pdf_path)
 
     case File.cp(temp_path, dest) do
       :ok -> {:ok, pdf_path}

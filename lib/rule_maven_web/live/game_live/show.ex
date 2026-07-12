@@ -90,6 +90,26 @@ defmodule RuleMavenWeb.GameLive.Show do
        asks_disabled: false,
        included_expansions: %{},
        expansions_seeded: false,
+       # PubSub bookkeeping: which game this mount is subscribed for, and the
+       # exact topic list (incl. per-expansion delta topics) so a same-mount
+       # switch to a different game can unsubscribe them. handle_params reruns
+       # on every push_patch and Phoenix.PubSub subscriptions are
+       # duplicate-keyed — re-subscribing per patch would deliver every
+       # broadcast once per patch. See ensure_game_subscriptions/3.
+       subscribed_game_id: nil,
+       subscribed_topics: [],
+       # Once-per-game load gate for do_handle_params: the first connected
+       # handle_params for a game runs the full heavy load; later runs for the
+       # SAME game (thread switches, ?t= nav, ask-redirect patches) reuse the
+       # cached assigns below. Reset naturally on mount (fresh socket state),
+       # so the connected pass after a dead render always loads.
+       loaded_game_id: nil,
+       # The grouped-questions load the thread list + conversations are built
+       # from, cached so a thread switch rebuilds its conversation in memory
+       # instead of re-running the full query + preload + grouping. Mutating
+       # handlers (ask/delete/verify/regenerate/:ask_complete/…) keep it
+       # correct — see grouped_cache_update/3 and friends.
+       grouped: [],
        search_query: "",
        # Lazily-loaded full-history snapshot for admin search only. Admins used
        # to always load every question ever asked (see `question_group_opts/1`);
@@ -210,57 +230,165 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   defp do_handle_params(params, game, socket) do
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")
-      Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.Setup.topic(game.id))
-
-      Phoenix.PubSub.subscribe(
-        RuleMaven.PubSub,
-        RuleMaven.Workers.VoiceSuggestionsWorker.topic(game.id)
-      )
-
-      for exp <- Games.expansions_with_documents(game) do
-        Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.ExpansionDelta.topic(exp.id))
-      end
+    # First connected load of a game runs the full heavy load; every later
+    # handle_params for the SAME game (push_patch thread switches, ?t= nav,
+    # ask-redirect patches) reuses the cached assigns and pays only for the
+    # target thread. The dead render and the connected mount each start from
+    # fresh assigns (loaded_game_id: nil), so both take the full path — the
+    # connected pass MUST load, since it is a brand-new process.
+    if connected?(socket) and socket.assigns.loaded_game_id == game.id do
+      handle_cached_params(params, game, socket)
+    else
+      handle_full_load(params, game, socket)
     end
+  end
+
+  # Landing on the page shows the start screen (overview: suggested
+  # questions, setup checklist) — no active thread — unless ?t=THREAD_ID
+  # explicitly targets a thread. A thread already selected in this session
+  # (socket assign) is kept across patches. ?start=1 forces the overview.
+  defp resolve_active_thread(params, game, socket, grouped, threads) do
+    cond do
+      params["start"] ->
+        {grouped, threads, nil}
+
+      t = params["t"] ->
+        case RuleMaven.Hashid.decode(t) do
+          {:ok, tid} ->
+            if Enum.any?(threads, &(&1.id == tid)) do
+              {grouped, threads, tid}
+            else
+              inject_out_of_window_thread(game, socket, grouped, threads, tid)
+            end
+
+          :error ->
+            {grouped, threads, nil}
+        end
+
+      id = socket.assigns.active_thread_id ->
+        if Enum.any?(threads, &(&1.id == id)) do
+          {grouped, threads, id}
+        else
+          inject_out_of_window_thread(game, socket, grouped, threads, id)
+        end
+
+      true ->
+        {grouped, threads, nil}
+    end
+  end
+
+  # Same game, already loaded: a thread switch. Reuse every cached collection
+  # (grouped/threads/sources/expansions/vote maps/favorites/flags/suggestions)
+  # and pay only for the target thread — an out-of-window ?t= fetches its
+  # single row via inject_out_of_window_thread, and the vote/favorite maps are
+  # topped up for just the newly visible ids. Mutating handlers keep the
+  # caches correct by re-assigning the same keys (incl. the :grouped cache).
+  #
+  # The COMMUNITY list + count are the one exception: they change under this
+  # socket whenever anyone's ask completes (see the :ask_complete fan-out
+  # note), so they're re-fetched on every cached patch — one bounded 50-row
+  # narrow query plus one indexed count. The threads sidebar still gains
+  # community/upvoted rows only on a full reload, and flagged_ids only
+  # refreshes on full load (this socket's own reports patch it in place).
+  #
+  # Admin note: question_group_opts/1 depends only on is_admin (fixed at
+  # mount), so the cached grouped/threads were built with the same opts every
+  # later run would use; the admin full-history search path uses its own
+  # separate :search_full_threads snapshot and never reads this cache.
+  defp handle_cached_params(params, game, socket) do
+    uid = socket.assigns.current_user.id
+    is_admin = socket.assigns.is_admin
+    threads_before = socket.assigns.threads
+
+    {grouped, threads, active_thread_id} =
+      resolve_active_thread(params, game, socket, socket.assigns.grouped, threads_before)
+
+    conversation = build_conversation_for_thread(grouped, active_thread_id, uid, is_admin)
+
+    # Community rail refresh — see the module note above. Newly visible
+    # community ids join the vote/favorite top-up below so their state loads
+    # with them (voting authz reads the live list via rendered_vote_ids/1).
+    community = Games.community_questions(game, uid)
+    community_count = RuleMaven.Faq.community_count(game)
+    cq_ids = Enum.map(community, & &1.id)
+
+    # Merge vote/favorite state for this conversation's rows plus the fresh
+    # community ids (small indexed queries); fresher values win over cached.
+    vote_ids =
+      cq_ids ++ conversation_source_ids(conversation) ++ conversation_answer_ids(conversation)
+
+    socket =
+      if vote_ids == [] do
+        socket
+      else
+        {cv_counts, cv_user, cv_asker} = Games.community_vote_maps(vote_ids, uid)
+        favorited = Games.favorited_answer_ids(uid, Enum.uniq(vote_ids))
+
+        assign(socket,
+          community_vote_counts: Map.merge(socket.assigns.community_vote_counts, cv_counts),
+          community_user_votes: Map.merge(socket.assigns.community_user_votes, cv_user),
+          asker_confirmed_ids: MapSet.union(socket.assigns.asker_confirmed_ids, cv_asker),
+          favorited_answer_ids: MapSet.union(socket.assigns.favorited_answer_ids, favorited)
+        )
+      end
+
+    # An injected out-of-window thread wasn't in the first load's category map.
+    socket =
+      if threads != threads_before and not is_nil(active_thread_id) and
+           not Map.has_key?(socket.assigns.question_categories, active_thread_id) do
+        assign(socket,
+          question_categories:
+            Map.merge(
+              socket.assigns.question_categories,
+              Games.categories_for_questions([active_thread_id])
+            )
+        )
+      else
+        socket
+      end
+
+    prev_thread_id = socket.assigns.active_thread_id
+    pending_count = Enum.count(threads, & &1.pending)
+
+    socket =
+      socket
+      |> assign(
+        grouped: grouped,
+        threads: threads,
+        conversation: conversation,
+        active_thread_id: active_thread_id,
+        pending_count: pending_count,
+        community_questions: community,
+        community_count: community_count,
+        question: ""
+      )
+      |> sync_ask_stream_subscriptions()
+      |> apply_default_voice(socket.assigns.default_voice)
+      |> load_hr_overlay()
+
+    socket =
+      if not is_nil(prev_thread_id) and prev_thread_id != active_thread_id,
+        do: push_event(socket, "scroll_top", %{}),
+        else: socket
+
+    {:noreply, arm_stale_timer(socket, pending_count)}
+  end
+
+  defp handle_full_load(params, game, socket) do
+    # The expansion list is needed both for the delta-topic subscriptions and
+    # the page assigns — compute it ONCE per game load and thread it through
+    # (it used to run once per push_patch here plus once more inside
+    # ensure_game_subscriptions).
+    expansions = Games.expansions_with_documents(game)
+    socket = ensure_game_subscriptions(socket, game, expansions)
 
     grouped = Games.grouped_questions(game, question_group_opts(socket))
 
     threads =
       build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
 
-    # Landing on the page shows the start screen (overview: suggested
-    # questions, setup checklist) — no active thread — unless ?t=THREAD_ID
-    # explicitly targets a thread. A thread already selected in this session
-    # (socket assign) is kept across patches. ?start=1 forces the overview.
     {grouped, threads, active_thread_id} =
-      cond do
-        params["start"] ->
-          {grouped, threads, nil}
-
-        t = params["t"] ->
-          case RuleMaven.Hashid.decode(t) do
-            {:ok, tid} ->
-              if Enum.any?(threads, &(&1.id == tid)) do
-                {grouped, threads, tid}
-              else
-                inject_out_of_window_thread(game, socket, grouped, threads, tid)
-              end
-
-            :error ->
-              {grouped, threads, nil}
-          end
-
-        id = socket.assigns.active_thread_id ->
-          if Enum.any?(threads, &(&1.id == id)) do
-            {grouped, threads, id}
-          else
-            inject_out_of_window_thread(game, socket, grouped, threads, id)
-          end
-
-        true ->
-          {grouped, threads, nil}
-      end
+      resolve_active_thread(params, game, socket, grouped, threads)
 
     conversation =
       build_conversation_for_thread(
@@ -273,8 +401,12 @@ defmodule RuleMavenWeb.GameLive.Show do
     # Compute pending count from threads list
     pending_count = Enum.count(threads, & &1.pending)
 
-    sources = Games.list_documents(game)
-    expansions = Games.expansions_with_documents(game)
+    # Narrow rows (no :pages / :full_text — those columns dwarf the rest of
+    # the row): everything this page's :sources feeds reads only cheap scalar
+    # fields — SubBar's rulebook menu (id/label/html_path + Phoenix.Param on
+    # id), has_cheatsheet?/1 (ids), source_count, and emptiness checks. The
+    # regenerate_html handler re-fetches its full Document by id itself.
+    sources = Games.list_document_summaries(game)
 
     # First load of this game: restore the user's remembered expansion set
     # (or default from their collection). Later handle_params runs (thread
@@ -314,6 +446,8 @@ defmodule RuleMavenWeb.GameLive.Show do
     socket =
       assign(socket,
         game: game,
+        loaded_game_id: game.id,
+        grouped: grouped,
         voices: RuleMaven.Voices.for_game(game),
         page_title: game.name,
         conversation: conversation,
@@ -368,7 +502,11 @@ defmodule RuleMavenWeb.GameLive.Show do
     # Restyle the just-loaded thread's answers to the current voice (switching
     # threads, ?t navigation, reload). No-op on first mount where the default is
     # still neutral — the VoiceDefault hook then fires default_voice_restore.
-    socket = socket |> apply_default_voice(socket.assigns.default_voice) |> load_hr_overlay()
+    socket =
+      socket
+      |> sync_ask_stream_subscriptions()
+      |> apply_default_voice(socket.assigns.default_voice)
+      |> load_hr_overlay()
 
     socket =
       if not is_nil(prev_thread_id) and prev_thread_id != active_thread_id,
@@ -383,42 +521,157 @@ defmodule RuleMavenWeb.GameLive.Show do
         do: socket,
         else: assign(socket, :tour_autostart, RuleMavenWeb.Tours.autostart?(socket, "game"))
 
-    suggestions =
+    {suggestions, socket} =
       case RuleMaven.Settings.get("suggestions_#{game.id}") do
         nil ->
           # Generation is not automatic — it runs when an admin finalizes the
           # source. Subscribe so a finalize that happens while this page is open
           # streams the result in live; never enqueue here.
-          if sources != [] and connected?(socket) do
-            Phoenix.PubSub.subscribe(
-              RuleMaven.PubSub,
-              RuleMaven.Workers.SuggestionsWorker.topic(game.id)
-            )
-          end
+          socket =
+            if sources != [] do
+              subscribe_once(socket, RuleMaven.Workers.SuggestionsWorker.topic(game.id))
+            else
+              socket
+            end
 
-          []
+          {[], socket}
 
         json ->
-          json
-          |> Jason.decode!()
-          |> Enum.map(fn %{"category" => c, "questions" => qs} ->
-            %{category: c, questions: qs}
-          end)
+          suggestions =
+            json
+            |> Jason.decode!()
+            |> Enum.map(fn %{"category" => c, "questions" => qs} ->
+              %{category: c, questions: qs}
+            end)
+
+          {suggestions, socket}
       end
 
-    if pending_count > 0 do
-      if socket.assigns.stale_timer, do: Process.cancel_timer(socket.assigns.stale_timer)
+    {:noreply,
+     socket
+     |> assign(suggestions: suggestions, suggestions_open: false)
+     |> arm_stale_timer(pending_count)}
+  end
 
-      timer = Process.send_after(self(), :check_stale, 120_000)
+  # Cancel any armed stale-check timer and re-arm it iff questions are pending.
+  defp arm_stale_timer(socket, pending_count) do
+    if socket.assigns.stale_timer, do: Process.cancel_timer(socket.assigns.stale_timer)
 
-      {:noreply,
-       assign(socket, suggestions: suggestions, suggestions_open: false, stale_timer: timer)}
-    else
-      if socket.assigns.stale_timer, do: Process.cancel_timer(socket.assigns.stale_timer)
+    timer = if pending_count > 0, do: Process.send_after(self(), :check_stale, 120_000)
+    assign(socket, stale_timer: timer)
+  end
 
-      {:noreply,
-       assign(socket, suggestions: suggestions, suggestions_open: false, stale_timer: nil)}
+  # Subscribe to this game's topics exactly once per connected mount.
+  # handle_params reruns on every push_patch (thread switches, ask dedup
+  # redirects) and Phoenix.PubSub subscriptions are duplicate-keyed, so the old
+  # per-params subscribe stacked one extra delivery of every broadcast per
+  # patch. If the same mount is ever patched to a DIFFERENT game, the previous
+  # game's topics (incl. its expansion delta topics) are dropped first.
+  # Expansion delta topics are pinned to the set present at first load of the
+  # game — the same lifetime the rest of this page's expansion state has. The
+  # expansion list is passed in by handle_full_load so the query runs once per
+  # game load, not once here and once for the page assigns.
+  defp ensure_game_subscriptions(socket, game, expansions) do
+    cond do
+      not connected?(socket) ->
+        socket
+
+      socket.assigns.subscribed_game_id == game.id ->
+        socket
+
+      true ->
+        for topic <- socket.assigns.subscribed_topics do
+          Phoenix.PubSub.unsubscribe(RuleMaven.PubSub, topic)
+        end
+
+        topics =
+          [
+            "game:#{game.id}",
+            RuleMaven.Setup.topic(game.id),
+            RuleMaven.Workers.VoiceSuggestionsWorker.topic(game.id)
+            | Enum.map(expansions, &RuleMaven.ExpansionDelta.topic(&1.id))
+          ]
+
+        for topic <- topics, do: Phoenix.PubSub.subscribe(RuleMaven.PubSub, topic)
+
+        assign(socket, subscribed_game_id: game.id, subscribed_topics: topics)
     end
+  end
+
+  # One-off topic subscribe with the same once-per-mount guarantee as
+  # ensure_game_subscriptions/3, for topics only conditionally needed (e.g. the
+  # suggestions worker feed). Tracks the topic so a game switch unsubscribes it.
+  defp subscribe_once(socket, topic) do
+    if connected?(socket) and topic not in socket.assigns.subscribed_topics do
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, topic)
+      assign(socket, subscribed_topics: [topic | socket.assigns.subscribed_topics])
+    else
+      socket
+    end
+  end
+
+  # High-frequency in-flight ask traffic ({:ask_partial, …} every ~24 chars of
+  # streamed answer text, {:ask_stage, …} pipeline progress) rides per-question
+  # `ask_stream:<id>` topics (see RuleMaven.LLM.ask_stream_topic/1), NOT the
+  # public game topic — so it reaches only the sockets actually rendering the
+  # pending row instead of every viewer of the game. This reconciles the
+  # socket's subscriptions with the pending assistant rows in the CURRENT
+  # conversation: subscribe the missing ones, drop the ones that turned
+  # terminal (answered/failed/redirected) or were switched away from. Called
+  # from every path that changes the conversation's pending set; idempotent.
+  # Payloads stay full accumulated text, and terminal messages
+  # (:ask_complete/:ask_error/:ask_redirect) stay on the game topic.
+  defp sync_ask_stream_subscriptions(socket) do
+    if connected?(socket) do
+      desired =
+        socket.assigns.conversation
+        |> Enum.filter(&(&1[:role] == :assistant && &1[:pending] && &1[:id]))
+        |> Enum.map(&RuleMaven.LLM.ask_stream_topic(&1[:id]))
+        |> Enum.uniq()
+
+      stale =
+        socket.assigns.subscribed_topics
+        |> Enum.filter(&String.starts_with?(&1, "ask_stream:"))
+        |> Kernel.--(desired)
+
+      for topic <- stale, do: Phoenix.PubSub.unsubscribe(RuleMaven.PubSub, topic)
+
+      socket
+      |> assign(subscribed_topics: socket.assigns.subscribed_topics -- stale)
+      |> then(&Enum.reduce(desired, &1, fn topic, acc -> subscribe_once(acc, topic) end))
+    else
+      socket
+    end
+  end
+
+  # ── :grouped cache maintenance ────────────────────────────────────────────
+  # handle_cached_params rebuilds thread conversations from the :grouped
+  # assign instead of re-querying per push_patch, so every in-place mutation of
+  # a row must also land in the cache (full re-fetch paths — delete/verify/
+  # visibility toggle — just re-assign :grouped wholesale).
+
+  # Prepend a fresh provisional row (new ask / re-ask) as its own thread entry.
+  defp grouped_cache_add(socket, %QuestionLog{} = ql) do
+    entry = %{primary: ql, history: [], followups: []}
+    assign(socket, grouped: [entry | socket.assigns.grouped])
+  end
+
+  # Drop a thread entry whose row was deleted (regen, ask-redirect cleanup).
+  defp grouped_cache_remove(socket, id) do
+    assign(socket, grouped: Enum.reject(socket.assigns.grouped, &(&1.primary.id == id)))
+  end
+
+  # Update one cached primary in place. `fun` receives the cached row (which
+  # still carries its preloaded :user — re-fetches via get_question_log_by_id/1
+  # don't preload it, so callers graft it back; see :ask_complete).
+  defp grouped_cache_update(socket, id, fun) do
+    assign(socket,
+      grouped:
+        Enum.map(socket.assigns.grouped, fn
+          %{primary: %{id: ^id} = p} = g -> %{g | primary: fun.(p)}
+          g -> g
+        end)
+    )
   end
 
   # Build thread summary list from grouped questions (one per root).
@@ -443,7 +696,17 @@ defmodule RuleMavenWeb.GameLive.Show do
         asker: asker_label(g.primary, current_user_id)
       }
     end)
-    |> Enum.sort_by(fn t -> {if(t.favorited, do: 0, else: 1), t.inserted_at} end, fn
+    |> sort_thread_summaries()
+  end
+
+  # Sidebar order: favorites first, then recency-desc within each half. Every
+  # path that PATCHES the threads list (ask submit, resubmit, out-of-window
+  # inject, favorite toggle) must re-apply this — a bare prepend would sit a
+  # new ask above favorited threads, or pin an old ?t= thread to the top
+  # until remount. (:ask_complete/:ask_error edit entries in place without
+  # touching favorited/inserted_at, so they don't need a re-sort.)
+  defp sort_thread_summaries(threads) do
+    Enum.sort_by(threads, fn t -> {if(t.favorited, do: 0, else: 1), t.inserted_at} end, fn
       {fa, ta}, {fb, tb} -> fa < fb || (fa == fb && DateTime.compare(ta, tb) == :gt)
     end)
   end
@@ -466,7 +729,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           |> build_thread_summaries(socket.assigns.current_user.id, socket.assigns.is_admin)
           |> List.first()
 
-        {[g | grouped], [t | threads], tid}
+        {[g | grouped], sort_thread_summaries([t | threads]), tid}
 
       _ ->
         {grouped, threads, nil}
@@ -789,50 +1052,64 @@ defmodule RuleMavenWeb.GameLive.Show do
     end)
   end
 
+  # Is `voice` selectable on this page? Answered from the :voices assign — the
+  # memoized RuleMaven.Voices.for_game/1 list, loaded once per game load and
+  # refreshed live by {:voices_ready, …} broadcasts when generation/vetting
+  # rewrites the game's personas. RuleMaven.Voices.valid?/2 re-queried the
+  # game_voice_defs table on every call (voice pick, restore, every
+  # apply_default_voice run), which this avoids.
+  defp voice_valid?(socket, voice) do
+    Enum.any?(socket.assigns.voices, &(&1.id == voice))
+  end
+
   defp apply_default_voice(socket, voice) do
     # Coerce an unknown/stale voice to neutral so the render never shows the
     # loader for a voice that will never resolve.
-    valid_voice? = voice != "neutral" and RuleMaven.Voices.valid?(voice, socket.assigns.game)
+    valid_voice? = voice != "neutral" and voice_valid?(socket, voice)
     socket = assign(socket, default_voice: if(valid_voice?, do: voice, else: "neutral"))
 
     if not valid_voice? do
       socket
     else
-      socket.assigns.conversation
       # Only restyle FINAL answers. Restyling the in-flight "Thinking..."
       # placeholder produces a garbage stub (the model restyles the placeholder
       # text), so skip pending / non-final rows — they get restyled on
       # :ask_complete once the real answer lands. Refused rows are skipped too:
       # VoiceWorker refuses to restyle them, so enqueueing would leave
       # voice_pending set forever (they render plain regardless).
-      |> Enum.filter(
-        &(&1[:role] == :assistant && &1[:id] && !&1[:pending] && !&1[:refused] &&
-            &1[:content] != "Thinking..." && Map.get(&1, :answer_visible, true))
-      )
-      |> Enum.map(& &1[:id])
-      |> Enum.uniq()
-      |> Enum.reduce(socket, fn id, acc ->
-        cond do
-          Map.has_key?(acc.assigns.voice_cache, {id, voice}) ->
-            acc
+      #
+      # A restyle that already failed must not be re-enqueued here (the
+      # voice_failed reject below): apply_default_voice runs on EVERY
+      # :ask_complete for the game — including other users' asks — so without
+      # this a single doomed {id, voice} pair re-paid an LLM restyle every time
+      # anyone on the game finished a question. Re-picking the voice clears the
+      # flag. Rows already cached/pending locally are skipped the same way, and
+      # the survivors resolve against the shared restyle cache in ONE batched
+      # query (this used to be a single-row lookup per answer).
+      unresolved =
+        socket.assigns.conversation
+        |> Enum.filter(
+          &(&1[:role] == :assistant && &1[:id] && !&1[:pending] && !&1[:refused] &&
+              &1[:content] != "Thinking..." && Map.get(&1, :answer_visible, true))
+        )
+        |> Enum.map(& &1[:id])
+        |> Enum.uniq()
+        |> Enum.reject(fn id ->
+          Map.has_key?(socket.assigns.voice_cache, {id, voice}) or
+            MapSet.member?(socket.assigns.voice_pending, {id, voice}) or
+            MapSet.member?(socket.assigns.voice_failed, {id, voice})
+        end)
 
-          MapSet.member?(acc.assigns.voice_pending, {id, voice}) ->
-            acc
+      cached = RuleMaven.Voices.get_many(unresolved, voice)
 
-          # A restyle that already failed must not be re-enqueued here.
-          # apply_default_voice runs on EVERY :ask_complete for the game —
-          # including other users' asks — so without this a single doomed
-          # {id, voice} pair re-paid an LLM restyle every time anyone on the
-          # game finished a question. Re-picking the voice clears the flag.
-          MapSet.member?(acc.assigns.voice_failed, {id, voice}) ->
-            acc
-
-          cached = RuleMaven.Voices.get(id, voice) ->
+      Enum.reduce(unresolved, socket, fn id, acc ->
+        case Map.fetch(cached, id) do
+          {:ok, content} ->
             assign(acc,
-              voice_cache: Map.put(acc.assigns.voice_cache, {id, voice}, cached)
+              voice_cache: Map.put(acc.assigns.voice_cache, {id, voice}, content)
             )
 
-          true ->
+          :error ->
             %{
               question_log_id: id,
               voice: voice,
@@ -978,7 +1255,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   # default". Per-answer overrides are cleared so the choice can't be shadowed by
   # a stale selection on another answer.
   def handle_event("set_voice", %{"voice" => voice}, socket) do
-    if not RuleMaven.Voices.valid?(voice, socket.assigns.game) do
+    if not voice_valid?(socket, voice) do
       {:noreply, socket}
     else
       record_persona_pick(socket, voice)
@@ -1022,7 +1299,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   # Choose a default voice, auto-applied to every answer. Persist it per-browser
   # (the VoiceDefault hook writes localStorage) and apply it to the open thread.
   def handle_event("set_default_voice", %{"voice" => voice}, socket) do
-    if RuleMaven.Voices.valid?(voice, socket.assigns.game) do
+    if voice_valid?(socket, voice) do
       record_persona_pick(socket, voice)
 
       {:noreply,
@@ -1324,6 +1601,9 @@ defmodule RuleMavenWeb.GameLive.Show do
 
                     {:noreply,
                      socket
+                     # Keep the cached grouped load coherent: the provisional
+                     # row must be rebuildable on a thread switch-and-back.
+                     |> grouped_cache_add(question_log)
                      |> assign(
                        question: "",
                        keep_in_crew: false,
@@ -1345,19 +1625,31 @@ defmodule RuleMavenWeb.GameLive.Show do
                            timestamp: DateTime.utc_now()
                          }
                        ],
-                       threads: [
-                         %{
-                           id: question_log.id,
-                           question: question,
-                           pending: true,
-                           refused: false,
-                           inserted_at: DateTime.utc_now()
-                         }
-                         | socket.assigns.threads
-                       ],
+                       threads:
+                         sort_thread_summaries([
+                           # Full thread-summary shape (see build_thread_summaries/3):
+                           # the cached handle_params path renders this map as-is
+                           # instead of rebuilding it from a re-query, so every key
+                           # the sidebar reads must be present. `asker` matters for
+                           # admins (the sidebar renders "<asker>:"): the row is the
+                           # current user's own, so asker_label/2 yields "You" —
+                           # nil would render an empty label + stray colon.
+                           %{
+                             id: question_log.id,
+                             question: question,
+                             answer: "Thinking...",
+                             pending: true,
+                             refused: false,
+                             favorited: false,
+                             inserted_at: DateTime.utc_now(),
+                             asker: asker_label(question_log, socket.assigns.current_user.id)
+                           }
+                           | socket.assigns.threads
+                         ]),
                        community_questions:
                          Games.community_questions(game, socket.assigns.current_user.id)
                      )
+                     |> sync_ask_stream_subscriptions()
                      |> push_patch(
                        to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}"
                      )
@@ -1420,12 +1712,14 @@ defmodule RuleMavenWeb.GameLive.Show do
     if deleted_was_active do
       {:noreply,
        assign(socket,
+         grouped: grouped,
          threads: threads,
          conversation: [],
          active_thread_id: nil,
          pending_count: pending_count,
          confirm_delete_id: nil
        )
+       |> sync_ask_stream_subscriptions()
        |> push_patch(to: ~p"/games/#{game}")}
     else
       conversation =
@@ -1438,11 +1732,13 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       {:noreply,
        assign(socket,
+         grouped: grouped,
          conversation: conversation,
          threads: threads,
          pending_count: pending_count,
          confirm_delete_id: nil
-       )}
+       )
+       |> sync_ask_stream_subscriptions()}
     end
   end
 
@@ -1553,11 +1849,12 @@ defmodule RuleMavenWeb.GameLive.Show do
             Enum.map(socket.assigns.threads, fn t ->
               if t.id == id, do: %{t | favorited: updated.favorited}, else: t
             end)
-            |> Enum.sort_by(fn t -> {if(t.favorited, do: 0, else: 1), t.inserted_at} end, fn
-              {fa, ta}, {fb, tb} -> fa < fb || (fa == fb && DateTime.compare(ta, tb) == :gt)
-            end)
+            |> sort_thread_summaries()
 
-          {:noreply, assign(socket, conversation: conversation, threads: threads)}
+          {:noreply,
+           socket
+           |> assign(conversation: conversation, threads: threads)
+           |> grouped_cache_update(id, &%{&1 | favorited: updated.favorited})}
 
         _ ->
           {:noreply, socket}
@@ -1628,6 +1925,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     {:noreply,
      assign(socket,
+       grouped: grouped,
        conversation: conversation,
        threads: threads,
        pending_count: Enum.count(threads, & &1.pending)
@@ -1888,6 +2186,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
         {:noreply,
          assign(socket,
+           grouped: grouped,
            conversation: conversation,
            threads: threads,
            community_questions: community,
@@ -2175,19 +2474,33 @@ defmodule RuleMavenWeb.GameLive.Show do
 
             # Build threads list — remove old thread, add new pending one
             threads =
-              [
+              sort_thread_summaries([
+                # Full thread-summary shape — see the ask-submit provisional
+                # entry (incl. why `asker` is asker_label/2, not nil); the
+                # cached handle_params path renders this map as-is.
                 %{
                   id: question_log.id,
                   question: question,
+                  answer: "Thinking...",
                   pending: true,
                   refused: false,
-                  inserted_at: now_dt
+                  favorited: false,
+                  inserted_at: now_dt,
+                  asker: asker_label(question_log, socket.assigns.current_user.id)
                 }
                 | Enum.reject(socket.assigns.threads, &(&1.id == id))
-              ]
+              ])
 
             {:noreply,
              socket
+             # Cached grouped load: the old entry goes only when its row was
+             # actually deleted above (a protected row keeps serving other
+             # viewers / ?t= links); the replacement provisional row is added
+             # either way so a thread switch-and-back can rebuild it.
+             |> then(fn s ->
+               if protect_existing?, do: s, else: grouped_cache_remove(s, id)
+             end)
+             |> grouped_cache_add(question_log)
              |> assign(
                conversation: [
                  %{id: question_log.id, role: :user, content: question, timestamp: now_dt},
@@ -2213,6 +2526,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                community_questions:
                  Games.community_questions(game, socket.assigns.current_user.id)
              )
+             |> sync_ask_stream_subscriptions()
              |> push_patch(to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}")}
 
           {:error, reason} when is_binary(reason) ->
@@ -2311,6 +2625,11 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       {:noreply,
        socket
+       # The provisional row was deleted by the worker — drop it from the
+       # cached grouped load too. Its ask-stream subscription is dropped by
+       # the push_patch below (handle_params re-syncs from the rebuilt
+       # conversation).
+       |> grouped_cache_remove(prov_id)
        |> assign(
          threads: threads,
          pending_count: Enum.count(threads, & &1.pending),
@@ -2334,7 +2653,40 @@ defmodule RuleMavenWeb.GameLive.Show do
     question_log_id = data.question_log_id
     game = socket.assigns.game
 
-    ql = get_question_log_by_id(question_log_id)
+    # Task 11 (group feed): the broadcast is game-wide, so every viewer's
+    # session gets it — not just the asker's. When the answered question was
+    # asked under the SAME group this viewer currently has active, refresh the
+    # group feed panel so it live-appends. Runs before the `involved?` gate
+    # below on purpose: a crew member watching the feed needn't have the
+    # thread itself on screen. Folded into this single existing clause (not a
+    # second `handle_info({:ask_complete, ...})` clause) deliberately: Elixir
+    # matches clauses top-down, and a second clause guarded on `group_id`
+    # would either swallow the asker's own conversation update or be dead code.
+    socket =
+      case Map.get(data, :group_id) do
+        gid when not is_nil(gid) ->
+          if gid == live_group_id(socket), do: assign_group_feed(socket), else: socket
+
+        _ ->
+          socket
+      end
+
+    # The broadcast goes to the public game topic, so EVERY connected viewer
+    # of the game receives it. Only sockets actually showing this thread (the
+    # asker, whose provisional row is in `threads`; anyone who opened it via
+    # `?t=`) pay for the row fetch + full community requery below. For every
+    # other viewer, the community list refreshes on their next handle_params
+    # run — handle_cached_params re-fetches it on every cached patch, so
+    # thread switches and ?t= navigation pick it up too, not just full
+    # reloads. Deliberate: N idle viewers each re-running a 50-row query per
+    # ask was the fan-out cost.
+    involved? =
+      socket.assigns.active_thread_id == question_log_id or
+        Enum.any?(socket.assigns.threads, &(&1.id == question_log_id))
+
+    # Uninvolved sockets skip the row fetch and fall through to the no-op
+    # branch of `if ql` (same path as a deleted row).
+    ql = if involved?, do: get_question_log_by_id(question_log_id), else: nil
 
     if ql do
       # Update thread status in threads list (only when answer is actually ready)
@@ -2437,6 +2789,12 @@ defmodule RuleMavenWeb.GameLive.Show do
           ask_stage: Map.delete(socket.assigns.ask_stage, question_log_id),
           refresh: socket.assigns.refresh + 1
         )
+        # Refresh the cached grouped entry with the answered row so a thread
+        # switch-and-back rebuilds the final answer, not the stale
+        # "Thinking..." snapshot. The cached primary's preloaded :user is
+        # grafted back on (get_question_log_by_id/1 doesn't preload it).
+        |> grouped_cache_update(question_log_id, fn p -> %{ql | user: p.user} end)
+        |> sync_ask_stream_subscriptions()
 
       # Persona-direct path (Task 5): the ask call already produced the styled
       # answer in the same LLM response, so populate voice_cache straight from
@@ -2469,28 +2827,6 @@ defmodule RuleMavenWeb.GameLive.Show do
       # house rules that sit near it.
       socket = if answer_ready?, do: load_hr_overlay(socket), else: socket
 
-      # Task 11: this broadcast is game-wide, so every viewer's session gets
-      # it — not just the asker's. When the answered question was asked under
-      # the SAME group this viewer currently has active, refresh the group
-      # feed panel so it live-appends. Folded into this single existing
-      # clause (not a second `handle_info({:ask_complete, ...})` clause)
-      # deliberately: Elixir matches clauses top-down, and a second clause
-      # guarded on `group_id` would have to sit either before this one (where
-      # it would swallow every group ask before the asker's own conversation
-      # update above ever ran) or after it (dead code, since this clause
-      # matches every `:ask_complete` payload shape already). Reusing the
-      # already-computed `question_log_id`/`data` here keeps both behaviors —
-      # the asker's own conversation update and the group feed refresh —
-      # running for the exact same message.
-      socket =
-        case Map.get(data, :group_id) do
-          gid when not is_nil(gid) ->
-            if gid == live_group_id(socket), do: assign_group_feed(socket), else: socket
-
-          _ ->
-            socket
-        end
-
       # First real answer this user has ever seen: walk them through its
       # anatomy (verdict, confidence, citations, voting → curator points).
       # The live answer is the tour's demo data, so it never runs on an empty
@@ -2519,9 +2855,22 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_info({:question_tagged, ql_id}, socket) do
-    cats = Games.categories_for_questions([ql_id])
-    merged = Map.merge(socket.assigns.question_categories, cats)
-    {:noreply, assign(socket, question_categories: merged, refresh: socket.assigns.refresh + 1)}
+    # Game-topic broadcast, so every viewer receives it — but the category
+    # pill is only rendered for questions this socket has on screen (its
+    # thread list or the community list). Everyone else skips the query and
+    # picks the tag up from handle_params on their next navigation.
+    on_screen? =
+      Enum.any?(socket.assigns.threads, &(&1.id == ql_id)) or
+        Enum.any?(socket.assigns.community_questions, &(&1.id == ql_id))
+
+    if on_screen? do
+      cats = Games.categories_for_questions([ql_id])
+      merged = Map.merge(socket.assigns.question_categories, cats)
+
+      {:noreply, assign(socket, question_categories: merged, refresh: socket.assigns.refresh + 1)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:setup_done, game_id}, socket) do
@@ -2536,6 +2885,33 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
+  # The check verdict is the OWNER's data: only their socket re-runs the full
+  # house-rule + answer-overlay refresh (4+ queries). Every other viewer used
+  # to pay that refresh per broadcast; now they refresh just the community
+  # list — and only when the checked rule is community-visible, since that's
+  # the one surface where its verdict stamp is on their screen. Private rules
+  # are a no-op for non-owners.
+  def handle_info({:house_rule_checked, %{user_id: owner_id} = payload}, socket) do
+    user = socket.assigns.current_user
+
+    cond do
+      user && user.id == owner_id ->
+        {:noreply, refresh_house_rules(socket)}
+
+      payload[:community] ->
+        {:noreply,
+         assign(socket,
+           community_house_rules:
+             RuleMaven.HouseRules.community_for_game(socket.assigns.game.id, user && user.id)
+         )}
+
+      true ->
+        {:noreply, socket}
+    end
+  end
+
+  # Legacy payload shape (broadcasts in flight across a deploy): no owner
+  # info, so keep the old refresh-everyone behavior.
   def handle_info({:house_rule_checked, _id}, socket) do
     {:noreply, refresh_house_rules(socket)}
   end
@@ -2728,23 +3104,45 @@ defmodule RuleMavenWeb.GameLive.Show do
     if question_log_id && question_log_id not in known_ids do
       {:noreply, socket}
     else
+      # Pull the persisted failure classification once, for every known thread —
+      # not just the active one. If the user switched away before the error
+      # landed, the cached grouped entry would otherwise keep "Thinking...":
+      # switching back re-marked it pending (mark_pending_thinking), armed no
+      # stale timer path out, and resubscribed a dead ask_stream topic.
+      err_q = if question_log_id, do: get_question_log_by_id(question_log_id)
+
+      # Refresh the cached grouped entry so a thread switch-and-back rebuilds
+      # the failed answer instead of the stale "Thinking..." snapshot (the
+      # mirror of what :ask_complete does; the preloaded :user is grafted back
+      # on since get_question_log_by_id/1 doesn't preload it).
+      socket =
+        if err_q do
+          grouped_cache_update(socket, question_log_id, fn p -> %{err_q | user: p.user} end)
+        else
+          socket
+        end
+
       threads =
         if question_log_id do
           Enum.map(socket.assigns.threads, fn
-            %{id: ^question_log_id} = t -> %{t | pending: false}
-            t -> t
+            %{id: ^question_log_id} = t ->
+              # The sidebar shows a ⚠ marker for answers with the "⚠️" prefix —
+              # carry the persisted error text (or the broadcast's) into the
+              # summary so the failed state is visible without a reload.
+              %{t | pending: false, answer: (err_q && err_q.answer) || "⚠️ #{data[:error]}"}
+
+            t ->
+              t
           end)
         else
           socket.assigns.threads
         end
 
+      # Only the conversation rewrite stays behind the active-thread check —
+      # it patches the on-screen bubble; every other socket showing this
+      # thread in its sidebar already got the cache + summary fix above.
       conversation =
         if question_log_id && socket.assigns.active_thread_id == question_log_id do
-          # Pull the persisted failure classification so the error bubble can
-          # offer the right affordance (retry / cooldown / shorten hint)
-          # without a page reload.
-          err_q = get_question_log_by_id(question_log_id)
-
           Enum.map(socket.assigns.conversation, fn
             %{id: ^question_log_id, role: :assistant} = msg ->
               msg
@@ -2769,6 +3167,7 @@ defmodule RuleMavenWeb.GameLive.Show do
          ask_partial: Map.delete(socket.assigns.ask_partial, question_log_id),
          ask_stage: Map.delete(socket.assigns.ask_stage, question_log_id)
        )
+       |> sync_ask_stream_subscriptions()
        |> push_event("scroll_bottom", %{})}
     end
   end
@@ -2826,7 +3225,8 @@ defmodule RuleMavenWeb.GameLive.Show do
          pending_count: pending_count,
          refresh: socket.assigns.refresh + 1,
          stale_timer: nil
-       )}
+       )
+       |> sync_ask_stream_subscriptions()}
     else
       # No stale found — re-arm if questions still pending (they're < 120s old now)
       timer =
@@ -3021,6 +3421,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             <!-- Search -->
             <div style="padding:0.25rem 0.75rem 0.5rem">
               <form
+                id="thread-search"
                 phx-change="search"
                 phx-submit="search"
                 style="position:relative;display:flex;align-items:center"

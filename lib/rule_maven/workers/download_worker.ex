@@ -14,7 +14,7 @@ defmodule RuleMaven.Workers.DownloadWorker do
   "upload" batch — into a single job, silently dropping one of them.
   """
   use Oban.Worker,
-    queue: :default,
+    queue: :ingest,
     max_attempts: 3,
     unique: [
       keys: [:game_id, :mode],
@@ -106,7 +106,17 @@ defmodule RuleMaven.Workers.DownloadWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{id: oban_id, args: %{"game_id" => game_id} = args}) do
-    game = Games.get_game!(game_id)
+    case Games.get_game(game_id) do
+      nil ->
+        # Game deleted before the job ran — nothing to download.
+        :ok
+
+      game ->
+        download(game, game_id, oban_id, args)
+    end
+  end
+
+  defp download(game, game_id, oban_id, args) do
     label = Map.get(args, "label", "")
 
     # One run per attempt — an Oban restart re-runs perform from the top and

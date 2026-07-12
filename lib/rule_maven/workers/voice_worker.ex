@@ -8,7 +8,7 @@ defmodule RuleMaven.Workers.VoiceWorker do
   voice at once produce one job, not two LLM calls.
   """
   use Oban.Worker,
-    queue: :llm,
+    queue: :llm_interactive,
     max_attempts: 3,
     unique: [
       keys: [:question_log_id, :voice],

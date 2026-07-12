@@ -92,20 +92,49 @@ defmodule RuleMaven.Games do
     |> Enum.sort_by(&String.downcase(&1.name))
   end
 
+  # Card-list select for the catalog index: every Game column except the heavy
+  # ones the cards never render — `bgg_data` (the raw BGG XML blob, 50-200KB for
+  # big games) and the theme maps. The index template's only `bgg_data` use is
+  # `is_nil(game.bgg_data)` (admin "Pull BGG" button), and `struct(g, fields)`
+  # can't add virtual booleans, so list queries select_merge a 1-byte "1" marker
+  # into `bgg_data` whenever the real blob exists: `is_nil/1` checks keep their
+  # meaning while the payload per row drops from ~200KB to ~1B.
+  @game_card_fields Game.__schema__(:fields) -- [:bgg_data, :theme_palette, :theme_names]
+
+  defp select_card_fields(query) do
+    from(g in query,
+      select: struct(g, ^@game_card_fields),
+      select_merge: %{bgg_data: fragment("CASE WHEN ? IS NOT NULL THEN '1' END", g.bgg_data)}
+    )
+  end
+
+  defp maybe_limit(query, nil), do: query
+  defp maybe_limit(query, n) when is_integer(n), do: limit(query, ^n)
+
   @doc """
   Base games that are fully **playable** — the new catalog "Playable" view.
   Reads the denormalized `playable` flag (RAG-ready + reviewed, maintained by
   `RuleMaven.Readiness`) so this stays a single indexed scan on a large catalog,
   no per-row document join.
+
+  DB-paged like `search_catalog/2`: the playable set grows with the whole
+  catalog, so search, `:category` and `:limit` are pushed into the query (no
+  `:limit` means the full set). Rows carry the narrow card select.
   """
-  def list_playable_games do
+  def list_playable_games(search \\ "", opts \\ []) do
+    term = "%#{String.trim(search || "")}%"
+
     from(g in Game,
       where: g.playable == true,
-      where: is_nil(g.taken_down_at)
+      where: is_nil(g.taken_down_at),
+      where: ilike(g.name, ^term),
+      order_by: [asc: fragment("lower(?)", g.name)]
     )
     |> not_expansion()
+    |> maybe_category(Keyword.get(opts, :category))
+    |> maybe_limit(Keyword.get(opts, :limit))
+    |> select_card_fields()
     |> Repo.all()
-    |> Enum.sort_by(&String.downcase(&1.name))
   end
 
   @doc """
@@ -143,6 +172,7 @@ defmodule RuleMaven.Games do
       order_by: [desc: count(r.id), asc: g.name]
     )
     |> not_expansion()
+    |> select_card_fields()
     |> Repo.all()
   end
 
@@ -151,6 +181,35 @@ defmodule RuleMaven.Games do
     |> not_expansion()
     |> Repo.all()
     |> Enum.sort_by(&String.downcase(&1.name))
+  end
+
+  @doc """
+  Distinct categories present in a DB-paged catalog view, UNFILTERED by the
+  active search/category. The category pill bar must be derived from the whole
+  view's population, not the currently loaded page — otherwise selecting a
+  category collapses the pill list to that one category (and the bar,
+  including "All", unrenders), locking the filter on. nil categories count as
+  "board_game", mirroring the in-memory derivation in GameLive.Index.
+  """
+  def view_categories(view) when view in ~w(playable all needs_bgg) do
+    base =
+      case view do
+        "playable" ->
+          from(g in Game, where: g.playable == true, where: is_nil(g.taken_down_at))
+
+        # No taken_down filter: mirrors search_catalog/2, which serves this view.
+        "all" ->
+          from(g in Game)
+
+        "needs_bgg" ->
+          from(g in Game, where: not is_nil(g.bgg_id), where: is_nil(g.bgg_data))
+      end
+
+    base
+    |> not_expansion()
+    |> select([g], fragment("DISTINCT COALESCE(?, 'board_game')", g.category))
+    |> Repo.all()
+    |> Enum.sort()
   end
 
   # "Is a base game" filter: not linked as an expansion of anything.
@@ -607,6 +666,7 @@ defmodule RuleMaven.Games do
       where: uc.user_id == ^user_id
     )
     |> not_expansion()
+    |> select_card_fields()
     |> Repo.all()
     |> Enum.sort_by(&String.downcase(&1.name))
   end
@@ -651,6 +711,7 @@ defmodule RuleMaven.Games do
       where: uf.user_id == ^user_id
     )
     |> not_expansion()
+    |> select_card_fields()
     |> Repo.all()
     |> Enum.sort_by(&String.downcase(&1.name))
   end
@@ -695,6 +756,29 @@ defmodule RuleMaven.Games do
 
   def list_documents(%Game{} = game) do
     Repo.all(from d in Document, where: d.game_id == ^game.id)
+  end
+
+  # Every Document field except the two heavyweight text payloads. Derived via
+  # schema reflection so a newly added scalar column rides along automatically.
+  @document_summary_fields RuleMaven.Games.Document.__schema__(:fields) -- [:pages, :full_text]
+
+  @doc """
+  Same rows (query, filter, ordering) as `list_documents/1`, but selected
+  without `pages` and `full_text` — the two payloads that make a Document row
+  megabytes wide. Every other column (kind/status/authority inputs, paths,
+  counts, timestamps) is a cheap scalar and is included, so downstream code
+  that reads e.g. `kind`, `status` or `page_count` keeps working.
+
+  For the UI/sub-bar path only (listing sources, badges, review counters).
+  Pipeline callers (chunking, cleanup, extraction, cheat sheets) need the full
+  rows — keep using `list_documents/1` there.
+  """
+  def list_document_summaries(%Game{} = game) do
+    Repo.all(
+      from d in Document,
+        where: d.game_id == ^game.id,
+        select: struct(d, ^@document_summary_fields)
+    )
   end
 
   def create_document(attrs) do
@@ -1194,44 +1278,68 @@ defmodule RuleMaven.Games do
   flagged).
   """
   def invalidate_pool(game_id) do
-    # Auto-pooled answers can be demoted silently — they'll re-pool on the next
-    # ask against the new text.
-    {demoted, _} =
-      Repo.update_all(
-        from(q in QuestionLog,
-          where:
-            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
-              q.pooled == true
-        ),
-        set: [pooled: false]
+    # Expansion membership is expressed as `expansion_ids @> ARRAY[game_id]`
+    # (array containment) rather than `game_id = ANY(expansion_ids)` — the two
+    # are equivalent for a single element, but only containment can use the
+    # GIN index on expansion_ids.
+    scope =
+      dynamic(
+        [q],
+        q.game_id == ^game_id or
+          fragment("? @> ARRAY[?]::integer[]", q.expansion_ids, ^game_id)
       )
 
-    # Mark every not-yet-stale row in the game — this is the content-staleness
-    # signal the same-user cache tiers check, independent of moderation.
-    {staled, _} =
-      Repo.update_all(
+    # Count what the write below will change BEFORE writing, preserving the
+    # historical return semantics (demoted + newly staled + newly flagged —
+    # a row can count up to three times). This used to be three separate
+    # update_all passes over the same row set, i.e. up to three dead tuples
+    # per row per rulebook edit; now it is one read + one write pass.
+    {demoted, staled, flagged} =
+      Repo.one(
         from(q in QuestionLog,
-          where:
-            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
-              q.stale == false
-        ),
-        set: [stale: true]
-      )
+          where: ^scope,
+          select: {
+            filter(count(q.id), q.pooled == true),
+            filter(count(q.id), q.stale == false),
+            filter(count(q.id), q.visibility == "community" and q.needs_review == false)
+          }
+        )
+      ) || {0, 0, 0}
 
-    # Community rows also get needs_review so they leave the shared pool until
-    # a moderator re-approves them (clear_needs_review/1). Scoped to community
-    # only — same as pre-existing moderation semantics — so an ordinary user's
-    # abuse-risk score (needs_review * 2 in moderation.ex) is never inflated by
-    # a rulebook edit.
-    {flagged, _} =
-      Repo.update_all(
-        from(q in QuestionLog,
-          where:
-            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
-              q.visibility == "community" and q.needs_review == false
-        ),
-        set: [needs_review: true]
-      )
+    # Per-row truth table, identical to the old three passes:
+    #   * pooled rows are demoted silently (`pooled: false`) — they'll re-pool
+    #     on the next ask against the new text;
+    #   * every row gets `stale: true` — the content-staleness signal the
+    #     same-user cache tiers check, independent of moderation;
+    #   * community rows ALSO get `needs_review: true` so they leave the shared
+    #     pool until a moderator re-approves them (clear_needs_review/1).
+    #     Scoped to community only — same as pre-existing moderation semantics —
+    #     so an ordinary user's abuse-risk score (needs_review * 2 in
+    #     moderation.ex) is never inflated by a rulebook edit.
+    #
+    # The WHERE keeps already-settled rows (unpooled + stale + flagged-or-not-
+    # community) out of the write set, so a no-op invalidation writes nothing.
+    Repo.update_all(
+      from(q in QuestionLog,
+        where: ^scope,
+        where:
+          q.pooled == true or q.stale == false or
+            (q.visibility == "community" and q.needs_review == false),
+        update: [
+          set: [
+            pooled: false,
+            stale: true,
+            needs_review:
+              fragment(
+                "CASE WHEN ? = 'community' THEN true ELSE ? END",
+                q.visibility,
+                q.needs_review
+              )
+          ]
+        ]
+      ),
+      []
+    )
 
     # Drop cached persona restyles too — they render stale prose once the
     # underlying answer can change.
@@ -1240,6 +1348,13 @@ defmodule RuleMaven.Games do
     # House-rule RAW verdicts were computed against the old text — grey them
     # out until the owner re-checks (user-triggered, counts against quota).
     RuleMaven.HouseRules.mark_stale_for_game(game_id)
+
+    # Rulebook content changed, so the cached corpus size (chunk count/chars
+    # behind the small-corpus retrieval boost) is stale. Keys are game-id SETS
+    # (base + expansions in any combination), so targeted invalidation would
+    # have to enumerate every set containing this game — the table is tiny,
+    # drop it whole.
+    RuleMaven.CorpusCache.invalidate_all()
 
     demoted + staled + flagged
   end
@@ -1675,15 +1790,26 @@ defmodule RuleMaven.Games do
   Returns the number of documents processed.
   """
   def rechunk_all_documents do
-    docs = Repo.all(Document)
-    Enum.each(docs, &chunk_document/1)
+    # Ops path over the whole corpus: `Repo.all(Document)` would hold every
+    # rulebook's pages + full_text in memory at once. Walk ids instead and load
+    # one full document at a time.
+    ids_and_games =
+      Repo.all(from d in Document, select: {d.id, d.game_id}, order_by: d.id)
 
-    docs
-    |> Enum.map(& &1.game_id)
+    Enum.each(ids_and_games, fn {id, _game_id} ->
+      case Repo.get(Document, id) do
+        # Deleted mid-run — skip.
+        nil -> :ok
+        doc -> chunk_document(doc)
+      end
+    end)
+
+    ids_and_games
+    |> Enum.map(&elem(&1, 1))
     |> Enum.uniq()
     |> Enum.each(&invalidate_pool/1)
 
-    length(docs)
+    length(ids_and_games)
   end
 
   @doc_job_workers ~w(RuleMaven.Workers.CleanupWorker RuleMaven.Workers.CheatSheetWorker)
@@ -1702,8 +1828,8 @@ defmodule RuleMaven.Games do
 
   defp remove_document_files(doc) do
     for path <- [doc.pdf_path, doc.html_path], is_binary(path) and path != "" do
-      :rule_maven
-      |> Application.app_dir("priv/static/#{path}")
+      path
+      |> RuleMaven.Uploads.resolve()
       |> File.rm()
     end
   end
@@ -1729,35 +1855,79 @@ defmodule RuleMaven.Games do
   @cleanup_active_states ~w(available scheduled executing retryable suspended)
 
   @doc """
-  Persist one page's cleaned text into the document's embedded pages and refresh
-  the derived `full_text`. Reloads the document each call so concurrent per-page
-  writes from the cleanup worker accumulate correctly on the embeds_many column.
-  Does NOT re-chunk (the worker chunks once at the end).
+  Persist one page's cleaned text into the document's embedded pages. Reloads
+  the document under a row lock each call so concurrent per-page writes (the
+  cleanup worker vs. a single-page re-extract) accumulate correctly on the
+  embeds_many column. Does NOT re-chunk (the worker chunks once at the end).
+
+  Deliberately does NOT rebuild the derived `full_text` — doing that per page
+  made a full cleanup run O(pages × book) in both regex CPU and row I/O.
+  Callers that clean pages in bulk must call `refresh_full_text/1` when done
+  (the cleanup worker does, periodically and at end of run); `full_text` is
+  therefore allowed to lag the pages by a bounded window during a run.
+  A write is skipped entirely when the page is missing or already carries
+  exactly this cleaned text + defects verdict (idempotent re-runs are free).
   """
   def set_page_cleaned(doc_id, index, cleaned, defects \\ nil) do
     Repo.transaction(fn ->
       doc = lock_document!(doc_id)
+      page = Enum.find(doc.pages, &(&1.index == index))
 
-      pages =
-        Enum.map(doc.pages, fn p ->
-          attrs = page_attrs(p)
+      cond do
+        is_nil(page) ->
+          doc
 
-          cond do
-            p.index != index -> attrs
-            # A defects list (possibly empty) is the cleanup critic's verdict for
-            # this pass — it replaces whatever was recorded before, so a faithful
-            # re-clean un-flags the page. `nil` (manual edits) leaves it alone.
-            is_list(defects) -> %{attrs | cleaned: cleaned, cleanup_defects: defects}
-            true -> %{attrs | cleaned: cleaned}
+        page.cleaned == cleaned and (not is_list(defects) or page.cleanup_defects == defects) ->
+          doc
+
+        true ->
+          pages =
+            Enum.map(doc.pages, fn p ->
+              attrs = page_attrs(p)
+
+              cond do
+                p.index != index -> attrs
+                # A defects list (possibly empty) is the cleanup critic's verdict for
+                # this pass — it replaces whatever was recorded before, so a faithful
+                # re-clean un-flags the page. `nil` (manual edits) leaves it alone.
+                is_list(defects) -> %{attrs | cleaned: cleaned, cleanup_defects: defects}
+                true -> %{attrs | cleaned: cleaned}
+              end
+            end)
+
+          case doc
+               |> Document.changeset(%{pages: pages})
+               |> Repo.update() do
+            {:ok, updated} -> updated
+            {:error, changeset} -> Repo.rollback(changeset)
           end
-        end)
-
-      case doc
-           |> Document.changeset(%{pages: pages, full_text: rebuild_full_text(pages)})
-           |> Repo.update() do
-        {:ok, updated} -> updated
-        {:error, changeset} -> Repo.rollback(changeset)
       end
+    end)
+  end
+
+  @doc """
+  Rebuilds the derived `full_text` blob from the document's *current* pages and
+  persists it when it changed. Row-locked so the read can't interleave with a
+  concurrent per-page write (`set_page_cleaned/4`, `replace_page/3`).
+
+  Companion to `set_page_cleaned/4`, which no longer refreshes `full_text` per
+  page: bulk cleaners call this every few pages and once at end of run, so
+  `full_text` consumers (cheat sheets, suggestions, `document_full_text/1`)
+  never see it lag by more than that window.
+  """
+  def refresh_full_text(doc_id) do
+    Repo.transaction(fn ->
+      doc = lock_document!(doc_id)
+      text = rebuild_full_text(doc.pages)
+
+      if text != doc.full_text do
+        Repo.update_all(
+          from(d in Document, where: d.id == ^doc_id),
+          set: [full_text: text, updated_at: DateTime.utc_now() |> DateTime.truncate(:second)]
+        )
+      end
+
+      :ok
     end)
   end
 
@@ -2003,14 +2173,22 @@ defmodule RuleMaven.Games do
   # the user shouldn't pay quota for our errors, and a *deleted* error row
   # can't be used to launder a successful ask, since the ids differ.
   def recent_question_count(user_id, since) do
-    failed_ids =
-      from(q in QuestionLog, where: not is_nil(q.error_kind), select: q.id)
-
+    # "Not in the failed set" as a LEFT JOIN anti-join: join each ask call to
+    # its question row ONLY when that row is a failure (error_kind set), then
+    # keep the calls with no such match. Equivalent to the previous
+    # `not in subquery(all failed ids)` — including the two edge cases that
+    # matter: a deleted question (no row at all → no join match → counts) and
+    # a nil question_log_id (excluded by the not-is_nil filter, same as
+    # before) — but without materializing every failed id table-wide 3× per
+    # ask inside the per-user advisory lock. Served by the partial index
+    # questions_log_failed_ids_idx.
     Repo.one(
       from(l in RuleMaven.LLM.Log,
+        left_join: q in QuestionLog,
+        on: q.id == l.question_log_id and not is_nil(q.error_kind),
         where:
           l.user_id == ^user_id and l.operation == "ask" and l.inserted_at >= ^since and
-            not is_nil(l.question_log_id) and l.question_log_id not in subquery(failed_ids),
+            not is_nil(l.question_log_id) and is_nil(q.id),
         select: count(l.question_log_id, :distinct)
       )
     ) || 0
@@ -2427,6 +2605,19 @@ defmodule RuleMaven.Games do
     end
   end
 
+  # List/browse queries return QuestionLog structs minus the two wide columns
+  # no list surface renders: `question_embedding` (a ~6-12KB pgvector) and
+  # `raw_response` (the full LLM JSON envelope). Loading them for a 50-200 row
+  # page pulls hundreds of KB per mount just to discard it. Action paths
+  # (verify, vote, delete, HR overlay) all re-fetch the full row by id, so a
+  # stripped struct never reaches code that needs those fields.
+  @question_wide_fields [:question_embedding, :raw_response]
+  @question_list_fields QuestionLog.__schema__(:fields) -- @question_wide_fields
+  # `recent_questions/3` feeds the chat conversation, whose self/admin debug
+  # view renders `raw_response` (own_raw_response/2 in GameLive.Show) — that
+  # query keeps raw_response and drops only the embedding.
+  @question_feed_fields QuestionLog.__schema__(:fields) -- [:question_embedding]
+
   def faq_questions(%Game{} = game, limit \\ 200) do
     Repo.all(
       from q in QuestionLog,
@@ -2434,7 +2625,8 @@ defmodule RuleMaven.Games do
           q.game_id == ^game.id and q.visibility == "community" and q.refused == false and
             q.needs_review == false,
         order_by: [desc: q.inserted_at],
-        limit: ^limit
+        limit: ^limit,
+        select: struct(q, ^@question_list_fields)
     )
   end
 
@@ -2460,7 +2652,8 @@ defmodule RuleMaven.Games do
             q.stale == false and is_nil(q.error_kind) and is_nil(q.pool_source_id) and
             q.trust_score > -1.0,
         order_by: [desc: q.trust_score, desc: q.inserted_at],
-        limit: ^limit
+        limit: ^limit,
+        select: struct(q, ^@question_list_fields)
     )
   end
 
@@ -2541,12 +2734,18 @@ defmodule RuleMaven.Games do
       # The group feed: every question asked with this group active, for this
       # game, newest first, attributed. Scoped by game+group so one group's
       # rows never leak into another group's (or another game's) feed.
+      # List fields, not feed fields: the group feed renders question + answer
+      # summaries only (ToolPanel's :group_feed clause) and never reaches the
+      # raw_response debug view (`own_raw_response/2` consumes the MAIN branch
+      # below via load_conversation), so hauling the full LLM JSON envelope
+      # per row was pure waste.
       query =
         from q in QuestionLog,
           where: q.game_id == ^game.id and q.group_id == ^group_id,
           where: q.refused == false and q.blocked == false,
           order_by: [desc: q.inserted_at],
-          preload: [:user]
+          preload: [:user],
+          select: struct(q, ^@question_list_fields)
 
       query = if limit, do: from(q in query, limit: ^limit), else: query
 
@@ -2559,7 +2758,8 @@ defmodule RuleMaven.Games do
         from q in QuestionLog,
           where: q.game_id == ^game.id,
           order_by: [desc: q.inserted_at],
-          preload: [:user]
+          preload: [:user],
+          select: struct(q, ^@question_feed_fields)
 
       base = if id, do: from(q in base, where: q.id == ^id), else: base
       base = if limit, do: from(q in base, limit: ^limit), else: base
@@ -2606,7 +2806,8 @@ defmodule RuleMaven.Games do
     query =
       from q in base_question_query(),
         limit: ^limit,
-        preload: [:game, :user]
+        preload: [:game, :user],
+        select: struct(q, ^@question_list_fields)
 
     query =
       if game_id, do: from(q in query, where: q.game_id == ^game_id), else: query
@@ -2689,7 +2890,8 @@ defmodule RuleMaven.Games do
         where: q.visibility == "community",
         where: q.refused == false,
         order_by: [desc: q.inserted_at],
-        limit: 50
+        limit: 50,
+        select: struct(q, ^@question_list_fields)
 
     query =
       if exclude_user_id do
@@ -2710,7 +2912,8 @@ defmodule RuleMaven.Games do
         where: q.game_id == ^game.id,
         where: q.refused == true,
         order_by: [desc: q.inserted_at],
-        limit: 50
+        limit: 50,
+        select: struct(q, ^@question_list_fields)
 
     query =
       if user_id do
@@ -2759,33 +2962,71 @@ defmodule RuleMaven.Games do
     active_group_id = Keyword.get(opts, :active_group_id)
     vec = Pgvector.new(question_embedding)
 
-    # Callers must have ALREADY verified the acting user is a member of
-    # `active_group_id` (see `RuleMaven.Groups.member_of_group_id?/2`) before
-    # this opt reaches here — this function trusts it blindly and widens the
-    # candidate set to that group's rows. This is a READ-only widening: it
-    # never sets `pooled` or `visibility`, so a group row is not promoted
-    # into the community pool by being served this way.
-    visibility_filter =
-      if active_group_id do
-        dynamic(
-          [q],
-          # The crew's private cache carries the SAME grounded-citation gate as
-          # the other two branches. `mark_pooled/1` refuses to pool an answer
-          # whose citation isn't grounded because that is the system's own signal
-          # that it may be hallucinated — and re-serving it as a cache hit is
-          # precisely what that gate exists to prevent. A crew got no such
-          # protection: its ungrounded answers were cached and re-served to every
-          # member indefinitely, labelled as a hit rather than re-asked.
-          q.pooled == true or (q.visibility == "community" and q.citation_valid == true) or
-            (q.group_id == ^active_group_id and q.citation_valid == true)
-        )
-      else
-        dynamic(
-          [q],
-          q.pooled == true or (q.visibility == "community" and q.citation_valid == true)
-        )
-      end
+    # Pooled rows passed the grounded-citation gate in `mark_pooled/1`.
+    # Community rows normally imply `pooled` (promotion sets both); the
+    # visibility-only branch exists for legacy rows, so it must carry the
+    # citation gate itself — otherwise a row that skipped `mark_pooled`
+    # would serve cross-user ungated.
+    #
+    # This predicate implies the partial HNSW index predicate on
+    # `idx_questions_log_pool_embedding_hnsw` (`pooled OR visibility =
+    # 'community'`, migration 20260709120000), so the planner searches only
+    # servable rows. That is why the group widening below is a SEPARATE query
+    # rather than a third OR-disjunct here: `A OR (B AND C) OR (D AND E)`
+    # implies NEITHER partial index predicate, so the single-query form fell
+    # back to walking the GLOBAL hnsw graph — the exact silent-recall-loss
+    # failure mode the 20260711220000 migration moduledoc describes.
+    pool_filter =
+      dynamic(
+        [q],
+        q.pooled == true or (q.visibility == "community" and q.citation_valid == true)
+      )
 
+    pool_rows = pool_candidate_rows(game_id, expansion_ids, vec, threshold, limit, pool_filter)
+
+    if active_group_id do
+      # Callers must have ALREADY verified the acting user is a member of
+      # `active_group_id` (see `RuleMaven.Groups.member_of_group_id?/2`) before
+      # this opt reaches here — this function trusts it blindly and widens the
+      # candidate set to that group's rows. This is a READ-only widening: it
+      # never sets `pooled` or `visibility`, so a group row is not promoted
+      # into the community pool by being served this way.
+      #
+      # The crew's private cache carries the SAME grounded-citation gate as
+      # the pool branches. `mark_pooled/1` refuses to pool an answer whose
+      # citation isn't grounded because that is the system's own signal that
+      # it may be hallucinated — and re-serving it as a cache hit is precisely
+      # what that gate exists to prevent. A crew got no such protection: its
+      # ungrounded answers were cached and re-served to every member
+      # indefinitely, labelled as a hit rather than re-asked.
+      #
+      # This predicate (plus the shared embedding-not-null / refused filters
+      # in `pool_candidate_rows/6`) implies `idx_questions_log_group_pool_hnsw`
+      # (migration 20260711220000), so the crew search walks only crew rows.
+      group_filter =
+        dynamic([q], q.group_id == ^active_group_id and q.citation_valid == true)
+
+      group_rows =
+        pool_candidate_rows(game_id, expansion_ids, vec, threshold, limit, group_filter)
+
+      # Merge the two index-served candidate sets in Elixir: a group row that
+      # is ALSO pooled appears in both (same row, same distance — either copy
+      # is fine), then nearest-first, capped at `limit` like the single-query
+      # form was.
+      (pool_rows ++ group_rows)
+      |> Enum.uniq_by(fn {row, _sim} -> row.id end)
+      |> Enum.sort_by(fn {_row, sim} -> sim end, :desc)
+      |> Enum.take(limit)
+    else
+      pool_rows
+    end
+  end
+
+  # One eligibility branch of `find_pool_candidates/3`: nearest-first within
+  # the distance threshold, LIMIT-ed so pgvector can serve it from the matching
+  # partial HNSW index. Every non-eligibility guard (expansion set, staleness,
+  # review, failure) applies identically to both branches.
+  defp pool_candidate_rows(game_id, expansion_ids, vec, threshold, limit, eligibility_filter) do
     Repo.all(
       from q in QuestionLog,
         where: q.game_id == ^game_id,
@@ -2793,15 +3034,7 @@ defmodule RuleMaven.Games do
         # expansions change rules, so a base-only answer can be wrong with
         # an expansion in play (and vice versa).
         where: q.expansion_ids == ^expansion_ids,
-        # Pooled rows passed the grounded-citation gate in `mark_pooled/1`.
-        # Community rows normally imply `pooled` (promotion sets both); the
-        # visibility-only branch exists for legacy rows, so it must carry the
-        # citation gate itself — otherwise a row that skipped `mark_pooled`
-        # would serve cross-user ungated. When `active_group_id` is set (and
-        # already membership-checked by the caller), a third branch widens
-        # this to the group's own rows — a private group cache, subject to
-        # every guard below just like the other branches.
-        where: ^visibility_filter,
+        where: ^eligibility_filter,
         where: not is_nil(q.question_embedding),
         where: q.refused == false,
         # Skip answers flagged stale by a rulebook change until re-approved.
@@ -2846,23 +3079,51 @@ defmodule RuleMaven.Games do
   Picks the winner from `find_pool_candidates/3` output: trusted-first, then
   trust_score, then similarity. Returns `{row, tier}` or nil.
 
-  `pool_tier/2` runs a quorum query per row, so it is only ever called on the
-  rows this function actually compares — not on every candidate.
+  The quorum count behind the tier label is batched: one grouped query over
+  exactly the candidates whose tier can depend on it, instead of `pool_tier/2`
+  running a per-row count query for each candidate.
   """
   def best_by_trust(candidates, floor \\ nil)
   def best_by_trust([], _floor), do: nil
 
   def best_by_trust(candidates, floor) do
     floor = floor || RuleMaven.Games.Trust.trusted_floor()
+    quorum = RuleMaven.Games.Trust.promotion_quorum()
+
+    # Quorum only decides the tier for rows that would earn :trusted by votes:
+    # community/verified rows are unconditionally trusted and below-floor rows
+    # are provisional regardless of voters — same short-circuits as
+    # `pool_tier/2`, just partitioned up front so ONE grouped query covers the
+    # remainder.
+    needing_quorum =
+      for {row, _sim} <- candidates,
+          row.visibility != "community" and row.verified != true and
+            (row.trust_score || 0.0) >= floor,
+          do: row
+
+    counts = RuleMaven.Games.Trust.eligible_voter_counts(needing_quorum)
 
     {row, _sim, tier} =
       candidates
-      |> Enum.map(fn {row, sim} -> {row, sim, pool_tier(row, floor)} end)
+      |> Enum.map(fn {row, sim} ->
+        {row, sim, pool_tier_with_quorum(row, floor, Map.get(counts, row.id, 0), quorum)}
+      end)
       |> Enum.max_by(fn {row, sim, tier} ->
         {if(tier == :trusted, do: 1, else: 0), row.trust_score || 0.0, sim}
       end)
 
     {row, tier}
+  end
+
+  # `pool_tier/2` with the voter count precomputed (see `best_by_trust/2`).
+  # Must classify EXACTLY like `pool_tier/2` — single-row callers stay on that
+  # path, so the two must never disagree.
+  defp pool_tier_with_quorum(%QuestionLog{} = q, floor, eligible_voters, quorum) do
+    cond do
+      q.visibility == "community" or q.verified -> :trusted
+      (q.trust_score || 0.0) >= floor and eligible_voters >= quorum -> :trusted
+      true -> :provisional
+    end
   end
 
   @doc """
@@ -4050,23 +4311,45 @@ defmodule RuleMaven.Games do
 
   defp maybe_expand_to_small_corpus(limit, game_ids, opts) do
     if Keyword.get(opts, :small_corpus_boost, false) do
-      %{count: count, chars: chars} =
-        Repo.one(
-          from c in Chunk,
-            join: d in Document,
-            on: c.document_id == d.id,
-            where: d.game_id in ^game_ids and d.status == "published" and not is_nil(c.embedding),
-            select: %{
-              count: count(c.id),
-              chars: coalesce(sum(fragment("length(?)", c.content)), 0)
-            }
-        )
+      {count, chars} = corpus_size(game_ids)
 
       if count <= @small_corpus_max_chunks and chars <= @small_corpus_char_budget,
         do: max(limit, count),
         else: limit
     else
       limit
+    end
+  end
+
+  # Chunk count + total content chars for a game set, read through
+  # `RuleMaven.CorpusCache` — this aggregate scans every published chunk for
+  # the game set and used to run on EVERY fresh ask. The corpus only changes
+  # on document publish/edit/delete, all of which funnel through
+  # `invalidate_pool/1` (which flushes the cache); a 5-minute TTL backstops
+  # any missed path.
+  defp corpus_size(game_ids) do
+    key = Enum.sort(game_ids)
+
+    case RuleMaven.CorpusCache.get(key) do
+      {:ok, {count, chars}} ->
+        {count, chars}
+
+      :miss ->
+        %{count: count, chars: chars} =
+          Repo.one(
+            from c in Chunk,
+              join: d in Document,
+              on: c.document_id == d.id,
+              where:
+                d.game_id in ^game_ids and d.status == "published" and not is_nil(c.embedding),
+              select: %{
+                count: count(c.id),
+                chars: coalesce(sum(fragment("length(?)", c.content)), 0)
+              }
+          )
+
+        RuleMaven.CorpusCache.put(key, {count, chars})
+        {count, chars}
     end
   end
 
@@ -4147,30 +4430,27 @@ defmodule RuleMaven.Games do
     relevance_score(content, question_words) >= @lexical_rescue_min_overlap
   end
 
+  # How many FTS-ranked rows to pull back for exact re-scoring. Scoring used
+  # to load EVERY published chunk into Elixir; now Postgres pre-ranks by
+  # ts_rank (index-served via chunks_content_fts_idx) and only this many
+  # candidates cross the wire. The overlap floor is still enforced by
+  # re-scoring the returned rows with `relevance_score/2`, so the gating
+  # semantics (>= @lexical_rescue_min_overlap exact-token overlaps) are
+  # unchanged — FTS only narrows WHICH rows get scored, and any chunk with
+  # enough overlapping words necessarily matches the OR-of-words tsquery.
+  # 30, not 10: ts_rank orders by normalized term frequency, not by exact
+  # distinct-word overlap, so the true best-overlap chunk (what
+  # `relevance_score/2` measures) can rank below the top 10 behind chunks that
+  # repeat one query term densely. Re-scoring stays cheap at this size.
+  @lexical_candidate_pool 30
+
   defp best_lexical_candidate(game_ids, question_words, already_kept) do
     kept_ids = MapSet.new(already_kept, & &1.id)
 
     candidate =
-      Repo.all(
-        from c in Chunk,
-          join: d in Document,
-          on: c.document_id == d.id,
-          join: g in Game,
-          on: g.id == d.game_id,
-          # Taken-down games (base or expansion) must never be retrieved from.
-          where: d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
-          select: %{
-            id: c.id,
-            content: c.content,
-            section_label: c.section_label,
-            references_section: c.references_section,
-            document_id: d.id,
-            label: d.label,
-            kind: d.kind,
-            game_id: d.game_id,
-            game_name: g.name
-          }
-      )
+      game_ids
+      |> lexical_candidates_query(question_words, @lexical_candidate_pool + MapSet.size(kept_ids))
+      |> Repo.all()
       |> Enum.reject(&MapSet.member?(kept_ids, &1.id))
       |> Enum.map(fn c -> {relevance_score(c.content, question_words), c} end)
       |> Enum.max_by(&elem(&1, 0), fn -> {0, nil} end)
@@ -4179,6 +4459,53 @@ defmodule RuleMaven.Games do
       {score, chunk} when score >= @lexical_rescue_min_overlap -> chunk
       _ -> nil
     end
+  end
+
+  # Published chunks matching ANY of `question_words`, best ts_rank first.
+  # The words are OR-ed (`a | b | c`) — plainto_tsquery would AND them, which
+  # is stricter than the "N overlapping words" floor this feeds. Tokens come
+  # from `tokenize/1` ([a-z0-9]{2,} only), so interpolating them into a
+  # to_tsquery string is safe. The to_tsvector expression must stay verbatim
+  # identical to the chunks_content_fts_idx index expression to be
+  # index-served. A query made entirely of FTS stopwords yields an empty
+  # tsquery that matches nothing — callers already treat "no candidates" as
+  # "no lexical hit", same as a zero overlap score.
+  defp lexical_candidates_query(game_ids, question_words, limit) do
+    tsquery = Enum.join(question_words, " | ")
+
+    from c in Chunk,
+      join: d in Document,
+      on: c.document_id == d.id,
+      join: g in Game,
+      on: g.id == d.game_id,
+      # Taken-down games (base or expansion) must never be retrieved from.
+      where: d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
+      where:
+        fragment(
+          "to_tsvector('english', ?) @@ to_tsquery('english', ?)",
+          c.content,
+          ^tsquery
+        ),
+      order_by: [
+        desc:
+          fragment(
+            "ts_rank(to_tsvector('english', ?), to_tsquery('english', ?))",
+            c.content,
+            ^tsquery
+          )
+      ],
+      limit: ^limit,
+      select: %{
+        id: c.id,
+        content: c.content,
+        section_label: c.section_label,
+        references_section: c.references_section,
+        document_id: d.id,
+        label: d.label,
+        kind: d.kind,
+        game_id: d.game_id,
+        game_name: g.name
+      }
   end
 
   # Authority (errata > faq > rulebook > …) and base-game scope still decide the
@@ -4272,48 +4599,28 @@ defmodule RuleMaven.Games do
   end
 
   defp keyword_retrieve_multi(game_ids, question, limit) do
-    chunks =
-      Repo.all(
-        from c in Chunk,
-          join: d in Document,
-          on: c.document_id == d.id,
-          join: g in Game,
-          on: g.id == d.game_id,
-          # Taken-down games (base or expansion) must never be retrieved from.
-          where: d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
-          select: %{
-            id: c.id,
-            content: c.content,
-            section_label: c.section_label,
-            references_section: c.references_section,
-            document_id: d.id,
-            label: d.label,
-            kind: d.kind,
-            game_id: d.game_id,
-            game_name: g.name
-          }
-      )
+    # Postgres ranks the keyword overlap (ts_rank over the GIN-indexed
+    # tsvector) instead of loading every published chunk into Elixir and
+    # scoring word overlap per ask. Every returned row matches at least one
+    # question word, which is the same "some lexical overlap" bar the old
+    # all-scores-zero check enforced; an empty result therefore collapses the
+    # old two fallback triggers (no published chunks at all / no chunk shares
+    # any word) into one, both landing on the full-text fallback as before.
+    top_chunks =
+      case tokenize(question) do
+        [] ->
+          []
 
-    if chunks == [] do
+        question_words ->
+          game_ids
+          |> lexical_candidates_query(question_words, limit)
+          |> Repo.all()
+      end
+
+    if top_chunks == [] do
       published_full_text_fallback(game_ids)
     else
-      question_words = tokenize(question)
-
-      scored =
-        chunks
-        |> Enum.map(fn chunk ->
-          score = relevance_score(chunk.content, question_words)
-          {score, chunk}
-        end)
-        |> Enum.sort_by(&elem(&1, 0), :desc)
-        |> Enum.take(limit)
-
-      if Enum.all?(scored, fn {score, _} -> score == 0 end) do
-        published_full_text_fallback(game_ids)
-      else
-        top_chunks = Enum.map(scored, fn {_, c} -> c end)
-        top_chunks |> pull_referenced_chunks(game_ids)
-      end
+      pull_referenced_chunks(top_chunks, game_ids)
     end
   end
 
@@ -4508,8 +4815,13 @@ defmodule RuleMaven.Games do
   call — so it is cheap enough to run inline over a whole game.
 
   Returns `{:ok, tag_count}`, or `:skipped` when the question has no embedding.
+
+  Opts: `broadcast: false` suppresses the per-question `{:question_tagged, id}`
+  PubSub message — used by `retag_all_questions/1`, which otherwise fires one
+  game-wide broadcast per historical question and every open LiveView on the
+  game re-queries its category pills once per message.
   """
-  def tag_question(question_log_id, game_id) do
+  def tag_question(question_log_id, game_id, opts \\ []) do
     q = Repo.get(QuestionLog, question_log_id)
 
     # Rows are deleted as NORMAL flow (resubmit replaces the row; AskWorker
@@ -4556,11 +4868,13 @@ defmodule RuleMaven.Games do
         end)
 
         # Let an open Q&A page show the new pills without a remount.
-        Phoenix.PubSub.broadcast(
-          RuleMaven.PubSub,
-          "game:#{game_id}",
-          {:question_tagged, question_log_id}
-        )
+        if Keyword.get(opts, :broadcast, true) do
+          Phoenix.PubSub.broadcast(
+            RuleMaven.PubSub,
+            "game:#{game_id}",
+            {:question_tagged, question_log_id}
+          )
+        end
 
         {:ok, length(matches)}
     end
@@ -4586,9 +4900,15 @@ defmodule RuleMaven.Games do
           select: q.id
       )
 
+    # `broadcast: false`: firing `{:question_tagged, id}` once per historical
+    # question storms every LiveView subscribed to the game topic. No summary
+    # broadcast replaces it — GameLive.Show's handle_info has NO catch-all
+    # clause, so any new message shape would crash open LiveViews until a
+    # handler ships. Open pages simply pick up the new tags on their next
+    # categories_for_questions load.
     tagged =
       Enum.count(ids, fn id ->
-        match?({:ok, n} when n > 0, tag_question(id, game.id))
+        match?({:ok, n} when n > 0, tag_question(id, game.id, broadcast: false))
       end)
 
     {tagged, length(ids)}
@@ -4631,7 +4951,16 @@ defmodule RuleMaven.Games do
   end
 
   def set_community_vote(question_log_id, user_id, value, admin? \\ false) do
-    q = Repo.get(QuestionLog, question_log_id)
+    # Narrow fetch: the vote flow reads flags + ownership only (votable?,
+    # self-vote checks, recompute_trust's citation_valid/verified), never the
+    # question_embedding or raw_response — pulling those loaded ~10KB per
+    # thumb click just to discard it.
+    q =
+      Repo.one(
+        from qq in QuestionLog,
+          where: qq.id == ^question_log_id,
+          select: struct(qq, ^@question_list_fields)
+      )
 
     cond do
       # Reject unknown values up front: do_set_community_vote uses insert!/update!,
@@ -4768,44 +5097,71 @@ defmodule RuleMaven.Games do
       end
 
     # Recompute the row's trust_score and the answer author's reputation so
-    # ranking/promotion react immediately.
-    if q = Repo.get(QuestionLog, question_log_id) do
-      RuleMaven.Games.Trust.recompute_trust(q)
-      if q.user_id, do: RuleMaven.Games.Trust.recompute_reputation(q.user_id)
-    end
+    # ranking/promotion react immediately. The vote writes above never touch
+    # questions_log columns, so the struct we already hold is current for the
+    # fields recompute_trust reads (id, citation_valid, verified) — no re-fetch
+    # (which used to pull the embedding + raw_response a second time). If the
+    # row was deleted concurrently, recompute_trust's update_all matches zero
+    # rows and recompute_reputation just recounts the author's surviving rows —
+    # both harmless.
+    RuleMaven.Games.Trust.recompute_trust(q)
+    if q.user_id, do: RuleMaven.Games.Trust.recompute_reputation(q.user_id)
 
     result
   end
 
+  def community_vote_maps([], _user_id), do: {%{}, %{}, MapSet.new()}
+
   def community_vote_maps(question_log_ids, user_id) do
+    # Aggregated in SQL: this used to pull EVERY raw vote tuple for up to a few
+    # hundred questions into Elixir and fold them — re-run on every vote click.
+    # Now three narrow queries return only the aggregates/matches themselves.
+    #
     # The asker's own "up" counts in the displayed tally like any other vote
     # (clicking the thumb must visibly increment it) — asker_confirmed just
     # annotates which rows include one, rendered as an "✓ asker" badge. Weight
     # stays 0, so trust/reputation/quorum ignore it either way.
-    all_votes =
+    counts =
+      Repo.all(
+        from v in QuestionVote,
+          where: v.question_log_id in ^question_log_ids,
+          group_by: [v.question_log_id, v.value],
+          select: {v.question_log_id, v.value, count(v.id)}
+      )
+      |> Enum.reduce(%{}, fn {id, value, n}, acc ->
+        key = if value == "up", do: :up, else: :down
+
+        acc
+        |> Map.put_new(id, %{up: 0, down: 0})
+        |> put_in([id, key], n)
+      end)
+
+    # The viewer's own vote per row. `user_id` can only be nil for surfaces
+    # without a signed-in viewer, where the old tuple scan matched nothing —
+    # keep that shape without emitting a `= NULL` comparison.
+    user_votes =
+      if is_nil(user_id) do
+        %{}
+      else
+        Repo.all(
+          from v in QuestionVote,
+            where: v.question_log_id in ^question_log_ids and v.user_id == ^user_id,
+            select: {v.question_log_id, v.value}
+        )
+        |> Map.new()
+      end
+
+    asker_confirmed =
       Repo.all(
         from v in QuestionVote,
           join: q in QuestionLog,
           on: q.id == v.question_log_id,
           where: v.question_log_id in ^question_log_ids,
-          select: {v.question_log_id, v.user_id, v.value, q.user_id}
+          where: v.value == "up",
+          where: not is_nil(q.user_id) and v.user_id == q.user_id,
+          select: v.question_log_id
       )
-
-    counts =
-      Enum.reduce(all_votes, %{}, fn {id, _uid, value, _author_id}, acc ->
-        acc
-        |> Map.update(id, %{up: 0, down: 0}, & &1)
-        |> update_in([id, String.to_atom(value)], &(&1 + 1))
-      end)
-
-    user_votes =
-      for {id, uid, value, _author_id} <- all_votes, uid == user_id, into: %{}, do: {id, value}
-
-    asker_confirmed =
-      for {id, uid, "up", author_id} <- all_votes,
-          not is_nil(author_id) and uid == author_id,
-          into: MapSet.new(),
-          do: id
+      |> MapSet.new()
 
     {counts, user_votes, asker_confirmed}
   end
