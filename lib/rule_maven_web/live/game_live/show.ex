@@ -3597,13 +3597,47 @@ defmodule RuleMavenWeb.GameLive.Show do
         <!-- Restores the saved default voice from localStorage on connect. -->
         <div id="voice-default-store" phx-hook="VoiceDefault" style="display:none"></div>
 
-        <!-- Messages -->
+        <!-- Row 1: question chip (fixed, never scrolls) -->
+        <%= if @conversation != [] && @qa_active_question do %>
+          <div class="qa-chip">
+            <button
+              type="button"
+              class="qa-chip__pager"
+              phx-click="qa_prev"
+              disabled={@qa_active_index <= 0}
+              aria-label="Previous question"
+            >◂</button>
+            <span
+              class="qa-chip__text"
+              phx-click="qa_show_question"
+              title="Show full question"
+            >{@qa_active_question}</span>
+            <span class="qa-chip__pager">{@qa_active_index + 1} / {@qa_total}</span>
+            <button
+              type="button"
+              class="qa-chip__pager"
+              phx-click="qa_next"
+              disabled={@qa_active_index >= @qa_total - 1}
+              aria-label="Next question"
+            >▸</button>
+          </div>
+        <% end %>
+
+        <!-- Row 2: the ONE scroll region -->
         <div
           id="chat-messages"
-          class="chat-messages"
-          style="flex:1;overflow-y:auto;overflow-x:hidden;padding:1rem;display:flex;flex-direction:column;gap:1rem;background:var(--bg);max-width:48rem;margin:0 auto;width:100%;min-width:0;position:relative;z-index:1"
-          phx-hook="ChatScroll"
+          class="answer-pane"
+          data-answer-key={"#{@active_thread_id}-#{@qa_active_index}"}
+          phx-hook="AnswerPane"
         >
+          <%= if @qa_show_question do %>
+            <div class="qa-overlay" phx-click="qa_hide_question">
+              <div class="qa-overlay__sheet" phx-click="ignore">
+                {@qa_active_question}
+              </div>
+            </div>
+          <% end %>
+
           <%= if @source_count == 0 do %>
             <div class="text-center text-gray-400 py-8">
               <p class="text-sm">No rulebook sources yet.</p>
