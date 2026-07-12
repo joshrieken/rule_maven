@@ -45,7 +45,8 @@ defmodule RuleMaven.Workers.SettleVotesWorkerTest do
         question: "Worker Q?",
         answer: "A.",
         user_id: author.id,
-        pooled: true
+        pooled: true,
+        browsable: true
       })
 
     Games.set_community_vote(q.id, voter.id, "up")
@@ -93,7 +94,8 @@ defmodule RuleMaven.Workers.SettleVotesWorkerTest do
         question: "V?",
         answer: "A.",
         user_id: author.id,
-        pooled: true
+        pooled: true,
+        browsable: true
       })
 
     {:ok, _} = Games.toggle_verified(q)
@@ -137,6 +139,7 @@ defmodule RuleMaven.Workers.SettleVotesWorkerTest do
         answer: "A.",
         user_id: author.id,
         pooled: true,
+        browsable: true,
         visibility: "private"
       })
 

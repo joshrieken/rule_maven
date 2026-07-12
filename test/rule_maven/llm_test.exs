@@ -1009,7 +1009,8 @@ defmodule RuleMaven.LLMTest do
         cleaned_question: "What is the maximum number of players?",
         answer: "5",
         visibility: "private",
-        pooled: true
+        pooled: true,
+        browsable: true
       })
 
       test_pid = self()
@@ -1207,7 +1208,8 @@ defmodule RuleMaven.LLMTest do
           question: "What is the d20 used for?",
           answer: "It resolves any check requiring a d20 roll.",
           visibility: "community",
-          citation_valid: true
+          citation_valid: true,
+          browsable: true
         })
 
       Repo.update_all(

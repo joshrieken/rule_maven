@@ -45,7 +45,8 @@ defmodule RuleMaven.FaqTest do
           question: "Pooled Q",
           answer: "A",
           visibility: "private",
-          pooled: true
+          pooled: true,
+          browsable: true
         })
 
       # Ineligible pooled rows don't count.

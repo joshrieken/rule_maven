@@ -55,6 +55,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       log(game, %{
         visibility: "community",
         verified: true,
+        browsable: true,
         question: "Verified question about scoring?",
         answer: "Score verified."
       })
@@ -62,6 +63,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
     community =
       log(game, %{
         visibility: "community",
+        browsable: true,
         question: "Community question about setup?",
         answer: "Setup community."
       })
@@ -70,6 +72,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       log(game, %{
         user_id: asker.id,
         pooled: true,
+        browsable: true,
         visibility: "private",
         question: "Unverified question about movement?",
         answer: "Move unverified."
@@ -128,6 +131,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       log(game, %{
         user_id: asker.id,
         pooled: true,
+        browsable: true,
         visibility: "private",
         question: "Only pooled question here?",
         answer: "Pooled answer."

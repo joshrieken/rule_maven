@@ -52,7 +52,8 @@ defmodule RuleMavenWeb.GameLiveRegenAuthzTest do
         question: "How do I score?",
         answer: "Count the points.",
         visibility: "community",
-        pooled: true
+        pooled: true,
+        browsable: true
       })
 
     conn = login(conn, attacker)

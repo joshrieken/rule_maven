@@ -47,7 +47,8 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
         cited_passage: "p.3",
         citation_valid: true,
         visibility: "private",
-        pooled: true
+        pooled: true,
+        browsable: true
       })
 
     Repo.update_all(
