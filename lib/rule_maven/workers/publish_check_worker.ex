@@ -1,10 +1,10 @@
 defmodule RuleMaven.Workers.PublishCheckWorker do
   @moduledoc """
-  Screens a GROUP question's scrubbed, normalized text (`cleaned_question`)
-  before it may be listed on a public browse surface (the Unverified tab,
-  community promotion).
+  Screens any row's scrubbed, normalized text (`cleaned_question`) before it may
+  be listed on a public browse surface (the Unverified tab, community
+  promotion) — solo or group, no distinction.
 
-  This worker is the GATE, not an audit. A crew row reaches it `browsable: false`
+  This worker is the GATE, not an audit. A row reaches it `browsable: false`
   AND `pooled: false`: AskWorker does not pool crew rows at all. Clearing the
   screen — an unambiguous "no" — is what sets BOTH flags, in one statement. Every
   other outcome leaves the row closed on both.
@@ -70,11 +70,11 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
     end
   end
 
-  # A crew row that is NOT YET POOLED, still unbrowsable, carries a grounded
-  # citation, and actually has cleaned text. Everything else is a no-op — including
-  # a non-group row, which this worker must never touch; a skip_normalize row, whose
-  # cleaned_question is nil; and an ungrounded-citation row, which is not fit to
-  # serve anyone and must never be published or billed for.
+  # A row (solo or group) that is NOT YET POOLED, still unbrowsable, carries a
+  # grounded citation, and actually has cleaned text. Everything else is a no-op —
+  # including a skip_normalize row, whose cleaned_question is nil, and an
+  # ungrounded-citation row, which is not fit to serve anyone and must never be
+  # published or billed for.
   #
   # `pooled: false` in the head, not `true`. This worker is the GATE into the pool
   # for a crew row, not a post-hoc audit of a row already in it: AskWorker no longer
@@ -83,14 +83,13 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
   # actually leaves the crew.
   defp screen(
          %QuestionLog{
-           group_id: gid,
            browsable: false,
            citation_valid: true,
            cleaned_question: cleaned
          } = ql,
          oban_id
        )
-       when not is_nil(gid) and is_binary(cleaned) do
+       when is_binary(cleaned) do
     cond do
       String.trim(cleaned) == "" ->
         :ok
@@ -322,21 +321,31 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
       # here is free and makes the statement self-verifying.
       screened = ql.cleaned_question
 
-      {published, _} =
-        Repo.update_all(
-          from(q in QuestionLog,
+      base_query =
+        from(q in QuestionLog,
+          where: q.id == ^ql.id,
+          where: q.browsable == false,
+          where: q.citation_valid == true,
+          where: is_nil(q.retracted_at),
+          where: q.question_normalized == true,
+          where: q.cleaned_question == ^screened
+        )
+
+      # Solo rows have no group-level consent flag to check — their only consent
+      # lever is `never_pool`, already enforced upstream in AskWorker before this
+      # worker is ever enqueued.
+      publish_query =
+        if ql.group_id do
+          from(q in base_query,
             join: g in RuleMaven.Groups.Group,
             on: g.id == q.group_id,
-            where: q.id == ^ql.id,
-            where: q.browsable == false,
-            where: q.citation_valid == true,
-            where: is_nil(q.retracted_at),
-            where: q.question_normalized == true,
-            where: q.cleaned_question == ^screened,
             where: g.contribute_to_community == true
-          ),
-          set: [browsable: true, pooled: true]
-        )
+          )
+        else
+          base_query
+        end
+
+      {published, _} = Repo.update_all(publish_query, set: [browsable: true, pooled: true])
 
       if published == 1 do
         Jobs.finish_run(run, "done", "Cleared — published.")
@@ -363,8 +372,7 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
           Repo.update_all(
             from(q in QuestionLog,
               where: q.id == ^ql.id,
-              where: q.pooled == true,
-              where: not is_nil(q.group_id)
+              where: q.pooled == true
             ),
             set: [pooled: false]
           )
