@@ -100,7 +100,7 @@ defmodule RuleMavenWeb.Tours do
         sel: nil,
         title: "Asking for your group",
         body:
-          "Join a crew and everyone in it sees your questions and answers live — and if someone already asked, the rest of the crew gets the instant cached answer. Create or join one from My Groups in your user menu; once you're in, a picker appears up here to choose who you're asking for."
+          "Join a crew and everyone in it sees your questions and answers live — and if someone already asked, the rest of the crew gets the instant cached answer. Create or join one from Groups in your user menu; once you're in, a picker appears up here to choose who you're asking for."
       },
       %{
         sel: nil,

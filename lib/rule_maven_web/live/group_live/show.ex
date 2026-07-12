@@ -244,7 +244,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
       <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.25rem">
         <h1 style="font-size:1.25rem;font-weight:800;margin:0">{@group.name}</h1>
         <.link navigate={~p"/groups"} style="font-size:0.8rem;color:var(--text-muted)">
-          ← My groups
+          ← Groups
         </.link>
       </div>
       <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 1.25rem 0">
