@@ -278,12 +278,18 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   # Same game, already loaded: a thread switch. Reuse every cached collection
-  # (grouped/threads/sources/expansions/community list + count/vote maps/
-  # favorites/flags/suggestions) and pay only for the target thread — an
-  # out-of-window ?t= fetches its single row via inject_out_of_window_thread,
-  # and the vote/favorite maps are topped up for just the newly visible
-  # conversation's ids. Mutating handlers keep the caches correct by
-  # re-assigning the same keys (incl. the :grouped cache).
+  # (grouped/threads/sources/expansions/vote maps/favorites/flags/suggestions)
+  # and pay only for the target thread — an out-of-window ?t= fetches its
+  # single row via inject_out_of_window_thread, and the vote/favorite maps are
+  # topped up for just the newly visible ids. Mutating handlers keep the
+  # caches correct by re-assigning the same keys (incl. the :grouped cache).
+  #
+  # The COMMUNITY list + count are the one exception: they change under this
+  # socket whenever anyone's ask completes (see the :ask_complete fan-out
+  # note), so they're re-fetched on every cached patch — one bounded 50-row
+  # narrow query plus one indexed count. The threads sidebar still gains
+  # community/upvoted rows only on a full reload, and flagged_ids only
+  # refreshes on full load (this socket's own reports patch it in place).
   #
   # Admin note: question_group_opts/1 depends only on is_admin (fixed at
   # mount), so the cached grouped/threads were built with the same opts every
@@ -299,9 +305,17 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     conversation = build_conversation_for_thread(grouped, active_thread_id, uid, is_admin)
 
-    # Merge vote/favorite state for JUST this conversation's rows (small
-    # indexed queries); fresher values win over the cached ones.
-    vote_ids = conversation_source_ids(conversation) ++ conversation_answer_ids(conversation)
+    # Community rail refresh — see the module note above. Newly visible
+    # community ids join the vote/favorite top-up below so their state loads
+    # with them (voting authz reads the live list via rendered_vote_ids/1).
+    community = Games.community_questions(game, uid)
+    community_count = RuleMaven.Faq.community_count(game)
+    cq_ids = Enum.map(community, & &1.id)
+
+    # Merge vote/favorite state for this conversation's rows plus the fresh
+    # community ids (small indexed queries); fresher values win over cached.
+    vote_ids =
+      cq_ids ++ conversation_source_ids(conversation) ++ conversation_answer_ids(conversation)
 
     socket =
       if vote_ids == [] do
@@ -344,6 +358,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         conversation: conversation,
         active_thread_id: active_thread_id,
         pending_count: pending_count,
+        community_questions: community,
+        community_count: community_count,
         question: ""
       )
       |> sync_ask_stream_subscriptions()
@@ -385,7 +401,12 @@ defmodule RuleMavenWeb.GameLive.Show do
     # Compute pending count from threads list
     pending_count = Enum.count(threads, & &1.pending)
 
-    sources = Games.list_documents(game)
+    # Narrow rows (no :pages / :full_text — those columns dwarf the rest of
+    # the row): everything this page's :sources feeds reads only cheap scalar
+    # fields — SubBar's rulebook menu (id/label/html_path + Phoenix.Param on
+    # id), has_cheatsheet?/1 (ids), source_count, and emptiness checks. The
+    # regenerate_html handler re-fetches its full Document by id itself.
+    sources = Games.list_document_summaries(game)
 
     # First load of this game: restore the user's remembered expansion set
     # (or default from their collection). Later handle_params runs (thread
@@ -675,7 +696,17 @@ defmodule RuleMavenWeb.GameLive.Show do
         asker: asker_label(g.primary, current_user_id)
       }
     end)
-    |> Enum.sort_by(fn t -> {if(t.favorited, do: 0, else: 1), t.inserted_at} end, fn
+    |> sort_thread_summaries()
+  end
+
+  # Sidebar order: favorites first, then recency-desc within each half. Every
+  # path that PATCHES the threads list (ask submit, resubmit, out-of-window
+  # inject, favorite toggle) must re-apply this — a bare prepend would sit a
+  # new ask above favorited threads, or pin an old ?t= thread to the top
+  # until remount. (:ask_complete/:ask_error edit entries in place without
+  # touching favorited/inserted_at, so they don't need a re-sort.)
+  defp sort_thread_summaries(threads) do
+    Enum.sort_by(threads, fn t -> {if(t.favorited, do: 0, else: 1), t.inserted_at} end, fn
       {fa, ta}, {fb, tb} -> fa < fb || (fa == fb && DateTime.compare(ta, tb) == :gt)
     end)
   end
@@ -698,7 +729,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           |> build_thread_summaries(socket.assigns.current_user.id, socket.assigns.is_admin)
           |> List.first()
 
-        {[g | grouped], [t | threads], tid}
+        {[g | grouped], sort_thread_summaries([t | threads]), tid}
 
       _ ->
         {grouped, threads, nil}
@@ -1594,23 +1625,27 @@ defmodule RuleMavenWeb.GameLive.Show do
                            timestamp: DateTime.utc_now()
                          }
                        ],
-                       threads: [
-                         # Full thread-summary shape (see build_thread_summaries/3):
-                         # the cached handle_params path renders this map as-is
-                         # instead of rebuilding it from a re-query, so every key
-                         # the sidebar reads must be present.
-                         %{
-                           id: question_log.id,
-                           question: question,
-                           answer: "Thinking...",
-                           pending: true,
-                           refused: false,
-                           favorited: false,
-                           inserted_at: DateTime.utc_now(),
-                           asker: nil
-                         }
-                         | socket.assigns.threads
-                       ],
+                       threads:
+                         sort_thread_summaries([
+                           # Full thread-summary shape (see build_thread_summaries/3):
+                           # the cached handle_params path renders this map as-is
+                           # instead of rebuilding it from a re-query, so every key
+                           # the sidebar reads must be present. `asker` matters for
+                           # admins (the sidebar renders "<asker>:"): the row is the
+                           # current user's own, so asker_label/2 yields "You" —
+                           # nil would render an empty label + stray colon.
+                           %{
+                             id: question_log.id,
+                             question: question,
+                             answer: "Thinking...",
+                             pending: true,
+                             refused: false,
+                             favorited: false,
+                             inserted_at: DateTime.utc_now(),
+                             asker: asker_label(question_log, socket.assigns.current_user.id)
+                           }
+                           | socket.assigns.threads
+                         ]),
                        community_questions:
                          Games.community_questions(game, socket.assigns.current_user.id)
                      )
@@ -1814,9 +1849,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             Enum.map(socket.assigns.threads, fn t ->
               if t.id == id, do: %{t | favorited: updated.favorited}, else: t
             end)
-            |> Enum.sort_by(fn t -> {if(t.favorited, do: 0, else: 1), t.inserted_at} end, fn
-              {fa, ta}, {fb, tb} -> fa < fb || (fa == fb && DateTime.compare(ta, tb) == :gt)
-            end)
+            |> sort_thread_summaries()
 
           {:noreply,
            socket
@@ -2441,9 +2474,10 @@ defmodule RuleMavenWeb.GameLive.Show do
 
             # Build threads list — remove old thread, add new pending one
             threads =
-              [
+              sort_thread_summaries([
                 # Full thread-summary shape — see the ask-submit provisional
-                # entry; the cached handle_params path renders this map as-is.
+                # entry (incl. why `asker` is asker_label/2, not nil); the
+                # cached handle_params path renders this map as-is.
                 %{
                   id: question_log.id,
                   question: question,
@@ -2452,10 +2486,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                   refused: false,
                   favorited: false,
                   inserted_at: now_dt,
-                  asker: nil
+                  asker: asker_label(question_log, socket.assigns.current_user.id)
                 }
                 | Enum.reject(socket.assigns.threads, &(&1.id == id))
-              ]
+              ])
 
             {:noreply,
              socket
@@ -2642,8 +2676,10 @@ defmodule RuleMavenWeb.GameLive.Show do
     # asker, whose provisional row is in `threads`; anyone who opened it via
     # `?t=`) pay for the row fetch + full community requery below. For every
     # other viewer, the community list refreshes on their next handle_params
-    # run (navigation / thread switch) instead of live — deliberate: N idle
-    # viewers each re-running a 50-row query per ask was the fan-out cost.
+    # run — handle_cached_params re-fetches it on every cached patch, so
+    # thread switches and ?t= navigation pick it up too, not just full
+    # reloads. Deliberate: N idle viewers each re-running a 50-row query per
+    # ask was the fan-out cost.
     involved? =
       socket.assigns.active_thread_id == question_log_id or
         Enum.any?(socket.assigns.threads, &(&1.id == question_log_id))
@@ -3068,48 +3104,58 @@ defmodule RuleMavenWeb.GameLive.Show do
     if question_log_id && question_log_id not in known_ids do
       {:noreply, socket}
     else
+      # Pull the persisted failure classification once, for every known thread —
+      # not just the active one. If the user switched away before the error
+      # landed, the cached grouped entry would otherwise keep "Thinking...":
+      # switching back re-marked it pending (mark_pending_thinking), armed no
+      # stale timer path out, and resubscribed a dead ask_stream topic.
+      err_q = if question_log_id, do: get_question_log_by_id(question_log_id)
+
+      # Refresh the cached grouped entry so a thread switch-and-back rebuilds
+      # the failed answer instead of the stale "Thinking..." snapshot (the
+      # mirror of what :ask_complete does; the preloaded :user is grafted back
+      # on since get_question_log_by_id/1 doesn't preload it).
+      socket =
+        if err_q do
+          grouped_cache_update(socket, question_log_id, fn p -> %{err_q | user: p.user} end)
+        else
+          socket
+        end
+
       threads =
         if question_log_id do
           Enum.map(socket.assigns.threads, fn
-            %{id: ^question_log_id} = t -> %{t | pending: false}
-            t -> t
+            %{id: ^question_log_id} = t ->
+              # The sidebar shows a ⚠ marker for answers with the "⚠️" prefix —
+              # carry the persisted error text (or the broadcast's) into the
+              # summary so the failed state is visible without a reload.
+              %{t | pending: false, answer: (err_q && err_q.answer) || "⚠️ #{data[:error]}"}
+
+            t ->
+              t
           end)
         else
           socket.assigns.threads
         end
 
-      {socket, conversation} =
+      # Only the conversation rewrite stays behind the active-thread check —
+      # it patches the on-screen bubble; every other socket showing this
+      # thread in its sidebar already got the cache + summary fix above.
+      conversation =
         if question_log_id && socket.assigns.active_thread_id == question_log_id do
-          # Pull the persisted failure classification so the error bubble can
-          # offer the right affordance (retry / cooldown / shorten hint)
-          # without a page reload.
-          err_q = get_question_log_by_id(question_log_id)
+          Enum.map(socket.assigns.conversation, fn
+            %{id: ^question_log_id, role: :assistant} = msg ->
+              msg
+              |> Map.delete(:pending)
+              |> Map.put(:content, "⚠️ #{data.error}")
+              |> Map.put(:error_kind, err_q && err_q.error_kind)
+              |> Map.put(:error_retries, (err_q && err_q.error_retries) || 0)
 
-          # Refresh the cached grouped entry too, so a thread switch-and-back
-          # rebuilds the failed answer instead of a stale "Thinking..." row.
-          socket =
-            if err_q do
-              grouped_cache_update(socket, question_log_id, fn p -> %{err_q | user: p.user} end)
-            else
-              socket
-            end
-
-          conversation =
-            Enum.map(socket.assigns.conversation, fn
-              %{id: ^question_log_id, role: :assistant} = msg ->
-                msg
-                |> Map.delete(:pending)
-                |> Map.put(:content, "⚠️ #{data.error}")
-                |> Map.put(:error_kind, err_q && err_q.error_kind)
-                |> Map.put(:error_retries, (err_q && err_q.error_retries) || 0)
-
-              msg ->
-                msg
-            end)
-
-          {socket, conversation}
+            msg ->
+              msg
+          end)
         else
-          {socket, socket.assigns.conversation}
+          socket.assigns.conversation
         end
 
       {:noreply,

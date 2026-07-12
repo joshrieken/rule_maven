@@ -61,7 +61,9 @@ config :rule_maven, Oban,
        {"0 4 * * *", RuleMaven.Workers.JobLogPruneWorker},
        # Daily: strip multi-KB trace `detail` from llm_logs older than 30 days
        # (keeps the token/cost columns forever for cost reporting).
-       {"30 3 * * *", RuleMaven.Workers.LlmLogPruneWorker}
+       {"30 3 * * *", RuleMaven.Workers.LlmLogPruneWorker},
+       # Daily: delete expired auth tokens (max validity 7 days + margin).
+       {"45 3 * * *", RuleMaven.Workers.UserTokenPruneWorker}
      ]}
   ],
   # Queue topology — interactive work never queues behind bulk work:

@@ -86,13 +86,7 @@ defmodule RuleMaven.Workers.EmbedChunksWorker do
 
       case RuleMaven.Embed.embed_batch(texts) do
         {:ok, vectors} ->
-          batch
-          |> Enum.zip(vectors)
-          |> Enum.each(fn {chunk, vec} ->
-            Games.Chunk.changeset(chunk, %{embedding: vec})
-            |> Repo.update!()
-          end)
-
+          persist_batch(batch, vectors)
           {:cont, :ok}
 
         {:error, reason} ->
@@ -100,6 +94,35 @@ defmodule RuleMaven.Workers.EmbedChunksWorker do
       end
     end)
   end
+
+  # One UPDATE ... FROM unnest(...) statement per sub-batch instead of one
+  # Repo.update! round-trip per chunk (100× fewer statements on a big book).
+  # Vectors travel as their text form ("[0.1,0.2,…]") in a plain text[] param
+  # and are cast to `vector` server-side — deliberately avoids leaning on
+  # Postgrex array-of-vector encoding, which pgvector's extension doesn't
+  # document. Raises on failure (as Repo.update! did), so Oban retries and the
+  # `is_nil(embedding)` fetch resumes where it stopped.
+  defp persist_batch(batch, vectors) do
+    ids = Enum.map(batch, & &1.id)
+
+    Ecto.Adapters.SQL.query!(
+      Repo,
+      """
+      UPDATE chunks AS c
+      SET embedding = data.emb::vector,
+          updated_at = NOW()
+      FROM (SELECT unnest($1::bigint[]) AS id, unnest($2::text[]) AS emb) AS data
+      WHERE c.id = data.id
+      """,
+      [ids, Enum.map(vectors, &vector_text/1)]
+    )
+
+    :ok
+  end
+
+  # pgvector's text input format: "[v1,v2,…]". Accepts the float/scientific
+  # notation Elixir's to_string emits.
+  defp vector_text(vec) when is_list(vec), do: "[" <> Enum.map_join(vec, ",", &to_string/1) <> "]"
 
   defp normalize_id(id) when is_integer(id), do: id
   defp normalize_id(id) when is_binary(id), do: String.to_integer(id)

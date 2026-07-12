@@ -39,7 +39,9 @@ defmodule RuleMavenWeb.Tours do
           "Have a BoardGameGeek account? Sync it once and your whole collection appears here automatically."
       },
       %{
-        sel: "#game-card-0",
+        # Cards are id-keyed by game id (stable DOM ids), so the tour targets
+        # the first card positionally rather than a hardcoded index id.
+        sel: "#game-list > .game-card",
         title: "Open a game",
         body: "Click any game to open its Q&A page — that's where the magic happens."
       },

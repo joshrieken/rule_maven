@@ -19,17 +19,48 @@ defmodule RuleMaven.Workers.MailerWorker do
 
   # Swoosh.Email and Oban.Worker both export `new` — Oban's job constructor
   # wins locally, so Swoosh's is excluded and called by full name in rebuild/1.
+  # (It also exports `from/2`, which collides with Ecto.Query's — hence the
+  # qualified Ecto.Query call in scrub_args/1.)
   import Swoosh.Email, except: [new: 0, new: 1]
 
-  alias RuleMaven.Mailer
+  require Ecto.Query
+
+  alias RuleMaven.{Mailer, Repo}
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: args}) do
+  def perform(%Oban.Job{args: args} = job) do
     case Mailer.deliver_email_now(rebuild(args)) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, inspect(reason)}
+      {:ok, _} ->
+        scrub_args(job)
+        :ok
+
+      {:error, reason} ->
+        {:error, inspect(reason)}
     end
   end
+
+  # SECURITY: auth email bodies embed tokenized sign-in/reset/confirm URLs, and
+  # Oban persists `args` verbatim in `oban_jobs` for the whole prune window —
+  # a DB read (or backup) days later would still hold live-looking magic-link
+  # URLs. Once delivery succeeded the args have done their job, so overwrite
+  # them in place (keep the subject for debuggability). Oban's own post-perform
+  # bookkeeping touches state/completed_at, not args, so this write survives.
+  #
+  # Only on success: a retryable failure still needs the args to rebuild the
+  # email. Failed/discarded jobs therefore keep their args until the job row is
+  # pruned — acceptable because the tokens self-expire regardless (magic link
+  # 15 min, password reset 24 h, email confirm 7 days; see UserToken).
+  defp scrub_args(%Oban.Job{id: id, args: args}) when is_integer(id) do
+    Repo.update_all(
+      Ecto.Query.from(j in Oban.Job, where: j.id == ^id),
+      set: [args: %{"scrubbed" => true, "subject" => args["subject"]}]
+    )
+
+    :ok
+  end
+
+  # Oban.Testing's perform_job builds an unpersisted job (id: nil) — nothing to scrub.
+  defp scrub_args(_job), do: :ok
 
   @doc """
   Serializes the email to primitive args and inserts the job. Returns

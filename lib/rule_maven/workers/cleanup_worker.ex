@@ -38,6 +38,13 @@ defmodule RuleMaven.Workers.CleanupWorker do
 
   @valid_levels ~w(auto light standard aggressive)
 
+  # `set_page_cleaned/4` no longer rebuilds the derived `full_text` per page
+  # (that was O(pages × book) per run). Instead we refresh it every N persisted
+  # pages and once at end of run — so `full_text` consumers (cheat sheets,
+  # suggestions) never see it lag by more than this window, even if the run
+  # later crashes or exhausts its budget.
+  @full_text_refresh_every 20
+
   @impl Oban.Worker
   def perform(%Oban.Job{
         id: oban_id,
@@ -133,6 +140,11 @@ defmodule RuleMaven.Workers.CleanupWorker do
           # Defects go onto the page itself (not just the job log) so the
           # Prepare page's ⚠ review UI (page_needs_review?) surfaces them.
           Games.set_page_cleaned(doc_id, index, cleaned, defects)
+          # Periodic refresh so a mid-run crash leaves full_text at most
+          # @full_text_refresh_every pages behind the cleaned pages.
+          if rem(done, @full_text_refresh_every) == 0,
+            do: Games.refresh_full_text(doc_id)
+
           Games.set_cleaning_done(doc_id, done)
           Jobs.event(run, event_level(meta.status), page_event_msg(index, meta, done, total))
 
@@ -200,6 +212,11 @@ defmodule RuleMaven.Workers.CleanupWorker do
 
           Map.update!(acc, :failed, &(&1 + 1))
       end)
+
+    # Fold every persisted page into the derived full_text once, now the run is
+    # over (set_page_cleaned/4 skips the per-page rebuild). Must happen before
+    # the reload below so chunking/HTML/status updates see the final text.
+    Games.refresh_full_text(doc_id)
 
     # Re-chunk only when the doc already has chunks (a re-clean of a live doc)
     # so the cleaned text reaches retrieval instead of leaving stale raw-text

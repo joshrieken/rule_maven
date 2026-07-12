@@ -92,20 +92,49 @@ defmodule RuleMaven.Games do
     |> Enum.sort_by(&String.downcase(&1.name))
   end
 
+  # Card-list select for the catalog index: every Game column except the heavy
+  # ones the cards never render — `bgg_data` (the raw BGG XML blob, 50-200KB for
+  # big games) and the theme maps. The index template's only `bgg_data` use is
+  # `is_nil(game.bgg_data)` (admin "Pull BGG" button), and `struct(g, fields)`
+  # can't add virtual booleans, so list queries select_merge a 1-byte "1" marker
+  # into `bgg_data` whenever the real blob exists: `is_nil/1` checks keep their
+  # meaning while the payload per row drops from ~200KB to ~1B.
+  @game_card_fields Game.__schema__(:fields) -- [:bgg_data, :theme_palette, :theme_names]
+
+  defp select_card_fields(query) do
+    from(g in query,
+      select: struct(g, ^@game_card_fields),
+      select_merge: %{bgg_data: fragment("CASE WHEN ? IS NOT NULL THEN '1' END", g.bgg_data)}
+    )
+  end
+
+  defp maybe_limit(query, nil), do: query
+  defp maybe_limit(query, n) when is_integer(n), do: limit(query, ^n)
+
   @doc """
   Base games that are fully **playable** — the new catalog "Playable" view.
   Reads the denormalized `playable` flag (RAG-ready + reviewed, maintained by
   `RuleMaven.Readiness`) so this stays a single indexed scan on a large catalog,
   no per-row document join.
+
+  DB-paged like `search_catalog/2`: the playable set grows with the whole
+  catalog, so search, `:category` and `:limit` are pushed into the query (no
+  `:limit` means the full set). Rows carry the narrow card select.
   """
-  def list_playable_games do
+  def list_playable_games(search \\ "", opts \\ []) do
+    term = "%#{String.trim(search || "")}%"
+
     from(g in Game,
       where: g.playable == true,
-      where: is_nil(g.taken_down_at)
+      where: is_nil(g.taken_down_at),
+      where: ilike(g.name, ^term),
+      order_by: [asc: fragment("lower(?)", g.name)]
     )
     |> not_expansion()
+    |> maybe_category(Keyword.get(opts, :category))
+    |> maybe_limit(Keyword.get(opts, :limit))
+    |> select_card_fields()
     |> Repo.all()
-    |> Enum.sort_by(&String.downcase(&1.name))
   end
 
   @doc """
@@ -143,6 +172,7 @@ defmodule RuleMaven.Games do
       order_by: [desc: count(r.id), asc: g.name]
     )
     |> not_expansion()
+    |> select_card_fields()
     |> Repo.all()
   end
 
@@ -607,6 +637,7 @@ defmodule RuleMaven.Games do
       where: uc.user_id == ^user_id
     )
     |> not_expansion()
+    |> select_card_fields()
     |> Repo.all()
     |> Enum.sort_by(&String.downcase(&1.name))
   end
@@ -651,6 +682,7 @@ defmodule RuleMaven.Games do
       where: uf.user_id == ^user_id
     )
     |> not_expansion()
+    |> select_card_fields()
     |> Repo.all()
     |> Enum.sort_by(&String.downcase(&1.name))
   end
@@ -695,6 +727,29 @@ defmodule RuleMaven.Games do
 
   def list_documents(%Game{} = game) do
     Repo.all(from d in Document, where: d.game_id == ^game.id)
+  end
+
+  # Every Document field except the two heavyweight text payloads. Derived via
+  # schema reflection so a newly added scalar column rides along automatically.
+  @document_summary_fields RuleMaven.Games.Document.__schema__(:fields) -- [:pages, :full_text]
+
+  @doc """
+  Same rows (query, filter, ordering) as `list_documents/1`, but selected
+  without `pages` and `full_text` — the two payloads that make a Document row
+  megabytes wide. Every other column (kind/status/authority inputs, paths,
+  counts, timestamps) is a cheap scalar and is included, so downstream code
+  that reads e.g. `kind`, `status` or `page_count` keeps working.
+
+  For the UI/sub-bar path only (listing sources, badges, review counters).
+  Pipeline callers (chunking, cleanup, extraction, cheat sheets) need the full
+  rows — keep using `list_documents/1` there.
+  """
+  def list_document_summaries(%Game{} = game) do
+    Repo.all(
+      from d in Document,
+        where: d.game_id == ^game.id,
+        select: struct(d, ^@document_summary_fields)
+    )
   end
 
   def create_document(attrs) do
@@ -1706,15 +1761,26 @@ defmodule RuleMaven.Games do
   Returns the number of documents processed.
   """
   def rechunk_all_documents do
-    docs = Repo.all(Document)
-    Enum.each(docs, &chunk_document/1)
+    # Ops path over the whole corpus: `Repo.all(Document)` would hold every
+    # rulebook's pages + full_text in memory at once. Walk ids instead and load
+    # one full document at a time.
+    ids_and_games =
+      Repo.all(from d in Document, select: {d.id, d.game_id}, order_by: d.id)
 
-    docs
-    |> Enum.map(& &1.game_id)
+    Enum.each(ids_and_games, fn {id, _game_id} ->
+      case Repo.get(Document, id) do
+        # Deleted mid-run — skip.
+        nil -> :ok
+        doc -> chunk_document(doc)
+      end
+    end)
+
+    ids_and_games
+    |> Enum.map(&elem(&1, 1))
     |> Enum.uniq()
     |> Enum.each(&invalidate_pool/1)
 
-    length(docs)
+    length(ids_and_games)
   end
 
   @doc_job_workers ~w(RuleMaven.Workers.CleanupWorker RuleMaven.Workers.CheatSheetWorker)
@@ -1760,35 +1826,79 @@ defmodule RuleMaven.Games do
   @cleanup_active_states ~w(available scheduled executing retryable suspended)
 
   @doc """
-  Persist one page's cleaned text into the document's embedded pages and refresh
-  the derived `full_text`. Reloads the document each call so concurrent per-page
-  writes from the cleanup worker accumulate correctly on the embeds_many column.
-  Does NOT re-chunk (the worker chunks once at the end).
+  Persist one page's cleaned text into the document's embedded pages. Reloads
+  the document under a row lock each call so concurrent per-page writes (the
+  cleanup worker vs. a single-page re-extract) accumulate correctly on the
+  embeds_many column. Does NOT re-chunk (the worker chunks once at the end).
+
+  Deliberately does NOT rebuild the derived `full_text` — doing that per page
+  made a full cleanup run O(pages × book) in both regex CPU and row I/O.
+  Callers that clean pages in bulk must call `refresh_full_text/1` when done
+  (the cleanup worker does, periodically and at end of run); `full_text` is
+  therefore allowed to lag the pages by a bounded window during a run.
+  A write is skipped entirely when the page is missing or already carries
+  exactly this cleaned text + defects verdict (idempotent re-runs are free).
   """
   def set_page_cleaned(doc_id, index, cleaned, defects \\ nil) do
     Repo.transaction(fn ->
       doc = lock_document!(doc_id)
+      page = Enum.find(doc.pages, &(&1.index == index))
 
-      pages =
-        Enum.map(doc.pages, fn p ->
-          attrs = page_attrs(p)
+      cond do
+        is_nil(page) ->
+          doc
 
-          cond do
-            p.index != index -> attrs
-            # A defects list (possibly empty) is the cleanup critic's verdict for
-            # this pass — it replaces whatever was recorded before, so a faithful
-            # re-clean un-flags the page. `nil` (manual edits) leaves it alone.
-            is_list(defects) -> %{attrs | cleaned: cleaned, cleanup_defects: defects}
-            true -> %{attrs | cleaned: cleaned}
+        page.cleaned == cleaned and (not is_list(defects) or page.cleanup_defects == defects) ->
+          doc
+
+        true ->
+          pages =
+            Enum.map(doc.pages, fn p ->
+              attrs = page_attrs(p)
+
+              cond do
+                p.index != index -> attrs
+                # A defects list (possibly empty) is the cleanup critic's verdict for
+                # this pass — it replaces whatever was recorded before, so a faithful
+                # re-clean un-flags the page. `nil` (manual edits) leaves it alone.
+                is_list(defects) -> %{attrs | cleaned: cleaned, cleanup_defects: defects}
+                true -> %{attrs | cleaned: cleaned}
+              end
+            end)
+
+          case doc
+               |> Document.changeset(%{pages: pages})
+               |> Repo.update() do
+            {:ok, updated} -> updated
+            {:error, changeset} -> Repo.rollback(changeset)
           end
-        end)
-
-      case doc
-           |> Document.changeset(%{pages: pages, full_text: rebuild_full_text(pages)})
-           |> Repo.update() do
-        {:ok, updated} -> updated
-        {:error, changeset} -> Repo.rollback(changeset)
       end
+    end)
+  end
+
+  @doc """
+  Rebuilds the derived `full_text` blob from the document's *current* pages and
+  persists it when it changed. Row-locked so the read can't interleave with a
+  concurrent per-page write (`set_page_cleaned/4`, `replace_page/3`).
+
+  Companion to `set_page_cleaned/4`, which no longer refreshes `full_text` per
+  page: bulk cleaners call this every few pages and once at end of run, so
+  `full_text` consumers (cheat sheets, suggestions, `document_full_text/1`)
+  never see it lag by more than that window.
+  """
+  def refresh_full_text(doc_id) do
+    Repo.transaction(fn ->
+      doc = lock_document!(doc_id)
+      text = rebuild_full_text(doc.pages)
+
+      if text != doc.full_text do
+        Repo.update_all(
+          from(d in Document, where: d.id == ^doc_id),
+          set: [full_text: text, updated_at: DateTime.utc_now() |> DateTime.truncate(:second)]
+        )
+      end
+
+      :ok
     end)
   end
 

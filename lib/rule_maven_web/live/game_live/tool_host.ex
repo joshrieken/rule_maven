@@ -57,7 +57,13 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
       connected?(s) and get_connect_params(s)["coarse_pointer"] == true
     end)
     |> put_new(:is_admin, fn s -> RuleMaven.Users.can?(s.assigns.current_user, :admin) end)
-    |> put_new(:sources, fn _s -> RuleMaven.Games.list_documents(game) end)
+    # Narrow rows (no :pages / :full_text): every consumer of this assign —
+    # SubBar's rulebook menu (id/label/html_path + Phoenix.Param on id),
+    # has_cheatsheet?/1 (ids), load_did_you_know/3 (emptiness) — reads only
+    # cheap scalar fields. Pages that need full Document rows (Prepare,
+    # Review, Edit) load their own via list_documents/1 and, thanks to
+    # put_new, are unaffected when they assign :sources before this runs.
+    |> put_new(:sources, fn _s -> RuleMaven.Games.list_document_summaries(game) end)
     |> put_new(:community_count, fn _s -> RuleMaven.Faq.community_count(game) end)
     |> put_new(:has_cheatsheet, fn s -> has_cheatsheet?(s.assigns.sources) end)
     # Same source Show uses (`expansions_with_documents/1`, not the more
@@ -96,7 +102,9 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
   """
   def mount_tools(socket, game) do
     user = socket.assigns.current_user
-    sources = socket.assigns[:sources] || RuleMaven.Games.list_documents(game)
+    # Fallback for a host that skipped mount_header — same narrow summaries
+    # (this function's consumers only emptiness-check the list).
+    sources = socket.assigns[:sources] || RuleMaven.Games.list_document_summaries(game)
     dyk_facts = load_did_you_know(game, sources, connected?(socket))
     {setup_status, setup_checklist} = load_setup(game, sources)
     seed = socket.assigns[:dyk_seed] || :erlang.unique_integer()

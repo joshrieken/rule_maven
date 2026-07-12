@@ -30,7 +30,7 @@ defmodule RuleMavenWeb.GameLive.Index do
         search_ready: false,
         page: 1,
         per_page: 20,
-        selected_idx: -1,
+        selected_id: nil,
         display_count: 20,
         expanded_games: %{},
         # game_id => {done, total} while an expansion BGG sync is in flight.
@@ -107,7 +107,8 @@ defmodule RuleMavenWeb.GameLive.Index do
   @views ~w(playable mine favorites all needs_bgg requested)
 
   # Views whose rows are paged from the DB (vs fully loaded + paged in-memory).
-  defp db_paged?(view), do: view in ~w(all needs_bgg)
+  # "playable" grows with the whole catalog, so it pages like "all".
+  defp db_paged?(view), do: view in ~w(all needs_bgg playable)
 
   # Views available to a user. "All Games" (full catalog) is admin only;
   # non-admin users are limited to playable games, their collection, and favorites.
@@ -187,9 +188,12 @@ defmodule RuleMavenWeb.GameLive.Index do
     end
   end
 
-  # Load the game list for a view. "all" is DB-backed (catalog can be huge), so
-  # it pages from the database with a growing limit; "mine"/"playable"/"favorites"
-  # are bounded lists loaded fully and paginated in-memory by the render path.
+  # Load the game list for a view. "all"/"needs_bgg"/"playable" are DB-backed
+  # (they grow with the catalog), so they page from the database with a growing
+  # limit and push search/category into the query; "mine"/"favorites"/
+  # "requested" are naturally bounded (per-user/small) lists loaded fully and
+  # paginated in-memory by the render path. All list queries use the narrow
+  # card select (no bgg_data blob / theme maps) — see Games.select_card_fields.
   defp load_view_games(view, user_id, search, category, limit \\ 20)
 
   defp load_view_games("mine", user_id, _search, _category, _limit),
@@ -210,17 +214,38 @@ defmodule RuleMavenWeb.GameLive.Index do
   defp load_view_games("requested", _user_id, _search, _category, _limit),
     do: Games.list_requested_games()
 
-  defp load_view_games(_playable, _user_id, _search, _category, _limit),
-    do: Games.list_playable_games()
+  defp load_view_games("playable", _user_id, search, category, limit),
+    # Fetch one extra row so the render path knows there's another page.
+    do: Games.list_playable_games(search || "", category: category, limit: limit + 1)
 
-  # Assign the current games plus their expansion/source counts. Counts are
-  # computed only for the games actually visible (display_count), in a couple of
-  # batched aggregate queries, so this stays cheap even on a 150k catalog.
+  # Assign the current games plus the derived list assigns and expansion/source
+  # counts. The filtered list, visible page and category pills are computed ONCE
+  # here (not per render — render reads assigns only) and only counts for the
+  # games actually visible (display_count) are queried, in a couple of batched
+  # aggregate queries, so this stays cheap even on a 150k catalog.
   defp assign_games(socket, games) do
-    socket = assign(socket, games: games)
+    %{search: search, category_filter: category, display_count: display_count} = socket.assigns
+
+    filtered = filtered_games(games, search, category)
+    visible = Enum.take(filtered, display_count)
+
+    present_categories =
+      games
+      |> Enum.map(&(&1.category || "board_game"))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    socket =
+      assign(socket,
+        games: games,
+        filtered_count: length(filtered),
+        visible_games: visible,
+        present_categories: present_categories
+      )
+
     is_admin = RuleMaven.Users.can?(socket.assigns.current_user, :admin)
 
-    visible_ids = socket.assigns |> visible_games() |> Enum.map(& &1.id)
+    visible_ids = Enum.map(visible, & &1.id)
 
     expansion_counts =
       if is_admin,
@@ -251,9 +276,13 @@ defmodule RuleMavenWeb.GameLive.Index do
     assign_games(socket, games)
   end
 
-  # DB-paged views must re-query on search/category changes.
-  defp maybe_reload_for_all(socket) do
-    if db_paged?(socket.assigns.view), do: reload_games(socket), else: socket
+  # Recompute the list after a search/category/paging change: DB-paged views
+  # re-query with the new filters, in-memory views re-derive the filtered/
+  # visible assigns (and visible-row counts) from the already-loaded list.
+  defp refresh_games(socket) do
+    if db_paged?(socket.assigns.view),
+      do: reload_games(socket),
+      else: assign_games(socket, socket.assigns.games)
   end
 
   @impl true
@@ -311,54 +340,44 @@ defmodule RuleMavenWeb.GameLive.Index do
   end
 
   @impl true
+  # Keyboard nav tracks the selected *game id* (not a list index), matching the
+  # stable `game-card-<id>` DOM ids: an insertion or re-filter can't silently
+  # re-point the selection or the scroll target at a different card.
   def handle_event("key_nav", %{"key" => key}, socket) do
-    visible = visible_games(socket.assigns)
+    visible = socket.assigns.visible_games
 
     case key do
       "ArrowDown" ->
-        next = min(socket.assigns.selected_idx + 1, length(visible) - 1)
-
-        {:noreply,
-         assign(socket, selected_idx: next) |> push_event("scroll_to_game", %{idx: next})}
+        move_selection(socket, visible, 1)
 
       "ArrowUp" ->
-        prev = max(socket.assigns.selected_idx - 1, 0)
-
-        {:noreply,
-         assign(socket, selected_idx: prev) |> push_event("scroll_to_game", %{idx: prev})}
+        move_selection(socket, visible, -1)
 
       "unselect" ->
-        {:noreply, assign(socket, selected_idx: -1)}
+        {:noreply, assign(socket, selected_id: nil)}
 
       "Enter" ->
-        idx = socket.assigns.selected_idx
+        case selected_game(socket, visible) do
+          nil ->
+            {:noreply, socket}
 
-        if idx >= 0 && idx < length(visible) do
-          game = Enum.at(visible, idx)
-          source_count = Map.get(socket.assigns.source_counts, game.id, 0)
+          game ->
+            source_count = Map.get(socket.assigns.source_counts, game.id, 0)
 
-          dest =
-            if source_count == 0 and RuleMaven.Users.can?(socket.assigns.current_user, :admin),
-              do: ~p"/games/#{game}/edit",
-              else: ~p"/games/#{game}"
+            dest =
+              if source_count == 0 and RuleMaven.Users.can?(socket.assigns.current_user, :admin),
+                do: ~p"/games/#{game}/edit",
+                else: ~p"/games/#{game}"
 
-          {:noreply, push_navigate(socket, to: dest)}
-        else
-          {:noreply, socket}
+            {:noreply, push_navigate(socket, to: dest)}
         end
 
       "e" ->
-        if RuleMaven.Users.can?(socket.assigns.current_user, :admin) do
-          idx = socket.assigns.selected_idx
-
-          if idx >= 0 && idx < length(visible) do
-            game = Enum.at(visible, idx)
-            {:noreply, push_navigate(socket, to: ~p"/games/#{game}/edit")}
-          else
-            {:noreply, socket}
-          end
+        with true <- RuleMaven.Users.can?(socket.assigns.current_user, :admin),
+             %{} = game <- selected_game(socket, visible) do
+          {:noreply, push_navigate(socket, to: ~p"/games/#{game}/edit")}
         else
-          {:noreply, socket}
+          _ -> {:noreply, socket}
         end
 
       _ ->
@@ -376,9 +395,9 @@ defmodule RuleMavenWeb.GameLive.Index do
        search: String.slice(text, 0, 200),
        search_ready: true,
        display_count: 20,
-       selected_idx: -1
+       selected_id: nil
      )
-     |> maybe_reload_for_all()
+     |> refresh_games()
      |> push_event("reset_list_pos", %{})}
   end
 
@@ -386,8 +405,8 @@ defmodule RuleMavenWeb.GameLive.Index do
   def handle_event("clear_search", _, socket) do
     {:noreply,
      socket
-     |> assign(search: "", search_ready: true, display_count: 20, selected_idx: -1)
-     |> maybe_reload_for_all()
+     |> assign(search: "", search_ready: true, display_count: 20, selected_id: nil)
+     |> refresh_games()
      |> push_event("refocus", %{})
      |> push_event("reset_list_pos", %{})}
   end
@@ -402,14 +421,9 @@ defmodule RuleMavenWeb.GameLive.Index do
     # is restored, recompute them so the Ask button + expansion toggle appear:
     # "all" re-queries the DB, other views just recompute counts over the
     # already-loaded list.
-    socket = assign(socket, search: text, search_ready: true, selected_idx: -1)
+    socket = assign(socket, search: text, search_ready: true, selected_id: nil)
 
-    socket =
-      if db_paged?(socket.assigns.view),
-        do: reload_games(socket),
-        else: assign_games(socket, socket.assigns.games)
-
-    {:noreply, socket}
+    {:noreply, refresh_games(socket)}
   end
 
   # Restore how many rows were loaded when the user last left the list, so the
@@ -430,8 +444,8 @@ defmodule RuleMavenWeb.GameLive.Index do
 
     {:noreply,
      socket
-     |> assign(category_filter: filter, display_count: 20, selected_idx: -1)
-     |> maybe_reload_for_all()
+     |> assign(category_filter: filter, display_count: 20, selected_id: nil)
+     |> refresh_games()
      |> push_event("reset_list_pos", %{})}
   end
 
@@ -440,7 +454,7 @@ defmodule RuleMavenWeb.GameLive.Index do
     if allowed_view?(socket.assigns.current_user, view) do
       {:noreply,
        socket
-       |> assign(view: view, display_count: 20, selected_idx: -1)
+       |> assign(view: view, display_count: 20, selected_id: nil)
        |> reload_games()
        |> push_event("save_view", %{view: view})
        |> push_event("reset_list_pos", %{})}
@@ -541,15 +555,14 @@ defmodule RuleMavenWeb.GameLive.Index do
   @impl true
   def handle_event("load_more", _params, socket) do
     count = socket.assigns.display_count + 20
-    socket = assign(socket, display_count: count)
     # DB-paged views fetch the next page. Other views are already fully loaded,
-    # but counts are only computed for the previously visible rows — recompute
-    # them so the newly revealed games get their expansion/source counts
-    # (otherwise their toggle + Ask button stay hidden).
+    # but the visible page and its expansion/source counts must be re-derived
+    # so the newly revealed games render (otherwise their toggle + Ask button
+    # stay hidden).
     socket =
-      if db_paged?(socket.assigns.view),
-        do: reload_games(socket),
-        else: assign_games(socket, socket.assigns.games)
+      socket
+      |> assign(display_count: count)
+      |> refresh_games()
 
     {:noreply, push_event(socket, "save_count", %{count: count})}
   end
@@ -574,6 +587,21 @@ defmodule RuleMavenWeb.GameLive.Index do
          socket
          |> put_flash(:error, "Failed to delete #{game.name}.")}
     end
+  end
+
+  defp selected_game(socket, visible),
+    do: Enum.find(visible, &(&1.id == socket.assigns.selected_id))
+
+  defp move_selection(socket, [], _step), do: {:noreply, socket}
+
+  defp move_selection(socket, visible, step) do
+    current = Enum.find_index(visible, &(&1.id == socket.assigns.selected_id)) || -1
+    game = Enum.at(visible, (current + step) |> max(0) |> min(length(visible) - 1))
+
+    {:noreply,
+     socket
+     |> assign(selected_id: game.id)
+     |> push_event("scroll_to_game", %{id: game.id})}
   end
 
   @impl true
@@ -644,11 +672,6 @@ defmodule RuleMavenWeb.GameLive.Index do
        expanded_games: Map.put(socket.assigns.expanded_games, id, true),
        expansion_sync: Map.put(socket.assigns.expansion_sync, id, {0, total})
      )}
-  end
-
-  defp visible_games(assigns) do
-    filtered = filtered_games(assigns.games, assigns.search, assigns.category_filter)
-    Enum.take(filtered, assigns.display_count)
   end
 
   defp filtered_games(_games, nil, _category), do: []
@@ -793,13 +816,7 @@ defmodule RuleMavenWeb.GameLive.Index do
           <% end %>
         </div>
 
-        <% present_categories =
-          @games
-          |> Enum.map(&(&1.category || "board_game"))
-          |> Enum.uniq()
-          |> Enum.sort() %>
-
-        <%= if length(present_categories) > 1 do %>
+        <%= if length(@present_categories) > 1 do %>
           <div class="mb-4 flex gap-2 flex-wrap category-pills">
             <button
               type="button"
@@ -807,7 +824,7 @@ defmodule RuleMavenWeb.GameLive.Index do
               phx-value-category=""
               style={"display:inline-block;padding:0.25rem 0.75rem;border-radius:9999px;font-size:0.78rem;font-weight:600;cursor:pointer;border:1.5px solid var(--blue);background:#{if is_nil(@category_filter), do: "var(--blue)", else: "transparent"};color:#{if is_nil(@category_filter), do: "white", else: "var(--blue)"}"}
             >All</button>
-            <%= for cat <- present_categories do %>
+            <%= for cat <- @present_categories do %>
               <button
                 type="button"
                 phx-click="set_category_filter"
@@ -833,12 +850,11 @@ defmodule RuleMavenWeb.GameLive.Index do
         </div>
       </div>
 
-      <% filtered = filtered_games(@games, @search, @category_filter) %>
-      <% display_games = visible_games(assigns) %>
-
+      <%!-- Derived once in assign_games/2 (not per render): @visible_games is
+            the filtered page, @filtered_count the full filtered size. --%>
       <%= if @search != nil do %>
         <div class="space-y-3" id="game-list" phx-hook="GameListScroll">
-          <%= for {game, idx} <- Enum.with_index(display_games) do %>
+          <%= for game <- @visible_games do %>
             <% expansion_count = Map.get(@expansion_counts, game.id, 0) %>
             <% expanded = Map.get(@expanded_games, game.id) %>
             <% has_source = Map.get(@source_counts, game.id, 0) > 0 %>
@@ -850,11 +866,11 @@ defmodule RuleMavenWeb.GameLive.Index do
               RuleMaven.Users.can?(@current_user, :admin) and not is_nil(game.bgg_id) and
                 is_nil(game.bgg_data) %>
             <div
-              id={"game-card-#{idx}"}
+              id={"game-card-#{game.id}"}
               class="border rounded-lg p-4 flex items-center gap-4 game-card"
               phx-click={unless unsupported, do: "go_to_game"}
               phx-value-id={game.id}
-              style={"#{if unsupported, do: "cursor:default;opacity:0.55;filter:grayscale(1)", else: "cursor:pointer"};#{if @selected_idx == idx, do: ";outline:2px solid var(--accent);outline-offset:-2px;background:var(--bg-subtle)", else: ""}"}
+              style={"#{if unsupported, do: "cursor:default;opacity:0.55;filter:grayscale(1)", else: "cursor:pointer"};#{if @selected_id == game.id, do: ";outline:2px solid var(--accent);outline-offset:-2px;background:var(--bg-subtle)", else: ""}"}
             >
               <%= if game.image_url do %>
                 <img
@@ -1041,7 +1057,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                     class="border rounded-lg p-4 flex items-center gap-4 game-card"
                     phx-click="go_to_game"
                     phx-value-id={exp.id}
-                    style={"cursor:pointer;margin-left:2rem;border-left:3px solid var(--accent);#{if @selected_idx == idx, do: "background:var(--bg-subtle)", else: ""}"}
+                    style={"cursor:pointer;margin-left:2rem;border-left:3px solid var(--accent);#{if @selected_id == game.id, do: "background:var(--bg-subtle)", else: ""}"}
                   >
                     <%= if exp.image_url do %>
                       <img
@@ -1110,7 +1126,7 @@ defmodule RuleMavenWeb.GameLive.Index do
 
         <%!-- Infinite scroll sentinel --%>
         <div
-          :if={length(display_games) < length(filtered)}
+          :if={length(@visible_games) < @filtered_count}
           id="load-more-sentinel"
           phx-hook="InfiniteScroll"
           style="height:1px"
@@ -1118,10 +1134,10 @@ defmodule RuleMavenWeb.GameLive.Index do
         </div>
 
         <p
-          :if={length(display_games) < length(filtered)}
+          :if={length(@visible_games) < @filtered_count}
           class="text-center text-xs text-gray-400 py-2"
         >
-          Showing {length(display_games)} of {length(filtered)}
+          Showing {length(@visible_games)} of {@filtered_count}
         </p>
 
         <%= if @games == [] and @view != nil do %>
@@ -1142,7 +1158,7 @@ defmodule RuleMavenWeb.GameLive.Index do
           </div>
         <% end %>
 
-        <%= if @games != [] && filtered_games(@games, @search, @category_filter) == [] do %>
+        <%= if @games != [] && @filtered_count == 0 do %>
           <div class="text-center py-12 text-gray-500">
             <%= if @category_filter do %>
               <p class="text-lg">No games match "{@search}" in this category</p>
