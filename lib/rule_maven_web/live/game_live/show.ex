@@ -219,7 +219,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
 
     grouped = Games.grouped_questions(game, question_group_opts(socket))
-    threads = build_thread_summaries(grouped, socket.assigns.current_user.id)
+    threads = build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
 
     # Landing on the page shows the start screen (overview: suggested
     # questions, setup checklist) — no active thread — unless ?t=THREAD_ID
@@ -247,7 +247,12 @@ defmodule RuleMavenWeb.GameLive.Show do
       end
 
     conversation =
-      build_conversation_for_thread(grouped, active_thread_id, socket.assigns.current_user.id)
+      build_conversation_for_thread(
+        grouped,
+        active_thread_id,
+        socket.assigns.current_user.id,
+        socket.assigns.is_admin
+      )
 
     # Compute pending count from threads list
     pending_count = Enum.count(threads, & &1.pending)
@@ -401,7 +406,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   # Build thread summary list from grouped questions (one per root).
-  defp build_thread_summaries(grouped, current_user_id) do
+  defp build_thread_summaries(grouped, current_user_id, is_admin) do
     recent = DateTime.utc_now() |> DateTime.add(-120, :second)
 
     grouped
@@ -413,7 +418,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       %{
         id: g.primary.id,
-        question: shown_question(g.primary, current_user_id),
+        question: shown_question(g.primary, current_user_id, is_admin),
         answer: g.primary.answer,
         pending: pending?,
         refused: g.primary.refused,
@@ -540,29 +545,50 @@ defmodule RuleMavenWeb.GameLive.Show do
   # The question text to DISPLAY for a row in the thread list / conversation.
   #
   # Your own row shows your own wording (display_question's raw fallback is your
-  # own prose). Anyone else's goes through `listed_question/1`, which never falls
-  # back to the raw column for a crew row. This matters because an admin's
-  # `question_group_opts/1` drops the user scope entirely — their sidebar carries
-  # every user's rows, including crew rows, and for a `skip_normalize` crew row
-  # (cleaned_question: nil) a bare display_question/1 renders the crew member's
-  # verbatim prose.
-  defp shown_question(%{user_id: uid} = q, uid) when not is_nil(uid),
+  # own prose). An admin sees a non-crew row's raw text too — solo rows are now
+  # born unbrowsable pending the publish screen same as crew rows, and an admin
+  # reading the "All Questions" sidebar (`question_group_opts/1` dropping the
+  # user scope) needs to see what a user asked without waiting on that screen,
+  # same as the admin-only `/admin/questions` page already does for solo rows
+  # (see `admin_list_questions/1`'s comment on why the withholding gate doesn't
+  # apply there). A CREW row is different: the crew-privacy invariant holds even
+  # against an admin (see game_live_group_privacy_test.exs — an admin must see
+  # the scrubbed/withheld text, never the raw crew wording, until the row is
+  # actually cleared), so a crew row always goes through `listed_question/1`
+  # regardless of `is_admin`. Every other (non-admin, non-owner) viewer goes
+  # through `listed_question/1` too, which never falls back to the raw column
+  # for a crew row or an unscreened solo row — and for a `skip_normalize` crew
+  # row (cleaned_question: nil) a bare display_question/1 would render the
+  # asker's verbatim prose.
+  defp shown_question(%{user_id: uid} = q, uid, _is_admin) when not is_nil(uid),
     do: QuestionLog.display_question(q)
 
-  defp shown_question(q, _current_user_id), do: QuestionLog.listed_question(q)
+  defp shown_question(q, _current_user_id, true) do
+    if QuestionLog.crew_origin?(q),
+      do: QuestionLog.listed_question(q),
+      else: QuestionLog.display_question(q)
+  end
+
+  defp shown_question(q, _current_user_id, _is_admin), do: QuestionLog.listed_question(q)
 
   # The answer text to DISPLAY in the assistant bubble. The exact twin of
-  # `shown_question/2`, and for the same reason: an admin's `question_group_opts/1`
-  # drops the user scope, so their thread carries every user's rows including
-  # crew rows — and a crew answer restates the asker's private question ("No,
-  # Sarah can't palm a card"), carrying the very names `shown_question` withheld
-  # one bubble above. Gating the question while painting the answer raw is no
-  # scrub at all. Your own row shows your own answer; anyone else's goes through
-  # `listed_answer/1`, which withholds an unbrowsable crew answer.
-  defp shown_answer(%{user_id: uid} = q, uid) when not is_nil(uid),
+  # `shown_question/3`, same crew-vs-solo split: an admin sees a solo row's raw
+  # answer without waiting on the publish screen, but a crew row's answer stays
+  # gated by `listed_answer/1` even for an admin — gating the question while
+  # painting a crew answer raw would be no scrub at all, since it restates the
+  # asker's private question ("No, Sarah can't palm a card"), carrying the very
+  # names `shown_question` withholds one bubble above. Your own row shows your
+  # own answer regardless.
+  defp shown_answer(%{user_id: uid} = q, uid, _is_admin) when not is_nil(uid),
     do: q.canonical_answer || q.answer
 
-  defp shown_answer(q, _current_user_id), do: QuestionLog.listed_answer(q)
+  defp shown_answer(q, _current_user_id, true) do
+    if QuestionLog.crew_origin?(q),
+      do: QuestionLog.listed_answer(q),
+      else: q.canonical_answer || q.answer
+  end
+
+  defp shown_answer(q, _current_user_id, _is_admin), do: QuestionLog.listed_answer(q)
 
   # May this viewer see the row's RAW answer text? Your own row always; anyone
   # else's only once `browsable` (the same gate `listed_answer/1` uses). This
@@ -572,20 +598,20 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp answer_visible?(q, _current_user_id), do: q.browsable == true
 
   # Build flat conversation for a single thread (root + regen history).
-  defp build_conversation_for_thread(grouped, thread_id, current_user_id) do
+  defp build_conversation_for_thread(grouped, thread_id, current_user_id, is_admin) do
     case Enum.find(grouped, &(&1.primary.id == thread_id)) do
       nil -> []
-      g -> build_conversation([g], current_user_id)
+      g -> build_conversation([g], current_user_id, is_admin)
     end
   end
 
-  defp build_conversation(grouped, current_user_id) do
+  defp build_conversation(grouped, current_user_id, is_admin) do
     grouped
     |> Enum.flat_map(fn g ->
       user_msg = %{
         id: g.primary.id,
         role: :user,
-        content: shown_question(g.primary, current_user_id),
+        content: shown_question(g.primary, current_user_id, is_admin),
         cleaned_question: g.primary.cleaned_question,
         # Carried so build_recent_pairs/2 can tell whether this turn was actually
         # scrubbed before quoting it into another ask's prompt — and, since
@@ -605,7 +631,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       assistant_msg = %{
         id: g.primary.id,
         role: :assistant,
-        content: shown_answer(g.primary, current_user_id),
+        content: shown_answer(g.primary, current_user_id, is_admin),
         # Whether the RAW answer is showable to this viewer. Drives the persona
         # overlay: a withheld crew answer must not be restyled, cached, fetched
         # from the shared Voices store, or rendered as `v_content` — the styled
@@ -640,7 +666,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           %{
             id: h.id,
             role: :assistant,
-            content: shown_answer(h, current_user_id),
+            content: shown_answer(h, current_user_id, is_admin),
             answer_visible: answer_visible?(h, current_user_id),
             cited_passage: h.cited_passage,
             cited_page: h.cited_page,
@@ -1339,7 +1365,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     # Rebuild threads and conversation from DB
     grouped = Games.grouped_questions(game, question_group_opts(socket))
-    threads = build_thread_summaries(grouped, socket.assigns.current_user.id)
+    threads = build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
 
     deleted_was_active = socket.assigns.active_thread_id == id
     pending_count = Enum.count(threads, & &1.pending)
@@ -1359,7 +1385,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         build_conversation_for_thread(
           grouped,
           socket.assigns.active_thread_id,
-          socket.assigns.current_user.id
+          socket.assigns.current_user.id,
+          socket.assigns.is_admin
         )
 
       {:noreply,
@@ -1530,10 +1557,11 @@ defmodule RuleMavenWeb.GameLive.Show do
       build_conversation_for_thread(
         grouped,
         socket.assigns.active_thread_id,
-        socket.assigns.current_user.id
+        socket.assigns.current_user.id,
+        socket.assigns.is_admin
       )
 
-    threads = build_thread_summaries(grouped, socket.assigns.current_user.id)
+    threads = build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
 
     {:noreply,
      assign(socket,
@@ -1786,10 +1814,11 @@ defmodule RuleMavenWeb.GameLive.Show do
           build_conversation_for_thread(
             grouped,
             socket.assigns.active_thread_id,
-            socket.assigns.current_user.id
+            socket.assigns.current_user.id,
+            socket.assigns.is_admin
           )
 
-        threads = build_thread_summaries(grouped, socket.assigns.current_user.id)
+        threads = build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
         community = Games.community_questions(game, socket.assigns.current_user.id)
 
         {:noreply,
@@ -2253,7 +2282,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                   t
                   | pending: false,
                     refused: ql.refused,
-                    question: shown_question(ql, socket.assigns.current_user.id),
+                    question: shown_question(ql, socket.assigns.current_user.id, socket.assigns.is_admin),
                     answer: ql.answer
                 }
 
@@ -2272,7 +2301,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           Enum.map(socket.assigns.conversation, fn
             %{id: ^question_log_id, role: :user} = msg ->
               msg
-              |> Map.put(:content, shown_question(ql, socket.assigns.current_user.id))
+              |> Map.put(:content, shown_question(ql, socket.assigns.current_user.id, socket.assigns.is_admin))
               |> Map.put(:cleaned_question, ql.cleaned_question)
               |> Map.put(:question_normalized, ql.question_normalized)
               |> Map.put(
@@ -2286,7 +2315,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               else
                 msg
                 |> Map.delete(:pending)
-                |> Map.put(:content, shown_answer(ql, socket.assigns.current_user.id))
+                |> Map.put(:content, shown_answer(ql, socket.assigns.current_user.id, socket.assigns.is_admin))
                 |> Map.put(:cited_passage, ql.cited_passage)
                 |> Map.put(:cited_page, data[:cited_page] || ql.cited_page)
                 |> Map.put(:cited_source, data[:cited_source] || ql.cited_source)
