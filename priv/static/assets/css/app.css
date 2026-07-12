@@ -1120,6 +1120,36 @@ a:not([class]):hover {
   font-size: 0.78rem;
   white-space: nowrap;
 }
+.qa-question__edited {
+  margin-left: 0.4rem;
+  font-weight: 500;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+/* "Ask exactly this" lives on the fixed question bar so it never shifts the answer. */
+.qa-question__reask {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.qa-overlay__row {
+  margin: 0 0 0.75rem;
+}
+.qa-overlay__row:last-child {
+  margin-bottom: 0;
+}
+.qa-overlay__k {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+  margin-bottom: 0.15rem;
+}
+.qa-overlay__v {
+  margin: 0;
+}
 
 /* Full-question expand: absolutely positioned over the fixed .chat-layout, so it
    layers over the answer without reflowing it. */

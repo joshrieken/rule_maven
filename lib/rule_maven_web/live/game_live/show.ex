@@ -3710,8 +3710,21 @@ defmodule RuleMavenWeb.GameLive.Show do
               moves while the reader is reading. The answer-pane is the one
               scroll region. --%>
         <div class="qa-column" style="flex:1;min-width:0;display:flex;flex-direction:column">
-        <!-- Question region: fixed height, never scrolls, never resizes -->
+        <!-- Question region: fixed height, never scrolls, never resizes.
+             Carries the pager, the "· edited" marker (tap to see original vs
+             normalized), and the "Ask exactly this" escape hatch — all inline
+             so their appearance never changes the bar height / moves the answer. -->
         <%= if @conversation != [] && @qa_active_question do %>
+          <% u_msg = Enum.find(@conversation, &(&1.role == :user)) %>
+          <% a_msg = Enum.find(@conversation, &(&1.role == :assistant)) %>
+          <% asked_as = u_msg && (Map.get(@reask_typed, u_msg[:id]) || u_msg[:original_question]) %>
+          <% normalized? = !!(u_msg && normalization_changed?(asked_as, u_msg.content)) %>
+          <% a_ready? =
+            a_msg && !a_msg[:pending] && !a_msg[:refused] && a_msg.content != "Thinking..." &&
+              is_binary(a_msg.content) && not String.starts_with?(a_msg.content, "⚠️") %>
+          <% a_pending? = !!(a_msg && (a_msg[:pending] || a_msg.content == "Thinking...")) %>
+          <% show_reask? =
+            !!(u_msg && (a_pending? || (a_ready? && (a_msg[:pool_hit] || normalized?)))) %>
           <div class="qa-question">
             <button
               type="button"
@@ -3725,7 +3738,17 @@ defmodule RuleMavenWeb.GameLive.Show do
               class="qa-question__text"
               phx-click="qa_show_question"
               title="Show full question"
-            >{@qa_active_question}</button>
+            >{@qa_active_question}<span :if={normalized?} class="qa-question__edited">· edited</span></button>
+            <button
+              :if={show_reask?}
+              type="button"
+              phx-click="ask_exactly"
+              phx-value-id={u_msg.id}
+              disabled={a_pending? || @pending_count >= @max_concurrent}
+              data-confirm="Re-ask using your exact original wording, without rewriting or reusing a cached answer? We'll fetch a fresh answer for exactly what you asked."
+              class="ask-redo qa-question__reask"
+              title="Answer my literal wording — fresh, no rewrite"
+            >🎯 Ask exactly this</button>
             <span class="qa-question__count">{@qa_active_index + 1} / {@qa_total}</span>
             <button
               type="button"
@@ -4107,75 +4130,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                             {render_markdown(v_content || msg.content)}
                           </div>
                         <% end %>
-                        <%!-- Disclose that we rewrote the asker's raw question into
-                              a normalized form. The raw text is shown ONLY to the
-                              person who typed it: `build_conversation/2` sets
-                              `original_question` to nil on any row the viewer does
-                              not own (a foreign row can reach this chat via an
-                              upvote on a pooled answer, and admins see every row),
-                              and `@reask_typed` only ever holds text this session
-                              typed. --%>
-                        <% asked_as = Map.get(@reask_typed, msg[:id]) || msg[:original_question] %>
-                        <%= if msg.role == :user &&
-                               normalization_changed?(asked_as, msg.content) do %>
-                          <div class="ask-orig">
-                            <span class="ask-orig__label">↳ You asked:</span>
-                            <span class="conf-help">
-                              <button
-                                type="button"
-                                class="conf-help__btn"
-                                aria-label="Why the wording changed"
-                              >?</button>
-                              <span class="conf-help__pop" role="tooltip">
-                                We rewrote your question into a standard form before
-                                searching the rulebook. It helps match the right rules
-                                and reuse trusted answers to similar questions. Your
-                                original wording is always kept.
-                              </span>
-                            </span>
-                            <span class="ask-orig__text">"{asked_as}"</span>
-                          </div>
-                        <% end %>
-                        <%!-- "Ask exactly this" — escape hatch below the original
-                              question when the served answer may not fit what the
-                              asker meant: the wording was rewritten OR the pool
-                              matched a similar-but-different neighbor. Re-asks the
-                              literal words with no cache + no rewrite. Gated on the
-                              paired answer being ready; hidden once the wording
-                              matches (incl. the verbatim re-ask's own row, so it
-                              can't loop). Own rows only — non-admins are scoped to
-                              their own threads and the server re-checks ownership. --%>
-                        <% ans_msg =
-                          msg.role == :user &&
-                            Enum.find(@conversation, &(&1[:id] == msg.id && &1.role == :assistant)) %>
-                        <% answer_ready? =
-                          ans_msg && !ans_msg[:pending] && !ans_msg[:refused] &&
-                            ans_msg.content != "Thinking..." && is_binary(ans_msg.content) &&
-                            not String.starts_with?(ans_msg.content, "⚠️") %>
-                        <% ans_pending? =
-                          ans_msg && (ans_msg[:pending] || ans_msg.content == "Thinking...") %>
-                        <%!-- Render (disabled) the moment the question is asked, while
-                              the answer is still streaming, so the button holds its
-                              space BEFORE the answer scrolls into view and gets pinned
-                              to the viewport top. Revealing it only at :ask_complete
-                              used to insert above the finished answer and shove it down
-                              mid-read. It persists after completion when the wording was
-                              rewritten or a pooled neighbor was served; a fresh
-                              exact-wording answer needs no re-ask, so it collapses. --%>
-                        <%= if ans_pending? ||
-                               (answer_ready? &&
-                                  (ans_msg[:pool_hit] ||
-                                     normalization_changed?(asked_as, msg.content))) do %>
-                          <button
-                            type="button"
-                            phx-click="ask_exactly"
-                            phx-value-id={msg.id}
-                            disabled={ans_pending? || @pending_count >= @max_concurrent}
-                            data-confirm="Re-ask using your exact original wording, without rewriting or reusing a cached answer? We'll fetch a fresh answer for exactly what you asked."
-                            class="ask-redo"
-                            title="Answer my literal wording — fresh, no rewrite"
-                          >🎯 Ask exactly this</button>
-                        <% end %>
+                        <%!-- The question, the "you asked" original-vs-normalized
+                              disclosure, and "Ask exactly this" all live in the fixed
+                              .qa-question bar on top now — nothing question-related
+                              renders in this user row (that lone button used to float
+                              here). --%>
                     <% end %>
                   </div>
 
@@ -5267,8 +5226,23 @@ defmodule RuleMavenWeb.GameLive.Show do
             non-scrolling containing block), so the sheet layers OVER the answer
             without reflowing it — expanding the question never moves the answer. --%>
       <%= if @qa_show_question do %>
+        <% u = Enum.find(@conversation, &(&1.role == :user)) %>
+        <% orig = u && (Map.get(@reask_typed, u[:id]) || u[:original_question]) %>
         <div class="qa-overlay" phx-click="qa_hide_question">
-          <div class="qa-overlay__sheet" phx-click="ignore">{@qa_active_question}</div>
+          <div class="qa-overlay__sheet" phx-click="ignore">
+            <%= if u && normalization_changed?(orig, u.content) do %>
+              <div class="qa-overlay__row">
+                <span class="qa-overlay__k">You asked</span>
+                <p class="qa-overlay__v">"{orig}"</p>
+              </div>
+              <div class="qa-overlay__row">
+                <span class="qa-overlay__k">We searched</span>
+                <p class="qa-overlay__v">{u.content}</p>
+              </div>
+            <% else %>
+              <p class="qa-overlay__v">{@qa_active_question}</p>
+            <% end %>
+          </div>
         </div>
       <% end %>
 
