@@ -29,8 +29,13 @@ defmodule RuleMavenWeb.AdminLive.Groups do
   end
 
   def handle_event("delete_group", %{"id" => id_str}, socket) do
-    {id, _} = Integer.parse(id_str)
+    case Integer.parse(id_str) do
+      {id, ""} -> do_delete_group(id, socket)
+      _ -> {:noreply, put_flash(socket, :error, "Group not found.")}
+    end
+  end
 
+  defp do_delete_group(id, socket) do
     case Enum.find(socket.assigns.rows, &(&1.group.id == id)) do
       nil ->
         {:noreply, put_flash(socket, :error, "Group not found.")}
