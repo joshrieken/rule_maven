@@ -157,4 +157,29 @@ defmodule RuleMaven.GroupsTest do
 
     assert {:error, :not_member} = Groups.admin_transfer_ownership(group, outsider.id)
   end
+
+  test "admin_remove_member removes a member without being in the group" do
+    owner = create_user("adminremove_owner")
+    {:ok, group} = Groups.create_group(owner, %{name: "Remove Crew"})
+    member = create_user("adminremove_member")
+    {:ok, _} = Groups.join_by_code(member, group.invite_code)
+
+    assert {:ok, :removed} = Groups.admin_remove_member(group, member.id)
+    refute Groups.member?(member, group)
+  end
+
+  test "admin_remove_member refuses to remove the owner" do
+    owner = create_user("adminremove_owner2")
+    {:ok, group} = Groups.create_group(owner, %{name: "Remove Crew 2"})
+
+    assert {:error, :cannot_remove_owner} = Groups.admin_remove_member(group, owner.id)
+  end
+
+  test "admin_remove_member rejects a non-member target" do
+    owner = create_user("adminremove_owner3")
+    {:ok, group} = Groups.create_group(owner, %{name: "Remove Crew 3"})
+    outsider = create_user("adminremove_outsider")
+
+    assert {:error, :not_member} = Groups.admin_remove_member(group, outsider.id)
+  end
 end

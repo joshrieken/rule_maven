@@ -589,45 +589,58 @@ defmodule RuleMaven.Groups do
         {:error, :use_leave}
 
       true ->
-        case Repo.get_by(Membership, group_id: group.id, user_id: target_user_id) do
-          nil ->
-            {:error, :not_member}
+        do_remove_member(group, target_user_id)
+    end
+  end
 
-          %Membership{role: "owner"} ->
-            {:error, :cannot_remove_owner}
+  @doc """
+  Same as `remove_member/3`, no membership check and no self-removal guard
+  (a site admin removing another user's membership is never "leaving").
+  Site-admin callers only.
+  """
+  def admin_remove_member(%Group{} = group, target_user_id) do
+    do_remove_member(group, target_user_id)
+  end
 
-          membership ->
-            # Rotate the invite code in the same breath. The invite URL is shown
-            # to EVERY member, not just admins, so a removed member is holding a
-            # working key to the door they were just shown out of: `join_by_code/2`
-            # checks only that the code exists and the link is active, and there is
-            # no blocklist. Deleting the membership row alone bought nothing — they
-            # re-open the link and they are back in, with full feed access and no
-            # signal to the admin, as many times as they like.
-            #
-            # Rotating costs the crew a re-share of the link; not rotating makes
-            # removal decorative.
-            #
-            # Under the SAME advisory lock `join_by_code/2` takes. A lock only
-            # serializes the transactions that TAKE it: the joiner re-reads the
-            # code inside the lock, but if the remover doesn't hold it, the two
-            # still interleave — the joiner reads the group (code still valid),
-            # the removal commits (row deleted, code rotated), and the joiner's
-            # `role_of` then sees no membership and re-inserts the row that was
-            # just deleted. Removal is only durable if the remover is inside the
-            # same critical section the joiner is racing against.
-            Repo.transaction(fn ->
-              Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
+  defp do_remove_member(group, target_user_id) do
+    case Repo.get_by(Membership, group_id: group.id, user_id: target_user_id) do
+      nil ->
+        {:error, :not_member}
 
-              Repo.delete!(membership)
+      %Membership{role: "owner"} ->
+        {:error, :cannot_remove_owner}
 
-              group
-              |> Group.changeset(%{invite_code: generate_code()})
-              |> Repo.update!()
-            end)
+      membership ->
+        # Rotate the invite code in the same breath. The invite URL is shown
+        # to EVERY member, not just admins, so a removed member is holding a
+        # working key to the door they were just shown out of: `join_by_code/2`
+        # checks only that the code exists and the link is active, and there is
+        # no blocklist. Deleting the membership row alone bought nothing — they
+        # re-open the link and they are back in, with full feed access and no
+        # signal to the admin, as many times as they like.
+        #
+        # Rotating costs the crew a re-share of the link; not rotating makes
+        # removal decorative.
+        #
+        # Under the SAME advisory lock `join_by_code/2` takes. A lock only
+        # serializes the transactions that TAKE it: the joiner re-reads the
+        # code inside the lock, but if the remover doesn't hold it, the two
+        # still interleave — the joiner reads the group (code still valid),
+        # the removal commits (row deleted, code rotated), and the joiner's
+        # `role_of` then sees no membership and re-inserts the row that was
+        # just deleted. Removal is only durable if the remover is inside the
+        # same critical section the joiner is racing against.
+        Repo.transaction(fn ->
+          Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
 
-            {:ok, :removed}
-        end
+          Repo.delete!(membership)
+
+          group
+          |> Group.changeset(%{invite_code: generate_code()})
+          |> Repo.update!()
+        end)
+
+        {:ok, :removed}
     end
   end
 
