@@ -1821,6 +1821,7 @@ defmodule RuleMavenWeb.GameLive.Show do
          pending_count: pending_count,
          confirm_delete_id: nil
        )
+       |> assign_qa_nav()
        |> sync_ask_stream_subscriptions()
        |> push_patch(to: ~p"/games/#{game}")}
     else
@@ -1840,6 +1841,7 @@ defmodule RuleMavenWeb.GameLive.Show do
          pending_count: pending_count,
          confirm_delete_id: nil
        )
+       |> assign_qa_nav()
        |> sync_ask_stream_subscriptions()}
     end
   end
@@ -1956,6 +1958,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           {:noreply,
            socket
            |> assign(conversation: conversation, threads: threads)
+           |> assign_qa_nav()
            |> grouped_cache_update(id, &%{&1 | favorited: updated.favorited})}
 
         _ ->
@@ -2031,7 +2034,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        conversation: conversation,
        threads: threads,
        pending_count: Enum.count(threads, & &1.pending)
-     )}
+     )
+     |> assign_qa_nav()}
   end
 
   # Admin-only version history: lazily fetches prior deleted versions of this
@@ -2294,7 +2298,8 @@ defmodule RuleMavenWeb.GameLive.Show do
            community_questions: community,
            pending_count: Enum.count(threads, & &1.pending),
            refresh: socket.assigns.refresh + 1
-         )}
+         )
+         |> assign_qa_nav()}
     end
   end
 
@@ -2628,6 +2633,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                community_questions:
                  Games.community_questions(game, socket.assigns.current_user.id)
              )
+             |> assign_qa_nav()
              |> sync_ask_stream_subscriptions()
              |> push_patch(to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}")}
 
@@ -3322,6 +3328,7 @@ defmodule RuleMavenWeb.GameLive.Show do
          refresh: socket.assigns.refresh + 1,
          stale_timer: nil
        )
+       |> assign_qa_nav()
        |> sync_ask_stream_subscriptions()}
     else
       # No stale found — re-arm if questions still pending (they're < 120s old now)
@@ -3703,11 +3710,12 @@ defmodule RuleMavenWeb.GameLive.Show do
               disabled={@qa_active_index <= 0}
               aria-label="Previous question"
             >◂</button>
-            <span
+            <button
+              type="button"
               class="qa-chip__text"
               phx-click="qa_show_question"
               title="Show full question"
-            >{@qa_active_question}</span>
+            >{@qa_active_question}</button>
             <span class="qa-chip__pager">{@qa_active_index + 1} / {@qa_total}</span>
             <button
               type="button"
@@ -3726,14 +3734,6 @@ defmodule RuleMavenWeb.GameLive.Show do
           data-answer-key={"#{@active_thread_id}-#{@qa_active_index}"}
           phx-hook="AnswerPane"
         >
-          <%= if @qa_show_question do %>
-            <div class="qa-overlay" phx-click="qa_hide_question">
-              <div class="qa-overlay__sheet" phx-click="ignore">
-                {@qa_active_question}
-              </div>
-            </div>
-          <% end %>
-
           <%= if @source_count == 0 do %>
             <div class="text-center text-gray-400 py-8">
               <p class="text-sm">No rulebook sources yet.</p>
@@ -5245,6 +5245,20 @@ defmodule RuleMavenWeb.GameLive.Show do
           </form>
         </div>
       </div>
+
+      <%!-- Direct child of .chat-layout (fixed frame), not .answer-pane (the
+            scroll container). An absolutely-positioned descendant of a scroll
+            container is positioned against its content origin, not the visible
+            viewport — inset:0 there pins to scrollTop=0 and scrolls away with
+            the content. .chat-layout is position:fixed, so it is a stable
+            containing block regardless of the pane's scroll offset. --%>
+      <%= if @qa_show_question do %>
+        <div class="qa-overlay" phx-click="qa_hide_question">
+          <div class="qa-overlay__sheet" phx-click="ignore">
+            {@qa_active_question}
+          </div>
+        </div>
+      <% end %>
     </div>
 
     <%!-- Outside .chat-layout on purpose: that element is `position:fixed;

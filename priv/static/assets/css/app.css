@@ -848,7 +848,6 @@ body {
   }
   .chat-layout,
   .chat-layout .chat-header,
-  .chat-layout .chat-messages,
   .chat-layout .chat-input,
   .chat-msg,
   .chat-msg-user,
@@ -1036,13 +1035,12 @@ a:not([class]):hover {
    would make it a containing block for itself (see the .main-content note). */
 /* Q&A screen: fixed three-row frame. Only the middle row (.answer-pane)
    scrolls, so a growing/streaming answer never moves the chip or composer.
-   100dvh (not vh) keeps the composer above the mobile browser chrome and the
-   on-screen keyboard. */
+   display:flex/flex-direction/height are set inline on the element
+   (show.ex) via `calc(100dvh - header - jobpanel)` — that calc, not a plain
+   100dvh here, is what keeps the composer above the header, the job panel,
+   and the on-screen keyboard, so this rule stays animation-only rather than
+   duplicating (and drifting from) that source of truth. */
 .chat-layout {
-  display: flex;
-  flex-direction: column;
-  height: 100dvh;
-  min-height: 0;
   animation: qa-panel-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .chat-layout .chat-header {
@@ -1089,6 +1087,12 @@ a:not([class]):hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+  color: inherit;
 }
 .qa-chip__pager {
   display: inline-flex;
@@ -1103,7 +1107,7 @@ a:not([class]):hover {
 .qa-overlay {
   position: absolute;
   inset: 0;
-  z-index: 20;
+  z-index: 30;
   display: flex;
   align-items: flex-start;
   justify-content: center;
