@@ -51,6 +51,8 @@ defmodule RuleMavenWeb.AdminEmailControlsTest do
     {:ok, view, html} = conn |> login(create_admin()) |> live(~p"/admin")
 
     refute html =~ "phx-click=\"toggle_email\""
+    refute html =~ "Email is on"
+    refute html =~ "Kill switch for outbound email"
 
     result = render_click(view, "toggle_email", %{})
 
@@ -64,6 +66,8 @@ defmodule RuleMavenWeb.AdminEmailControlsTest do
     {:ok, view, html} = conn |> login(create_admin()) |> live(~p"/admin")
 
     refute html =~ "phx-click=\"toggle_asks\""
+    refute html =~ "Asks are live"
+    refute html =~ "Kill switch for new LLM answers"
 
     result = render_click(view, "toggle_asks", %{})
 
