@@ -2087,15 +2087,13 @@ defmodule RuleMaven.Games do
   # becomes publicly listed: every browse surface reads
   # `browsable or visibility == "community"`, and those surfaces render
   # `display_question/1`, whose last fallback is the raw `question` column.
-  # So an admin verifying a crew row that the publish check has not cleared
-  # (or has rejected) would publish the asker's verbatim wording. Group rows
-  # have to clear the screen first; non-group rows are unaffected.
+  # So an admin verifying ANY row (solo or group) that the publish check has
+  # not cleared (or has rejected) would publish the asker's verbatim wording —
+  # every row is born unbrowsable pending that screen now, not just group rows.
   #
   # Keyed on `browsable` alone, NOT on `group_id`: questions_log.group_id is
   # `on_delete: :nilify_all`, so a `group_id == nil -> allow` head would let an
-  # admin publish a deleted crew's never-screened rows. Non-group rows are
-  # written browsable (schema default, and explicitly at both insert sites), so
-  # this costs them nothing.
+  # admin publish a deleted crew's never-screened rows.
   defp publishable?(%QuestionLog{browsable: browsable}), do: browsable == true
 
   defp do_verify(%QuestionLog{} = q) do
@@ -2226,7 +2224,18 @@ defmodule RuleMaven.Games do
   `visibility` — promoting to community stays the separate, existing
   `update_question_visibility/2` action; this only unlocks the row from the
   publish gate.
+
+  Refuses a retracted row (`retracted_at` set — contribute-off, group delete,
+  owner account deletion). This override exists to bypass an ambiguous/failed
+  AUTOMATED SCREEN result, not to re-expose content its own crew explicitly
+  withdrew — `retracted_at` is treated as durable and never-re-exposed
+  everywhere else in the system (PublishCheckWorker, AskWorker's `withdrawn?`),
+  and this is the one remaining writer of `browsable`/`pooled` that didn't
+  check it.
   """
+  def force_publish_question(%QuestionLog{retracted_at: at}) when not is_nil(at),
+    do: {:error, :retracted}
+
   def force_publish_question(%QuestionLog{} = q) do
     attrs = %{browsable: true, pooled: q.citation_valid}
 

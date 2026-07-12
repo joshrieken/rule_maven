@@ -460,10 +460,10 @@ defmodule RuleMaven.Workers.AskWorker do
                     llm_model: llm_result[:model],
                     pool_source_id: llm_result[:source_question_log_id],
                     question_embedding: llm_result[:question_embedding],
-                    # A group row's question text is unbrowsable until
-                    # PublishCheckWorker clears it. A non-group row is browsable, as
-                    # it always has been. `group_id` folds in the ROW's column, so a
-                    # re-queue with no "group_id" arg can't publish a group row.
+                    # Every row's question text is unbrowsable until
+                    # PublishCheckWorker clears it — solo rows same as group rows.
+                    # `group_id` folds in the ROW's column, so a re-queue with no
+                    # "group_id" arg can't publish a group row.
                     #
                     # `and ql.browsable` — this worker may only ever NARROW the flag,
                     # never widen it. The insert already decided publishability with

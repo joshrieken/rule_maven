@@ -1239,7 +1239,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                        user_id: socket.assigns.current_user.id,
                        visibility: visibility,
                        group_id: group_id,
-                       browsable: is_nil(group_id),
                        expansion_ids: Enum.sort(expansion_ids)
                      }) do
                   {:ok, question_log} ->

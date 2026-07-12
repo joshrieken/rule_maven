@@ -96,4 +96,26 @@ defmodule RuleMavenWeb.GameLive.ShowTest do
 
     assert_enqueued(worker: RuleMaven.Workers.AskWorker, args: %{"never_pool" => false})
   end
+
+  test "a solo ask submitted through the real form is born unbrowsable", %{conn: conn} do
+    # Regression: the "ask" event handler used to pass `browsable: is_nil(group_id)`
+    # explicitly into the insert, which is `true` for a solo ask — bypassing
+    # QuestionLog.default_unbrowsable/1 entirely (an explicit param always wins) and
+    # defeating PublishCheckWorker's whole gate on the one path real users actually
+    # hit. Every test elsewhere in this branch drives AskWorker.perform/1 or
+    # Games.log_question/1 directly, never this LiveView event, so the bug was
+    # invisible to the rest of the suite.
+    user = create_user("solo_gate")
+    game = published_game_fixture(%{bgg_id: 305})
+    conn = login(conn, user)
+
+    {:ok, lv, _html} = live(conn, ~p"/games/#{game}")
+
+    lv
+    |> form("#ask-form", question: "How many cards do we draw each turn?")
+    |> render_submit()
+
+    [ql] = RuleMaven.Repo.all(RuleMaven.Games.QuestionLog)
+    refute ql.browsable, "a fresh solo ask must start unbrowsable pending PublishCheckWorker"
+  end
 end
