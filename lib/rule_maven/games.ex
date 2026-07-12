@@ -2549,6 +2549,8 @@ defmodule RuleMaven.Games do
   def admin_list_questions(opts \\ []) do
     limit = Keyword.get(opts, :limit, 100)
     game_id = Keyword.get(opts, :game_id)
+    user_id = Keyword.get(opts, :user_id)
+    group_id = Keyword.get(opts, :group_id)
     status = Keyword.get(opts, :status)
     search = Keyword.get(opts, :search)
 
@@ -2559,6 +2561,12 @@ defmodule RuleMaven.Games do
 
     query =
       if game_id, do: from(q in query, where: q.game_id == ^game_id), else: query
+
+    query =
+      if user_id, do: from(q in query, where: q.user_id == ^user_id), else: query
+
+    query =
+      if group_id, do: from(q in query, where: q.group_id == ^group_id), else: query
 
     query =
       case status do
@@ -2587,40 +2595,18 @@ defmodule RuleMaven.Games do
       if search && search != "" do
         term = "%#{search}%"
 
-        # Search the text the list actually RENDERS (`listed_question/1` /
-        # `listed_answer/1`), never the raw column. Matching on hidden text is the
-        # search-oracle shape: the row appears and disappears on substrings the
-        # viewer is never shown, which is enough to reconstruct a crew member's
-        # verbatim question — or answer, which restates it — a character at a time.
-        # The admin list renders the withholding helpers now, so the filter has to
-        # agree with them or the oracle survives the render fix.
-        # `cleaned_question` is only searchable when it is genuinely a scrub:
-        # on a normalize fallback the column holds the asker's verbatim prose
-        # (see `QuestionLog.listed_question/1`), so matching it unconditionally
-        # rebuilds the very oracle this filter exists to close. Likewise the answer:
-        # `listed_answer/1` shows the raw `answer` only for a browsable row, so the
-        # filter matches `canonical_answer` always and `answer` only when browsable.
+        # This endpoint is gated to `:admin`/`:superadmin` at the LiveView mount
+        # (admin_live/questions.ex), so the withholding gate that keeps crew
+        # question/answer text out of *other users'* view (`QuestionLog.listed_question/1`
+        # / `listed_answer/1`) doesn't apply here — admins may search and read the
+        # raw columns directly.
         from(q in query,
           where:
-            ilike(
-              fragment(
-                "coalesce(?, CASE WHEN ? THEN ? END)",
-                q.canonical_answer,
-                q.browsable,
-                q.answer
-              ),
-              ^term
-            ) or
+            ilike(coalesce(q.canonical_answer, q.answer), ^term) or
               ilike(
-                fragment(
-                  "coalesce(?, CASE WHEN ? THEN ? END)",
-                  q.canonical_question,
-                  q.question_normalized,
-                  q.cleaned_question
-                ),
+                coalesce(q.canonical_question, coalesce(q.cleaned_question, q.question)),
                 ^term
-              ) or
-              (q.browsable == true and is_nil(q.group_id) and ilike(q.question, ^term))
+              )
         )
       else
         query

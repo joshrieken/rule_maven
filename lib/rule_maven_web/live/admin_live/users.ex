@@ -275,7 +275,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
             <col />
             <col style="width:7rem" />
             <col style="width:6rem" />
-            <col style="width:9rem" />
+            <col style="width:12rem" />
           </colgroup>
           <thead>
             <tr style="background:var(--bg-subtle);text-align:left">
@@ -307,7 +307,11 @@ defmodule RuleMavenWeb.AdminLive.Users do
                   {String.slice(to_string(user.inserted_at), 0, 10)}
                 </td>
                 <td style="padding:0.35rem 0.75rem">
-                  <div style="display:flex;gap:0.35rem">
+                  <div style="display:flex;gap:0.35rem;flex-wrap:wrap">
+                    <.link
+                      navigate={~p"/admin/questions?user_id=#{user.id}"}
+                      class="btn-outline btn-xs"
+                    >Questions</.link>
                     <%= cond do %>
                       <% Users.super_admin?(user) -> %>
                         <span style="color:var(--text-muted);font-size:0.75rem">
