@@ -848,7 +848,6 @@ body {
   }
   .chat-layout,
   .chat-layout .chat-header,
-  .chat-layout .chat-messages,
   .chat-layout .chat-input,
   .chat-msg,
   .chat-msg-user,
@@ -1034,17 +1033,99 @@ a:not([class]):hover {
    stagger in. No animation-fill-mode:forwards anywhere — every animation ends
    at transform:none so the fixed .chat-layout never keeps a transform that
    would make it a containing block for itself (see the .main-content note). */
+/* Q&A screen: fixed three-row frame. Only the middle row (.answer-pane)
+   scrolls, so a growing/streaming answer never moves the chip or composer.
+   display:flex/flex-direction/height are set inline on the element
+   (show.ex) via `calc(100dvh - header - jobpanel)` — that calc, not a plain
+   100dvh here, is what keeps the composer above the header, the job panel,
+   and the on-screen keyboard, so this rule stays animation-only rather than
+   duplicating (and drifting from) that source of truth. */
 .chat-layout {
   animation: qa-panel-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .chat-layout .chat-header {
+  flex: 0 0 auto;
   animation: qa-drop-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
 }
-.chat-layout .chat-messages {
-  animation: qa-rise-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
-}
 .chat-layout .chat-input {
+  flex: 0 0 auto;
   animation: qa-rise-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.22s both;
+}
+
+/* The one scroll region. flex:1 + min-height:0 lets it take the leftover
+   height and scroll internally; the frame around it stays put. */
+.answer-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 1rem;
+  max-width: 48rem;
+  margin: 0 auto;
+  width: 100%;
+  background: var(--bg);
+  position: relative;
+  z-index: 1;
+}
+
+/* Row 1: non-scrolling question chip. One line, truncated, tappable. */
+.qa-chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.qa-chip__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+.qa-chip__pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+/* Full-question overlay: sits OVER the answer pane, never pushes it. */
+.qa-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  backdrop-filter: blur(2px);
+}
+.qa-overlay__sheet {
+  margin: 0.75rem;
+  max-width: 44rem;
+  width: 100%;
+  padding: 1rem 1.1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--text);
 }
 
 @keyframes qa-panel-in {
