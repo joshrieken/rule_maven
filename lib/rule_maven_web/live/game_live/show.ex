@@ -3700,6 +3700,10 @@ defmodule RuleMavenWeb.GameLive.Show do
         <!-- Restores the saved default voice from localStorage on connect. -->
         <div id="voice-default-store" phx-hook="VoiceDefault" style="display:none"></div>
 
+        <%!-- One Q&A column: fixed pager bar on top, scrolling answer below.
+              This is the single flex:1 sibling of the sidebar; the answer-pane
+              (max-width:48rem, margin:auto) centers inside it as a reading column. --%>
+        <div class="qa-column" style="flex:1;min-width:0;display:flex;flex-direction:column">
         <!-- Row 1: question chip (fixed, never scrolls) -->
         <%= if @conversation != [] && @qa_active_question do %>
           <div class="qa-chip">
@@ -4921,8 +4925,9 @@ defmodule RuleMavenWeb.GameLive.Show do
             <% end %>
             <!-- end history else -->
           <% end %>
-        </div>
-      </div>
+        </div><%!-- /.answer-pane --%>
+        </div><%!-- /.qa-column --%>
+      </div><%!-- /horizontal row --%>
 
       <%!-- Minimized tools: a distinct in-flow bar directly above the composer
             at every width (the messages area shrinks instead of being

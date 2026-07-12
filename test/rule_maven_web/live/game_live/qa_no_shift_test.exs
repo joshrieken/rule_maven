@@ -55,4 +55,12 @@ defmodule RuleMavenWeb.GameLive.QaNoShiftTest do
     view |> element(".qa-overlay") |> render_click()
     refute has_element?(view, ".qa-overlay")
   end
+
+  test "pager and answer-pane share one vertical column wrapper",
+       %{conn: conn, game: game, user: user, thread_ids: thread_ids} do
+    {:ok, view, _html} = conn |> login(user) |> visit_newest(game, thread_ids)
+    # .qa-column wraps both the pager bar and the scroll region.
+    assert has_element?(view, ".qa-column .qa-chip__pager")
+    assert has_element?(view, ".qa-column .answer-pane")
+  end
 end
