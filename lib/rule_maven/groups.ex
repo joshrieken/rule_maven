@@ -278,12 +278,24 @@ defmodule RuleMaven.Groups do
   """
   def rename(actor, group, name) do
     if role_at_least?(actor, group, :admin) do
-      group
-      |> Group.changeset(%{name: name})
-      |> Repo.update()
+      do_rename(group, name)
     else
       {:error, :forbidden}
     end
+  end
+
+  @doc """
+  Renames the group with no membership/role check. For site-admin callers
+  only — the caller is responsible for verifying `Users.can?(actor, :admin)`
+  before calling this. Same validation and return shape as `rename/3` minus
+  the `:forbidden` case.
+  """
+  def admin_rename(%Group{} = group, name), do: do_rename(group, name)
+
+  defp do_rename(group, name) do
+    group
+    |> Group.changeset(%{name: name})
+    |> Repo.update()
   end
 
   @doc """

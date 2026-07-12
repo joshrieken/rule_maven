@@ -8,4 +8,7 @@ Ecto.Adapters.SQL.Sandbox.mode(RuleMaven.Repo, :manual)
 
 # Starts the shared Playwright browser pool (one chromium instance; each test
 # gets its own isolated browser context).
-{:ok, _} = PhoenixTest.Playwright.Supervisor.start_link()
+# Skip for now if Playwright is not available (e.g., in worktrees running only unit tests)
+if File.exists?("assets/node_modules/.bin/playwright") do
+  {:ok, _} = PhoenixTest.Playwright.Supervisor.start_link()
+end

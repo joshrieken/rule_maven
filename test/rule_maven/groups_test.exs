@@ -46,4 +46,19 @@ defmodule RuleMaven.GroupsTest do
     assert {:error, _changeset} = Groups.create_group(owner, %{name: ""})
     assert Groups.role_of(owner, %RuleMaven.Groups.Group{id: -1}) == nil
   end
+
+  test "admin_rename renames without requiring group membership" do
+    owner = create_user("adminrename_owner")
+    {:ok, group} = Groups.create_group(owner, %{name: "Old Name"})
+
+    assert {:ok, updated} = Groups.admin_rename(group, "New Name")
+    assert updated.name == "New Name"
+  end
+
+  test "admin_rename returns a changeset error for an invalid name" do
+    owner = create_user("adminrename_bad")
+    {:ok, group} = Groups.create_group(owner, %{name: "Fine"})
+
+    assert {:error, %Ecto.Changeset{}} = Groups.admin_rename(group, "")
+  end
 end
