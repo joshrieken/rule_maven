@@ -17,6 +17,19 @@ defmodule RuleMaven.Groups do
   @doc "Generate an opaque invite code."
   def generate_code, do: :crypto.strong_rand_bytes(8) |> Base.encode32(padding: false)
 
+  @doc "Crew-name typeahead for admin tooling (e.g. filtering the Questions list by group)."
+  def search_groups(query, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 15)
+    term = "%#{String.trim(query || "")}%"
+
+    Repo.all(
+      from g in Group,
+        where: ilike(g.name, ^term),
+        order_by: [asc: g.name],
+        limit: ^limit
+    )
+  end
+
   @doc """
   Inserts a group and its owner membership row in one transaction. Rolls back
   the whole transaction (no orphan membership) if the group insert fails.

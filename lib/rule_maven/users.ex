@@ -30,6 +30,19 @@ defmodule RuleMaven.Users do
     Repo.all(from u in User, order_by: [desc: u.inserted_at])
   end
 
+  @doc "Username typeahead for admin tooling (e.g. filtering the Questions list by asker)."
+  def search_users(query, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 15)
+    term = "%#{String.trim(query || "")}%"
+
+    Repo.all(
+      from u in User,
+        where: ilike(u.username, ^term),
+        order_by: [asc: u.username],
+        limit: ^limit
+    )
+  end
+
   @doc "Count of users holding :admin (any role that grants it). Last-admin lockout guard."
   def count_admins do
     admin_roles = User.roles_with_capability(:admin)
@@ -323,7 +336,10 @@ defmodule RuleMaven.Users do
       {:ok, _} =
         Repo.transaction(
           Ecto.Multi.new()
-          |> Ecto.Multi.delete_all(:tokens, UserToken.by_user_and_contexts_query(user, ["magic_link"]))
+          |> Ecto.Multi.delete_all(
+            :tokens,
+            UserToken.by_user_and_contexts_query(user, ["magic_link"])
+          )
         )
 
       if User.suspended?(user) do
