@@ -2127,7 +2127,17 @@ Hooks.Tour = {
       }
     };
     window.addEventListener("keydown", this._onKey, true);
-    this._onMove = () => this.position();
+    // Scroll/resize can fire far faster than 60fps (trackpad, capture-phase
+    // bubbling); coalesce to one position() per animation frame so we don't
+    // force a layout read + 4 style writes on every raw event.
+    this._raf = null;
+    this._onMove = () => {
+      if (this._raf) return;
+      this._raf = requestAnimationFrame(() => {
+        this._raf = null;
+        this.position();
+      });
+    };
     window.addEventListener("resize", this._onMove);
     window.addEventListener("scroll", this._onMove, true);
   },
@@ -2224,6 +2234,10 @@ Hooks.Tour = {
       window.removeEventListener("resize", this._onMove);
       window.removeEventListener("scroll", this._onMove, true);
       this._onMove = null;
+    }
+    if (this._raf) {
+      cancelAnimationFrame(this._raf);
+      this._raf = null;
     }
     if (this.ui) {
       this.ui.remove();
