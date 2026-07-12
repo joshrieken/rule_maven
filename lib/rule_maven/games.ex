@@ -2553,6 +2553,7 @@ defmodule RuleMaven.Games do
       Repo.all(query)
     else
       user_id = Keyword.get(opts, :user_id)
+      id = Keyword.get(opts, :id)
 
       base =
         from q in QuestionLog,
@@ -2560,6 +2561,7 @@ defmodule RuleMaven.Games do
           order_by: [desc: q.inserted_at],
           preload: [:user]
 
+      base = if id, do: from(q in base, where: q.id == ^id), else: base
       base = if limit, do: from(q in base, limit: ^limit), else: base
 
       query =
