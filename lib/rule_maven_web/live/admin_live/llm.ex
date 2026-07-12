@@ -10,20 +10,24 @@ defmodule RuleMavenWeb.AdminLive.Llm do
   # API; refresh here when the catalog moves.
   @openrouter_models [
     {"google/gemini-3.1-pro-preview", "Gemini 3.1 Pro — $2/$12, best vision/OCR", true},
+    {"google/gemini-3.5-flash", "Gemini 3.5 Flash — $1.50/$9, newest flash", true},
     {"google/gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite — $0.25/$1.50, cheap + strong", true},
     {"google/gemini-3-flash-preview", "Gemini 3 Flash — $0.50/$3, 1M ctx", true},
     {"google/gemini-2.5-pro", "Gemini 2.5 Pro — $1.25/$10, 1M ctx", true},
     {"google/gemini-2.5-flash", "Gemini 2.5 Flash — $0.30/$2.50, great value", true},
     {"google/gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite — $0.10/$0.40, cheapest", true},
     {"anthropic/claude-opus-4.8", "Claude Opus 4.8 — $5/$25, max accuracy", true},
+    {"anthropic/claude-sonnet-5", "Claude Sonnet 5 — $2/$10, strong + cheap", true},
     {"anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6 — $3/$15", true},
     {"anthropic/claude-haiku-4.5", "Claude Haiku 4.5 — $1/$5", true},
+    {"openai/gpt-5.2", "GPT-5.2 — $1.75/$14, flagship reasoning", true},
     {"openai/gpt-5.1", "GPT-5.1 — $1.25/$10", true},
     {"openai/gpt-5-mini", "GPT-5 Mini — $0.25/$2", true},
     {"openai/gpt-4o-mini", "GPT-4o Mini — $0.15/$0.60", true},
-    {"meta-llama/llama-4-maverick", "Llama 4 Maverick — $0.15/$0.60, multimodal", true},
+    {"meta-llama/llama-4-maverick", "Llama 4 Maverick — $0.20/$0.80, multimodal", true},
     {"meta-llama/llama-4-scout", "Llama 4 Scout — $0.10/$0.30, 10M ctx", true},
-    {"deepseek/deepseek-v4-flash", "DeepSeek V4 Flash — $0.09/$0.18, fast (text only)", false},
+    {"deepseek/deepseek-v4-pro", "DeepSeek V4 Pro — $0.44/$0.87, reasoning (text only)", false},
+    {"deepseek/deepseek-v4-flash", "DeepSeek V4 Flash — $0.08/$0.15, fast (text only)", false},
     {"deepseek/deepseek-chat", "DeepSeek V3 — $0.20/$0.80 (text only)", false},
     {"deepseek/deepseek-r1", "DeepSeek R1 — $0.70/$2.50, reasoning (text only)", false}
   ]
