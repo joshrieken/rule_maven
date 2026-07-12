@@ -91,6 +91,12 @@ defmodule RuleMavenWeb.GameLive.Show do
        included_expansions: %{},
        expansions_seeded: false,
        search_query: "",
+       # Lazily-loaded full-history snapshot for admin search only. Admins used
+       # to always load every question ever asked (see `question_group_opts/1`);
+       # now that the default load is bounded for performance, an admin search
+       # fetches the unbounded set ONCE on first search keystroke and caches it
+       # here, rather than re-querying per keystroke or bloating every mount.
+       search_full_threads: nil,
        community_questions: [],
        community_count: 0,
        favorited_answer_ids: MapSet.new(),
@@ -225,25 +231,33 @@ defmodule RuleMavenWeb.GameLive.Show do
     # questions, setup checklist) — no active thread — unless ?t=THREAD_ID
     # explicitly targets a thread. A thread already selected in this session
     # (socket assign) is kept across patches. ?start=1 forces the overview.
-    active_thread_id =
+    {grouped, threads, active_thread_id} =
       cond do
         params["start"] ->
-          nil
+          {grouped, threads, nil}
 
         t = params["t"] ->
           case RuleMaven.Hashid.decode(t) do
             {:ok, tid} ->
-              if Enum.any?(threads, &(&1.id == tid)), do: tid, else: nil
+              if Enum.any?(threads, &(&1.id == tid)) do
+                {grouped, threads, tid}
+              else
+                inject_out_of_window_thread(game, socket, grouped, threads, tid)
+              end
 
             :error ->
-              nil
+              {grouped, threads, nil}
           end
 
         id = socket.assigns.active_thread_id ->
-          if Enum.any?(threads, &(&1.id == id)), do: id, else: nil
+          if Enum.any?(threads, &(&1.id == id)) do
+            {grouped, threads, id}
+          else
+            inject_out_of_window_thread(game, socket, grouped, threads, id)
+          end
 
         true ->
-          nil
+          {grouped, threads, nil}
       end
 
     conversation =
@@ -427,6 +441,26 @@ defmodule RuleMavenWeb.GameLive.Show do
     end)
   end
 
+  # A `?t=` link (bookmarked, or an "Open in chat" link from Community) can
+  # point at a question outside the bounded recent-N window now that admins
+  # no longer load the game's entire history (see `question_group_opts/1`).
+  # Fetch it directly, scoped by the SAME authorization opts the bounded list
+  # used, so a non-admin still can't reach a question they weren't allowed to
+  # see — only the recency cap is being bypassed here, not the visibility rule.
+  defp inject_out_of_window_thread(game, socket, grouped, threads, tid) do
+    opts = socket |> question_group_opts() |> Keyword.put(:id, tid)
+
+    case Games.recent_questions(game, nil, opts) do
+      [ql] ->
+        g = %{primary: ql, history: [], followups: []}
+        t = [g] |> build_thread_summaries(socket.assigns.current_user.id) |> List.first()
+        {[g | grouped], [t | threads], tid}
+
+      _ ->
+        {grouped, threads, nil}
+    end
+  end
+
   defp asker_label(%{user_id: uid}, uid), do: "You"
 
   defp asker_label(%{user: %RuleMaven.Users.User{username: username}}, _uid)
@@ -474,9 +508,14 @@ defmodule RuleMavenWeb.GameLive.Show do
     if gid && RuleMaven.Groups.member_of_group_id?(uid, gid), do: gid, else: nil
   end
 
+  # Admins used to load `limit: nil` — every question ever asked for the game,
+  # unbounded — so a heavily-played game (deep Q&A history) paid multi-second
+  # query + preload + in-memory grouping cost on every mount and thread switch.
+  # Bounded to the same recent-N default non-admins already get; `?t=` links to
+  # an older question outside this window are recovered by `inject_out_of_window_thread/4`.
   defp question_group_opts(socket) do
     if socket.assigns.is_admin do
-      [limit: nil]
+      []
     else
       [user_id: socket.assigns.current_user.id]
     end
@@ -1394,7 +1433,19 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   @impl true
   def handle_event("search", %{"query" => query}, socket) do
-    {:noreply, assign(socket, search_query: String.slice(query, 0, 200))}
+    query = String.slice(query, 0, 200)
+
+    socket =
+      if socket.assigns.is_admin and String.trim(query) != "" and
+           is_nil(socket.assigns.search_full_threads) do
+        grouped = Games.grouped_questions(socket.assigns.game, limit: nil)
+        full = build_thread_summaries(grouped, socket.assigns.current_user.id)
+        assign(socket, search_full_threads: full)
+      else
+        socket
+      end
+
+    {:noreply, assign(socket, search_query: query)}
   end
 
   @impl true
@@ -2980,12 +3031,20 @@ defmodule RuleMavenWeb.GameLive.Show do
           <% end %>
 
           <!-- Thread list grouped by time -->
+          <%!-- Admin search reaches beyond the bounded default (@threads) into
+                the lazily-cached full-history snapshot; every other render path
+                (and every non-search state mutation elsewhere in this module)
+                still keys off @threads. --%>
+          <% sidebar_threads =
+            if @is_admin && @search_query != "" && @search_full_threads,
+              do: @search_full_threads,
+              else: @threads %>
           <% community_ids = MapSet.new(@community_questions, & &1.id) %>
           <% answered =
             if @is_admin do
-              Enum.reject(@threads, fn t -> MapSet.member?(community_ids, t.id) end)
+              Enum.reject(sidebar_threads, fn t -> MapSet.member?(community_ids, t.id) end)
             else
-              Enum.reject(@threads, fn t ->
+              Enum.reject(sidebar_threads, fn t ->
                 t.refused || MapSet.member?(community_ids, t.id)
               end)
             end %>
@@ -3069,7 +3128,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           <% end %>
 
           <%= if @search_query != "" &&
-               Enum.all?(@threads, fn t -> not matches_search?(t, @search_query) end) &&
+               Enum.all?(sidebar_threads, fn t -> not matches_search?(t, @search_query) end) &&
                Enum.all?(@community_questions, fn q -> @search_query == "" || not String.contains?(String.downcase(QuestionLog.listed_question(q)), String.downcase(@search_query)) end) do %>
             <div style="padding:0.5rem 0.75rem;color:var(--text-muted);font-size:0.72rem;font-style:italic">
               No matching questions
@@ -3354,8 +3413,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% v_content =
                       if v_sel == "neutral" or msg.content == "Thinking..." or
                            msg[:answer_visible] == false,
-                        do: nil,
-                        else: Map.get(@voice_cache, {msg[:id], v_sel}) %>
+                         do: nil,
+                         else: Map.get(@voice_cache, {msg[:id], v_sel}) %>
                     <% v_failed = MapSet.member?(@voice_failed, {msg[:id], v_sel}) %>
                     <% partial =
                       msg.role == :assistant && msg[:pending] &&
