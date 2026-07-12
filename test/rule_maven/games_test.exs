@@ -444,6 +444,13 @@ defmodule RuleMaven.GamesTest do
       assert cleared.canonical_question == nil
       assert cleared.canonical_answer == nil
     end
+
+    test "trims leading/trailing whitespace from pasted text", %{q: q} do
+      {:ok, updated} = Games.update_canonical(q, "  Q?\n", "\n  With one exception...  ")
+
+      assert updated.canonical_question == "Q?"
+      assert updated.canonical_answer == "With one exception..."
+    end
   end
 
   describe "DMCA takedowns" do

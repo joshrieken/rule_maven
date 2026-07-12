@@ -668,9 +668,19 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                   {admin_answer_text(q)}
                 </p>
                 <%= if q.cited_passage do %>
-                  <p style="margin-top:0.5rem;padding:0.4rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem;font-size:0.7rem;color:var(--text-muted);font-style:italic;line-height:1.4">
-                    {q.cited_passage}
-                  </p>
+                  <div style="margin-top:0.5rem;padding:0.4rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem">
+                    <%= if q.cited_source || q.cited_page do %>
+                      <p style="display:flex;align-items:center;gap:0.35rem;margin:0 0 0.25rem;font-size:0.62rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;color:var(--text-muted)">
+                        <span>{q.cited_source || "Rulebook"}</span>
+                        <%= if q.cited_page do %>
+                          <span>p.{q.cited_page}</span>
+                        <% end %>
+                      </p>
+                    <% end %>
+                    <p style="margin:0;font-size:0.7rem;color:var(--text-muted);font-style:italic;line-height:1.4">
+                      {q.cited_passage}
+                    </p>
+                  </div>
                 <% end %>
 
                 <%!-- Curated FAQ text editor (replaces the old Threads merge) --%>
