@@ -236,7 +236,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
   defp error_message(:use_leave), do: "Use \"Leave group\" to remove yourself."
   defp error_message(other), do: "Something went wrong (#{other})."
 
-  defp invite_url(group), do: url(~p"/groups/join/#{group.invite_code}")
+  defp invite_url(group), do: RuleMavenWeb.public_url(~p"/groups/join/#{group.invite_code}")
 
   def render(assigns) do
     ~H"""
