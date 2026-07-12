@@ -225,7 +225,9 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
 
     grouped = Games.grouped_questions(game, question_group_opts(socket))
-    threads = build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
+
+    threads =
+      build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
 
     # Landing on the page shows the start screen (overview: suggested
     # questions, setup checklist) — no active thread — unless ?t=THREAD_ID
@@ -458,7 +460,12 @@ defmodule RuleMavenWeb.GameLive.Show do
     case Games.recent_questions(game, nil, opts) do
       [ql] ->
         g = %{primary: ql, history: [], followups: []}
-        t = [g] |> build_thread_summaries(socket.assigns.current_user.id) |> List.first()
+
+        t =
+          [g]
+          |> build_thread_summaries(socket.assigns.current_user.id, socket.assigns.is_admin)
+          |> List.first()
+
         {[g | grouped], [t | threads], tid}
 
       _ ->
@@ -1403,7 +1410,9 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     # Rebuild threads and conversation from DB
     grouped = Games.grouped_questions(game, question_group_opts(socket))
-    threads = build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
+
+    threads =
+      build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
 
     deleted_was_active = socket.assigns.active_thread_id == id
     pending_count = Enum.count(threads, & &1.pending)
@@ -1465,7 +1474,10 @@ defmodule RuleMavenWeb.GameLive.Show do
       if socket.assigns.is_admin and String.trim(query) != "" and
            is_nil(socket.assigns.search_full_threads) do
         grouped = Games.grouped_questions(socket.assigns.game, limit: nil)
-        full = build_thread_summaries(grouped, socket.assigns.current_user.id)
+
+        full =
+          build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
+
         assign(socket, search_full_threads: full)
       else
         socket
@@ -1611,7 +1623,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         socket.assigns.is_admin
       )
 
-    threads = build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
+    threads =
+      build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
 
     {:noreply,
      assign(socket,
@@ -1868,7 +1881,9 @@ defmodule RuleMavenWeb.GameLive.Show do
             socket.assigns.is_admin
           )
 
-        threads = build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
+        threads =
+          build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
+
         community = Games.community_questions(game, socket.assigns.current_user.id)
 
         {:noreply,
@@ -2332,7 +2347,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                   t
                   | pending: false,
                     refused: ql.refused,
-                    question: shown_question(ql, socket.assigns.current_user.id, socket.assigns.is_admin),
+                    question:
+                      shown_question(ql, socket.assigns.current_user.id, socket.assigns.is_admin),
                     answer: ql.answer
                 }
 
@@ -2351,7 +2367,10 @@ defmodule RuleMavenWeb.GameLive.Show do
           Enum.map(socket.assigns.conversation, fn
             %{id: ^question_log_id, role: :user} = msg ->
               msg
-              |> Map.put(:content, shown_question(ql, socket.assigns.current_user.id, socket.assigns.is_admin))
+              |> Map.put(
+                :content,
+                shown_question(ql, socket.assigns.current_user.id, socket.assigns.is_admin)
+              )
               |> Map.put(:cleaned_question, ql.cleaned_question)
               |> Map.put(:question_normalized, ql.question_normalized)
               |> Map.put(
@@ -2365,7 +2384,10 @@ defmodule RuleMavenWeb.GameLive.Show do
               else
                 msg
                 |> Map.delete(:pending)
-                |> Map.put(:content, shown_answer(ql, socket.assigns.current_user.id, socket.assigns.is_admin))
+                |> Map.put(
+                  :content,
+                  shown_answer(ql, socket.assigns.current_user.id, socket.assigns.is_admin)
+                )
                 |> Map.put(:cited_passage, ql.cited_passage)
                 |> Map.put(:cited_page, data[:cited_page] || ql.cited_page)
                 |> Map.put(:cited_source, data[:cited_source] || ql.cited_source)
