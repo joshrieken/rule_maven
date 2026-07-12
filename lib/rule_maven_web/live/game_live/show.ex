@@ -2000,21 +2000,19 @@ defmodule RuleMavenWeb.GameLive.Show do
               live_group_id(socket)
           end
 
-        # Even where the group_id can't be carried over (the user has since left
-        # the crew), text derived from a crew row stays unpublished.
+        # A re-ask's row never inherits clearance from the row it was derived
+        # from — regenerate/retry/"Ask exactly this" all create a BRAND NEW row
+        # whose text may differ from (or, for a verbatim re-ask, is the RAW,
+        # never-screened form of) the source row's. That new row must take its
+        # own trip through the publish gate like any fresh ask, so no explicit
+        # `browsable` is passed to `log_question_with_rate_limit/2` below —
+        # `QuestionLog.default_unbrowsable/1` forces every such insert closed
+        # uniformly, crew or solo, exactly as it does for a first-time ask.
         #
-        # The inherited axis is crew PROVENANCE (`old_q.group_id`), not crew
-        # CLEARANCE (`old_q.browsable`). A cleared crew row is browsable because
-        # the screen passed its SCRUBBED text — while a verbatim re-ask copies the
-        # RAW column, which is precisely what the scrub removed. Inheriting
-        # `browsable` would therefore wave through exactly the rows whose raw text
-        # a screen has already judged unsafe to publish.
-        # `crew_origin?/1` rather than `old_q.group_id` — same nilify trap. A
-        # deleted crew's row has a nil group_id and unscreened text, and this test
-        # used to wave it straight through as `browsable: true`.
-        browsable =
-          is_nil(group_id) and
-            (is_nil(old_q) or (not crew_row? and old_q.browsable))
+        # (This used to inherit `old_q.browsable` for a solo row: since most
+        # solo rows are already cleared, that let a regenerate/retry/verbatim
+        # re-ask mint a fresh, unscreened row that was immediately browsable —
+        # bypassing PublishCheckWorker entirely.)
 
         # Computed here, not above: the filter needs the DESTINATION group, which
         # only exists once the row's boundary has been resolved. An unscreened crew
@@ -2032,7 +2030,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                user_id: socket.assigns.current_user.id,
                visibility: visibility,
                group_id: group_id,
-               browsable: browsable,
                expansion_ids: Enum.sort(expansion_ids),
                error_retries: carried_retries
              }) do
@@ -4663,7 +4660,8 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   # May this prior turn be quoted into the prompt of a new ask that is being made
-  # into `dest_group_id` (nil = a solo, poolable, browsable row)?
+  # into `dest_group_id` (nil = a solo row — poolable, but no longer implicitly
+  # browsable; every row now clears the publish gate independently)?
   #
   # Two conditions, and the second is the one a whole round missed.
   #
@@ -4687,18 +4685,27 @@ defmodule RuleMavenWeb.GameLive.Show do
     scrubbed_turn?(msg) and cleared_for?(msg, dest_group_id)
   end
 
-  # Cleared = the screen passed it (`browsable`), or it is going home to the same
-  # crew it came from, or it never came from a crew at all.
-  defp cleared_for?(%{browsable: true}, _dest), do: true
+  # Cleared = it is going home to the same crew it came from, or it never came
+  # from a crew at all. NOT `browsable`: since the unified publish gate (see
+  # `QuestionLog.default_unbrowsable/1`), every row — solo or crew — is born
+  # `browsable: false` and only flips to `true` once the async
+  # `PublishCheckWorker` clears it for the PUBLIC pool/listing. That question
+  # ("may a stranger see this?") is orthogonal to the one this function answers
+  # ("may the asker's own next turn, in the asker's own thread, see it?") — a
+  # solo user's own prior turn should contribute to their own follow-up context
+  # regardless of whether it has cleared the public gate yet.
+  #
+  # Actual crew provenance still withholds unconditionally, but that must be
+  # tested via `QuestionLog.crew_origin?/1` (group_id, or the retracted-group
+  # nilify trap) rather than re-derived from `browsable` here.
+  defp cleared_for?(%{group_id: gid} = msg, dest_group_id) do
+    if QuestionLog.crew_origin?(msg) do
+      gid == dest_group_id
+    else
+      true
+    end
+  end
 
-  defp cleared_for?(%{group_id: gid}, dest_group_id)
-       when not is_nil(gid) and not is_nil(dest_group_id),
-       do: gid == dest_group_id
-
-  # A row with no group marker and `browsable: false` is crew-origin too (the
-  # nilify trap: `group_id` is `on_delete: :nilify_all`). Withhold it.
-  defp cleared_for?(%{group_id: nil, browsable: false}, _dest), do: false
-  defp cleared_for?(%{group_id: nil}, _dest), do: true
   defp cleared_for?(_msg, _dest), do: false
 
   # Only a turn the normalize step actually rewrote may be quoted into another

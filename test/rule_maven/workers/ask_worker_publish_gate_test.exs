@@ -429,6 +429,44 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
     assert updated.browsable == false
   end
 
+  test "a solo ask with never_pool: true is not pooled and runs no publish check" do
+    # Mirrors "a group with contribute_to_community: false does not pool its
+    # asks" above, but for a SOLO row (no group_id) whose `never_pool` comes
+    # straight from the Oban args — the lever a regenerate/report-redo of an
+    # already-voted solo answer uses to keep a one-off private. Nothing in the
+    # unified gate should special-case that away: `never_pool` must still stop
+    # the row from pooling AND from ever reaching `PublishCheckWorker`, same as
+    # it does for a group row.
+    game = seeded_game(9215)
+    u = user("pgw_solo_never_pool")
+    stub_ask("You roll the die to start.")
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: u.id,
+        question: "How do I start?",
+        answer: "Thinking...",
+        visibility: "private"
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => u.id,
+               "skip_pool" => true,
+               "never_pool" => true
+             })
+
+    updated = Repo.reload!(ql)
+    assert updated.pooled == false
+    assert updated.browsable == false
+    refute_enqueued(worker: PublishCheckWorker, args: %{"question_log_id" => ql.id})
+  end
+
   test "a re-queue does NOT re-pool a row the crew withdrew" do
     # Deleting the crew retracts its rows AND nilifies their group_id, so nothing
     # on the row says "crew" any more except its closed `browsable` flag. Without
