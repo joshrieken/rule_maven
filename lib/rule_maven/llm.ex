@@ -458,6 +458,16 @@ defmodule RuleMaven.LLM do
             ctx
           )
 
+        {llm_result, chunks} =
+          maybe_escalate_refusal_reasoning(
+            llm_result,
+            chunks,
+            game,
+            recent_context,
+            voice,
+            ctx
+          )
+
         {:ok,
          %{
            answer: llm_result[:answer],
@@ -505,6 +515,20 @@ defmodule RuleMaven.LLM do
   # check as a first-pass answer.
   @refusal_answer "The rulebook does not cover this question."
   @escalated_retrieval_limit 25
+
+  # Cheap YES/NO gate: is a refused question answerable purely by COMBINING
+  # rules already stated in the retrieved text? Deliberately narrow so it fires
+  # only on the multi-hop class — a genuinely off-topic or meta refusal answers
+  # NO and costs nothing further.
+  @combinable_classifier_system """
+  You audit a REFUSED board-game rules answer. Decide only whether the QUESTION can be answered by COMBINING two or more rules that are EXPLICITLY STATED in the RULEBOOK TEXT — for example a stated phase, timing, or restriction that rules the asked action in or out — even when no single sentence answers it directly.
+  Use ONLY the given text. Never use outside board-game knowledge. "The text does not mention X" is NOT a valid basis for an answer.
+  Reply with exactly one word: YES or NO.
+  """
+
+  # Appended to the answer system prompt on the stronger-model recheck, aimed
+  # squarely at the failure the classifier just flagged.
+  @combine_nudge "\n\nESCALATION NOTICE: A first pass refused this question. Before refusing again, apply COMBINING RULES strictly — if the answer follows from putting together two or more rules stated explicitly above (e.g. a stated phase/timing or restriction that rules the asked action in or out), you MUST answer it: give the derivation and cite each combined rule verbatim. Refuse ONLY if no such chain of explicitly stated rules exists. Do not use outside knowledge; \"the text does not mention X\" is never a valid step."
 
   defp refused_answer?(llm_result) do
     llm_result[:verdict] == "silent" or
@@ -556,6 +580,74 @@ defmodule RuleMaven.LLM do
       end
     else
       _ -> {llm_result, chunks}
+    end
+  end
+
+  # Even with every relevant passage already in context, the default model
+  # routinely under-answers MULTI-HOP questions — ones whose answer follows
+  # from combining two explicitly stated rules (a stated phase/timing or
+  # restriction that rules the asked action in or out) rather than from any
+  # single sentence. The retrieval escalation above cannot catch that class:
+  # for a small corpus the first pass already held the whole book, so the
+  # widened set is identical and it bails.
+  #
+  # So on a surviving refusal, run a cheap YES/NO classifier — is this
+  # answerable purely by combining explicitly stated rules? Only on YES do we
+  # spend one stronger-model call (with a combining-emphasis nudge) to recheck.
+  # The retry passes through the same grounding gate; a second refusal or a
+  # blank keeps the truthful original refusal, so a hallucinated combine cannot
+  # leak through. One escalation only.
+  defp maybe_escalate_refusal_reasoning(llm_result, chunks, game, recent_context, voice, ctx) do
+    with true <- refused_answer?(llm_result),
+         true <- combinable_question?(ctx.question, chunks, game) do
+      escalate_model = model(:escalate)
+      context = build_context_block(chunks, game.id)
+
+      system_prompt =
+        build_system_prompt(game.name, game.category, context, recent_context, voice, game) <>
+          @combine_nudge
+
+      esc_ctx = %{ctx | model_name: escalate_model, fresh: true}
+
+      case request_answer(
+             system_prompt,
+             ctx.question,
+             escalate_model,
+             ctx.game_id,
+             ctx.user_id,
+             true
+           ) do
+        {:ok, retried} ->
+          retried = maybe_reground(retried, system_prompt, esc_ctx, chunks)
+
+          if refused_answer?(retried) or String.trim(to_string(retried[:answer])) == "",
+            do: {llm_result, chunks},
+            else: {retried, chunks}
+
+        {:error, _reason} ->
+          {llm_result, chunks}
+      end
+    else
+      _ -> {llm_result, chunks}
+    end
+  end
+
+  defp combinable_question?(question, chunks, game) do
+    context = build_context_block(chunks, game.id)
+    prompt = "QUESTION:\n#{question}\n\nRULEBOOK TEXT:\n#{context}"
+
+    case chat(prompt, "combinable_refusal_check",
+           system: @combinable_classifier_system,
+           model: model(:cheap),
+           # Ceiling, not spend: a reasoning cheap model thinks before emitting
+           # the one-word verdict, and a tight cap starves it into null content.
+           max_tokens: 4000,
+           operation: "combinable_refusal_check",
+           game_id: game.id,
+           raw: true
+         ) do
+      {:ok, text} -> text |> to_string() |> String.upcase() |> String.contains?("YES")
+      _ -> false
     end
   end
 
@@ -1927,9 +2019,10 @@ defmodule RuleMaven.LLM do
 
   # Enough headroom for a legitimately bad ask — normalize, a tiebreaker, an
   # answer with one retry, both critic passes, an ungrounded retry, a refusal
-  # escalation — while cutting the pathological cascade off long before it can
-  # blow through a daily cost cap in a single question.
-  @max_llm_calls_per_ask 12
+  # escalation, plus the combinability classifier and its stronger-model recheck
+  # — while cutting the pathological cascade off long before it can blow through
+  # a daily cost cap in a single question.
+  @max_llm_calls_per_ask 14
 
   # The budget lives in an :atomics ref, not a plain integer, because extraction
   # fans its pages out over Task.async_stream: a process-dictionary counter would
@@ -3130,6 +3223,18 @@ defmodule RuleMaven.LLM do
     case RuleMaven.Settings.get("llm_cheap_model_#{provider()}") do
       m when is_binary(m) and m != "" -> m
       _ -> model(:cleanup)
+    end
+  end
+
+  # Stronger answer model used ONLY to recheck a refusal on a question that a
+  # cheap classifier judged answerable by combining explicitly stated rules —
+  # the multi-hop case the default model routinely under-answers. Falls back to
+  # the default model when unset, so an unconfigured install still gets the
+  # combining-nudge retry, just without a model upgrade.
+  def model(:escalate) do
+    case RuleMaven.Settings.get("llm_escalate_model_#{provider()}") do
+      m when is_binary(m) and m != "" -> m
+      _ -> model(:default)
     end
   end
 
