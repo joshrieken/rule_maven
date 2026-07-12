@@ -84,6 +84,13 @@ defmodule RuleMavenWeb.AdminLive.Llm do
          llm_vision_escalate_model_groq: Settings.get("llm_vision_escalate_model_groq") || "",
          llm_vision_escalate_model_gemini: Settings.get("llm_vision_escalate_model_gemini") || "",
          llm_vision_escalate_model_ollama: Settings.get("llm_vision_escalate_model_ollama") || "",
+         # Stronger text model used only to recheck a refusal on a question the
+         # cheap classifier judged answerable by combining stated rules (the
+         # multi-hop miss). Blank = reuse the answering model above.
+         llm_escalate_model_openrouter: Settings.get("llm_escalate_model_openrouter") || "",
+         llm_escalate_model_groq: Settings.get("llm_escalate_model_groq") || "",
+         llm_escalate_model_gemini: Settings.get("llm_escalate_model_gemini") || "",
+         llm_escalate_model_ollama: Settings.get("llm_escalate_model_ollama") || "",
          # Rulebook extraction mode: "vision" (transcribe every page image — highest
          # accuracy) or "ocr" (pdftotext + OCR, vision only on junk pages).
          rulebook_extract_mode: Settings.get("rulebook_extract_mode") || "vision"
@@ -121,6 +128,10 @@ defmodule RuleMavenWeb.AdminLive.Llm do
       "llm_vision_escalate_model_groq" => params["llm_vision_escalate_model_groq"],
       "llm_vision_escalate_model_gemini" => params["llm_vision_escalate_model_gemini"],
       "llm_vision_escalate_model_ollama" => params["llm_vision_escalate_model_ollama"],
+      "llm_escalate_model_openrouter" => params["llm_escalate_model_openrouter"],
+      "llm_escalate_model_groq" => params["llm_escalate_model_groq"],
+      "llm_escalate_model_gemini" => params["llm_escalate_model_gemini"],
+      "llm_escalate_model_ollama" => params["llm_escalate_model_ollama"],
       "rulebook_extract_mode" => params["rulebook_extract_mode"]
     }
 
@@ -135,7 +146,8 @@ defmodule RuleMavenWeb.AdminLive.Llm do
     Enum.each(
       ~w(llm_cleanup_model_openrouter llm_cleanup_model_groq llm_cleanup_model_gemini llm_cleanup_model_ollama
          llm_vision_model_openrouter llm_vision_model_groq llm_vision_model_gemini llm_vision_model_ollama
-         llm_vision_escalate_model_openrouter llm_vision_escalate_model_groq llm_vision_escalate_model_gemini llm_vision_escalate_model_ollama),
+         llm_vision_escalate_model_openrouter llm_vision_escalate_model_groq llm_vision_escalate_model_gemini llm_vision_escalate_model_ollama
+         llm_escalate_model_openrouter llm_escalate_model_groq llm_escalate_model_gemini llm_escalate_model_ollama),
       fn key ->
         if trim(params[key]) == "", do: Settings.delete(key)
       end
@@ -164,6 +176,10 @@ defmodule RuleMavenWeb.AdminLive.Llm do
        llm_vision_escalate_model_groq: fields["llm_vision_escalate_model_groq"] |> trim(),
        llm_vision_escalate_model_gemini: fields["llm_vision_escalate_model_gemini"] |> trim(),
        llm_vision_escalate_model_ollama: fields["llm_vision_escalate_model_ollama"] |> trim(),
+       llm_escalate_model_openrouter: fields["llm_escalate_model_openrouter"] |> trim(),
+       llm_escalate_model_groq: fields["llm_escalate_model_groq"] |> trim(),
+       llm_escalate_model_gemini: fields["llm_escalate_model_gemini"] |> trim(),
+       llm_escalate_model_ollama: fields["llm_escalate_model_ollama"] |> trim(),
        rulebook_extract_mode: fields["rulebook_extract_mode"] |> trim(),
        saved: true
      )}
@@ -249,6 +265,23 @@ defmodule RuleMavenWeb.AdminLive.Llm do
                 style="width:100%;border:1px solid var(--border-strong);border-radius:0.375rem;padding:0.5rem 0.75rem;font-size:0.85rem;background:var(--bg);color:var(--text)"
               >
                 <.or_model_options selected={@llm_model_openrouter} />
+              </select>
+            </div>
+
+            <div :if={@llm_provider == "openrouter"}>
+              <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">
+                Answer escalation model
+                <span style="font-weight:400;color:var(--text-muted)">— stronger re-check when a refusal looks answerable by combining stated rules (multi-hop). Blank = use Answer model</span>
+              </label>
+              <select
+                name="llm_escalate_model_openrouter"
+                id="llm_escalate_model_openrouter"
+                style="width:100%;border:1px solid var(--border-strong);border-radius:0.375rem;padding:0.5rem 0.75rem;font-size:0.85rem;background:var(--bg);color:var(--text)"
+              >
+                <option value="" selected={@llm_escalate_model_openrouter == ""}>
+                  Use Answer model
+                </option>
+                <.or_model_options selected={@llm_escalate_model_openrouter} />
               </select>
             </div>
 
