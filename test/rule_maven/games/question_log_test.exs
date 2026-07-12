@@ -11,6 +11,30 @@ defmodule RuleMaven.Games.QuestionLogTest do
     end
   end
 
+  describe "cited_source length" do
+    # cited_source comes straight from the LLM's citation JSON. A model that
+    # dumps a quote/sentence into the "source" field once crashed the AskWorker
+    # on insert (string_data_right_truncation against varchar(255)), leaving the
+    # ask hung with no answer. The column is now unbounded text, so an oversized
+    # source stores intact instead of blowing up the write.
+    test "an over-length cited_source stores intact through the DB" do
+      game = RuleMaven.GamesFixtures.game_fixture()
+      long_source = String.duplicate("x", 400)
+
+      {:ok, row} =
+        %QuestionLog{}
+        |> QuestionLog.changeset(%{
+          question: "Q?",
+          answer: "A.",
+          game_id: game.id,
+          cited_source: long_source
+        })
+        |> RuleMaven.Repo.insert()
+
+      assert byte_size(row.cited_source) == 400
+    end
+  end
+
   describe "crew_origin?/1" do
     test "a solo (non-group) row awaiting the publish screen is not crew-origin" do
       pending_solo = %RuleMaven.Games.QuestionLog{
