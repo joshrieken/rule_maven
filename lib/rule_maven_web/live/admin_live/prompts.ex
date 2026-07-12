@@ -93,7 +93,10 @@ defmodule RuleMavenWeb.AdminLive.Prompts do
               <p style="font-size:0.72rem;color:var(--text-muted);margin:0.25rem 0 0 0">
                 {desc}
               </p>
-              <p :if={vars != []} style="font-size:0.7rem;color:var(--text-muted);margin:0.25rem 0 0 0">
+              <p
+                :if={vars != []}
+                style="font-size:0.7rem;color:var(--text-muted);margin:0.25rem 0 0 0"
+              >
                 Variables:
                 <%= for v <- vars do %>
                   <code style="margin-right:0.4rem">{"{{#{v}}}"}</code>

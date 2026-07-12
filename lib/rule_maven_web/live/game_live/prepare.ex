@@ -159,6 +159,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       next_step_id: next_step && next_step.id,
       step_logs: step_logs,
       step_run_ids: step_run_ids,
+      # This game's document ids, refreshed on every load so the admin-feed
+      # :job_run filter recognizes runs for documents added after mount (their
+      # per-document scope topic is only subscribed at mount).
+      doc_ids: MapSet.new(docs, & &1.id),
       previews: build_previews(game, docs),
       running_steps: running_steps(game),
       playable?: Readiness.playable?(game),
@@ -797,7 +801,28 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   @impl true
   def handle_info({:readiness, _game_id}, socket), do: {:noreply, reload(socket)}
-  def handle_info({:job_run, _run}, socket), do: {:noreply, reload(socket)}
+  # The admin feed carries every run app-wide — including each ask by any
+  # user anywhere — so an unfiltered match here turned every question on the
+  # site into a full dozen-query reload of this page for every open prepare
+  # screen. Only reload for runs that belong to this game's pipeline:
+  # game-scoped to this game, document-scoped to one of its documents, or a
+  # run already shown in the per-step job logs (same filter the :job_event
+  # clause below applies).
+  def handle_info({:job_run, run}, socket) do
+    game_id = socket.assigns.game.id
+
+    relevant? =
+      (run.scope_type == "game" and run.scope_id == game_id) or
+        (run.scope_type == "document" and
+           MapSet.member?(socket.assigns.doc_ids, run.scope_id)) or
+        MapSet.member?(socket.assigns.step_run_ids, run.id)
+
+    if relevant? do
+      {:noreply, reload(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
 
   # Admin-feed event lines: refresh only when the line belongs to one of the
   # runs shown in this page's per-step logs (the feed carries every run app-wide).

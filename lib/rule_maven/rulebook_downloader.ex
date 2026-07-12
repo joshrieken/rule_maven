@@ -590,7 +590,10 @@ defmodule RuleMaven.RulebookDownloader do
   defp private_or_loopback_ip?({192, 168, _, _}), do: true
   defp private_or_loopback_ip?({172, b, _, _}) when b >= 16 and b <= 31, do: true
   defp private_or_loopback_ip?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
-  defp private_or_loopback_ip?(ip) when tuple_size(ip) == 8, do: elem(ip, 0) in [0xFC00, 0xFD00, 0xFE80]
+
+  defp private_or_loopback_ip?(ip) when tuple_size(ip) == 8,
+    do: elem(ip, 0) in [0xFC00, 0xFD00, 0xFE80]
+
   defp private_or_loopback_ip?(_), do: false
 
   defp do_fetch_pdf(url) do

@@ -34,7 +34,8 @@ defmodule RuleMaven.CommunityBrowseTest do
     end
 
     test "includes pooled, private, healthy rows", %{game: game} do
-      q = log(game, %{pooled: true, browsable: true, visibility: "private", question: "Eligible?"})
+      q =
+        log(game, %{pooled: true, browsable: true, visibility: "private", question: "Eligible?"})
 
       ids = game |> Games.unverified_pool_questions() |> Enum.map(& &1.id)
       assert q.id in ids

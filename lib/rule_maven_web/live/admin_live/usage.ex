@@ -58,7 +58,7 @@ defmodule RuleMavenWeb.AdminLive.Usage do
 
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;margin:0.25rem 0 1rem">
         <h1 style="font-size:1.5rem;font-weight:700">Usage &amp; Cost</h1>
-        <form phx-change="set_days">
+        <form id="usage-days" phx-change="set_days">
           <select
             name="days"
             style="border:1px solid var(--border);border-radius:0.25rem;padding:0.3rem 0.4rem;font-size:0.78rem;background:var(--bg);color:var(--text);cursor:pointer"

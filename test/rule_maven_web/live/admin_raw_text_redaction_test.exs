@@ -103,7 +103,9 @@ defmodule RuleMavenWeb.AdminRawTextRedactionTest do
     end
 
     test "masks groups.invite_code — reading it lets an admin join the crew" do
-      rows = [%{"id" => 1, "name" => "Dave & Mike's Catan Night", "invite_code" => "SECRETJOINCODE"}]
+      rows = [
+        %{"id" => 1, "name" => "Dave & Mike's Catan Night", "invite_code" => "SECRETJOINCODE"}
+      ]
 
       masked = Db.__redact_for_test__(rows, "groups", false)
 

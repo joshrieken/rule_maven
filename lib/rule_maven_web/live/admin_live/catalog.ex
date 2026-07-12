@@ -175,7 +175,7 @@ defmodule RuleMavenWeb.AdminLive.Catalog do
               Clear All Games
             </button>
           <% else %>
-            <form phx-change="confirm_input" style="display:inline">
+            <form id="clear-confirm" phx-change="confirm_input" style="display:inline">
               <span class="text-sm font-medium" style="color:var(--red)">Type DELETE to confirm:</span>
               <input
                 type="text"

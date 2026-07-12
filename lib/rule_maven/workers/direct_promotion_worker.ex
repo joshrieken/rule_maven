@@ -16,6 +16,12 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
 
   @default_cluster_similarity 0.85
 
+  # Per-run candidate cap. Loading every eligible row's embedding is unbounded
+  # as the pool grows; the cron re-runs every 15 minutes, so rows past the cap
+  # are simply picked up on a later pass (the ordering below is deterministic,
+  # and promoted rows drop out of the candidate set).
+  @max_rows_per_run 2000
+
   @impl Oban.Worker
   def perform(_job) do
     Repo.all(
@@ -29,8 +35,11 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
             q.visibility != "community",
         where: not is_nil(q.question_embedding),
         # Deterministic seeding for the greedy clustering below: highest-trust
-        # rows seed clusters first, ties broken by id.
+        # rows seed clusters first, ties broken by id. The same ordering also
+        # makes the @max_rows_per_run cut deterministic — the most promotable
+        # rows are always in the window.
         order_by: [desc: q.trust_score, asc: q.id],
+        limit: @max_rows_per_run,
         select: %{
           id: q.id,
           game_id: q.game_id,
@@ -41,6 +50,10 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
           inserted_at: q.inserted_at
         }
     )
+    # Convert each pgvector to a plain list ONCE up front — the pairwise
+    # clustering below compares embeddings many times, and re-running
+    # Pgvector.to_list/1 per comparison dominated the run.
+    |> Enum.map(fn row -> %{row | embedding: Pgvector.to_list(row.embedding)} end)
     |> Enum.group_by(& &1.game_id)
     |> Enum.each(fn {_game_id, rows} -> promote_clusters(rows) end)
 
@@ -68,25 +81,32 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
   end
 
   # Greedy single-link clustering on cosine similarity. Each row joins the first
-  # existing cluster it is close enough to, else seeds a new one.
+  # existing cluster it is close enough to, else seeds a new one. Embeddings are
+  # already plain lists (converted once in perform/1). Clusters live in a map
+  # keyed by seed order so both "seed a new cluster" and "join cluster i" are
+  # O(1) — the old `clusters ++ [[row]]` append re-copied the whole list per
+  # new cluster.
   defp cluster_by_similarity(rows) do
     threshold = distance_threshold()
 
-    Enum.reduce(rows, [], fn row, clusters ->
-      vec = Pgvector.to_list(row.embedding)
+    {clusters, count} =
+      Enum.reduce(rows, {%{}, 0}, fn row, {clusters, count} ->
+        vec = row.embedding
 
-      idx =
-        Enum.find_index(clusters, fn cluster ->
-          Enum.any?(cluster, fn m ->
-            cosine_distance(vec, Pgvector.to_list(m.embedding)) <= threshold
+        idx =
+          Enum.find(0..(count - 1)//1, fn i ->
+            Enum.any?(clusters[i], fn m ->
+              cosine_distance(vec, m.embedding) <= threshold
+            end)
           end)
-        end)
 
-      case idx do
-        nil -> clusters ++ [[row]]
-        i -> List.update_at(clusters, i, &[row | &1])
-      end
-    end)
+        case idx do
+          nil -> {Map.put(clusters, count, [row]), count + 1}
+          i -> {Map.update!(clusters, i, &[row | &1]), count}
+        end
+      end)
+
+    Enum.map(0..(count - 1)//1, &clusters[&1])
   end
 
   # Prefer an admin-curated row, then highest trust, then most recent.

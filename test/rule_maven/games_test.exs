@@ -1171,7 +1171,8 @@ defmodule RuleMaven.GamesTest do
 
       assert Games.publish_pending_count() >= 1
 
-      assert stuck.id in (Games.admin_list_questions(status: "publish_pending") |> Enum.map(& &1.id))
+      assert stuck.id in (Games.admin_list_questions(status: "publish_pending")
+                          |> Enum.map(& &1.id))
     end
   end
 

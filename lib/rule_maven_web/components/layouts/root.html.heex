@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
     <.live_title default="Rule Maven" suffix=" · Rule Maven" phx-no-format>{assigns[:page_title]}</.live_title>
-    <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css?v=#{css_version()}"} />
+    <link phx-track-static rel="stylesheet" href={asset_path("assets/css/app.css")} />
     <link rel="manifest" href={~p"/manifest.json"} />
     <link rel="apple-touch-icon" href={~p"/images/icon-192.svg"} />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -47,37 +47,36 @@
         }
       })();
     </script>
-    <%!-- ?v= mtime busters: same reason as app.css above — un-digested
-          assets + heuristic HTTP caching replay stale JS on plain refresh
-          (hooks silently missing after a deploy). --%>
+    <%!-- asset_path/1: digested URLs in prod (immutable caching, busted per
+          deploy), ?v= mtime busters elsewhere — un-digested assets +
+          heuristic HTTP caching replay stale JS on plain refresh (hooks
+          silently missing after a deploy). --%>
     <script
       defer
       phx-track-static
       type="text/javascript"
-      src={~p"/assets/js/phoenix.js?v=#{asset_version("assets/js/phoenix.js")}"}
+      src={asset_path("assets/js/phoenix.js")}
     >
     </script>
     <script
       defer
       phx-track-static
       type="text/javascript"
-      src={~p"/assets/js/phoenix_html.js?v=#{asset_version("assets/js/phoenix_html.js")}"}
+      src={asset_path("assets/js/phoenix_html.js")}
     >
     </script>
     <script
       defer
       phx-track-static
       type="text/javascript"
-      src={
-        ~p"/assets/js/phoenix_live_view.js?v=#{asset_version("assets/js/phoenix_live_view.js")}"
-      }
+      src={asset_path("assets/js/phoenix_live_view.js")}
     >
     </script>
     <script
       defer
       phx-track-static
       type="text/javascript"
-      src={~p"/assets/js/app.js?v=#{js_version()}"}
+      src={asset_path("assets/js/app.js")}
     >
     </script>
   </head>
@@ -109,7 +108,10 @@
               <.link href={~p"/admin"} class="nav-link">Dashboard</.link>
               <details class="user-dropdown">
                 <summary class="user-dropdown-toggle nav-link">Admin</summary>
-                <div class="user-dropdown-menu" style="left:0;right:auto;min-width:160px;max-height:22rem;overflow-y:auto">
+                <div
+                  class="user-dropdown-menu"
+                  style="left:0;right:auto;min-width:160px;max-height:22rem;overflow-y:auto"
+                >
                   <div class="user-dropdown-section">Review</div>
                   <.link href={~p"/admin/questions"} class="user-dropdown-link">Questions</.link>
                   <.link href={~p"/admin/moderation"} class="user-dropdown-link">Moderation</.link>
@@ -121,23 +123,62 @@
                   <.link href={~p"/admin/invites"} class="user-dropdown-link">Invites</.link>
                   <.link href={~p"/admin/catalog"} class="user-dropdown-link">Catalog</.link>
                   <.link href={~p"/admin/requests"} class="user-dropdown-link">Requests</.link>
-                  <div :if={RuleMaven.Users.can?(me, :superadmin)} class="user-dropdown-section">AI &amp; Integrations</div>
-                  <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/llm"} class="user-dropdown-link">LLM Provider</.link>
-                  <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/embeddings"} class="user-dropdown-link">Embeddings &amp; Proxy</.link>
-                  <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/automation"} class="user-dropdown-link">Automation</.link>
-                  <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/bgg"} class="user-dropdown-link">BoardGameGeek</.link>
-                  <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/prompts"} class="user-dropdown-link">Prompts</.link>
+                  <div :if={RuleMaven.Users.can?(me, :superadmin)} class="user-dropdown-section">
+                    AI &amp; Integrations
+                  </div>
+                  <.link
+                    :if={RuleMaven.Users.can?(me, :superadmin)}
+                    href={~p"/admin/llm"}
+                    class="user-dropdown-link"
+                  >LLM Provider</.link>
+                  <.link
+                    :if={RuleMaven.Users.can?(me, :superadmin)}
+                    href={~p"/admin/embeddings"}
+                    class="user-dropdown-link"
+                  >Embeddings &amp; Proxy</.link>
+                  <.link
+                    :if={RuleMaven.Users.can?(me, :superadmin)}
+                    href={~p"/admin/automation"}
+                    class="user-dropdown-link"
+                  >Automation</.link>
+                  <.link
+                    :if={RuleMaven.Users.can?(me, :superadmin)}
+                    href={~p"/admin/bgg"}
+                    class="user-dropdown-link"
+                  >BoardGameGeek</.link>
+                  <.link
+                    :if={RuleMaven.Users.can?(me, :superadmin)}
+                    href={~p"/admin/prompts"}
+                    class="user-dropdown-link"
+                  >Prompts</.link>
                   <div class="user-dropdown-section">System</div>
-                  <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/flags"} class="user-dropdown-link">Feature Flags</.link>
+                  <.link
+                    :if={RuleMaven.Users.can?(me, :superadmin)}
+                    href={~p"/admin/flags"}
+                    class="user-dropdown-link"
+                  >Feature Flags</.link>
                   <.link href={~p"/admin/health"} class="user-dropdown-link">Health</.link>
                   <.link href={~p"/admin/usage"} class="user-dropdown-link">Usage &amp; Cost</.link>
-                  <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/security"} class="user-dropdown-link">Security</.link>
-                  <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/db"} class="user-dropdown-link">DB Admin</.link>
+                  <.link
+                    :if={RuleMaven.Users.can?(me, :superadmin)}
+                    href={~p"/admin/security"}
+                    class="user-dropdown-link"
+                  >Security</.link>
+                  <.link
+                    :if={RuleMaven.Users.can?(me, :superadmin)}
+                    href={~p"/admin/db"}
+                    class="user-dropdown-link"
+                  >DB Admin</.link>
                   <.link href={~p"/admin/themes"} class="user-dropdown-link">Themes</.link>
                   <.link href={~p"/standing"} class="user-dropdown-link">Standing</.link>
                   <.link href={~p"/groups"} class="user-dropdown-link">Groups</.link>
                   <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>
-                  <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/oban"} class="user-dropdown-link" target="_blank">Oban ↗</.link>
+                  <.link
+                    :if={RuleMaven.Users.can?(me, :superadmin)}
+                    href={~p"/oban"}
+                    class="user-dropdown-link"
+                    target="_blank"
+                  >Oban ↗</.link>
                 </div>
               </details>
             <% end %>
@@ -270,21 +311,60 @@
             <.link href={~p"/admin/invites"} class="drawer-link">Invite Codes</.link>
             <.link href={~p"/admin/catalog"} class="drawer-link">Game Catalog</.link>
             <.link href={~p"/admin/requests"} class="drawer-link">Support Requests</.link>
-            <div :if={RuleMaven.Users.can?(me, :superadmin)} class="drawer-section">AI &amp; Integrations</div>
-            <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/llm"} class="drawer-link">LLM Provider</.link>
-            <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/embeddings"} class="drawer-link">Embeddings &amp; Proxy</.link>
-            <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/automation"} class="drawer-link">Automation</.link>
-            <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/bgg"} class="drawer-link">BoardGameGeek</.link>
-            <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/prompts"} class="drawer-link">Prompts</.link>
+            <div :if={RuleMaven.Users.can?(me, :superadmin)} class="drawer-section">
+              AI &amp; Integrations
+            </div>
+            <.link
+              :if={RuleMaven.Users.can?(me, :superadmin)}
+              href={~p"/admin/llm"}
+              class="drawer-link"
+            >LLM Provider</.link>
+            <.link
+              :if={RuleMaven.Users.can?(me, :superadmin)}
+              href={~p"/admin/embeddings"}
+              class="drawer-link"
+            >Embeddings &amp; Proxy</.link>
+            <.link
+              :if={RuleMaven.Users.can?(me, :superadmin)}
+              href={~p"/admin/automation"}
+              class="drawer-link"
+            >Automation</.link>
+            <.link
+              :if={RuleMaven.Users.can?(me, :superadmin)}
+              href={~p"/admin/bgg"}
+              class="drawer-link"
+            >BoardGameGeek</.link>
+            <.link
+              :if={RuleMaven.Users.can?(me, :superadmin)}
+              href={~p"/admin/prompts"}
+              class="drawer-link"
+            >Prompts</.link>
             <div class="drawer-section">System</div>
-            <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/flags"} class="drawer-link">Feature Flags</.link>
+            <.link
+              :if={RuleMaven.Users.can?(me, :superadmin)}
+              href={~p"/admin/flags"}
+              class="drawer-link"
+            >Feature Flags</.link>
             <.link href={~p"/admin/health"} class="drawer-link">System Health</.link>
             <.link href={~p"/admin/usage"} class="drawer-link">Usage &amp; Cost</.link>
-            <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/security"} class="drawer-link">Security</.link>
-            <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/admin/db"} class="drawer-link">DB Admin</.link>
+            <.link
+              :if={RuleMaven.Users.can?(me, :superadmin)}
+              href={~p"/admin/security"}
+              class="drawer-link"
+            >Security</.link>
+            <.link
+              :if={RuleMaven.Users.can?(me, :superadmin)}
+              href={~p"/admin/db"}
+              class="drawer-link"
+            >DB Admin</.link>
             <.link href={~p"/admin/themes"} class="drawer-link">Theme Usage</.link>
             <.link href={~p"/settings"} class="drawer-link">Settings</.link>
-            <.link :if={RuleMaven.Users.can?(me, :superadmin)} href={~p"/oban"} class="drawer-link" target="_blank">Oban Dashboard ↗</.link>
+            <.link
+              :if={RuleMaven.Users.can?(me, :superadmin)}
+              href={~p"/oban"}
+              class="drawer-link"
+              target="_blank"
+            >Oban Dashboard ↗</.link>
           <% end %>
           <div class="drawer-section"></div>
           <.link href={~p"/help"} class="drawer-link">📖 Help &amp; FAQ</.link>

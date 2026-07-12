@@ -112,6 +112,7 @@ defmodule RuleMaven.ModerationTest do
             pooled: true,
             browsable: true
           })
+
         Games.set_community_vote(q.id, accomplice.id, "up")
       end
 

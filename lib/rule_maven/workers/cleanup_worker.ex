@@ -43,7 +43,18 @@ defmodule RuleMaven.Workers.CleanupWorker do
         id: oban_id,
         args: %{"document_id" => doc_id, "game_id" => game_id} = args
       }) do
-    doc = Games.get_document!(doc_id)
+    case Games.get_document(doc_id) do
+      nil ->
+        # Document deleted before the job ran — nothing to clean.
+        :ok
+
+      doc ->
+        clean_document(doc, oban_id, game_id, args)
+    end
+  end
+
+  defp clean_document(doc, oban_id, game_id, args) do
+    doc_id = doc.id
     topic = "game_cleanup:#{game_id}"
     level = parse_level(Map.get(args, "level"))
     mode = Map.get(args, "mode", "raw")

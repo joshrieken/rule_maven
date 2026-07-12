@@ -90,6 +90,14 @@ defmodule RuleMavenWeb.GameLive.Show do
        asks_disabled: false,
        included_expansions: %{},
        expansions_seeded: false,
+       # PubSub bookkeeping: which game this mount is subscribed for, and the
+       # exact topic list (incl. per-expansion delta topics) so a same-mount
+       # switch to a different game can unsubscribe them. handle_params reruns
+       # on every push_patch and Phoenix.PubSub subscriptions are
+       # duplicate-keyed — re-subscribing per patch would deliver every
+       # broadcast once per patch. See ensure_game_subscriptions/2.
+       subscribed_game_id: nil,
+       subscribed_topics: [],
        search_query: "",
        # Lazily-loaded full-history snapshot for admin search only. Admins used
        # to always load every question ever asked (see `question_group_opts/1`);
@@ -210,19 +218,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   defp do_handle_params(params, game, socket) do
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")
-      Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.Setup.topic(game.id))
-
-      Phoenix.PubSub.subscribe(
-        RuleMaven.PubSub,
-        RuleMaven.Workers.VoiceSuggestionsWorker.topic(game.id)
-      )
-
-      for exp <- Games.expansions_with_documents(game) do
-        Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.ExpansionDelta.topic(exp.id))
-      end
-    end
+    socket = ensure_game_subscriptions(socket, game)
 
     grouped = Games.grouped_questions(game, question_group_opts(socket))
 
@@ -383,27 +379,30 @@ defmodule RuleMavenWeb.GameLive.Show do
         do: socket,
         else: assign(socket, :tour_autostart, RuleMavenWeb.Tours.autostart?(socket, "game"))
 
-    suggestions =
+    {suggestions, socket} =
       case RuleMaven.Settings.get("suggestions_#{game.id}") do
         nil ->
           # Generation is not automatic — it runs when an admin finalizes the
           # source. Subscribe so a finalize that happens while this page is open
           # streams the result in live; never enqueue here.
-          if sources != [] and connected?(socket) do
-            Phoenix.PubSub.subscribe(
-              RuleMaven.PubSub,
-              RuleMaven.Workers.SuggestionsWorker.topic(game.id)
-            )
-          end
+          socket =
+            if sources != [] do
+              subscribe_once(socket, RuleMaven.Workers.SuggestionsWorker.topic(game.id))
+            else
+              socket
+            end
 
-          []
+          {[], socket}
 
         json ->
-          json
-          |> Jason.decode!()
-          |> Enum.map(fn %{"category" => c, "questions" => qs} ->
-            %{category: c, questions: qs}
-          end)
+          suggestions =
+            json
+            |> Jason.decode!()
+            |> Enum.map(fn %{"category" => c, "questions" => qs} ->
+              %{category: c, questions: qs}
+            end)
+
+          {suggestions, socket}
       end
 
     if pending_count > 0 do
@@ -418,6 +417,56 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       {:noreply,
        assign(socket, suggestions: suggestions, suggestions_open: false, stale_timer: nil)}
+    end
+  end
+
+  # Subscribe to this game's topics exactly once per connected mount.
+  # handle_params reruns on every push_patch (thread switches, ask dedup
+  # redirects) and Phoenix.PubSub subscriptions are duplicate-keyed, so the old
+  # per-params subscribe stacked one extra delivery of every broadcast per
+  # patch. If the same mount is ever patched to a DIFFERENT game, the previous
+  # game's topics (incl. its expansion delta topics) are dropped first.
+  # Expansion delta topics are pinned to the set present at first load of the
+  # game — the same lifetime the rest of this page's expansion state has.
+  defp ensure_game_subscriptions(socket, game) do
+    cond do
+      not connected?(socket) ->
+        socket
+
+      socket.assigns.subscribed_game_id == game.id ->
+        socket
+
+      true ->
+        for topic <- socket.assigns.subscribed_topics do
+          Phoenix.PubSub.unsubscribe(RuleMaven.PubSub, topic)
+        end
+
+        topics =
+          [
+            "game:#{game.id}",
+            RuleMaven.Setup.topic(game.id),
+            RuleMaven.Workers.VoiceSuggestionsWorker.topic(game.id)
+            | Enum.map(
+                Games.expansions_with_documents(game),
+                &RuleMaven.ExpansionDelta.topic(&1.id)
+              )
+          ]
+
+        for topic <- topics, do: Phoenix.PubSub.subscribe(RuleMaven.PubSub, topic)
+
+        assign(socket, subscribed_game_id: game.id, subscribed_topics: topics)
+    end
+  end
+
+  # One-off topic subscribe with the same once-per-mount guarantee as
+  # ensure_game_subscriptions/2, for topics only conditionally needed (e.g. the
+  # suggestions worker feed). Tracks the topic so a game switch unsubscribes it.
+  defp subscribe_once(socket, topic) do
+    if connected?(socket) and topic not in socket.assigns.subscribed_topics do
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, topic)
+      assign(socket, subscribed_topics: [topic | socket.assigns.subscribed_topics])
+    else
+      socket
     end
   end
 
@@ -2334,7 +2383,38 @@ defmodule RuleMavenWeb.GameLive.Show do
     question_log_id = data.question_log_id
     game = socket.assigns.game
 
-    ql = get_question_log_by_id(question_log_id)
+    # Task 11 (group feed): the broadcast is game-wide, so every viewer's
+    # session gets it — not just the asker's. When the answered question was
+    # asked under the SAME group this viewer currently has active, refresh the
+    # group feed panel so it live-appends. Runs before the `involved?` gate
+    # below on purpose: a crew member watching the feed needn't have the
+    # thread itself on screen. Folded into this single existing clause (not a
+    # second `handle_info({:ask_complete, ...})` clause) deliberately: Elixir
+    # matches clauses top-down, and a second clause guarded on `group_id`
+    # would either swallow the asker's own conversation update or be dead code.
+    socket =
+      case Map.get(data, :group_id) do
+        gid when not is_nil(gid) ->
+          if gid == live_group_id(socket), do: assign_group_feed(socket), else: socket
+
+        _ ->
+          socket
+      end
+
+    # The broadcast goes to the public game topic, so EVERY connected viewer
+    # of the game receives it. Only sockets actually showing this thread (the
+    # asker, whose provisional row is in `threads`; anyone who opened it via
+    # `?t=`) pay for the row fetch + full community requery below. For every
+    # other viewer, the community list refreshes on their next handle_params
+    # run (navigation / thread switch) instead of live — deliberate: N idle
+    # viewers each re-running a 50-row query per ask was the fan-out cost.
+    involved? =
+      socket.assigns.active_thread_id == question_log_id or
+        Enum.any?(socket.assigns.threads, &(&1.id == question_log_id))
+
+    # Uninvolved sockets skip the row fetch and fall through to the no-op
+    # branch of `if ql` (same path as a deleted row).
+    ql = if involved?, do: get_question_log_by_id(question_log_id), else: nil
 
     if ql do
       # Update thread status in threads list (only when answer is actually ready)
@@ -2469,28 +2549,6 @@ defmodule RuleMavenWeb.GameLive.Show do
       # house rules that sit near it.
       socket = if answer_ready?, do: load_hr_overlay(socket), else: socket
 
-      # Task 11: this broadcast is game-wide, so every viewer's session gets
-      # it — not just the asker's. When the answered question was asked under
-      # the SAME group this viewer currently has active, refresh the group
-      # feed panel so it live-appends. Folded into this single existing
-      # clause (not a second `handle_info({:ask_complete, ...})` clause)
-      # deliberately: Elixir matches clauses top-down, and a second clause
-      # guarded on `group_id` would have to sit either before this one (where
-      # it would swallow every group ask before the asker's own conversation
-      # update above ever ran) or after it (dead code, since this clause
-      # matches every `:ask_complete` payload shape already). Reusing the
-      # already-computed `question_log_id`/`data` here keeps both behaviors —
-      # the asker's own conversation update and the group feed refresh —
-      # running for the exact same message.
-      socket =
-        case Map.get(data, :group_id) do
-          gid when not is_nil(gid) ->
-            if gid == live_group_id(socket), do: assign_group_feed(socket), else: socket
-
-          _ ->
-            socket
-        end
-
       # First real answer this user has ever seen: walk them through its
       # anatomy (verdict, confidence, citations, voting → curator points).
       # The live answer is the tour's demo data, so it never runs on an empty
@@ -2519,9 +2577,22 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   def handle_info({:question_tagged, ql_id}, socket) do
-    cats = Games.categories_for_questions([ql_id])
-    merged = Map.merge(socket.assigns.question_categories, cats)
-    {:noreply, assign(socket, question_categories: merged, refresh: socket.assigns.refresh + 1)}
+    # Game-topic broadcast, so every viewer receives it — but the category
+    # pill is only rendered for questions this socket has on screen (its
+    # thread list or the community list). Everyone else skips the query and
+    # picks the tag up from handle_params on their next navigation.
+    on_screen? =
+      Enum.any?(socket.assigns.threads, &(&1.id == ql_id)) or
+        Enum.any?(socket.assigns.community_questions, &(&1.id == ql_id))
+
+    if on_screen? do
+      cats = Games.categories_for_questions([ql_id])
+      merged = Map.merge(socket.assigns.question_categories, cats)
+
+      {:noreply, assign(socket, question_categories: merged, refresh: socket.assigns.refresh + 1)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:setup_done, game_id}, socket) do
@@ -3021,6 +3092,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             <!-- Search -->
             <div style="padding:0.25rem 0.75rem 0.5rem">
               <form
+                id="thread-search"
                 phx-change="search"
                 phx-submit="search"
                 style="position:relative;display:flex;align-items:center"

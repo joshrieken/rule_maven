@@ -15,7 +15,7 @@ defmodule RuleMaven.Workers.ExtractWorker do
   Extract button and the auto pipeline can't spawn parallel extractors.
   """
   use Oban.Worker,
-    queue: :default,
+    queue: :ingest,
     max_attempts: 3,
     unique: [
       keys: [:document_id],

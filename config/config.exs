@@ -61,16 +61,32 @@ config :rule_maven, Oban,
        {"0 4 * * *", RuleMaven.Workers.JobLogPruneWorker}
      ]}
   ],
-  # `reextract` is intentionally serial (concurrency 1): a "re-extract all
-  # flagged" bulk fans out one job per page, and each runs the costly strong
-  # vision model + critic loop. Processing them one at a time keeps the progress
-  # log readable and bounds the LLM spend/rate instead of firing 5 at once.
+  # Queue topology — interactive work never queues behind bulk work:
+  #   `ask` — AskWorker only. A user is watching a "Thinking…" spinner, so asks
+  #   get their own lanes and never sit behind a 15-minute extraction.
+  #   `ingest` — download/extract/embed-chunks: the long-running (up to 15 min)
+  #   document ingest pipeline, split out of `default` so it can't head-of-line
+  #   block small jobs.
+  #   `llm_interactive` — user-facing persona restyles (VoiceWorker), split from
+  #   `llm` so a game's ~12 bulk enrichment jobs can't starve a viewer waiting
+  #   on a voice.
+  #   `llm` — bulk enrichment (quiz, suggestions, categories, etc.).
+  #   `default` — small DB-only jobs (tagging, publish checks, question embeds,
+  #   vote settlement, readiness, theme palette, log pruning).
+  #   `reextract` is intentionally serial (concurrency 1): a "re-extract all
+  #   flagged" bulk fans out one job per page, and each runs the costly strong
+  #   vision model + critic loop. Processing them one at a time keeps the
+  #   progress log readable and bounds the LLM spend/rate instead of firing 5
+  #   at once.
   queues: [
+    ask: 8,
+    ingest: 5,
     default: 5,
     cheatsheet: 2,
     clustering: 1,
     cleanup: 2,
     llm: 3,
+    llm_interactive: 3,
     expansion: 2,
     reextract: 1
   ]

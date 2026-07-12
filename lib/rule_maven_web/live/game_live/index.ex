@@ -372,7 +372,12 @@ defmodule RuleMavenWeb.GameLive.Index do
   def handle_event("search", %{"search" => text}, socket) do
     {:noreply,
      socket
-     |> assign(search: String.slice(text, 0, 200), search_ready: true, display_count: 20, selected_idx: -1)
+     |> assign(
+       search: String.slice(text, 0, 200),
+       search_ready: true,
+       display_count: 20,
+       selected_idx: -1
+     )
      |> maybe_reload_for_all()
      |> push_event("reset_list_pos", %{})}
   end
@@ -734,7 +739,7 @@ defmodule RuleMavenWeb.GameLive.Index do
         </.link>
       </div>
       <div class="list-controls">
-        <form phx-change="search" phx-submit="search" class="mb-4">
+        <form id="game-search-form" phx-change="search" phx-submit="search" class="mb-4">
           <div style="position:relative;display:flex;align-items:center">
             <input
               type="text"

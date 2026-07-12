@@ -1194,13 +1194,19 @@ defmodule RuleMaven.Games do
   flagged).
   """
   def invalidate_pool(game_id) do
+    # Expansion membership is expressed as `expansion_ids @> ARRAY[game_id]`
+    # (array containment) rather than `game_id = ANY(expansion_ids)` — the two
+    # are equivalent for a single element, but only containment can use the
+    # GIN index on expansion_ids.
+    #
     # Auto-pooled answers can be demoted silently — they'll re-pool on the next
     # ask against the new text.
     {demoted, _} =
       Repo.update_all(
         from(q in QuestionLog,
           where:
-            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
+            (q.game_id == ^game_id or
+               fragment("? @> ARRAY[?]::integer[]", q.expansion_ids, ^game_id)) and
               q.pooled == true
         ),
         set: [pooled: false]
@@ -1212,7 +1218,8 @@ defmodule RuleMaven.Games do
       Repo.update_all(
         from(q in QuestionLog,
           where:
-            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
+            (q.game_id == ^game_id or
+               fragment("? @> ARRAY[?]::integer[]", q.expansion_ids, ^game_id)) and
               q.stale == false
         ),
         set: [stale: true]
@@ -1227,7 +1234,8 @@ defmodule RuleMaven.Games do
       Repo.update_all(
         from(q in QuestionLog,
           where:
-            (q.game_id == ^game_id or fragment("? = ANY(?)", ^game_id, q.expansion_ids)) and
+            (q.game_id == ^game_id or
+               fragment("? @> ARRAY[?]::integer[]", q.expansion_ids, ^game_id)) and
               q.visibility == "community" and q.needs_review == false
         ),
         set: [needs_review: true]
@@ -2003,14 +2011,22 @@ defmodule RuleMaven.Games do
   # the user shouldn't pay quota for our errors, and a *deleted* error row
   # can't be used to launder a successful ask, since the ids differ.
   def recent_question_count(user_id, since) do
-    failed_ids =
-      from(q in QuestionLog, where: not is_nil(q.error_kind), select: q.id)
-
+    # "Not in the failed set" as a LEFT JOIN anti-join: join each ask call to
+    # its question row ONLY when that row is a failure (error_kind set), then
+    # keep the calls with no such match. Equivalent to the previous
+    # `not in subquery(all failed ids)` — including the two edge cases that
+    # matter: a deleted question (no row at all → no join match → counts) and
+    # a nil question_log_id (excluded by the not-is_nil filter, same as
+    # before) — but without materializing every failed id table-wide 3× per
+    # ask inside the per-user advisory lock. Served by the partial index
+    # questions_log_failed_ids_idx.
     Repo.one(
       from(l in RuleMaven.LLM.Log,
+        left_join: q in QuestionLog,
+        on: q.id == l.question_log_id and not is_nil(q.error_kind),
         where:
           l.user_id == ^user_id and l.operation == "ask" and l.inserted_at >= ^since and
-            not is_nil(l.question_log_id) and l.question_log_id not in subquery(failed_ids),
+            not is_nil(l.question_log_id) and is_nil(q.id),
         select: count(l.question_log_id, :distinct)
       )
     ) || 0
@@ -2427,6 +2443,19 @@ defmodule RuleMaven.Games do
     end
   end
 
+  # List/browse queries return QuestionLog structs minus the two wide columns
+  # no list surface renders: `question_embedding` (a ~6-12KB pgvector) and
+  # `raw_response` (the full LLM JSON envelope). Loading them for a 50-200 row
+  # page pulls hundreds of KB per mount just to discard it. Action paths
+  # (verify, vote, delete, HR overlay) all re-fetch the full row by id, so a
+  # stripped struct never reaches code that needs those fields.
+  @question_wide_fields [:question_embedding, :raw_response]
+  @question_list_fields QuestionLog.__schema__(:fields) -- @question_wide_fields
+  # `recent_questions/3` feeds the chat conversation, whose self/admin debug
+  # view renders `raw_response` (own_raw_response/2 in GameLive.Show) — that
+  # query keeps raw_response and drops only the embedding.
+  @question_feed_fields QuestionLog.__schema__(:fields) -- [:question_embedding]
+
   def faq_questions(%Game{} = game, limit \\ 200) do
     Repo.all(
       from q in QuestionLog,
@@ -2434,7 +2463,8 @@ defmodule RuleMaven.Games do
           q.game_id == ^game.id and q.visibility == "community" and q.refused == false and
             q.needs_review == false,
         order_by: [desc: q.inserted_at],
-        limit: ^limit
+        limit: ^limit,
+        select: struct(q, ^@question_list_fields)
     )
   end
 
@@ -2460,7 +2490,8 @@ defmodule RuleMaven.Games do
             q.stale == false and is_nil(q.error_kind) and is_nil(q.pool_source_id) and
             q.trust_score > -1.0,
         order_by: [desc: q.trust_score, desc: q.inserted_at],
-        limit: ^limit
+        limit: ^limit,
+        select: struct(q, ^@question_list_fields)
     )
   end
 
@@ -2546,7 +2577,8 @@ defmodule RuleMaven.Games do
           where: q.game_id == ^game.id and q.group_id == ^group_id,
           where: q.refused == false and q.blocked == false,
           order_by: [desc: q.inserted_at],
-          preload: [:user]
+          preload: [:user],
+          select: struct(q, ^@question_feed_fields)
 
       query = if limit, do: from(q in query, limit: ^limit), else: query
 
@@ -2559,7 +2591,8 @@ defmodule RuleMaven.Games do
         from q in QuestionLog,
           where: q.game_id == ^game.id,
           order_by: [desc: q.inserted_at],
-          preload: [:user]
+          preload: [:user],
+          select: struct(q, ^@question_feed_fields)
 
       base = if id, do: from(q in base, where: q.id == ^id), else: base
       base = if limit, do: from(q in base, limit: ^limit), else: base
@@ -2606,7 +2639,8 @@ defmodule RuleMaven.Games do
     query =
       from q in base_question_query(),
         limit: ^limit,
-        preload: [:game, :user]
+        preload: [:game, :user],
+        select: struct(q, ^@question_list_fields)
 
     query =
       if game_id, do: from(q in query, where: q.game_id == ^game_id), else: query
@@ -2689,7 +2723,8 @@ defmodule RuleMaven.Games do
         where: q.visibility == "community",
         where: q.refused == false,
         order_by: [desc: q.inserted_at],
-        limit: 50
+        limit: 50,
+        select: struct(q, ^@question_list_fields)
 
     query =
       if exclude_user_id do
@@ -2710,7 +2745,8 @@ defmodule RuleMaven.Games do
         where: q.game_id == ^game.id,
         where: q.refused == true,
         order_by: [desc: q.inserted_at],
-        limit: 50
+        limit: 50,
+        select: struct(q, ^@question_list_fields)
 
     query =
       if user_id do
@@ -4147,30 +4183,23 @@ defmodule RuleMaven.Games do
     relevance_score(content, question_words) >= @lexical_rescue_min_overlap
   end
 
+  # How many FTS-ranked rows to pull back for exact re-scoring. Scoring used
+  # to load EVERY published chunk into Elixir; now Postgres pre-ranks by
+  # ts_rank (index-served via chunks_content_fts_idx) and only this many
+  # candidates cross the wire. The overlap floor is still enforced by
+  # re-scoring the returned rows with `relevance_score/2`, so the gating
+  # semantics (>= @lexical_rescue_min_overlap exact-token overlaps) are
+  # unchanged — FTS only narrows WHICH rows get scored, and any chunk with
+  # enough overlapping words necessarily matches the OR-of-words tsquery.
+  @lexical_candidate_pool 10
+
   defp best_lexical_candidate(game_ids, question_words, already_kept) do
     kept_ids = MapSet.new(already_kept, & &1.id)
 
     candidate =
-      Repo.all(
-        from c in Chunk,
-          join: d in Document,
-          on: c.document_id == d.id,
-          join: g in Game,
-          on: g.id == d.game_id,
-          # Taken-down games (base or expansion) must never be retrieved from.
-          where: d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
-          select: %{
-            id: c.id,
-            content: c.content,
-            section_label: c.section_label,
-            references_section: c.references_section,
-            document_id: d.id,
-            label: d.label,
-            kind: d.kind,
-            game_id: d.game_id,
-            game_name: g.name
-          }
-      )
+      game_ids
+      |> lexical_candidates_query(question_words, @lexical_candidate_pool + MapSet.size(kept_ids))
+      |> Repo.all()
       |> Enum.reject(&MapSet.member?(kept_ids, &1.id))
       |> Enum.map(fn c -> {relevance_score(c.content, question_words), c} end)
       |> Enum.max_by(&elem(&1, 0), fn -> {0, nil} end)
@@ -4179,6 +4208,53 @@ defmodule RuleMaven.Games do
       {score, chunk} when score >= @lexical_rescue_min_overlap -> chunk
       _ -> nil
     end
+  end
+
+  # Published chunks matching ANY of `question_words`, best ts_rank first.
+  # The words are OR-ed (`a | b | c`) — plainto_tsquery would AND them, which
+  # is stricter than the "N overlapping words" floor this feeds. Tokens come
+  # from `tokenize/1` ([a-z0-9]{2,} only), so interpolating them into a
+  # to_tsquery string is safe. The to_tsvector expression must stay verbatim
+  # identical to the chunks_content_fts_idx index expression to be
+  # index-served. A query made entirely of FTS stopwords yields an empty
+  # tsquery that matches nothing — callers already treat "no candidates" as
+  # "no lexical hit", same as a zero overlap score.
+  defp lexical_candidates_query(game_ids, question_words, limit) do
+    tsquery = Enum.join(question_words, " | ")
+
+    from c in Chunk,
+      join: d in Document,
+      on: c.document_id == d.id,
+      join: g in Game,
+      on: g.id == d.game_id,
+      # Taken-down games (base or expansion) must never be retrieved from.
+      where: d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
+      where:
+        fragment(
+          "to_tsvector('english', ?) @@ to_tsquery('english', ?)",
+          c.content,
+          ^tsquery
+        ),
+      order_by: [
+        desc:
+          fragment(
+            "ts_rank(to_tsvector('english', ?), to_tsquery('english', ?))",
+            c.content,
+            ^tsquery
+          )
+      ],
+      limit: ^limit,
+      select: %{
+        id: c.id,
+        content: c.content,
+        section_label: c.section_label,
+        references_section: c.references_section,
+        document_id: d.id,
+        label: d.label,
+        kind: d.kind,
+        game_id: d.game_id,
+        game_name: g.name
+      }
   end
 
   # Authority (errata > faq > rulebook > …) and base-game scope still decide the
@@ -4272,48 +4348,28 @@ defmodule RuleMaven.Games do
   end
 
   defp keyword_retrieve_multi(game_ids, question, limit) do
-    chunks =
-      Repo.all(
-        from c in Chunk,
-          join: d in Document,
-          on: c.document_id == d.id,
-          join: g in Game,
-          on: g.id == d.game_id,
-          # Taken-down games (base or expansion) must never be retrieved from.
-          where: d.game_id in ^game_ids and d.status == "published" and is_nil(g.taken_down_at),
-          select: %{
-            id: c.id,
-            content: c.content,
-            section_label: c.section_label,
-            references_section: c.references_section,
-            document_id: d.id,
-            label: d.label,
-            kind: d.kind,
-            game_id: d.game_id,
-            game_name: g.name
-          }
-      )
+    # Postgres ranks the keyword overlap (ts_rank over the GIN-indexed
+    # tsvector) instead of loading every published chunk into Elixir and
+    # scoring word overlap per ask. Every returned row matches at least one
+    # question word, which is the same "some lexical overlap" bar the old
+    # all-scores-zero check enforced; an empty result therefore collapses the
+    # old two fallback triggers (no published chunks at all / no chunk shares
+    # any word) into one, both landing on the full-text fallback as before.
+    top_chunks =
+      case tokenize(question) do
+        [] ->
+          []
 
-    if chunks == [] do
+        question_words ->
+          game_ids
+          |> lexical_candidates_query(question_words, limit)
+          |> Repo.all()
+      end
+
+    if top_chunks == [] do
       published_full_text_fallback(game_ids)
     else
-      question_words = tokenize(question)
-
-      scored =
-        chunks
-        |> Enum.map(fn chunk ->
-          score = relevance_score(chunk.content, question_words)
-          {score, chunk}
-        end)
-        |> Enum.sort_by(&elem(&1, 0), :desc)
-        |> Enum.take(limit)
-
-      if Enum.all?(scored, fn {score, _} -> score == 0 end) do
-        published_full_text_fallback(game_ids)
-      else
-        top_chunks = Enum.map(scored, fn {_, c} -> c end)
-        top_chunks |> pull_referenced_chunks(game_ids)
-      end
+      pull_referenced_chunks(top_chunks, game_ids)
     end
   end
 

@@ -32,8 +32,17 @@ defmodule RuleMaven.Workers.ExpansionSyncWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{id: oban_id, args: %{"game_id" => game_id}}) do
-    game = Games.get_game!(game_id)
+    case Games.get_game(game_id) do
+      nil ->
+        # Game deleted before the job ran — nothing to sync.
+        :ok
 
+      game ->
+        sync_expansions(game, game_id, oban_id)
+    end
+  end
+
+  defp sync_expansions(game, game_id, oban_id) do
     run =
       Jobs.start_run("expansion_sync", {"game", game_id}, "Expansion sync — #{game.name}",
         oban_job_id: oban_id

@@ -87,6 +87,10 @@ defmodule RuleMaven.MixProject do
         "run priv/repo/seeds.exs"
       ],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
+      # No bundler: assets are plain css/js in priv/static, so deploy prep is
+      # just digesting them (cache_manifest.json + hashed, gzipped copies) for
+      # prod's cache_static_manifest.
+      "assets.deploy": ["phx.digest"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "test.fast": ["ecto.create --quiet", "ecto.migrate --quiet", "test --exclude feature"],
       precommit: ["compile --warnings-as-errors", "format", "credo --strict", "test"]

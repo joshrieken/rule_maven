@@ -115,16 +115,18 @@ defmodule RuleMaven.LLM do
 
     # Same-user tiers: a returning asker is served their OWN prior answer even
     # when it never pooled. Exact (normalized-text) dedup first, then a tight
-    # semantic fallback. Both are plain cosine/text queries (no LLM call), so
-    # they're cheap to run eagerly and checked before the pool — a repeat in
-    # the asker's own words resolves for free, without spending a pool query
-    # or (in the ambiguous band) a tiebreaker LLM call.
+    # semantic fallback. Both are plain cosine/text queries (no LLM call), and
+    # they're checked before the pool — a repeat in the asker's own words
+    # resolves for free, without spending a pool query or (in the ambiguous
+    # band) a tiebreaker LLM call. The semantic tier is only evaluated when
+    # the exact tier misses: on an exact repeat its pgvector lookup (plus the
+    # pool_tier/quorum query behind it) would be pure wasted work.
     user_exact =
       !skip_pool && user_id &&
         RuleMaven.Games.find_user_duplicate(game.id, user_id, match_text, question, expansion_ids)
 
     user_semantic =
-      !skip_pool && user_id && question_embedding &&
+      !user_exact && !skip_pool && user_id && question_embedding &&
         RuleMaven.Games.find_user_similar(game.id, user_id, question_embedding,
           expansion_ids: expansion_ids
         )

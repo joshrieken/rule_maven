@@ -62,14 +62,36 @@ defmodule RuleMavenWeb.Layouts do
   end
 
   @doc """
-  Cache-busting version for a static asset, derived from the file's mtime.
-  Static assets are served un-digested with `cache-control: public` (no
-  max-age), so browsers heuristic-cache them and a normal refresh replays a
-  stale copy — and service workers key their cache by full URL (Safari's hard
-  refresh doesn't bypass a controlling worker's HTTP cache either). Changing
-  the query string on every edit sidesteps every cache layer. One File.stat
-  per dead render is negligible.
+  Cache-busted URL for a static asset (`rel_path` is relative to
+  priv/static, no leading slash).
+
+  In prod, where `cache_static_manifest` is configured and `mix
+  assets.deploy` (phx.digest) ran, this returns the endpoint's digested URL
+  ("/assets/js/app-<HASH>.js?vsn=d") — content-hashed, so Plug.Static serves
+  it with far-future immutable cache headers and a deploy naturally busts
+  every cache layer. Note the digest rewrite must happen on the *path*: a
+  `~p"...?v=..."` query string defeats the manifest lookup, which is keyed by
+  the exact path.
+
+  In dev (and any node booted without a digest manifest) there is no
+  manifest, so fall back to an mtime query-string bust: un-digested assets +
+  heuristic HTTP caching replay a stale copy on plain refresh, and service
+  workers key their cache by full URL (Safari's hard refresh doesn't bypass a
+  controlling worker's HTTP cache either). Changing the query string on every
+  edit sidesteps every cache layer. One File.stat per dead render is
+  negligible.
   """
+  def asset_path(rel_path) do
+    path = "/" <> rel_path
+
+    if RuleMavenWeb.Endpoint.config(:cache_static_manifest_latest) do
+      RuleMavenWeb.Endpoint.static_path(path)
+    else
+      path <> "?v=" <> asset_version(rel_path)
+    end
+  end
+
+  @doc "Mtime-derived cache-busting version for a static asset (dev fallback)."
   def asset_version(rel_path) do
     path = Path.join(:code.priv_dir(:rule_maven), "static/#{rel_path}")
 
@@ -78,10 +100,6 @@ defmodule RuleMavenWeb.Layouts do
       _ -> "0"
     end
   end
-
-  def css_version, do: asset_version("assets/css/app.css")
-
-  def js_version, do: asset_version("assets/js/app.js")
 
   def current_user(conn_or_assigns) do
     case conn_or_assigns do

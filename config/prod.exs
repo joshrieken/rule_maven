@@ -12,6 +12,12 @@ config :rule_maven, RuleMavenWeb.Endpoint,
     ]
   ]
 
+# Serve digested static assets (run `mix assets.deploy` before release/deploy).
+# The manifest lets Layouts.asset_path/1 emit content-hashed URLs with
+# far-future cache headers instead of the dev-only mtime query-string bust.
+config :rule_maven, RuleMavenWeb.Endpoint,
+  cache_static_manifest: "priv/static/cache_manifest.json"
+
 # Do not print debug messages in production
 config :logger, level: :info
 

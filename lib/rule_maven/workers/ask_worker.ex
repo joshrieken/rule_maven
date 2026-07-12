@@ -4,7 +4,7 @@ defmodule RuleMaven.Workers.AskWorker do
   Calls LLM.ask, updates the pre-logged question + answer, then broadcasts
   result via PubSub.
   """
-  use Oban.Worker, queue: :default, max_attempts: 2
+  use Oban.Worker, queue: :ask, max_attempts: 2
 
   require Logger
 
