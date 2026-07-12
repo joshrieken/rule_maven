@@ -727,7 +727,8 @@ defmodule RuleMaven.GamesTest do
           cleaned_question: "What is the maximum number of players?",
           answer: "5",
           visibility: "private",
-          pooled: true
+          pooled: true,
+          browsable: true
         })
 
       assert Games.list_canonical_questions(game.id) == ["What is the maximum number of players?"]
@@ -773,7 +774,8 @@ defmodule RuleMaven.GamesTest do
           cleaned_question: "Community Canonical Q",
           answer: "A",
           visibility: "community",
-          pooled: false
+          pooled: false,
+          browsable: true
         })
 
       assert Games.list_canonical_questions(game.id) == ["Community Canonical Q"]
@@ -810,7 +812,8 @@ defmodule RuleMaven.GamesTest do
             cleaned_question: text,
             answer: "A",
             visibility: "private",
-            pooled: true
+            pooled: true,
+            browsable: true
           })
 
         inserted_at = DateTime.add(DateTime.utc_now(), -ago, :second)
@@ -1123,7 +1126,8 @@ defmodule RuleMaven.GamesTest do
           question: "q",
           answer: "a",
           user_id: author.id,
-          pooled: true
+          pooled: true,
+          browsable: true
         })
 
       Games.set_community_vote(q.id, voter.id, "up")
