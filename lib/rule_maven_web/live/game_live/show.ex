@@ -175,14 +175,12 @@ defmodule RuleMavenWeb.GameLive.Show do
        tour_autostart: false,
        coarse_pointer: coarse_pointer?(socket),
        # Q&A chip/pager (two-pane no-shift design): which thread the answer
-       # pane shows, its question text, and the full-question overlay's open
-       # state. `qa_active_index` starts nil so the first `assign_qa_nav/1`
-       # call (in handle_params) picks whatever the resolved active thread is
-       # rather than assuming index 0.
+       # pane shows and its question text. `qa_active_index` starts nil so
+       # the first `assign_qa_nav/1` call (in handle_params) picks whatever
+       # the resolved active thread is rather than assuming index 0.
        qa_active_index: nil,
        qa_total: 0,
-       qa_active_question: nil,
-       qa_show_question: false
+       qa_active_question: nil
      )}
   end
 
@@ -755,7 +753,6 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> assign(:qa_total, total)
     |> assign(:qa_active_index, index)
     |> assign(:qa_active_question, question)
-    |> assign(:qa_show_question, Map.get(socket.assigns, :qa_show_question, false))
   end
 
   # Shared by the sidebar's explicit thread click and the chip pager: swap the
@@ -1250,21 +1247,6 @@ defmodule RuleMavenWeb.GameLive.Show do
         {:noreply, socket}
     end
   end
-
-  @impl true
-  def handle_event("qa_show_question", _params, socket) do
-    {:noreply, assign(socket, :qa_show_question, true)}
-  end
-
-  @impl true
-  def handle_event("qa_hide_question", _params, socket) do
-    {:noreply, assign(socket, :qa_show_question, false)}
-  end
-
-  # The overlay sheet's own click stops propagation via this no-op so a tap
-  # inside it doesn't fall through to the backdrop's "qa_hide_question".
-  @impl true
-  def handle_event("ignore", _params, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("toggle_sidebar", _params, socket) do
@@ -5245,19 +5227,6 @@ defmodule RuleMavenWeb.GameLive.Show do
         </div>
       </div>
 
-      <%!-- Direct child of .chat-layout (fixed frame), not .answer-pane (the
-            scroll container). An absolutely-positioned descendant of a scroll
-            container is positioned against its content origin, not the visible
-            viewport — inset:0 there pins to scrollTop=0 and scrolls away with
-            the content. .chat-layout is position:fixed, so it is a stable
-            containing block regardless of the pane's scroll offset. --%>
-      <%= if @qa_show_question do %>
-        <div class="qa-overlay" phx-click="qa_hide_question">
-          <div class="qa-overlay__sheet" phx-click="ignore">
-            {@qa_active_question}
-          </div>
-        </div>
-      <% end %>
     </div>
 
     <%!-- Outside .chat-layout on purpose: that element is `position:fixed;

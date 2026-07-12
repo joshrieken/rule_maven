@@ -29,9 +29,8 @@ defmodule RuleMavenWeb.Feature.QaNoShiftTest do
   defmodule FakeLLM do
     import Plug.Conn
 
-    # Long enough to overflow `.answer-pane` on a 390x844 viewport, so the
-    # overlay-after-scroll regression test below can actually scroll the
-    # pane before opening the overlay.
+    # Long enough to overflow `.answer-pane` on a 390x844 viewport, so tests
+    # can assert the pane scrolls independently of the fixed frame.
     @answer "**Yes** — you may stack a Draw 4 on a Draw 2.\n\n" <>
               String.duplicate("More rules text to force the answer pane to overflow. ", 80)
 
@@ -258,66 +257,5 @@ defmodule RuleMavenWeb.Feature.QaNoShiftTest do
     assert_in_delta top_before, top_done, 1.0
 
     assert scroll_top(conn, ".answer-pane") == 0
-  end
-
-  # Regression test for the Important finding in the final branch review:
-  # `.qa-overlay` used to render *inside* `.answer-pane` (the scroll
-  # container). `position:absolute; inset:0` on a descendant of a scroll
-  # container resolves against the content origin (scrollTop=0), not the
-  # visible viewport, so once the reader scrolled down, tapping the question
-  # chip opened a sheet pinned above the fold — invisible. The fix moves the
-  # overlay to be a direct child of `.chat-layout` (position:fixed), which is
-  # a stable containing block regardless of the pane's scroll offset.
-  test "full-question overlay stays on-screen after the answer pane is scrolled",
-       %{conn: conn, game: game, user: user} do
-    conn =
-      conn
-      |> login(user)
-      |> visit("/games/#{RuleMaven.Hashid.encode(game.id)}")
-
-    conn = type(conn, "#ask-input", "Can I stack a Draw 4 on a Draw 2?")
-    conn = click_button(conn, "Send")
-    conn = assert_has(conn, ".verdict-stamp--pending")
-
-    Oban.drain_queue(queue: :ask, with_scheduled: true)
-
-    conn = assert_has(conn, ".verdict-stamp:not(.verdict-stamp--pending)", timeout: 10_000)
-
-    # The long @answer overflows the 390x844 viewport, so the pane actually
-    # has somewhere to scroll to.
-    set_scroll_top(conn, ".answer-pane", 99_999)
-    assert scroll_top(conn, ".answer-pane") > 0
-
-    conn = click(conn, ".qa-chip__text")
-    conn = assert_has(conn, ".qa-overlay__sheet")
-
-    frame_top = bounding_top(conn, ".chat-layout")
-    sheet_top = bounding_top(conn, ".qa-overlay__sheet")
-
-    # On-screen means within the fixed frame's vertical span, not scrolled
-    # away above it (the bug: sheet_top would be a large negative number,
-    # far above frame_top, once the pane had been scrolled down).
-    assert sheet_top >= frame_top
-    assert sheet_top < frame_top + 844
-  end
-
-  defp set_scroll_top(conn, selector, value) do
-    parent = self()
-
-    script = """
-    () => {
-      var el = document.querySelector(#{Jason.encode!(selector)});
-      if (el) { el.scrollTop = #{value}; }
-      return true;
-    }
-    """
-
-    evaluate(conn, script, [is_function: true], fn v -> send(parent, {:probe, v}) end)
-
-    receive do
-      {:probe, _} -> :ok
-    after
-      5_000 -> flunk("set_scroll_top probe timed out")
-    end
   end
 end

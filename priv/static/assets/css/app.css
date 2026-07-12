@@ -1090,31 +1090,6 @@ a:not([class]):hover {
   font-size: 0.78rem;
 }
 
-/* Full-question overlay: sits OVER the answer pane, never pushes it. */
-.qa-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  background: color-mix(in srgb, var(--bg) 60%, transparent);
-  backdrop-filter: blur(2px);
-}
-.qa-overlay__sheet {
-  margin: 0.75rem;
-  max-width: 44rem;
-  width: 100%;
-  padding: 1rem 1.1rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
-  font-size: 0.95rem;
-  line-height: 1.45;
-  color: var(--text);
-}
-
 @keyframes qa-panel-in {
   from { opacity: 0; }
   to   { opacity: 1; }

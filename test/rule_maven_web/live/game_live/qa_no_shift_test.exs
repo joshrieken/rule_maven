@@ -48,20 +48,6 @@ defmodule RuleMavenWeb.GameLive.QaNoShiftTest do
     refute q0 == q1
   end
 
-  # `.qa-chip__text` (the overlay trigger) was removed in Task 2; this test
-  # is rewritten/removed in Task 3 along with the overlay itself.
-  @tag :skip
-  test "tapping the chip opens the full-question overlay",
-       %{conn: conn, game: game, user: user, thread_ids: thread_ids} do
-    {:ok, view, _html} = conn |> login(user) |> visit_newest(game, thread_ids)
-
-    refute has_element?(view, ".qa-overlay")
-    view |> element(".qa-chip__text") |> render_click()
-    assert has_element?(view, ".qa-overlay__sheet")
-    view |> element(".qa-overlay") |> render_click()
-    refute has_element?(view, ".qa-overlay")
-  end
-
   test "pager and answer-pane share one vertical column wrapper",
        %{conn: conn, game: game, user: user, thread_ids: thread_ids} do
     {:ok, view, _html} = conn |> login(user) |> visit_newest(game, thread_ids)
