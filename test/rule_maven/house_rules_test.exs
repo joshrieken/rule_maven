@@ -206,7 +206,7 @@ defmodule RuleMaven.HouseRulesTest do
   # `user` matters for `request_delta/3`: the delta is computed against the row's
   # text, so the requester has to be able to READ the row (Games.reachable_by?/2).
   # An ownerless row is reachable by nobody, which is not a shape the UI produces.
-  defp question_log(game, question, user \\ nil) do
+  defp question_log(game, question, user) do
     {:ok, ql} =
       RuleMaven.Games.log_question(%{
         game_id: game.id,

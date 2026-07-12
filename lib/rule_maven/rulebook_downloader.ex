@@ -183,7 +183,7 @@ defmodule RuleMaven.RulebookDownloader do
   """
   def save_source(game, pdf_path, url, label, on_progress \\ &noop_progress/1) do
     on_progress.(:finalizing)
-    full_path = Application.app_dir(:rule_maven, "priv/static/#{pdf_path}")
+    full_path = RuleMaven.Uploads.resolve(pdf_path)
 
     Games.create_rulebook_source(%{
       game_id: game.id,
@@ -331,7 +331,7 @@ defmodule RuleMaven.RulebookDownloader do
   def text_to_html(text, pdf_path) do
     html_filename = Path.basename(pdf_path, Path.extname(pdf_path)) <> ".html"
     html_path = Path.join(Path.dirname(pdf_path), html_filename)
-    dest = Application.app_dir(:rule_maven, "priv/static/#{html_path}")
+    dest = RuleMaven.Uploads.resolve(html_path)
 
     pages = String.split(text, "\f")
 
@@ -694,7 +694,7 @@ defmodule RuleMaven.RulebookDownloader do
   # `two_up` (each sheet carries two printed pages) only means anything for a
   # PDF — native formats have no sheets and a single image is one page.
   defp extract_text_with_source(doc_path, on_progress, game_id, two_up) do
-    full_path = Application.app_dir(:rule_maven, "priv/static/#{doc_path}")
+    full_path = RuleMaven.Uploads.resolve(doc_path)
 
     cond do
       Native.native?(doc_path) ->
@@ -1071,7 +1071,7 @@ defmodule RuleMaven.RulebookDownloader do
   `doc_path` is static-relative, as stored on the Document.
   """
   def two_up_suspect?(doc_path) when is_binary(doc_path) do
-    full = Application.app_dir(:rule_maven, "priv/static/#{doc_path}")
+    full = RuleMaven.Uploads.resolve(doc_path)
 
     not image?(doc_path) and not Native.native?(doc_path) and
       case sheet_size(full, 1) do
@@ -1091,7 +1091,7 @@ defmodule RuleMaven.RulebookDownloader do
   static-relative, as stored on the Document.
   """
   def portrait_sheet?(doc_path) when is_binary(doc_path) do
-    full = Application.app_dir(:rule_maven, "priv/static/#{doc_path}")
+    full = RuleMaven.Uploads.resolve(doc_path)
 
     not image?(doc_path) and not Native.native?(doc_path) and
       case sheet_size(full, 1) do
@@ -1316,7 +1316,7 @@ defmodule RuleMaven.RulebookDownloader do
   lane, source}}` or `{:error, reason}`.
   """
   def reextract_page(doc_path, sheet, opts \\ []) when is_integer(sheet) do
-    full = Application.app_dir(:rule_maven, "priv/static/#{doc_path}")
+    full = RuleMaven.Uploads.resolve(doc_path)
     log = Keyword.get(opts, :on_log, fn _t, _k -> :ok end)
     # `sheet` is always the physical PDF sheet. `half:` ("left" | "right") is
     # the page's *stored* layout from extraction time — deliberately not the
@@ -1537,8 +1537,8 @@ defmodule RuleMaven.RulebookDownloader do
   defp richest([]), do: ""
   defp richest([h | t]), do: Enum.reduce(t, h, fn x, acc -> richer(x, acc) end)
 
-  # Render one PDF sheet to a grayscale JPEG at `dpi` under tmp/ocr. The unique
-  # suffix keeps concurrent page renders (@vision_concurrency) from colliding.
+  # Render one PDF sheet to a grayscale JPEG at `dpi` under the system tmp
+  # dir. The unique suffix keeps concurrent page renders (@vision_concurrency) from colliding.
   # Caller deletes the image. {:ok, path} | {:error, reason}. nil pdf_path (a
   # single-image source, nothing to render) short-circuits so callers skip
   # render-dependent tiers.
@@ -1566,7 +1566,7 @@ defmodule RuleMaven.RulebookDownloader do
 
   defp do_render_one_sheet(pdf_path, sheet, dpi, crop_args) do
     if System.find_executable("pdftoppm") do
-      tmp = Application.app_dir(:rule_maven, "tmp/ocr")
+      tmp = Path.join(System.tmp_dir!(), "rule_maven_ocr")
       File.mkdir_p!(tmp)
       prefix = Path.join(tmp, "#{System.unique_integer([:positive])}_t2")
 
@@ -1620,7 +1620,8 @@ defmodule RuleMaven.RulebookDownloader do
   defp page_kind(%{source: s}) when s in ["critic_residual", "error"], do: :warn
   defp page_kind(_), do: :page
 
-  # Renders each PDF sheet to a grayscale PNG at @render_dpi under tmp/ocr,
+  # Renders each PDF sheet to a grayscale PNG at @render_dpi under the system
+  # tmp dir,
   # returning {:ok, sorted_image_paths}. Caller deletes the images. Shared by the
   # vision and OCR paths so both get identical page rendering.
   # 2-up: one cropped render per logical page (2 × sheets). Sequential
@@ -1654,7 +1655,7 @@ defmodule RuleMaven.RulebookDownloader do
   end
 
   defp render_pages(pdf_path, false) do
-    tmp_dir = Application.app_dir(:rule_maven, "tmp/ocr")
+    tmp_dir = Path.join(System.tmp_dir!(), "rule_maven_ocr")
     File.mkdir_p!(tmp_dir)
     prefix = Path.join(tmp_dir, "#{System.system_time(:millisecond)}_page")
 
@@ -1691,12 +1692,12 @@ defmodule RuleMaven.RulebookDownloader do
   end
 
   defp save_pdf(pdf_binary, url) do
-    upload_dir = Application.app_dir(:rule_maven, "priv/static/uploads/rulebooks")
+    upload_dir = RuleMaven.Uploads.resolve("uploads/rulebooks")
     File.mkdir_p!(upload_dir)
 
     filename = "#{System.system_time(:millisecond)}_#{extract_filename(url)}"
     pdf_path = Path.join("uploads/rulebooks", filename)
-    dest = Application.app_dir(:rule_maven, "priv/static/#{pdf_path}")
+    dest = RuleMaven.Uploads.resolve(pdf_path)
 
     case File.write(dest, pdf_binary) do
       :ok -> {:ok, pdf_path}

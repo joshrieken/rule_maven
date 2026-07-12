@@ -637,16 +637,18 @@ defmodule RuleMaven.LLM do
     end
   end
 
-  # Real pipeline progress for the asker's loader bar. Broadcast on the game
-  # topic (same channel as :ask_partial) keyed by the in-flight question so
-  # the LiveView can advance the loader through actual stages instead of a
-  # faked crawl. Only fires when this process serves a logged question
-  # (AskWorker sets the metadata); ad-hoc callers broadcast nothing.
-  defp broadcast_ask_stage(game_id, stage) do
+  # Real pipeline progress for the asker's loader bar. Broadcast on the
+  # per-question ask-stream topic (same channel as :ask_partial) so only the
+  # sockets actually showing this pending row — not every viewer of the game —
+  # receive the high-frequency progress traffic. Only fires when this process
+  # serves a logged question (AskWorker sets the metadata); ad-hoc callers
+  # broadcast nothing. `game_id` is kept in the signature for call-site
+  # uniformity even though the topic is now keyed by question alone.
+  defp broadcast_ask_stage(_game_id, stage) do
     if ql_id = current_question_log_id() do
       Phoenix.PubSub.broadcast(
         RuleMaven.PubSub,
-        "game:#{game_id}",
+        ask_stream_topic(ql_id),
         {:ask_stage, %{question_log_id: ql_id, stage: stage}}
       )
     end
@@ -2432,7 +2434,7 @@ defmodule RuleMaven.LLM do
          (styled_done and not state.sent.styled_done) do
       Phoenix.PubSub.broadcast(
         RuleMaven.PubSub,
-        "game:#{stream_to.game_id}",
+        ask_stream_topic(stream_to.question_log_id),
         {:ask_partial,
          %{
            question_log_id: stream_to.question_log_id,
@@ -2761,6 +2763,17 @@ defmodule RuleMaven.LLM do
   def current_question_log_id do
     Logger.metadata()[:question_log_id]
   end
+
+  @doc """
+  Per-question PubSub topic for high-frequency in-flight ask traffic
+  (`{:ask_partial, …}` streamed answer text and `{:ask_stage, …}` pipeline
+  progress). These used to ride the public `game:<id>` topic, fanning every
+  ~24-char growth of every in-flight answer out to every viewer of the game;
+  only sockets actually showing the pending row subscribe here (see
+  `GameLive.Show.sync_ask_stream_subscriptions/1`). Terminal messages
+  (:ask_complete / :ask_error / :ask_redirect) stay on the game topic.
+  """
+  def ask_stream_topic(question_log_id), do: "ask_stream:#{question_log_id}"
 
   @doc """
   Chronological trace of the LLM calls recorded for one question/answer, with

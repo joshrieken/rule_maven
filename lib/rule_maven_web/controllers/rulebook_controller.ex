@@ -17,7 +17,7 @@ defmodule RuleMavenWeb.RulebookController do
          {:ok, doc_id} <- RuleMaven.Hashid.decode(id),
          %Games.Document{html_path: html_path} when is_binary(html_path) <-
            Games.get_document(doc_id),
-         full_path = Application.app_dir(:rule_maven, "priv/static/#{html_path}"),
+         full_path = RuleMaven.Uploads.resolve(html_path),
          true <- File.exists?(full_path) do
       conn
       |> put_resp_content_type("text/html")
@@ -36,7 +36,7 @@ defmodule RuleMavenWeb.RulebookController do
          {:ok, doc_id} <- RuleMaven.Hashid.decode(id),
          %Games.Document{pdf_path: pdf_path} when is_binary(pdf_path) <-
            Games.get_document(doc_id),
-         full_path = Application.app_dir(:rule_maven, "priv/static/#{pdf_path}"),
+         full_path = RuleMaven.Uploads.resolve(pdf_path),
          true <- File.exists?(full_path) do
       conn
       |> put_resp_content_type("application/pdf")

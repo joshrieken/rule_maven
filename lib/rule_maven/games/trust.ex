@@ -98,6 +98,15 @@ defmodule RuleMaven.Games.Trust do
   single accomplice can no longer pump an author's reputation (and thus their
   vote weight) by mass-upvoting their answers. Self-votes are excluded.
   """
+  # PERF: this scans every vote on every row the author ever wrote, and runs
+  # synchronously on EVERY vote click (do_set_community_vote/4). An exact
+  # incremental update is NOT possible from the stored value: the per-voter
+  # clamp needs the voter's pre-change net across all of the author's rows,
+  # and the `max(_, 0)` floor destroys information (a stored 0 could be any
+  # true value <= 0), so a delta applied to `users.reputation` can drift from
+  # the recomputed truth. Deferred plan: move this behind a debounced,
+  # per-author-unique Oban worker (project convention: fire-and-forget ->
+  # Oban) so a vote click enqueues instead of scanning inline.
   def recompute_reputation(user_id) when is_integer(user_id) do
     cap = per_voter_rep_cap()
 
@@ -168,6 +177,48 @@ defmodule RuleMaven.Games.Trust do
         where: u.inserted_at <= ^cutoff,
         select: count(v.user_id, :distinct)
     ) || 0
+  end
+
+  @doc """
+  Batched `eligible_voter_count/2`: ONE query for many rows, returning
+  `%{question_log_id => count}` (ids with no eligible voters are absent —
+  callers default to 0). Takes `%QuestionLog{}` structs because the author
+  exclusion is per-row.
+
+  Filter parity with `eligible_voter_count/2` is load-bearing: weight > 0.0,
+  confirmed email, account-age cutoff — see the single-row version for why
+  each exists. The author exclusion is applied in Elixir over the DISTINCT
+  (question_log_id, voter) pairs (each row excludes only its OWN author,
+  which a single flat WHERE cannot express); votes on the fetched rows are a
+  small, bounded set, so this stays cheap.
+  """
+  def eligible_voter_counts([]), do: %{}
+
+  def eligible_voter_counts(rows) when is_list(rows) do
+    cutoff = DateTime.add(DateTime.utc_now(), -round(vote_min_age_hours() * 3600), :second)
+    authors = Map.new(rows, fn %QuestionLog{id: id, user_id: author_id} -> {id, author_id} end)
+    ids = Map.keys(authors)
+
+    Repo.all(
+      from v in QuestionVote,
+        join: u in User,
+        on: u.id == v.user_id,
+        where: v.question_log_id in ^ids,
+        where: v.weight > 0.0,
+        where: not is_nil(u.email_confirmed_at),
+        where: u.inserted_at <= ^cutoff,
+        distinct: true,
+        select: {v.question_log_id, v.user_id}
+    )
+    |> Enum.reduce(%{}, fn {qid, voter_id}, acc ->
+      # Mirrors the single-row `v.user_id != ^exclude` (a nil author excludes
+      # nobody: voter ids are never nil, so the comparison below never matches).
+      if voter_id == Map.get(authors, qid) do
+        acc
+      else
+        Map.update(acc, qid, 1, &(&1 + 1))
+      end
+    end)
   end
 
   # --- settings floors -------------------------------------------------------

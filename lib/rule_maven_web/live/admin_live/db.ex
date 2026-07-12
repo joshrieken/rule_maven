@@ -148,9 +148,18 @@ defmodule RuleMavenWeb.AdminLive.Db do
         pk_type =
           Enum.find_value(socket.assigns.columns, "integer", fn {c, t} -> c == pk && t end)
 
-        SQL.query!(Repo, "DELETE FROM #{safe(table)} WHERE #{safe(pk)} = $1", [
-          parse_for_db(id, pk_type)
-        ])
+        pk_val = parse_for_db(id, pk_type)
+
+        # A deleted app_settings row must also leave the Settings cache, and
+        # the key is gone once the row is — read it before the DELETE.
+        setting_key =
+          if table == "app_settings" do
+            Map.get(fetch_row(table, pk, pk_val, socket.assigns.columns), "key")
+          end
+
+        SQL.query!(Repo, "DELETE FROM #{safe(table)} WHERE #{safe(pk)} = $1", [pk_val])
+
+        bust_caches_after_write(table, setting_key || id)
 
         Audit.log(socket.assigns.current_user, "db.delete",
           target_type: "row",
@@ -271,6 +280,8 @@ defmodule RuleMavenWeb.AdminLive.Db do
           SQL.query!(Repo, sql, vals ++ [pk_val])
       end
 
+      bust_caches_after_write(table, Map.get(data, "key") || socket.assigns.editing_id)
+
       Audit.log(socket.assigns.current_user, "db.#{mode}",
         target_type: "row",
         target_id: socket.assigns.editing_id,
@@ -290,6 +301,36 @@ defmodule RuleMavenWeb.AdminLive.Db do
         {:noreply, assign(socket, form_errors: %{base: db_error_message(e)})}
     end
   end
+
+  # Raw writes bypass the context modules, so the in-memory caches that those
+  # contexts normally bust (Settings.Cache, Users.AuthCache) would serve stale
+  # rows until their TTL. Bust them by hand after every successful raw write.
+  #
+  # For app_settings the second argument is the row's `key` value when the
+  # form carried it; when it can't be determined (masked for a plain admin, or
+  # missing) the whole local table is flushed — the short TTL backstops other
+  # nodes, same as a missed invalidation.
+  defp bust_caches_after_write("app_settings", key)
+       when is_binary(key) and key != @redaction_marker do
+    RuleMaven.Settings.Cache.invalidate(key)
+  end
+
+  defp bust_caches_after_write("app_settings", _unknown_key),
+    do: RuleMaven.Settings.Cache.flush()
+
+  # AuthCache keys by integer user id; ids arrive as strings from phx-value /
+  # the form. `nil` (a fresh insert has no cached entry) is a no-op.
+  defp bust_caches_after_write("users", id) when is_integer(id),
+    do: RuleMaven.Users.AuthCache.invalidate(id)
+
+  defp bust_caches_after_write("users", id) when is_binary(id) do
+    case Integer.parse(id) do
+      {n, _} -> RuleMaven.Users.AuthCache.invalidate(n)
+      :error -> :ok
+    end
+  end
+
+  defp bust_caches_after_write(_table, _id), do: :ok
 
   defp db_error_message(%Postgrex.Error{postgres: %{message: msg}}), do: msg
   defp db_error_message(%Postgrex.Error{} = e), do: Exception.message(e)

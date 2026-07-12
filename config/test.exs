@@ -72,6 +72,8 @@ config :fun_with_flags, :cache, enabled: false
 # these per-test (async: false) to exercise the caching path.
 config :rule_maven, :cache_settings, false
 config :rule_maven, :cache_reauth, false
+config :rule_maven, :cache_corpus, false
+config :rule_maven, :cache_health_stats, false
 
 # Capture sent emails in-process so tests can assert on them.
 config :rule_maven, RuleMaven.Mailer, adapter: Swoosh.Adapters.Test

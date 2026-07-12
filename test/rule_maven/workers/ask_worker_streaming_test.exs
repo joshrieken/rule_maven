@@ -144,7 +144,10 @@ defmodule RuleMaven.Workers.AskWorkerStreamingTest do
     game: game,
     ql: ql
   } do
+    # Terminal messages (:ask_complete) ride the public game topic; the
+    # high-frequency partials ride the per-question ask-stream topic.
     Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")
+    Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.LLM.ask_stream_topic(ql.id))
 
     assert :ok =
              AskWorker.perform(%Oban.Job{

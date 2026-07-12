@@ -20,6 +20,8 @@ defmodule RuleMaven.Application do
       # they must start after Phoenix.PubSub. Neither touches the DB at init.
       RuleMaven.Settings.Cache,
       RuleMaven.Users.AuthCache,
+      RuleMaven.CorpusCache,
+      RuleMaven.HealthStats,
       RuleMaven.TableSession,
       RuleMavenWeb.Endpoint
     ]

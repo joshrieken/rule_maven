@@ -76,12 +76,14 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
   @doc """
   Whether any of the game's sources has an active cheat-sheet version.
 
-  One query per source, so it is computed once at mount and passed down as an
-  assign — the sub-bar renders on every game page and would otherwise re-run it
-  on each render, once for the More menu and once for the pill.
+  One `EXISTS` query over all source ids (`CheatSheet.any_active?/1`) — it
+  used to call `active_version/1` per source, loading each sheet's full
+  content just to nil-check it. Computed once at mount and passed down as an
+  assign — the sub-bar renders on every game page and would otherwise re-run
+  it on each render, once for the More menu and once for the pill.
   """
   def has_cheatsheet?(sources) do
-    Enum.any?(sources, &(RuleMaven.CheatSheet.active_version(&1.id) != nil))
+    RuleMaven.CheatSheet.any_active?(Enum.map(sources, & &1.id))
   end
 
   defp put_new(socket, key, fun) do

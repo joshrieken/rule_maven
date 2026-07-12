@@ -81,7 +81,10 @@ defmodule RuleMaven.Workers.HouseRuleCheckWorkerTest do
     assert hr.check_status == "done"
     assert hr.verdict == "overrides"
     id = hr.id
-    assert_received {:house_rule_checked, ^id}
+    owner_id = hr.user_id
+    # Payload carries the owner + community visibility so the LiveView can
+    # skip the full refresh on non-owner viewers.
+    assert_received {:house_rule_checked, %{id: ^id, user_id: ^owner_id, community: false}}
   end
 
   test "LLM failure marks failed and still broadcasts", %{game: game, hr: hr} do

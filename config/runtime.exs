@@ -61,6 +61,14 @@ if config_env() == :prod do
 
   config :rule_maven, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
+  # Root directory for user-uploaded files (rulebook PDFs, extracted HTML).
+  # Point this at a mounted volume so uploads survive redeploys instead of
+  # living inside the release dir; once set, it also keeps
+  # `mix assets.deploy`/`phx.digest` from sweeping uploaded PDFs into the
+  # digest. Unset falls back to Application.app_dir(:rule_maven, "priv/static")
+  # (historical behavior). See RuleMaven.Uploads.
+  config :rule_maven, uploads_dir: System.get_env("UPLOADS_DIR")
+
   # Mail: no boot-time adapter wiring. RuleMaven.Mailer.deliver_email/1 picks
   # Resend per-send when a key is configured (Settings, falls back to
   # RESEND_API_KEY), and skips (with a warning)

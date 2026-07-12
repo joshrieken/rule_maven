@@ -14,6 +14,10 @@ defmodule RuleMaven.Audit do
   alias RuleMaven.Repo
   alias RuleMaven.Audit.AuditLog
 
+  # Cap on delete snapshots question_history/2 loads (newest-first). Served by
+  # the partial expression index audit_logs_qdelete_game_idx.
+  @history_cap 500
+
   @doc """
   Records an action. `actor` is the acting user (or nil for system actions),
   `action` a dotted verb like `"user.suspend"`. Opts:
@@ -81,6 +85,12 @@ defmodule RuleMaven.Audit do
   string or list of raw/cleaned/canonical variants), it pulls in every delete
   snapshot sharing any text with the seed set, unions that snapshot's texts
   into the set, and repeats to a fixpoint. Admin-only surface.
+
+  Bounded to the newest #{@history_cap} delete snapshots per game: the walk
+  loads full metadata for every candidate row, so an unbounded fetch grows
+  with the game's whole deletion history per history click. A chain long
+  enough to have links past the cap loses its oldest versions — acceptable
+  for a forensics view that renders newest-first anyway.
   """
   def question_history(game_id, seeds) do
     seeds =
@@ -95,7 +105,8 @@ defmodule RuleMaven.Audit do
         where: l.action == "question.delete",
         where: l.target_type == "question",
         where: fragment("?->>'game_id' = ?", l.metadata, ^to_string(game_id)),
-        order_by: [desc: l.inserted_at, desc: l.id]
+        order_by: [desc: l.inserted_at, desc: l.id],
+        limit: @history_cap
       )
       |> Repo.all()
 

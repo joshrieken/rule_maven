@@ -58,7 +58,10 @@ config :rule_maven, Oban,
      crontab: [
        {"*/15 * * * *", RuleMaven.Workers.DirectPromotionWorker},
        # Daily: prune job-log events past the 6-month window + reconcile stale runs.
-       {"0 4 * * *", RuleMaven.Workers.JobLogPruneWorker}
+       {"0 4 * * *", RuleMaven.Workers.JobLogPruneWorker},
+       # Daily: strip multi-KB trace `detail` from llm_logs older than 30 days
+       # (keeps the token/cost columns forever for cost reporting).
+       {"30 3 * * *", RuleMaven.Workers.LlmLogPruneWorker}
      ]}
   ],
   # Queue topology — interactive work never queues behind bulk work:

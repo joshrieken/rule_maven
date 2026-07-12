@@ -2,8 +2,11 @@ defmodule RuleMaven.Workers.HouseRuleCheckWorker do
   @moduledoc """
   Durable RAW check for one house rule. Retrieves rulebook chunks, asks the LLM
   to classify the rule (matches/fills_gap/overrides/unclear), persists the
-  result, and broadcasts `{:house_rule_checked, id}` on `game:<id>` — on
-  failure too, so the LiveView clears its pending state.
+  result, and broadcasts `{:house_rule_checked, %{id:, user_id:, community:}}`
+  on `game:<id>` — on failure too, so the LiveView clears its pending state.
+  The payload carries the rule owner's `user_id` (plus whether the rule is
+  community-visible) so the game-wide broadcast doesn't make every idle viewer
+  re-run the owner's house-rule + overlay queries.
   """
   use Oban.Worker,
     queue: :llm,
@@ -63,7 +66,7 @@ defmodule RuleMaven.Workers.HouseRuleCheckWorker do
       {:ok, results} ->
         case HouseRules.mark_checked(hr, put_body_embedding(results, hr, run)) do
           {:ok, _} ->
-            broadcast(game_id, hr.id)
+            broadcast(game_id, hr)
             Jobs.finish_run(run, "done", "Verdict: #{results.verdict}.")
             :ok
 
@@ -99,11 +102,19 @@ defmodule RuleMaven.Workers.HouseRuleCheckWorker do
 
   defp finalize_failure(hr, game_id, note) do
     {:ok, _} = HouseRules.mark_failed(hr, note)
-    broadcast(game_id, hr.id)
+    broadcast(game_id, hr)
     :ok
   end
 
-  defp broadcast(game_id, hr_id) do
-    Phoenix.PubSub.broadcast(RuleMaven.PubSub, "game:#{game_id}", {:house_rule_checked, hr_id})
+  # The owner's id + community visibility ride along so `GameLive.Show` can
+  # skip (or downgrade to a cheap community-list reload) the 4+ house-rule /
+  # overlay queries on every non-owner viewer of the game topic.
+  defp broadcast(game_id, hr) do
+    Phoenix.PubSub.broadcast(
+      RuleMaven.PubSub,
+      "game:#{game_id}",
+      {:house_rule_checked,
+       %{id: hr.id, user_id: hr.user_id, community: hr.visibility == "community"}}
+    )
   end
 end

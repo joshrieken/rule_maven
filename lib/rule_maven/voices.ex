@@ -453,6 +453,24 @@ defmodule RuleMaven.Voices do
     )
   end
 
+  @doc """
+  Batch form of `get/2`: map of `question_log_id => content` for the ids that
+  already have a cached restyle in `voice`. One indexed query for a whole
+  thread instead of a single-row lookup per answer (the thread-load hot path
+  in `GameLive.Show.apply_default_voice/2`). Ids without a cached restyle are
+  simply absent from the map.
+  """
+  def get_many([], _voice), do: %{}
+
+  def get_many(question_log_ids, voice) when is_list(question_log_ids) do
+    Repo.all(
+      from v in AnswerVoice,
+        where: v.question_log_id in ^question_log_ids and v.voice == ^voice,
+        select: {v.question_log_id, v.content}
+    )
+    |> Map.new()
+  end
+
   @doc "Map of `voice => content` already cached for a question."
   def cached_voices(question_log_id) do
     Repo.all(
