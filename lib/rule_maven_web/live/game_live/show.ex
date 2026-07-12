@@ -4006,14 +4006,25 @@ defmodule RuleMavenWeb.GameLive.Show do
                           ans_msg && !ans_msg[:pending] && !ans_msg[:refused] &&
                             ans_msg.content != "Thinking..." && is_binary(ans_msg.content) &&
                             not String.starts_with?(ans_msg.content, "⚠️") %>
-                        <%= if answer_ready? &&
-                               (ans_msg[:pool_hit] ||
-                                  normalization_changed?(asked_as, msg.content)) do %>
+                        <% ans_pending? =
+                          ans_msg && (ans_msg[:pending] || ans_msg.content == "Thinking...") %>
+                        <%!-- Render (disabled) the moment the question is asked, while
+                              the answer is still streaming, so the button holds its
+                              space BEFORE the answer scrolls into view and gets pinned
+                              to the viewport top. Revealing it only at :ask_complete
+                              used to insert above the finished answer and shove it down
+                              mid-read. It persists after completion when the wording was
+                              rewritten or a pooled neighbor was served; a fresh
+                              exact-wording answer needs no re-ask, so it collapses. --%>
+                        <%= if ans_pending? ||
+                               (answer_ready? &&
+                                  (ans_msg[:pool_hit] ||
+                                     normalization_changed?(asked_as, msg.content))) do %>
                           <button
                             type="button"
                             phx-click="ask_exactly"
                             phx-value-id={msg.id}
-                            disabled={@pending_count >= @max_concurrent}
+                            disabled={ans_pending? || @pending_count >= @max_concurrent}
                             data-confirm="Re-ask using your exact original wording, without rewriting or reusing a cached answer? We'll fetch a fresh answer for exactly what you asked."
                             class="ask-redo"
                             title="Answer my literal wording — fresh, no rewrite"
