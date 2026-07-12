@@ -197,6 +197,7 @@ defmodule RuleMaven.GroupPrivacyTest do
         Games.log_question(%{
           game_id: ctx.game.id,
           user_id: ctx.outsider.id,
+          browsable: true,
           question: "How do I win the game?",
           answer: "Score points."
         })

@@ -1,8 +1,7 @@
 defmodule RuleMavenWeb.AdminLive.Questions do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Audit, Games, Users}
-  alias RuleMaven.Games.QuestionLog
+  alias RuleMaven.{Audit, Games, Groups, Users}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -17,6 +16,14 @@ defmodule RuleMavenWeb.AdminLive.Questions do
          filter_game_name: nil,
          game_query: "",
          game_results: [],
+         filter_user_id: nil,
+         filter_username: nil,
+         user_query: "",
+         user_results: [],
+         filter_group_id: nil,
+         filter_group_name: nil,
+         group_search_query: "",
+         group_search_results: [],
          filter_status: nil,
          search: "",
          confirm_delete_id: nil,
@@ -37,11 +44,22 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   def handle_params(params, _uri, socket) do
     socket =
       case params["status"] do
-        s when s in ["needs_review", "answered", "pending", "refused", "error"] ->
+        s when s in ["needs_review", "answered", "pending", "refused", "error", "publish_pending"] ->
           socket |> assign(filter_status: s) |> reload()
 
         _ ->
           socket
+      end
+
+    socket =
+      with id_str when is_binary(id_str) <- params["user_id"],
+           {id, _} <- Integer.parse(id_str),
+           %{} = user <- Users.get_user(id) do
+        socket
+        |> assign(filter_user_id: user.id, filter_username: user.username)
+        |> reload()
+      else
+        _ -> socket
       end
 
     case params["focus"] && Integer.parse(params["focus"]) do
@@ -54,6 +72,8 @@ defmodule RuleMavenWeb.AdminLive.Questions do
     questions =
       Games.admin_list_questions(
         game_id: socket.assigns.filter_game_id,
+        user_id: socket.assigns.filter_user_id,
+        group_id: socket.assigns.filter_group_id,
         status: socket.assigns.filter_status,
         search: socket.assigns.search
       )
@@ -91,6 +111,63 @@ defmodule RuleMavenWeb.AdminLive.Questions do
     {:noreply,
      socket
      |> assign(filter_game_id: nil, filter_game_name: nil, game_query: "", game_results: [])
+     |> reload()}
+  end
+
+  # User (asker) filter typeahead, same pattern as the game filter above.
+  def handle_event("search_user", %{"value" => query}, socket) do
+    query = query |> String.trim() |> String.slice(0, 200)
+    results = if query == "", do: [], else: Users.search_users(query, limit: 15)
+    {:noreply, assign(socket, user_query: query, user_results: results)}
+  end
+
+  def handle_event("select_user", %{"id" => id, "username" => username}, socket) do
+    {:noreply,
+     socket
+     |> assign(
+       filter_user_id: String.to_integer(id),
+       filter_username: username,
+       user_query: "",
+       user_results: []
+     )
+     |> reload()}
+  end
+
+  def handle_event("clear_user_filter", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(filter_user_id: nil, filter_username: nil, user_query: "", user_results: [])
+     |> reload()}
+  end
+
+  # Group (crew) filter typeahead, same pattern as game/user above.
+  def handle_event("search_group", %{"value" => query}, socket) do
+    query = query |> String.trim() |> String.slice(0, 200)
+    results = if query == "", do: [], else: Groups.search_groups(query, limit: 15)
+    {:noreply, assign(socket, group_search_query: query, group_search_results: results)}
+  end
+
+  def handle_event("select_group", %{"id" => id, "name" => name}, socket) do
+    {:noreply,
+     socket
+     |> assign(
+       filter_group_id: String.to_integer(id),
+       filter_group_name: name,
+       group_search_query: "",
+       group_search_results: []
+     )
+     |> reload()}
+  end
+
+  def handle_event("clear_group_filter", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(
+       filter_group_id: nil,
+       filter_group_name: nil,
+       group_search_query: "",
+       group_search_results: []
+     )
      |> reload()}
   end
 
@@ -150,7 +227,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
             Audit.log(socket.assigns.current_user, "question.set_visibility",
               target_type: "question",
               target_id: q.id,
-              target_label: RuleMaven.Games.QuestionLog.listed_question(q),
+              target_label: admin_question_text(q),
               metadata: %{from: q.visibility, to: vis}
             )
 
@@ -175,13 +252,37 @@ defmodule RuleMavenWeb.AdminLive.Questions do
             Audit.log(socket.assigns.current_user, "question.reapprove",
               target_type: "question",
               target_id: q.id,
-              target_label: RuleMaven.Games.QuestionLog.listed_question(q)
+              target_label: admin_question_text(q)
             )
 
             {:noreply, reload(socket)}
 
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Couldn't re-approve that answer.")}
+        end
+    end
+  end
+
+  def handle_event("force_publish", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+
+    case Enum.find(socket.assigns.questions, &(&1.id == id)) do
+      nil ->
+        {:noreply, socket}
+
+      q ->
+        case Games.force_publish_question(q) do
+          {:ok, _} ->
+            Audit.log(socket.assigns.current_user, "question.force_publish",
+              target_type: "question",
+              target_id: q.id,
+              target_label: admin_question_text(q)
+            )
+
+            {:noreply, reload(socket)}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Couldn't force-publish that row.")}
         end
     end
   end
@@ -196,16 +297,15 @@ defmodule RuleMavenWeb.AdminLive.Questions do
         {:noreply, socket}
 
       q ->
-        # `listed_question/1`, not the raw column. The list itself renders a crew
-        # row as "(question withheld)" — and then this handler poured the asker's
-        # verbatim prose into a textarea one click away. Same rule as the render:
-        # the raw text is reachable only for a row that is both cleared and not
-        # crew-marked, and an unnormalized `cleaned_question` is not a scrub.
+        # Admins already see the raw question/answer in this list (see
+        # `admin_question_text/1` / `admin_answer_text/1`), so prefill the curator
+        # textarea with the same raw text rather than the public-facing withheld
+        # placeholder.
         {:noreply,
          assign(socket,
            editing_canonical_id: id,
-           canon_q: q.canonical_question || QuestionLog.listed_question(q),
-           canon_a: QuestionLog.listed_answer(q)
+           canon_q: admin_question_text(q),
+           canon_a: admin_answer_text(q)
          )}
     end
   end
@@ -249,6 +349,13 @@ defmodule RuleMavenWeb.AdminLive.Questions do
         end
     end
   end
+
+  # `QuestionLog.listed_question/1` and `listed_answer/1` withhold crew/unscrubbed
+  # text from other *users* (see `RuleMaven.Games.QuestionLog`). This LiveView is
+  # already gated to `:admin`/`:superadmin` at mount, so admins reviewing the
+  # Questions list should always see the real content, not "(withheld)".
+  defp admin_question_text(q), do: q.canonical_question || q.question
+  defp admin_answer_text(q), do: q.canonical_answer || q.answer
 
   defp status_of(q) do
     cond do
@@ -328,6 +435,88 @@ defmodule RuleMavenWeb.AdminLive.Questions do
           <% end %>
         </div>
 
+        <!-- User (asker) filter typeahead -->
+        <div style="position:relative;min-width:14rem">
+          <%= if @filter_user_id do %>
+            <div style="display:flex;align-items:center;gap:0.4rem;border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg)">
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                User: <strong>{@filter_username}</strong>
+              </span>
+              <button
+                type="button"
+                phx-click="clear_user_filter"
+                class="btn-icon btn-xs"
+              >✕</button>
+            </div>
+          <% else %>
+            <input
+              type="text"
+              name="user_query"
+              value={@user_query}
+              autocomplete="off"
+              phx-keyup="search_user"
+              phx-debounce="250"
+              placeholder="Filter by user…"
+              style="width:100%;border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text)"
+            />
+            <%= if @user_results != [] do %>
+              <div style="position:absolute;z-index:10;left:0;right:0;border:1px solid var(--border);border-radius:0.375rem;margin-top:0.15rem;background:var(--bg);max-height:14rem;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,0.15)">
+                <%= for u <- @user_results do %>
+                  <button
+                    type="button"
+                    phx-click="select_user"
+                    phx-value-id={u.id}
+                    phx-value-username={u.username}
+                    class="block w-full text-left"
+                    style="padding:0.35rem 0.6rem;font-size:0.8rem;background:none;border:none;cursor:pointer;color:var(--text)"
+                  >{u.username}</button>
+                <% end %>
+              </div>
+            <% end %>
+          <% end %>
+        </div>
+
+        <!-- Group (crew) filter typeahead -->
+        <div style="position:relative;min-width:14rem">
+          <%= if @filter_group_id do %>
+            <div style="display:flex;align-items:center;gap:0.4rem;border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg)">
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                Group: <strong>{@filter_group_name}</strong>
+              </span>
+              <button
+                type="button"
+                phx-click="clear_group_filter"
+                class="btn-icon btn-xs"
+              >✕</button>
+            </div>
+          <% else %>
+            <input
+              type="text"
+              name="group_search_query"
+              value={@group_search_query}
+              autocomplete="off"
+              phx-keyup="search_group"
+              phx-debounce="250"
+              placeholder="Filter by group…"
+              style="width:100%;border:1px solid var(--border);border-radius:0.375rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text)"
+            />
+            <%= if @group_search_results != [] do %>
+              <div style="position:absolute;z-index:10;left:0;right:0;border:1px solid var(--border);border-radius:0.375rem;margin-top:0.15rem;background:var(--bg);max-height:14rem;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,0.15)">
+                <%= for g <- @group_search_results do %>
+                  <button
+                    type="button"
+                    phx-click="select_group"
+                    phx-value-id={g.id}
+                    phx-value-name={g.name}
+                    class="block w-full text-left"
+                    style="padding:0.35rem 0.6rem;font-size:0.8rem;background:none;border:none;cursor:pointer;color:var(--text)"
+                  >{g.name}</button>
+                <% end %>
+              </div>
+            <% end %>
+          <% end %>
+        </div>
+
         <form phx-change="filter_status" phx-submit="filter_status">
           <select
             name="status"
@@ -340,6 +529,9 @@ defmodule RuleMavenWeb.AdminLive.Questions do
             <option value="error" selected={@filter_status == "error"}>Error</option>
             <option value="needs_review" selected={@filter_status == "needs_review"}>
               Needs review (stale)
+            </option>
+            <option value="publish_pending" selected={@filter_status == "publish_pending"}>
+              Stuck (publish gate)
             </option>
           </select>
         </form>
@@ -383,7 +575,19 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                 {Calendar.strftime(q.inserted_at, "%b %-d %H:%M")}
               </span>
               <span style="font-size:0.7rem;color:var(--text-secondary);font-weight:500">
-                {(q.user && q.user.username) || "—"}<span
+                <%= if q.user do %>
+                  <button
+                    type="button"
+                    phx-click="select_user"
+                    phx-value-id={q.user.id}
+                    phx-value-username={q.user.username}
+                    title="Filter to this user's questions"
+                    style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;text-decoration-style:dotted"
+                  >{q.user.username}</button>
+                <% else %>
+                  —
+                <% end %>
+                <span
                   :if={q.user}
                   style="color:var(--text-muted);font-weight:400"
                   title="Author reputation"
@@ -421,6 +625,15 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                   class="btn-xs"
                   style="background:#d4a017;border-color:#d4a017;color:#fff"
                 >Re-approve</button>
+                <button
+                  :if={not q.browsable and q.citation_valid}
+                  type="button"
+                  phx-click="force_publish"
+                  phx-value-id={q.id}
+                  title="Manually clear the publish gate for this row, bypassing the automated screen."
+                  class="btn-xs"
+                  style="background:#d4a017;border-color:#d4a017;color:#fff"
+                >Force publish</button>
                 <select
                   phx-change="set_visibility"
                   phx-value-id={q.id}
@@ -465,12 +678,12 @@ defmodule RuleMavenWeb.AdminLive.Questions do
             >
               <%= if @expanded_id == q.id do %>
                 <span style="font-size:0.82rem;color:var(--text);line-height:1.45;word-break:break-word;display:block">
-                  {QuestionLog.listed_question(q)}
+                  {admin_question_text(q)}
                 </span>
                 <span style="font-size:0.6rem;color:var(--text-muted);display:block;margin-top:0.2rem">▴ hide</span>
               <% else %>
                 <span style="font-size:0.82rem;color:var(--text);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                  {QuestionLog.listed_question(q)}
+                  {admin_question_text(q)}
                 </span>
                 <span style="font-size:0.6rem;color:var(--text-muted);display:block;margin-top:0.1rem">▾ answer</span>
               <% end %>
@@ -488,12 +701,22 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                   Answer
                 </p>
                 <p style="font-size:0.8rem;color:var(--text);white-space:pre-wrap;margin:0;line-height:1.5">
-                  {QuestionLog.listed_answer(q)}
+                  {admin_answer_text(q)}
                 </p>
                 <%= if q.cited_passage do %>
-                  <p style="margin-top:0.5rem;padding:0.4rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem;font-size:0.7rem;color:var(--text-muted);font-style:italic;line-height:1.4">
-                    {q.cited_passage}
-                  </p>
+                  <div style="margin-top:0.5rem;padding:0.4rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem">
+                    <%= if q.cited_source || q.cited_page do %>
+                      <p style="display:flex;align-items:center;gap:0.35rem;margin:0 0 0.25rem;font-size:0.62rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;color:var(--text-muted)">
+                        <span>{q.cited_source || "Rulebook"}</span>
+                        <%= if q.cited_page do %>
+                          <span>p.{q.cited_page}</span>
+                        <% end %>
+                      </p>
+                    <% end %>
+                    <p style="margin:0;font-size:0.7rem;color:var(--text-muted);font-style:italic;line-height:1.4">
+                      {q.cited_passage}
+                    </p>
+                  </div>
                 <% end %>
 
                 <%!-- Curated FAQ text editor (replaces the old Threads merge) --%>

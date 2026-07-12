@@ -76,7 +76,7 @@ defmodule RuleMaven.ModerationTest do
       game = game_fixture()
       author = user_fixture("auth")
       voter = user_fixture("voter")
-      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+      q = log(game, author, %{cited_passage: "p.1", pooled: true, browsable: true})
 
       Games.set_community_vote(q.id, voter.id, "up")
 
@@ -105,7 +105,13 @@ defmodule RuleMaven.ModerationTest do
       accomplice = user_fixture("accomplice")
 
       for i <- 1..3 do
-        q = log(game, author, %{question: "q#{i}", cited_passage: "p.#{i}", pooled: true})
+        q =
+          log(game, author, %{
+            question: "q#{i}",
+            cited_passage: "p.#{i}",
+            pooled: true,
+            browsable: true
+          })
         Games.set_community_vote(q.id, accomplice.id, "up")
       end
 

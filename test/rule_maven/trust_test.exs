@@ -86,7 +86,13 @@ defmodule RuleMaven.TrustTest do
       author: author,
       voter: voter
     } do
-      q = log(game, author, %{cited_passage: "see p.4", citation_valid: true, pooled: true})
+      q =
+        log(game, author, %{
+          cited_passage: "see p.4",
+          citation_valid: true,
+          pooled: true,
+          browsable: true
+        })
 
       Games.set_community_vote(q.id, voter.id, "up")
       assert Repo.reload!(q).trust_score > 1.0
@@ -110,7 +116,14 @@ defmodule RuleMaven.TrustTest do
       game: game,
       author: author
     } do
-      q = log(game, author, %{cited_passage: nil, cited_page: nil, visibility: "private"})
+      q =
+        log(game, author, %{
+          cited_passage: nil,
+          cited_page: nil,
+          visibility: "private",
+          browsable: true
+        })
+
       {:ok, v} = Games.toggle_verified(q)
 
       assert v.verified
@@ -123,7 +136,7 @@ defmodule RuleMaven.TrustTest do
       game: game,
       author: author
     } do
-      q = log(game, author, %{cited_passage: nil, cited_page: nil})
+      q = log(game, author, %{cited_passage: nil, cited_page: nil, browsable: true})
       {:ok, v} = Games.toggle_verified(q)
       {:ok, u} = Games.toggle_verified(v)
 
@@ -134,8 +147,8 @@ defmodule RuleMaven.TrustTest do
     end
 
     test "only one verified row per question text", %{game: game, author: author} do
-      a = log(game, author, %{answer: "first"})
-      b = log(game, author, %{answer: "second"})
+      a = log(game, author, %{answer: "first", browsable: true})
+      b = log(game, author, %{answer: "second", browsable: true})
 
       {:ok, _} = Games.toggle_verified(a)
       {:ok, _} = Games.toggle_verified(b)
@@ -160,8 +173,14 @@ defmodule RuleMaven.TrustTest do
         )
       end
 
-      a = log(game, author, %{question: "how do i score", answer: "first"})
-      b = log(game, author, %{question: "what is the scoring rule", answer: "second"})
+      a = log(game, author, %{question: "how do i score", answer: "first", browsable: true})
+
+      b =
+        log(game, author, %{
+          question: "what is the scoring rule",
+          answer: "second",
+          browsable: true
+        })
 
       # Different wording, near-identical embeddings → same question.
       embed.(a.id, Enum.map(1..768, &(&1 * 1.0)))
@@ -181,7 +200,7 @@ defmodule RuleMaven.TrustTest do
       author = user_fixture("author")
       voter = user_fixture("voter")
 
-      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+      q = log(game, author, %{cited_passage: "p.1", pooled: true, browsable: true})
       Games.set_community_vote(q.id, voter.id, "up")
 
       assert Repo.get(User, author.id).reputation >= 1
@@ -195,7 +214,14 @@ defmodule RuleMaven.TrustTest do
       # One accomplice upvotes many of the author's answers — net contribution
       # must be clamped to the per-voter cap, not grow unbounded.
       for i <- 1..10 do
-        q = log(game, author, %{question: "q#{i}", cited_passage: "p.#{i}", pooled: true})
+        q =
+          log(game, author, %{
+            question: "q#{i}",
+            cited_passage: "p.#{i}",
+            pooled: true,
+            browsable: true
+          })
+
         Games.set_community_vote(q.id, voter.id, "up")
       end
 
@@ -314,7 +340,7 @@ defmodule RuleMaven.TrustTest do
       author: author,
       voter: voter
     } do
-      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+      q = log(game, author, %{cited_passage: "p.1", pooled: true, browsable: true})
       assert "up" = Games.set_community_vote(q.id, voter.id, "up")
     end
 
@@ -335,7 +361,7 @@ defmodule RuleMaven.TrustTest do
       game = game_fixture()
       author = user_fixture("maps_author")
       voter = user_fixture("maps_voter")
-      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+      q = log(game, author, %{cited_passage: "p.1", pooled: true, browsable: true})
 
       Games.set_community_vote(q.id, author.id, "up")
       Games.set_community_vote(q.id, voter.id, "up")
@@ -357,7 +383,7 @@ defmodule RuleMaven.TrustTest do
       game = game_fixture()
       author = user_fixture("maps_author2")
       voter = user_fixture("maps_voter2")
-      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+      q = log(game, author, %{cited_passage: "p.1", pooled: true, browsable: true})
 
       Games.set_community_vote(q.id, voter.id, "up")
 
@@ -379,7 +405,7 @@ defmodule RuleMaven.TrustTest do
     end
 
     test "counts only confirmed, non-author voters", %{game: game, author: author} do
-      q = log(game, author, %{cited_passage: "p.1", pooled: true})
+      q = log(game, author, %{cited_passage: "p.1", pooled: true, browsable: true})
       confirmed = confirm(user_fixture("confirmed"))
       unconfirmed = user_fixture("unconfirmed")
 

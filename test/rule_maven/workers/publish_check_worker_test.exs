@@ -201,27 +201,36 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
       assert Repo.reload!(ql).browsable == false
     end
 
-    test "a non-group row is never touched" do
-      Application.put_env(:rule_maven, :llm_mock, fn _body ->
-        raise "LLM should not be called for a non-group row"
-      end)
+    test "a solo row is screened the same as a group row" do
+      stub_llm("no")
 
-      on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
-
-      # The fixture must match EVERY other clause of the guard head, so the
-      # `not is_nil(gid)` test is the only thing standing between it and the screen.
-      # It used to be `browsable: true` with `pooled` defaulting false — failing
-      # three conditions at once — so deleting the group_id guard entirely left the
-      # row falling into the catch-all and the test still passed. It pinned nothing.
-      #
-      # This shape is also exactly a nilified deleted-crew row, so the test now
-      # covers something real.
       ql =
         question_fixture(
           group_id: nil,
           cleaned_question: "May a player retract a move?",
           browsable: false,
           pooled: false,
+          citation_valid: true,
+          question_normalized: true
+        )
+
+      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
+
+      row = Repo.reload!(ql)
+      assert row.browsable == true
+      assert row.pooled == true
+    end
+
+    test "a flagged solo row stays unbrowsable and unpools if it was pooled" do
+      stub_llm("yes")
+
+      ql =
+        question_fixture(
+          group_id: nil,
+          cleaned_question: "Can Dave retract his move?",
+          answer: "Dave can retract his move.",
+          browsable: false,
+          pooled: true,
           citation_valid: true,
           question_normalized: true
         )

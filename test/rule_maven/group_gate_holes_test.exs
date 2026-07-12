@@ -97,7 +97,8 @@ defmodule RuleMaven.GroupGateHolesTest do
           cleaned_question: "How far does a smuggler move?",
           answer: "Two spaces.",
           visibility: "community",
-          pooled: true
+          pooled: true,
+          browsable: true
         })
 
       assert "How far does a smuggler move?" in Games.list_canonical_questions(ctx.game.id)
@@ -128,7 +129,11 @@ defmodule RuleMaven.GroupGateHolesTest do
       assert q.browsable
     end
 
-    test "a non-group row is browsable by default", ctx do
+    test "a non-group row is ALSO born unbrowsable by default, same as a group row", ctx do
+      # This used to assert the opposite: a solo/non-group row defaulted
+      # `browsable: true` and only group rows were born closed. The unified
+      # publish gate removed that asymmetry — every row, solo or group, now
+      # waits on PublishCheckWorker before its question text can be listed.
       {:ok, q} =
         Games.log_question(%{
           game_id: ctx.game.id,
@@ -138,7 +143,7 @@ defmodule RuleMaven.GroupGateHolesTest do
           visibility: "private"
         })
 
-      assert q.browsable
+      refute q.browsable
     end
   end
 
@@ -441,13 +446,15 @@ defmodule RuleMaven.GroupGateHolesTest do
       assert QuestionLog.listed_question(q) == "Can a smuggler cheat?"
     end
 
-    test "an ordinary row is unchanged", ctx do
+    test "an ordinary row shows raw text once cleared (same gate as a group row, no scrub needed)",
+         ctx do
       {:ok, q} =
         Games.log_question(%{
           game_id: ctx.game.id,
           user_id: ctx.member.id,
           question: "How do I win?",
-          answer: "Score points."
+          answer: "Score points.",
+          browsable: true
         })
 
       assert QuestionLog.listed_question(q) == "How do I win?"
@@ -806,17 +813,24 @@ defmodule RuleMaven.GroupGateHolesTest do
       assert listed == "(question withheld)"
     end
 
-    test "the admin search box cannot match on it either", ctx do
-      group_question!(ctx.game, ctx.member, ctx.grp, %{
-        question: "does Dave's rogue sneak past?",
-        cleaned_question: "does Dave's rogue sneak past?",
-        question_normalized: false
-      })
+    test "the admin search box CAN match it — admin_list_questions is gated to :admin and reads raw columns on purpose",
+         ctx do
+      # A later fix in this same branch (984d9b9) made this deliberate: the
+      # Questions list is mounted with an `:admin`-only gate, so the withholding
+      # gate that protects *other users* (`listed_question/1`/`listed_answer/1`)
+      # doesn't need to apply to the admin's own search box — an admin reviewing
+      # an unscreened row should be able to find it by its raw wording. This used
+      # to assert the opposite (search as a blind oracle risk), before that fix
+      # made raw-column search an explicit, intended admin capability.
+      q =
+        group_question!(ctx.game, ctx.member, ctx.grp, %{
+          question: "does Dave's rogue sneak past?",
+          cleaned_question: "does Dave's rogue sneak past?",
+          question_normalized: false
+        })
 
-      # If the filter matches text the list never renders, the box is an oracle:
-      # the row appears and disappears on substrings of prose the admin is never
-      # shown, which is enough to reconstruct it a character at a time.
-      assert Games.admin_list_questions(search: "Dave") == []
+      assert [found] = Games.admin_list_questions(search: "Dave")
+      assert found.id == q.id
     end
 
     test "a genuinely scrubbed cleaned_question still lists", ctx do
@@ -824,16 +838,19 @@ defmodule RuleMaven.GroupGateHolesTest do
       assert QuestionLog.listed_question(q) == "Can a smuggler cheat?"
     end
 
-    test "the admin search box cannot match a withheld crew ANSWER either", ctx do
-      # The answer restates the private question ("No, Sarah may not…"), so
-      # `listed_answer/1` withholds it for an unbrowsable crew row. Matching the
-      # raw `answer` column is the same oracle one column over: the row blinks in
-      # and out on substrings the admin never sees.
-      group_question!(ctx.game, ctx.member, ctx.grp, %{
-        answer: "No, ORACLETOKEN may not palm a card."
-      })
+    test "the admin search box CAN match a withheld crew ANSWER too, for the same reason", ctx do
+      # The answer restates the private question ("No, Sarah may not…"), and
+      # `listed_answer/1` withholds it on every OTHER surface for an unbrowsable
+      # crew row. But `admin_list_questions/1` is the admin-only Questions list
+      # (984d9b9), which intentionally reads the raw `answer` column — an admin
+      # reviewing a report needs to find the row by its actual wording.
+      q =
+        group_question!(ctx.game, ctx.member, ctx.grp, %{
+          answer: "No, ORACLETOKEN may not palm a card."
+        })
 
-      assert Games.admin_list_questions(search: "ORACLETOKEN") == []
+      assert [found] = Games.admin_list_questions(search: "ORACLETOKEN")
+      assert found.id == q.id
     end
 
     test "a browsable answer is still searchable (no false-withhold)", ctx do

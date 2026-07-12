@@ -28,7 +28,8 @@ defmodule RuleMaven.Games.CurationTest do
             question: "How does X work?",
             answer: "It works like Y.",
             user_id: author && author.id,
-            pooled: true
+            pooled: true,
+            browsable: true
           },
           attrs
         )

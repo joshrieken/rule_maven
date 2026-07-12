@@ -34,14 +34,14 @@ defmodule RuleMaven.CommunityBrowseTest do
     end
 
     test "includes pooled, private, healthy rows", %{game: game} do
-      q = log(game, %{pooled: true, visibility: "private", question: "Eligible?"})
+      q = log(game, %{pooled: true, browsable: true, visibility: "private", question: "Eligible?"})
 
       ids = game |> Games.unverified_pool_questions() |> Enum.map(& &1.id)
       assert q.id in ids
     end
 
     test "excludes ineligible rows", %{game: game} do
-      source = log(game, %{pooled: true, question: "the pool source"})
+      source = log(game, %{pooled: true, browsable: true, question: "the pool source"})
 
       ineligible = [
         %{pooled: false, question: "not pooled"},
@@ -61,8 +61,8 @@ defmodule RuleMaven.CommunityBrowseTest do
     end
 
     test "orders by trust_score, then recency", %{game: game} do
-      low = log(game, %{pooled: true, trust_score: 0.5, question: "low"})
-      high = log(game, %{pooled: true, trust_score: 3.0, question: "high"})
+      low = log(game, %{pooled: true, browsable: true, trust_score: 0.5, question: "low"})
+      high = log(game, %{pooled: true, browsable: true, trust_score: 3.0, question: "high"})
 
       assert game |> Games.unverified_pool_questions() |> Enum.map(& &1.id) ==
                [high.id, low.id]
@@ -89,6 +89,7 @@ defmodule RuleMaven.CommunityBrowseTest do
         log(game, %{
           user_id: asker.id,
           pooled: true,
+          browsable: true,
           visibility: "private",
           question: "Do walls block movement?"
         })

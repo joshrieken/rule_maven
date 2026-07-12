@@ -17,6 +17,19 @@ defmodule RuleMaven.Groups do
   @doc "Generate an opaque invite code."
   def generate_code, do: :crypto.strong_rand_bytes(8) |> Base.encode32(padding: false)
 
+  @doc "Crew-name typeahead for admin tooling (e.g. filtering the Questions list by group)."
+  def search_groups(query, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 15)
+    term = "%#{String.trim(query || "")}%"
+
+    Repo.all(
+      from g in Group,
+        where: ilike(g.name, ^term),
+        order_by: [asc: g.name],
+        limit: ^limit
+    )
+  end
+
   @doc """
   Inserts a group and its owner membership row in one transaction. Rolls back
   the whole transaction (no orphan membership) if the group insert fails.
@@ -113,12 +126,21 @@ defmodule RuleMaven.Groups do
   """
   def set_invite_active(actor, %Group{} = group, active?) when is_boolean(active?) do
     if role_at_least?(actor, group, :admin) do
-      group
-      |> Group.changeset(%{invite_active: active?})
-      |> Repo.update()
+      do_set_invite_active(group, active?)
     else
       {:error, :forbidden}
     end
+  end
+
+  @doc "Same as `set_invite_active/3`, no membership check. Site-admin callers only."
+  def admin_set_invite_active(%Group{} = group, active?) when is_boolean(active?) do
+    do_set_invite_active(group, active?)
+  end
+
+  defp do_set_invite_active(group, active?) do
+    group
+    |> Group.changeset(%{invite_active: active?})
+    |> Repo.update()
   end
 
   @doc """
@@ -126,12 +148,21 @@ defmodule RuleMaven.Groups do
   """
   def set_member_cap(actor, %Group{} = group, cap) when is_integer(cap) do
     if role_at_least?(actor, group, :admin) do
-      group
-      |> Group.changeset(%{member_cap: cap})
-      |> Repo.update()
+      do_set_member_cap(group, cap)
     else
       {:error, :forbidden}
     end
+  end
+
+  @doc "Same as `set_member_cap/3`, no membership check. Site-admin callers only."
+  def admin_set_member_cap(%Group{} = group, cap) when is_integer(cap) do
+    do_set_member_cap(group, cap)
+  end
+
+  defp do_set_member_cap(group, cap) do
+    group
+    |> Group.changeset(%{member_cap: cap})
+    |> Repo.update()
   end
 
   @doc """
@@ -258,6 +289,34 @@ defmodule RuleMaven.Groups do
     )
   end
 
+  @doc """
+  Lists every group in the system, for admin browsing. Each row is a map
+  with `:group`, `:member_count`, and `:owner_username`. Optionally
+  filtered by a case-insensitive substring match on the group name.
+  Ordered by name.
+  """
+  def list_all(search \\ nil) do
+    query =
+      from g in Group,
+        join: owner in RuleMaven.Users.User,
+        on: owner.id == g.owner_id,
+        left_join: m in Membership,
+        on: m.group_id == g.id,
+        group_by: [g.id, owner.username],
+        order_by: [asc: g.name],
+        select: %{group: g, member_count: count(m.id), owner_username: owner.username}
+
+    query =
+      if search && String.trim(search) != "" do
+        pattern = "%#{String.trim(search)}%"
+        from [g, owner, m] in query, where: ilike(g.name, ^pattern)
+      else
+        query
+      end
+
+    Repo.all(query)
+  end
+
   @doc "Lists a group's members as plain maps with user_id, username, role."
   def list_members(%Group{id: group_id}) do
     Repo.all(
@@ -278,12 +337,24 @@ defmodule RuleMaven.Groups do
   """
   def rename(actor, group, name) do
     if role_at_least?(actor, group, :admin) do
-      group
-      |> Group.changeset(%{name: name})
-      |> Repo.update()
+      do_rename(group, name)
     else
       {:error, :forbidden}
     end
+  end
+
+  @doc """
+  Renames the group with no membership/role check. For site-admin callers
+  only — the caller is responsible for verifying `Users.can?(actor, :admin)`
+  before calling this. Same validation and return shape as `rename/3` minus
+  the `:forbidden` case.
+  """
+  def admin_rename(%Group{} = group, name), do: do_rename(group, name)
+
+  defp do_rename(group, name) do
+    group
+    |> Group.changeset(%{name: name})
+    |> Repo.update()
   end
 
   @doc """
@@ -300,24 +371,33 @@ defmodule RuleMaven.Groups do
   """
   def set_contribute(actor, %Group{} = group, contribute?) when is_boolean(contribute?) do
     if role_at_least?(actor, group, :admin) do
-      Repo.transaction(fn ->
-        result =
-          group
-          |> Group.changeset(%{contribute_to_community: contribute?})
-          |> Repo.update()
-
-        case result do
-          {:ok, updated} ->
-            if not contribute?, do: retract_contributions(group)
-            updated
-
-          {:error, changeset} ->
-            Repo.rollback(changeset)
-        end
-      end)
+      do_set_contribute(group, contribute?)
     else
       {:error, :forbidden}
     end
+  end
+
+  @doc "Same as `set_contribute/3`, no membership check. Site-admin callers only."
+  def admin_set_contribute(%Group{} = group, contribute?) when is_boolean(contribute?) do
+    do_set_contribute(group, contribute?)
+  end
+
+  defp do_set_contribute(group, contribute?) do
+    Repo.transaction(fn ->
+      result =
+        group
+        |> Group.changeset(%{contribute_to_community: contribute?})
+        |> Repo.update()
+
+      case result do
+        {:ok, updated} ->
+          if not contribute?, do: retract_contributions(group)
+          updated
+
+        {:error, changeset} ->
+          Repo.rollback(changeset)
+      end
+    end)
   end
 
   # Turning contribution off has to be retroactive, not just future-facing.
@@ -351,9 +431,20 @@ defmodule RuleMaven.Groups do
   """
   def regenerate_code(actor, group) do
     if role_at_least?(actor, group, :admin) do
-      # Same critical section as `join_by_code/2` and `remove_member/3`: a
-      # rotation that doesn't hold the lock can be straddled by a join that
-      # already read the old code, which then lands anyway.
+      {:ok, do_regenerate_code(group)}
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  @doc "Same as `regenerate_code/2`, no membership check. Site-admin callers only."
+  def admin_regenerate_code(%Group{} = group), do: do_regenerate_code(group)
+
+  # Same critical section as `join_by_code/2` and `remove_member/3`: a
+  # rotation that doesn't hold the lock can be straddled by a join that
+  # already read the old code, which then lands anyway.
+  defp do_regenerate_code(group) do
+    {:ok, updated} =
       Repo.transaction(fn ->
         Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
 
@@ -361,9 +452,8 @@ defmodule RuleMaven.Groups do
         |> Group.changeset(%{invite_code: generate_code()})
         |> Repo.update!()
       end)
-    else
-      {:error, :forbidden}
-    end
+
+    updated
   end
 
   @doc """
@@ -374,20 +464,37 @@ defmodule RuleMaven.Groups do
   membership row that currently holds "owner" (use `transfer_ownership/3`
   to move ownership), and it cannot promote anyone to "owner" either.
 
-  Returns `{:error, :forbidden}` if the actor isn't the owner,
-  `{:error, :not_member}` if the target doesn't belong to the group,
-  `{:error, :last_owner}` if the target currently holds "owner", or
-  `{:error, :use_transfer_ownership}` if the requested role is "owner".
+  Returns `{:error, :forbidden}` if the actor isn't the owner or the
+  requested role is invalid, `{:error, :not_member}` if the target doesn't
+  belong to the group, `{:error, :last_owner}` if the target currently
+  holds "owner", or `{:error, :use_transfer_ownership}` if the requested
+  role is "owner".
   """
   def set_role(actor, group, target_user_id, role) do
+    if role_at_least?(actor, group, :owner) do
+      case do_set_role(group, target_user_id, role) do
+        {:error, :invalid_role} -> {:error, :forbidden}
+        other -> other
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  @doc """
+  Same as `set_role/4`, no membership/ownership check. Site-admin callers
+  only. Returns `{:error, :invalid_role}` instead of `{:error, :forbidden}`
+  for a role outside `Membership.roles()`, since there is no permission
+  failure on this path — only a validation one.
+  """
+  def admin_set_role(group, target_user_id, role), do: do_set_role(group, target_user_id, role)
+
+  defp do_set_role(group, target_user_id, role) do
     role = to_string(role)
 
     cond do
-      not role_at_least?(actor, group, :owner) ->
-        {:error, :forbidden}
-
       role not in Membership.roles() ->
-        {:error, :forbidden}
+        {:error, :invalid_role}
 
       role == "owner" ->
         {:error, :use_transfer_ownership}
@@ -430,48 +537,73 @@ defmodule RuleMaven.Groups do
   doesn't belong to the group.
   """
   def transfer_ownership(actor, group, new_owner_user_id) do
-    result =
-      Repo.transaction(fn ->
-        Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
+    Repo.transaction(fn ->
+      Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
 
-        current_owner = Repo.get_by(Membership, group_id: group.id, role: "owner")
+      current_owner = Repo.get_by(Membership, group_id: group.id, role: "owner")
 
-        cond do
-          is_nil(current_owner) or current_owner.user_id != actor.id ->
-            Repo.rollback(:forbidden)
-
-          true ->
-            case Repo.get_by(Membership, group_id: group.id, user_id: new_owner_user_id) do
-              nil ->
-                Repo.rollback(:not_member)
-
-              target_membership ->
-                current_owner
-                |> Membership.changeset(%{role: "admin"})
-                |> Repo.update!()
-
-                target_membership
-                |> Membership.changeset(%{role: "owner"})
-                |> Repo.update!()
-
-                # `groups.owner_id` is a denormalized pointer that must
-                # track whichever membership row holds role: "owner". Left
-                # stale, it would keep referencing the OLD owner even
-                # though they're now a mere admin — and since that column
-                # is `null: false` while its FK is `on_delete: :nilify_all`,
-                # deleting that former owner's account later would crash
-                # on a not-null violation instead of leaving the group
-                # (which they no longer own) untouched.
-                group
-                |> Group.changeset(%{owner_id: new_owner_user_id})
-                |> Repo.update!()
-            end
+      if is_nil(current_owner) or current_owner.user_id != actor.id do
+        Repo.rollback(:forbidden)
+      else
+        case do_transfer_ownership(group, current_owner, new_owner_user_id) do
+          {:ok, group} -> group
+          {:error, reason} -> Repo.rollback(reason)
         end
-      end)
+      end
+    end)
+  end
 
-    case result do
-      {:ok, group} -> {:ok, group}
-      {:error, reason} -> {:error, reason}
+  @doc """
+  Same as `transfer_ownership/3`, no membership/ownership check on the
+  actor — the current owner is derived from the group itself. Site-admin
+  callers only.
+  """
+  def admin_transfer_ownership(%Group{} = group, new_owner_user_id) do
+    Repo.transaction(fn ->
+      Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
+
+      current_owner = Repo.get_by(Membership, group_id: group.id, role: "owner")
+
+      case do_transfer_ownership(group, current_owner, new_owner_user_id) do
+        {:ok, group} -> group
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  # Runs holding the group's advisory lock (both callers above take it
+  # before calling in). `current_owner` is the membership row currently
+  # holding role "owner" — may be nil in a pathological state, handled below.
+  defp do_transfer_ownership(group, current_owner, new_owner_user_id) do
+    case Repo.get_by(Membership, group_id: group.id, user_id: new_owner_user_id) do
+      nil ->
+        {:error, :not_member}
+
+      target_membership ->
+        if current_owner do
+          current_owner
+          |> Membership.changeset(%{role: "admin"})
+          |> Repo.update!()
+        end
+
+        target_membership
+        |> Membership.changeset(%{role: "owner"})
+        |> Repo.update!()
+
+        # `groups.owner_id` is a denormalized pointer that must
+        # track whichever membership row holds role: "owner". Left
+        # stale, it would keep referencing the OLD owner even
+        # though they're now a mere admin — and since that column
+        # is `null: false` while its FK is `on_delete: :nilify_all`,
+        # deleting that former owner's account later would crash
+        # on a not-null violation instead of leaving the group
+        # (which they no longer own) untouched.
+        updated =
+          group
+          |> Group.changeset(%{owner_id: new_owner_user_id})
+          |> Repo.update!()
+
+        {:ok, updated}
     end
   end
 
@@ -498,45 +630,58 @@ defmodule RuleMaven.Groups do
         {:error, :use_leave}
 
       true ->
-        case Repo.get_by(Membership, group_id: group.id, user_id: target_user_id) do
-          nil ->
-            {:error, :not_member}
+        do_remove_member(group, target_user_id)
+    end
+  end
 
-          %Membership{role: "owner"} ->
-            {:error, :cannot_remove_owner}
+  @doc """
+  Same as `remove_member/3`, no membership check and no self-removal guard
+  (a site admin removing another user's membership is never "leaving").
+  Site-admin callers only.
+  """
+  def admin_remove_member(%Group{} = group, target_user_id) do
+    do_remove_member(group, target_user_id)
+  end
 
-          membership ->
-            # Rotate the invite code in the same breath. The invite URL is shown
-            # to EVERY member, not just admins, so a removed member is holding a
-            # working key to the door they were just shown out of: `join_by_code/2`
-            # checks only that the code exists and the link is active, and there is
-            # no blocklist. Deleting the membership row alone bought nothing — they
-            # re-open the link and they are back in, with full feed access and no
-            # signal to the admin, as many times as they like.
-            #
-            # Rotating costs the crew a re-share of the link; not rotating makes
-            # removal decorative.
-            #
-            # Under the SAME advisory lock `join_by_code/2` takes. A lock only
-            # serializes the transactions that TAKE it: the joiner re-reads the
-            # code inside the lock, but if the remover doesn't hold it, the two
-            # still interleave — the joiner reads the group (code still valid),
-            # the removal commits (row deleted, code rotated), and the joiner's
-            # `role_of` then sees no membership and re-inserts the row that was
-            # just deleted. Removal is only durable if the remover is inside the
-            # same critical section the joiner is racing against.
-            Repo.transaction(fn ->
-              Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
+  defp do_remove_member(group, target_user_id) do
+    case Repo.get_by(Membership, group_id: group.id, user_id: target_user_id) do
+      nil ->
+        {:error, :not_member}
 
-              Repo.delete!(membership)
+      %Membership{role: "owner"} ->
+        {:error, :cannot_remove_owner}
 
-              group
-              |> Group.changeset(%{invite_code: generate_code()})
-              |> Repo.update!()
-            end)
+      membership ->
+        # Rotate the invite code in the same breath. The invite URL is shown
+        # to EVERY member, not just admins, so a removed member is holding a
+        # working key to the door they were just shown out of: `join_by_code/2`
+        # checks only that the code exists and the link is active, and there is
+        # no blocklist. Deleting the membership row alone bought nothing — they
+        # re-open the link and they are back in, with full feed access and no
+        # signal to the admin, as many times as they like.
+        #
+        # Rotating costs the crew a re-share of the link; not rotating makes
+        # removal decorative.
+        #
+        # Under the SAME advisory lock `join_by_code/2` takes. A lock only
+        # serializes the transactions that TAKE it: the joiner re-reads the
+        # code inside the lock, but if the remover doesn't hold it, the two
+        # still interleave — the joiner reads the group (code still valid),
+        # the removal commits (row deleted, code rotated), and the joiner's
+        # `role_of` then sees no membership and re-inserts the row that was
+        # just deleted. Removal is only durable if the remover is inside the
+        # same critical section the joiner is racing against.
+        Repo.transaction(fn ->
+          Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
 
-            {:ok, :removed}
-        end
+          Repo.delete!(membership)
+
+          group
+          |> Group.changeset(%{invite_code: generate_code()})
+          |> Repo.update!()
+        end)
+
+        {:ok, :removed}
     end
   end
 
@@ -574,14 +719,21 @@ defmodule RuleMaven.Groups do
   """
   def delete_group(actor, group) do
     if role_at_least?(actor, group, :owner) do
-      Repo.transaction(fn ->
-        retract_contributions(group)
-        Repo.delete!(group)
-        :deleted
-      end)
+      do_delete_group(group)
     else
       {:error, :forbidden}
     end
+  end
+
+  @doc "Same as `delete_group/2`, no membership check. Site-admin callers only."
+  def admin_delete_group(%Group{} = group), do: do_delete_group(group)
+
+  defp do_delete_group(group) do
+    Repo.transaction(fn ->
+      retract_contributions(group)
+      Repo.delete!(group)
+      :deleted
+    end)
   end
 
   @doc """

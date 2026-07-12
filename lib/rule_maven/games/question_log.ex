@@ -31,9 +31,10 @@ defmodule RuleMaven.Games.QuestionLog do
     field :pooled, :boolean, default: false
     # May this row's QUESTION TEXT be listed to a non-asker? Distinct from
     # `pooled` (may its ANSWER serve the cross-user cache — which never exposes
-    # the asker's wording or identity). Group rows are written false and are
-    # flipped true only by PublishCheckWorker, which fails closed.
-    field :browsable, :boolean, default: true
+    # the asker's wording or identity). Every row — solo or group — is written
+    # false and is flipped true only by PublishCheckWorker (or an admin
+    # force-publish override), which fails closed.
+    field :browsable, :boolean, default: false
     # Set when a crew explicitly WITHDREW this row (contribute-off, group delete,
     # sole-owner account deletion). Durable, and deliberately never cleared:
     # turning contribution back on governs future asks, not ones already pulled
@@ -118,6 +119,9 @@ defmodule RuleMaven.Games.QuestionLog do
       those rows — the trap that already bit `publishable?/1` and the
       SuggestionsWorker.
   """
+  # A non-crew row starts unbrowsable exactly like a crew row and is cleared
+  # by the same `PublishCheckWorker` gate; it was never treated differently
+  # once this generalized.
   def listed_question(%{browsable: true, group_id: nil} = q), do: display_question(q)
 
   # `cleaned_question` is only a scrub if the scrub actually RAN. When normalize
@@ -138,23 +142,22 @@ defmodule RuleMaven.Games.QuestionLog do
   @doc """
   Did this row come out of a crew? The question is NOT "is `group_id` set" —
   that column is `on_delete: :nilify_all`, so a deleted crew's rows keep their
-  unscreened text and lose the only marker saying where it came from. Any guard
-  keyed on `group_id` alone silently opens for exactly those rows.
+  unscreened text and lose the only marker saying where it came from.
 
-  Three signals, any of which is proof of crew provenance, and two of which
-  survive the nilify:
+  Two signals, either of which is proof of crew provenance, and the second
+  survives the nilify:
 
     * `group_id` — the crew still exists.
     * `retracted_at` — only `Groups.retract_contributions/1` writes it, and it
       writes it to crew rows only. Set before the group is deleted, so it
       outlives the FK.
-    * `browsable == false` — a non-group row is born `browsable: true` (schema
-      default); only the group insert-time gate and a retraction close it. So a
-      closed row with no crew is a crew row whose crew is gone.
+
+  `browsable == false` is NOT a signal here: every row, solo or group, is now
+  born unbrowsable pending the publish screen (see `PublishCheckWorker`), so
+  it no longer distinguishes crew provenance from "hasn't been screened yet."
   """
   def crew_origin?(%{group_id: gid}) when not is_nil(gid), do: true
   def crew_origin?(%{retracted_at: at}) when not is_nil(at), do: true
-  def crew_origin?(%{browsable: false}), do: true
   def crew_origin?(_q), do: false
 
   @doc """
@@ -170,7 +173,9 @@ defmodule RuleMaven.Games.QuestionLog do
   `browsable` is the gate, exactly as it is for the question: an answer shows
   only once the row is cleared for listing.
 
-    * A non-crew row is born `browsable: true`; its answer was never private.
+    * A non-crew row starts unbrowsable exactly like a crew row and is cleared
+      by the same `PublishCheckWorker` gate; it was never treated differently
+      once this generalized.
     * A crew row becomes `browsable` only when `PublishCheckWorker` clears it —
       and the screen it passed covers the answer (invariant A: a crew answer may
       leave the crew only once screened), so a cleared crew answer is safe.
@@ -232,31 +237,34 @@ defmodule RuleMaven.Games.QuestionLog do
     |> validate_length(:answer, max: 20_000)
     |> validate_length(:cited_passage, max: 20_000)
     |> foreign_key_constraint(:group_id)
-    |> default_group_unbrowsable()
+    |> default_unbrowsable()
   end
 
-  # A group row is born unbrowsable unless the caller says otherwise, so the
+  # Every row is born unbrowsable unless the caller says otherwise, so the
   # gate fails closed even if a future insert path forgets to pass `browsable`.
+  # Was group-only; generalized so a solo row gets the identical treatment —
+  # see PublishCheckWorker and AskWorker for the rest of the gate.
   #
   # INSERT only: on update, `browsable` is absent from most changesets (vote
   # counts, trust, staleness), and forcing it false there would silently undo
   # a publish check that had already passed.
   #
   # Keyed on the cast params, NOT on `get_change/2`: the field's schema default
-  # is `true`, so a caller explicitly passing `browsable: true` produces no
-  # *change* at all, and a `get_change == nil` test would read that as "caller
-  # said nothing" and slam it shut.
-  defp default_group_unbrowsable(%Ecto.Changeset{data: %__MODULE__{id: nil}} = changeset) do
+  # is `false`, so a caller explicitly passing `browsable: true` produces no
+  # *change* at all if the struct already defaults there, and a
+  # `get_change == nil` test would read that as "caller said nothing" and slam
+  # it shut regardless.
+  defp default_unbrowsable(%Ecto.Changeset{data: %__MODULE__{id: nil}} = changeset) do
     explicit? =
       Map.has_key?(changeset.params || %{}, "browsable") or
         Map.has_key?(changeset.params || %{}, :browsable)
 
-    if get_field(changeset, :group_id) && not explicit? do
+    if not explicit? do
       put_change(changeset, :browsable, false)
     else
       changeset
     end
   end
 
-  defp default_group_unbrowsable(changeset), do: changeset
+  defp default_unbrowsable(changeset), do: changeset
 end

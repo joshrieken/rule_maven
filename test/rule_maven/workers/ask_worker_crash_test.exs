@@ -82,7 +82,11 @@ defmodule RuleMaven.Workers.AskWorkerCrashTest do
 
     raw = "Dave says my rogue can sneak past; my brother Sam says no"
 
-    # Crew-origin but nilified: no group_id, unbrowsable. `crew_origin?/1` is true.
+    # Crew-origin but nilified: no group_id, unbrowsable, and — the only durable
+    # withdrawal marker left now that "unbrowsable" alone no longer implies
+    # withdrawn (every row, solo or group, is born unbrowsable) — `retracted_at`
+    # set, exactly as `retract_contributions/1` leaves a deleted crew's rows.
+    # `crew_origin?/1` reads true from `retracted_at`, not from `group_id`.
     {:ok, ql} =
       Games.log_question(%{
         game_id: game.id,
@@ -93,6 +97,16 @@ defmodule RuleMaven.Workers.AskWorkerCrashTest do
         group_id: nil,
         browsable: false
       })
+
+    # `retracted_at` isn't a castable changeset field (only
+    # `Groups.retract_contributions/1` writes it), so stamp it directly —
+    # matching what a real crew deletion leaves behind.
+    Repo.update_all(
+      from(r in QuestionLog, where: r.id == ^ql.id),
+      set: [retracted_at: DateTime.utc_now() |> DateTime.truncate(:second)]
+    )
+
+    ql = Repo.get!(QuestionLog, ql.id)
 
     # No LLM mock: LLM.ask errors, but `start_run` (and thus the label) runs first.
     AskWorker.perform(%Oban.Job{

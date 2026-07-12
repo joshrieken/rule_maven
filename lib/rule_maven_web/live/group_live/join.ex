@@ -105,7 +105,7 @@ defmodule RuleMavenWeb.GroupLive.Join do
         <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 1.25rem 0">
           {error_message(@reason)}
         </p>
-        <.link navigate={~p"/groups"} class="btn-primary btn-sm">Back to my groups</.link>
+        <.link navigate={~p"/groups"} class="btn-primary btn-sm">Back to Groups</.link>
       </div>
     </div>
     """

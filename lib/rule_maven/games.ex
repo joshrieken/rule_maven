@@ -1267,6 +1267,23 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
+  Count of rows stuck behind the publish gate — citation-valid, not yet
+  browsable, not a skip_normalize row (which never publishes and so is not
+  "stuck", just permanently excluded). Solo and group rows both land here;
+  see PublishCheckWorker.
+  """
+  def publish_pending_count do
+    Repo.aggregate(
+      from(q in QuestionLog,
+        where:
+          q.browsable == false and q.citation_valid == true and
+            not is_nil(q.cleaned_question)
+      ),
+      :count
+    )
+  end
+
+  @doc """
   Answers currently pulled from the pool awaiting re-approval (`needs_review`),
   whether pulled by a rulebook change or by user reports. Newest first, with the
   game preloaded for display.
@@ -2070,15 +2087,13 @@ defmodule RuleMaven.Games do
   # becomes publicly listed: every browse surface reads
   # `browsable or visibility == "community"`, and those surfaces render
   # `display_question/1`, whose last fallback is the raw `question` column.
-  # So an admin verifying a crew row that the publish check has not cleared
-  # (or has rejected) would publish the asker's verbatim wording. Group rows
-  # have to clear the screen first; non-group rows are unaffected.
+  # So an admin verifying ANY row (solo or group) that the publish check has
+  # not cleared (or has rejected) would publish the asker's verbatim wording —
+  # every row is born unbrowsable pending that screen now, not just group rows.
   #
   # Keyed on `browsable` alone, NOT on `group_id`: questions_log.group_id is
   # `on_delete: :nilify_all`, so a `group_id == nil -> allow` head would let an
-  # admin publish a deleted crew's never-screened rows. Non-group rows are
-  # written browsable (schema default, and explicitly at both insert sites), so
-  # this costs them nothing.
+  # admin publish a deleted crew's never-screened rows.
   defp publishable?(%QuestionLog{browsable: browsable}), do: browsable == true
 
   defp do_verify(%QuestionLog{} = q) do
@@ -2203,6 +2218,34 @@ defmodule RuleMaven.Games do
     {:ok, updated}
   end
 
+  @doc """
+  Admin override: mark a row browsable regardless of what PublishCheckWorker's
+  automated screen decided (or whether it has run at all yet). Does not touch
+  `visibility` — promoting to community stays the separate, existing
+  `update_question_visibility/2` action; this only unlocks the row from the
+  publish gate.
+
+  Refuses a retracted row (`retracted_at` set — contribute-off, group delete,
+  owner account deletion). This override exists to bypass an ambiguous/failed
+  AUTOMATED SCREEN result, not to re-expose content its own crew explicitly
+  withdrew — `retracted_at` is treated as durable and never-re-exposed
+  everywhere else in the system (PublishCheckWorker, AskWorker's `withdrawn?`),
+  and this is the one remaining writer of `browsable`/`pooled` that didn't
+  check it.
+  """
+  def force_publish_question(%QuestionLog{retracted_at: at}) when not is_nil(at),
+    do: {:error, :retracted}
+
+  def force_publish_question(%QuestionLog{} = q) do
+    attrs = %{browsable: true, pooled: q.citation_valid}
+
+    with {:ok, updated} <- q |> QuestionLog.changeset(attrs) |> Repo.update() do
+      RuleMaven.Games.Trust.recompute_trust(updated)
+      if updated.user_id, do: RuleMaven.Games.Trust.recompute_reputation(updated.user_id)
+      {:ok, updated}
+    end
+  end
+
   def update_question_visibility(%QuestionLog{} = q, "community") do
     if publishable?(q),
       do: do_update_question_visibility(q, "community"),
@@ -2273,7 +2316,11 @@ defmodule RuleMaven.Games do
   end
 
   defp blank_to_nil(nil), do: nil
-  defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: s)
+
+  defp blank_to_nil(s) when is_binary(s) do
+    trimmed = String.trim(s)
+    if trimmed == "", do: nil, else: trimmed
+  end
 
   def set_question_visibility(id, visibility) when is_integer(id) do
     row = Repo.get(QuestionLog, id)
@@ -2549,6 +2596,8 @@ defmodule RuleMaven.Games do
   def admin_list_questions(opts \\ []) do
     limit = Keyword.get(opts, :limit, 100)
     game_id = Keyword.get(opts, :game_id)
+    user_id = Keyword.get(opts, :user_id)
+    group_id = Keyword.get(opts, :group_id)
     status = Keyword.get(opts, :status)
     search = Keyword.get(opts, :search)
 
@@ -2559,6 +2608,12 @@ defmodule RuleMaven.Games do
 
     query =
       if game_id, do: from(q in query, where: q.game_id == ^game_id), else: query
+
+    query =
+      if user_id, do: from(q in query, where: q.user_id == ^user_id), else: query
+
+    query =
+      if group_id, do: from(q in query, where: q.group_id == ^group_id), else: query
 
     query =
       case status do
@@ -2579,6 +2634,13 @@ defmodule RuleMaven.Games do
         "needs_review" ->
           from(q in query, where: q.needs_review == true)
 
+        "publish_pending" ->
+          from(q in query,
+            where:
+              q.browsable == false and q.citation_valid == true and
+                not is_nil(q.cleaned_question)
+          )
+
         _ ->
           query
       end
@@ -2587,40 +2649,18 @@ defmodule RuleMaven.Games do
       if search && search != "" do
         term = "%#{search}%"
 
-        # Search the text the list actually RENDERS (`listed_question/1` /
-        # `listed_answer/1`), never the raw column. Matching on hidden text is the
-        # search-oracle shape: the row appears and disappears on substrings the
-        # viewer is never shown, which is enough to reconstruct a crew member's
-        # verbatim question — or answer, which restates it — a character at a time.
-        # The admin list renders the withholding helpers now, so the filter has to
-        # agree with them or the oracle survives the render fix.
-        # `cleaned_question` is only searchable when it is genuinely a scrub:
-        # on a normalize fallback the column holds the asker's verbatim prose
-        # (see `QuestionLog.listed_question/1`), so matching it unconditionally
-        # rebuilds the very oracle this filter exists to close. Likewise the answer:
-        # `listed_answer/1` shows the raw `answer` only for a browsable row, so the
-        # filter matches `canonical_answer` always and `answer` only when browsable.
+        # This endpoint is gated to `:admin`/`:superadmin` at the LiveView mount
+        # (admin_live/questions.ex), so the withholding gate that keeps crew
+        # question/answer text out of *other users'* view (`QuestionLog.listed_question/1`
+        # / `listed_answer/1`) doesn't apply here — admins may search and read the
+        # raw columns directly.
         from(q in query,
           where:
-            ilike(
-              fragment(
-                "coalesce(?, CASE WHEN ? THEN ? END)",
-                q.canonical_answer,
-                q.browsable,
-                q.answer
-              ),
-              ^term
-            ) or
+            ilike(coalesce(q.canonical_answer, q.answer), ^term) or
               ilike(
-                fragment(
-                  "coalesce(?, CASE WHEN ? THEN ? END)",
-                  q.canonical_question,
-                  q.question_normalized,
-                  q.cleaned_question
-                ),
+                coalesce(q.canonical_question, coalesce(q.cleaned_question, q.question)),
                 ^term
-              ) or
-              (q.browsable == true and is_nil(q.group_id) and ilike(q.question, ^term))
+              )
         )
       else
         query

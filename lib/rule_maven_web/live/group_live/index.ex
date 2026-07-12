@@ -1,6 +1,6 @@
 defmodule RuleMavenWeb.GroupLive.Index do
   @moduledoc """
-  "My groups" — lists the groups the current user belongs to and offers a
+  "Groups" — lists the groups the current user belongs to and offers a
   form to create a new one. Each row links into `GroupLive.Show` via the
   group's opaque Hashid token (never the raw id).
   """
@@ -12,7 +12,7 @@ defmodule RuleMavenWeb.GroupLive.Index do
   def mount(_params, _session, socket) do
     {:ok,
      socket
-     |> assign(page_title: "My groups", form: to_form(%{"name" => ""}, as: :group))
+     |> assign(page_title: "Groups", form: to_form(%{"name" => ""}, as: :group))
      |> load_groups()}
   end
 
@@ -37,7 +37,7 @@ defmodule RuleMavenWeb.GroupLive.Index do
   def render(assigns) do
     ~H"""
     <div style="max-width:40rem;margin:0 auto;padding:1.25rem 1rem">
-      <h1 style="font-size:1.25rem;font-weight:800;margin:0 0 0.25rem 0">My groups</h1>
+      <h1 style="font-size:1.25rem;font-weight:800;margin:0 0 0.25rem 0">Groups</h1>
       <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 1.25rem 0">
         A group shares one answer feed and answer cache per game across its
         members — ask once, everyone at your table sees it. Share the invite
@@ -50,7 +50,7 @@ defmodule RuleMavenWeb.GroupLive.Index do
           for={@form}
           id="new-group"
           phx-submit="create"
-          style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-start"
+          style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center"
         >
           <div style="flex:1;min-width:12rem">
             <input
@@ -82,11 +82,11 @@ defmodule RuleMavenWeb.GroupLive.Index do
         <ul :if={@groups != []} style="list-style:none;margin:0;padding:0">
           <li
             :for={group <- @groups}
-            style="border:1px solid var(--border);border-radius:0.75rem;padding:0.8rem 1rem;background:var(--bg-surface);margin-bottom:0.6rem"
+            style="border:1px solid var(--border);border-radius:0.75rem;background:var(--bg-surface);margin-bottom:0.6rem"
           >
             <.link
               navigate={~p"/groups/#{group}"}
-              style="font-weight:700;text-decoration:none;color:var(--text);display:block"
+              style="font-weight:700;text-decoration:none;color:var(--text);display:block;padding:0.8rem 1rem"
             >
               {group.name}
             </.link>

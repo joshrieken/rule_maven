@@ -24,6 +24,7 @@ defmodule RuleMaven.QuestionFlagsTest do
         # surfaces to nobody, and reporting it by id is the IDOR that
         # reject_unreachable_report/2 closes.
         pooled: true,
+        browsable: true,
         citation_valid: true
       })
 
