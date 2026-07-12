@@ -44,7 +44,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   def handle_params(params, _uri, socket) do
     socket =
       case params["status"] do
-        s when s in ["needs_review", "answered", "pending", "refused", "error"] ->
+        s when s in ["needs_review", "answered", "pending", "refused", "error", "publish_pending"] ->
           socket |> assign(filter_status: s) |> reload()
 
         _ ->
@@ -259,6 +259,30 @@ defmodule RuleMavenWeb.AdminLive.Questions do
 
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Couldn't re-approve that answer.")}
+        end
+    end
+  end
+
+  def handle_event("force_publish", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+
+    case Enum.find(socket.assigns.questions, &(&1.id == id)) do
+      nil ->
+        {:noreply, socket}
+
+      q ->
+        case Games.force_publish_question(q) do
+          {:ok, _} ->
+            Audit.log(socket.assigns.current_user, "question.force_publish",
+              target_type: "question",
+              target_id: q.id,
+              target_label: admin_question_text(q)
+            )
+
+            {:noreply, reload(socket)}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Couldn't force-publish that row.")}
         end
     end
   end
@@ -506,6 +530,9 @@ defmodule RuleMavenWeb.AdminLive.Questions do
             <option value="needs_review" selected={@filter_status == "needs_review"}>
               Needs review (stale)
             </option>
+            <option value="publish_pending" selected={@filter_status == "publish_pending"}>
+              Stuck (publish gate)
+            </option>
           </select>
         </form>
       </div>
@@ -598,6 +625,15 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                   class="btn-xs"
                   style="background:#d4a017;border-color:#d4a017;color:#fff"
                 >Re-approve</button>
+                <button
+                  :if={not q.browsable and q.citation_valid}
+                  type="button"
+                  phx-click="force_publish"
+                  phx-value-id={q.id}
+                  title="Manually clear the publish gate for this row, bypassing the automated screen."
+                  class="btn-xs"
+                  style="background:#d4a017;border-color:#d4a017;color:#fff"
+                >Force publish</button>
                 <select
                   phx-change="set_visibility"
                   phx-value-id={q.id}

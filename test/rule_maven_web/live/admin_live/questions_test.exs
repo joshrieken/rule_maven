@@ -131,4 +131,30 @@ defmodule RuleMavenWeb.AdminLive.QuestionsTest do
     assert html2 =~ target.username
     assert html2 =~ "target&#39;s question"
   end
+
+  test "admin can force-publish a stuck row", %{conn: conn} do
+    admin = create_super_admin("qsuper4")
+    asker = create_user("qasker4")
+    g = game()
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: g.id,
+        user_id: asker.id,
+        question: "Stuck row",
+        answer: "answer",
+        browsable: false,
+        citation_valid: true
+      })
+
+    {:ok, view, _html} = conn |> login(admin) |> live(~p"/admin/questions")
+
+    view
+    |> element("button[phx-click='force_publish'][phx-value-id='#{ql.id}']")
+    |> render_click()
+
+    reloaded = RuleMaven.Repo.get!(Games.QuestionLog, ql.id)
+    assert reloaded.browsable == true
+    assert reloaded.pooled == true
+  end
 end

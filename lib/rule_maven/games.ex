@@ -1267,6 +1267,23 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
+  Count of rows stuck behind the publish gate — citation-valid, not yet
+  browsable, not a skip_normalize row (which never publishes and so is not
+  "stuck", just permanently excluded). Solo and group rows both land here;
+  see PublishCheckWorker.
+  """
+  def publish_pending_count do
+    Repo.aggregate(
+      from(q in QuestionLog,
+        where:
+          q.browsable == false and q.citation_valid == true and
+            not is_nil(q.cleaned_question)
+      ),
+      :count
+    )
+  end
+
+  @doc """
   Answers currently pulled from the pool awaiting re-approval (`needs_review`),
   whether pulled by a rulebook change or by user reports. Newest first, with the
   game preloaded for display.
@@ -2203,6 +2220,23 @@ defmodule RuleMaven.Games do
     {:ok, updated}
   end
 
+  @doc """
+  Admin override: mark a row browsable regardless of what PublishCheckWorker's
+  automated screen decided (or whether it has run at all yet). Does not touch
+  `visibility` — promoting to community stays the separate, existing
+  `update_question_visibility/2` action; this only unlocks the row from the
+  publish gate.
+  """
+  def force_publish_question(%QuestionLog{} = q) do
+    attrs = %{browsable: true, pooled: q.citation_valid}
+
+    with {:ok, updated} <- q |> QuestionLog.changeset(attrs) |> Repo.update() do
+      RuleMaven.Games.Trust.recompute_trust(updated)
+      if updated.user_id, do: RuleMaven.Games.Trust.recompute_reputation(updated.user_id)
+      {:ok, updated}
+    end
+  end
+
   def update_question_visibility(%QuestionLog{} = q, "community") do
     if publishable?(q),
       do: do_update_question_visibility(q, "community"),
@@ -2590,6 +2624,13 @@ defmodule RuleMaven.Games do
 
         "needs_review" ->
           from(q in query, where: q.needs_review == true)
+
+        "publish_pending" ->
+          from(q in query,
+            where:
+              q.browsable == false and q.citation_valid == true and
+                not is_nil(q.cleaned_question)
+          )
 
         _ ->
           query

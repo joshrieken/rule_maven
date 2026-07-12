@@ -10,6 +10,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
        assign(socket,
          page_title: "Admin",
          review_backlog: Games.needs_review_count(),
+         publish_backlog: Games.publish_pending_count(),
          flag_backlog: Games.count_pending_flags(),
          asks_disabled: not RuleMaven.Flags.enabled?(:asks),
          email_disabled: not RuleMaven.Flags.enabled?(:outbound_email),
@@ -310,6 +311,18 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="Browse, filter, and delete user questions."
           badge={@review_backlog > 0 && "#{@review_backlog} to review"}
           badge_title="Community answers flagged stale by a rulebook change, awaiting re-approval"
+        />
+        <.card
+          navigate={
+            if @publish_backlog > 0,
+              do: ~p"/admin/questions?status=publish_pending",
+              else: ~p"/admin/questions"
+          }
+          icon="🚦"
+          title="Publish gate"
+          desc="Rows stuck behind the automated publish screen; force-publish to override."
+          badge={@publish_backlog > 0 && "#{@publish_backlog} stuck"}
+          badge_title="Citation-valid rows still unbrowsable, waiting on or stuck behind PublishCheckWorker"
         />
         <.card
           navigate={~p"/admin/moderation"}

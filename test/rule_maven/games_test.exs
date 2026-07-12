@@ -1131,4 +1131,95 @@ defmodule RuleMaven.GamesTest do
       assert Games.has_votes?(q.id)
     end
   end
+
+  describe "publish_pending_count/0" do
+    test "counts citation-valid rows stuck behind the publish gate" do
+      game = game_fixture()
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "pubpending_#{System.unique_integer([:positive])}",
+          email: "pubpending_#{System.unique_integer([:positive])}@test.com",
+          password_hash: "x"
+        })
+
+      {:ok, stuck} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "Stuck row",
+          answer: "answer",
+          browsable: false,
+          citation_valid: true,
+          cleaned_question: "Stuck row"
+        })
+
+      {:ok, _cleared} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "Cleared row",
+          answer: "answer",
+          browsable: true,
+          citation_valid: true,
+          cleaned_question: "Cleared row"
+        })
+
+      assert Games.publish_pending_count() >= 1
+
+      assert stuck.id in (Games.admin_list_questions(status: "publish_pending") |> Enum.map(& &1.id))
+    end
+  end
+
+  describe "force_publish_question/1" do
+    test "sets browsable and pooled regardless of the automated screen" do
+      game = game_fixture()
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "forcepub_#{System.unique_integer([:positive])}",
+          email: "forcepub_#{System.unique_integer([:positive])}@test.com",
+          password_hash: "x"
+        })
+
+      {:ok, ql} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "Stuck row",
+          answer: "answer",
+          browsable: false,
+          citation_valid: true
+        })
+
+      assert {:ok, updated} = Games.force_publish_question(ql)
+      assert updated.browsable == true
+      assert updated.pooled == true
+    end
+
+    test "does not pool a row whose citation was never grounded" do
+      game = game_fixture()
+
+      user =
+        Repo.insert!(%RuleMaven.Users.User{
+          username: "forcepub2_#{System.unique_integer([:positive])}",
+          email: "forcepub2_#{System.unique_integer([:positive])}@test.com",
+          password_hash: "x"
+        })
+
+      {:ok, ql} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "Ungrounded row",
+          answer: "answer",
+          browsable: false,
+          citation_valid: false
+        })
+
+      assert {:ok, updated} = Games.force_publish_question(ql)
+      assert updated.browsable == true
+      assert updated.pooled == false
+    end
+  end
 end
