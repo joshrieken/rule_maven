@@ -134,7 +134,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
     assert_enqueued(worker: PublishCheckWorker, args: %{"question_log_id" => ql.id})
   end
 
-  test "a non-group ask stays browsable and enqueues no publish check" do
+  test "a solo ask is written unbrowsable and enqueues the publish check, same as a group ask" do
     game = seeded_game(9202)
     u = user("pgw_solo")
     stub_ask("You roll the die to start.")
@@ -158,7 +158,86 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
                "skip_pool" => true
              })
 
-    assert Repo.reload!(ql).browsable == true
+    assert Repo.reload!(ql).browsable == false
+    assert_enqueued(worker: PublishCheckWorker, args: %{"question_log_id" => ql.id})
+  end
+
+  test "a skip_normalize solo ask never enqueues the publish check" do
+    game = seeded_game(9213)
+    u = user("pgw_solo_verbatim")
+    stub_ask("You roll the die to start.")
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: u.id,
+        question: "How do I start, Dave?",
+        answer: "Thinking...",
+        visibility: "private"
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => u.id,
+               "skip_pool" => true,
+               "skip_normalize" => true
+             })
+
+    assert Repo.reload!(ql).browsable == false
+    refute_enqueued(worker: PublishCheckWorker)
+  end
+
+  test "an ungrounded solo ask is not pooled and runs no publish check" do
+    game = seeded_game(9214)
+    u = user("pgw_solo_ungrounded")
+
+    Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, List.duplicate(0.1, 768)} end)
+
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      {:ok,
+       %{
+         answer: "You roll the die to start.",
+         citations: [
+           %{"quote" => "Dragons always fly at dawn.", "page" => 1, "source" => "Core rules"}
+         ],
+         verdict: "info",
+         followups: [],
+         also_asked: []
+       }}
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:rule_maven, :embed_mock)
+      Application.delete_env(:rule_maven, :llm_mock)
+    end)
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: u.id,
+        question: "How do I start?",
+        answer: "Thinking...",
+        visibility: "private"
+      })
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => u.id,
+               "skip_pool" => true
+             })
+
+    updated = Repo.reload!(ql)
+    assert updated.citation_valid == false
+    assert updated.pooled == false
+    assert updated.browsable == false
     refute_enqueued(worker: PublishCheckWorker)
   end
 

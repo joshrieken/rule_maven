@@ -111,15 +111,17 @@ defmodule RuleMaven.Workers.AskWorker do
     row_group_id = row_group_id(question_log_id)
     group_id = args["group_id"] || row_group_id
 
-    # A row that is unbrowsable while belonging to NO crew was closed on purpose:
-    # either `retract_contributions/1` withdrew it (which also nilifies group_id
-    # when the crew is deleted) or it is a re-ask carrying a crew's raw text. In
-    # both cases `contribute_to_community?/1` sees a nil group and cheerfully
-    # answers "yes, contribute" — so an admin re-queue (AdminLive.Security's
-    # unblock) would put an answer the crew explicitly withdrew straight back into
-    # the commons. The row's own closed flag is the only surviving marker.
-    withdrawn? =
-      retracted?(question_log_id) or (is_nil(group_id) and not row_browsable?(question_log_id))
+    # `retracted_at` is the only durable withdrawal marker left. It used to be
+    # shadowed here by "unbrowsable with no live group_id", on the theory that a
+    # closed, group-less row could only be a retraction whose crew got deleted
+    # out from under it (`retract_contributions/1` nilifies group_id AND stamps
+    # retracted_at, so `retracted?/1` alone already catches that case). But
+    # every row — solo or group — is now BORN unbrowsable pending the publish
+    # screen (see `QuestionLog.default_unbrowsable/1`), so "unbrowsable" no
+    # longer distinguishes "withdrawn on purpose" from "just hasn't cleared the
+    # screen yet." Keying on it here would make ordinary solo rows read as
+    # withdrawn — `never_pool` for every fresh ask, forever.
+    withdrawn? = retracted?(question_log_id)
 
     # Folds in the per-group community-contribution switch (Task 6's composer
     # toggle sets `never_pool` directly for a one-off "keep this in the crew"
@@ -147,9 +149,10 @@ defmodule RuleMaven.Workers.AskWorker do
     # admin can toggle it on. Every terminal branch below closes this run, so it
     # never lingers as "running".
     # Crew PROVENANCE, not a live group_id — `withdrawn?` above already folds in
-    # the nilify case (`is_nil(group_id) and not row_browsable?`), plus retraction.
-    # A crew row whose crew was left or deleted has a nil group_id but is still
-    # crew-origin, and its raw wording must not land in the label.
+    # retraction, which is what a deleted crew's row is left with once its
+    # group_id is nilified. A crew row whose crew was left or deleted has a
+    # nil group_id but is still crew-origin, and its raw wording must not land
+    # in the label.
     crew_origin? = not is_nil(group_id) or withdrawn?
 
     run =
@@ -508,7 +511,7 @@ defmodule RuleMaven.Workers.AskWorker do
                         # a group deleted mid-ask reads as gone rather than as the
                         # stale id captured at line 41).
                         unless pool_hit? or never_pool or consent_withdrawn?(question_log_id) or
-                                 unscrubbed_crew_row?(group_id, skip_normalize, updated) do
+                                 unscrubbed_row?(skip_normalize, updated) do
                           if Games.under_review?(
                                game_id,
                                expansion_ids,
@@ -516,34 +519,30 @@ defmodule RuleMaven.Workers.AskWorker do
                              ) do
                             :ok
                           else
-                            if group_id do
-                              # A CREW row does not enter the pool here. It enters the
-                              # pool by CLEARING THE SCREEN, and not before.
-                              #
-                              # This used to `mark_pooled` inline and enqueue the check
-                              # afterwards — pool first, revoke later. That inverts the
-                              # invariant. It left the answer serving every stranger
-                              # during the queue hop, and if the check job was discarded
-                              # (an LLM outage burns its 3 attempts), the answer served
-                              # the commons FOREVER, never having been screened. The
-                              # moduledoc's promise that an outage degrades to "crew
-                              # questions don't get listed" was true of `browsable` and
-                              # false of `pooled` — and `pooled` is the artifact that
-                              # actually leaves the crew.
-                              #
-                              # `skip_normalize` rows are excluded outright: their text
-                              # never passed the scrub, so there is nothing to screen and
-                              # nothing that may publish.
-                              #
-                              # The crew is not deprived of its own answer: the
-                              # `active_group_id` branch of `find_pool_candidates/3`
-                              # requires `citation_valid`, NOT `pooled`.
-                              if updated.citation_valid and not skip_normalize do
-                                RuleMaven.Workers.PublishCheckWorker.enqueue(question_log_id)
-                              end
-                            else
-                              # An ordinary personal row pools as it always has.
-                              Games.mark_pooled(updated)
+                            # A row does not enter the pool here. It enters the
+                            # pool by CLEARING THE SCREEN, and not before.
+                            #
+                            # This used to `mark_pooled` inline (for a solo row) and
+                            # enqueue the check afterwards only for a crew row — pool
+                            # first, revoke later, and only for one population. That
+                            # inverts the invariant. It left the answer serving every
+                            # stranger during the queue hop, and if the check job was
+                            # discarded (an LLM outage burns its 3 attempts), the
+                            # answer served the commons FOREVER, never having been
+                            # screened. The moduledoc's promise that an outage
+                            # degrades to "questions don't get listed" was true of
+                            # `browsable` and false of `pooled` — and `pooled` is the
+                            # artifact that actually leaves for the commons.
+                            #
+                            # `skip_normalize` rows are excluded outright: their text
+                            # never passed the scrub, so there is nothing to screen and
+                            # nothing that may publish.
+                            #
+                            # The asker (or crew) is not deprived of its own answer: the
+                            # `active_group_id` branch of `find_pool_candidates/3`
+                            # requires `citation_valid`, NOT `pooled`.
+                            if updated.citation_valid and not skip_normalize do
+                              RuleMaven.Workers.PublishCheckWorker.enqueue(question_log_id)
                             end
                           end
                         end
@@ -916,15 +915,6 @@ defmodule RuleMaven.Workers.AskWorker do
     end
   end
 
-  # Defaults TRUE for a missing row: a brand-new ask is browsable unless its
-  # insert said otherwise, and only a row that actually exists can be withdrawn.
-  defp row_browsable?(id) do
-    case get_question_log(id) do
-      %QuestionLog{browsable: browsable} -> browsable
-      _ -> true
-    end
-  end
-
   # The crew's ANSWER may feed the commons — that is the deal, and it is the ONE
   # artifact of a crew row that publishes by design. The premise underneath it is
   # that the answer contains no personal text. That premise rests entirely on the
@@ -959,11 +949,9 @@ defmodule RuleMaven.Workers.AskWorker do
   # "the raw question, plus a question mark" — never equal to the raw question. Any
   # crew member who typed a dispute without a trailing "?" (which is how people
   # type disputes) sailed straight through the guard on every provider hiccup.
-  defp unscrubbed_crew_row?(nil, _skip_normalize, _row), do: false
+  defp unscrubbed_row?(true, _row), do: true
 
-  defp unscrubbed_crew_row?(_group_id, true, _row), do: true
-
-  defp unscrubbed_crew_row?(_group_id, _skip_normalize, %QuestionLog{} = row) do
+  defp unscrubbed_row?(_skip_normalize, %QuestionLog{} = row) do
     cleaned = row.cleaned_question
 
     not row.question_normalized or not is_binary(cleaned) or String.trim(cleaned) == ""
