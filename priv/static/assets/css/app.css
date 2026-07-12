@@ -1069,26 +1069,82 @@ a:not([class]):hover {
   z-index: 1;
 }
 
-/* Slim fixed pager bar atop the Q&A column: prev / N-of-M / next. */
-.qa-chip {
+/* Fixed question region atop the Q&A column. Its height is LOCKED to two lines
+   (min == max on __text) so a normalization rewrite swaps the text without ever
+   resizing the box — the answer region below never moves. prev / question / N-of-M / next. */
+.qa-question {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.6rem 0.9rem;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
-  font-size: 0.85rem;
-  color: var(--text);
 }
-.qa-chip__pager {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
+.qa-question__text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.3;
+  /* 2-line clamp with a fixed height (min == max) regardless of text length */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: calc(0.95rem * 1.3 * 2);
+  max-height: calc(0.95rem * 1.3 * 2);
+}
+.qa-question__pager {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  padding: 0 0.2rem;
+}
+.qa-question__pager:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.qa-question__count {
   flex: 0 0 auto;
   color: var(--text-secondary);
   font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+/* Full-question expand: absolutely positioned over the fixed .chat-layout, so it
+   layers over the answer without reflowing it. */
+.qa-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  backdrop-filter: blur(2px);
+}
+.qa-overlay__sheet {
+  margin: 0.75rem;
+  max-width: 44rem;
+  width: 100%;
+  padding: 1rem 1.1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--text);
 }
 
 @keyframes qa-panel-in {

@@ -180,7 +180,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        # the resolved active thread is rather than assuming index 0.
        qa_active_index: nil,
        qa_total: 0,
-       qa_active_question: nil
+       qa_active_question: nil,
+       qa_show_question: false
      )}
   end
 
@@ -753,6 +754,8 @@ defmodule RuleMavenWeb.GameLive.Show do
     |> assign(:qa_total, total)
     |> assign(:qa_active_index, index)
     |> assign(:qa_active_question, question)
+    # Navigating to another question closes any open full-question overlay.
+    |> assign(:qa_show_question, false)
   end
 
   # Shared by the sidebar's explicit thread click and the chip pager: swap the
@@ -1246,6 +1249,25 @@ defmodule RuleMavenWeb.GameLive.Show do
       _ ->
         {:noreply, socket}
     end
+  end
+
+  # Full-question expand: tapping the fixed 2-line question box opens an overlay
+  # with the complete text. It's absolutely positioned over .chat-layout (a
+  # fixed, non-scrolling ancestor) so expanding never reflows the answer.
+  @impl true
+  def handle_event("qa_show_question", _params, socket) do
+    {:noreply, assign(socket, :qa_show_question, true)}
+  end
+
+  @impl true
+  def handle_event("qa_hide_question", _params, socket) do
+    {:noreply, assign(socket, :qa_show_question, false)}
+  end
+
+  # The overlay sheet's own click must not fall through to the backdrop's close.
+  @impl true
+  def handle_event("ignore", _params, socket) do
+    {:noreply, socket}
   end
 
   @impl true
@@ -3682,24 +3704,32 @@ defmodule RuleMavenWeb.GameLive.Show do
         <!-- Restores the saved default voice from localStorage on connect. -->
         <div id="voice-default-store" phx-hook="VoiceDefault" style="display:none"></div>
 
-        <%!-- One Q&A column: fixed pager bar on top, scrolling answer below.
-              This is the single flex:1 sibling of the sidebar; the answer-pane
-              (max-width:48rem, margin:auto) centers inside it as a reading column. --%>
+        <%!-- Fixed two-region view: the question is pinned on top at a LOCKED
+              height (2 lines), so a normalization rewrite or pop-in swaps the
+              text without ever resizing the box — the answer region below never
+              moves while the reader is reading. The answer-pane is the one
+              scroll region. --%>
         <div class="qa-column" style="flex:1;min-width:0;display:flex;flex-direction:column">
-        <!-- Row 1: question chip (fixed, never scrolls) -->
+        <!-- Question region: fixed height, never scrolls, never resizes -->
         <%= if @conversation != [] && @qa_active_question do %>
-          <div class="qa-chip">
+          <div class="qa-question">
             <button
               type="button"
-              class="qa-chip__pager"
+              class="qa-question__pager"
               phx-click="qa_prev"
               disabled={@qa_active_index <= 0}
               aria-label="Previous question"
             >◂</button>
-            <span class="qa-chip__pager">{@qa_active_index + 1} / {@qa_total}</span>
             <button
               type="button"
-              class="qa-chip__pager"
+              class="qa-question__text"
+              phx-click="qa_show_question"
+              title="Show full question"
+            >{@qa_active_question}</button>
+            <span class="qa-question__count">{@qa_active_index + 1} / {@qa_total}</span>
+            <button
+              type="button"
+              class="qa-question__pager"
               phx-click="qa_next"
               disabled={@qa_active_index >= @qa_total - 1}
               aria-label="Next question"
@@ -3855,9 +3885,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                   "chat-msg",
                   msg.role == :user && "chat-msg-user"
                 ]}
-                style={"display:flex;flex-direction:column;align-items:#{if msg.role == :user, do: "flex-end", else: "flex-start"}"}
+                style="display:flex;flex-direction:column;align-items:stretch"
               >
-                <div style={"max-width:85%;padding:0.75rem 1rem;border-radius:0.85rem;font-size:0.95rem;line-height:1.4;box-shadow:0 1px 3px rgba(0,0,0,0.08);#{if msg.role == :user, do: "background:var(--accent);color:var(--accent-text,#fff);border-bottom-right-radius:0.25rem;margin-left:auto", else: "background:var(--bg-surface);color:var(--text);border-bottom-left-radius:0.25rem"}#{if msg[:refused], do: ";opacity:0.72", else: ""}"}>
+                <div style={"#{if msg.role == :user, do: "width:100%", else: "width:100%;padding:0.9rem 1.05rem;border-radius:0.6rem;font-size:0.95rem;line-height:1.5;background:var(--bg-surface);border:1px solid var(--border);color:var(--text)"}#{if msg[:refused], do: ";opacity:0.72", else: ""}"}>
                   <% stamp =
                     msg.role == :assistant && msg.content != "Thinking..." &&
                       verdict_stamp(msg[:verdict]) %>
@@ -4068,9 +4098,15 @@ defmodule RuleMavenWeb.GameLive.Show do
                           No answer received
                         </div>
                       <% true -> %>
-                        <div class="answer-in" id={answer_dom_id}>
-                          {render_markdown(v_content || msg.content)}
-                        </div>
+                        <%!-- The question renders once, in the fixed .qa-question
+                              box on top — suppressed here so it's not duplicated.
+                              The "you asked" / "ask exactly this" escape hatches
+                              below still render for the asker. --%>
+                        <%= unless msg.role == :user do %>
+                          <div class="answer-in" id={answer_dom_id}>
+                            {render_markdown(v_content || msg.content)}
+                          </div>
+                        <% end %>
                         <%!-- Disclose that we rewrote the asker's raw question into
                               a normalized form. The raw text is shown ONLY to the
                               person who typed it: `build_conversation/2` sets
@@ -5226,6 +5262,15 @@ defmodule RuleMavenWeb.GameLive.Show do
           </form>
         </div>
       </div>
+
+      <%!-- Full-question expand. Direct child of the fixed .chat-layout (a stable,
+            non-scrolling containing block), so the sheet layers OVER the answer
+            without reflowing it — expanding the question never moves the answer. --%>
+      <%= if @qa_show_question do %>
+        <div class="qa-overlay" phx-click="qa_hide_question">
+          <div class="qa-overlay__sheet" phx-click="ignore">{@qa_active_question}</div>
+        </div>
+      <% end %>
 
     </div>
 
