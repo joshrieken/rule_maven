@@ -124,7 +124,7 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
       if url =~ ~r"^https?://[^\s]+$" do
         Settings.set_public_url(url)
-        Audit.log(socket.assigns.current_user, "email.set_public_url", metadata: %{public_url: url})
+        Audit.log(socket.assigns.current_user, "settings.set_public_url", metadata: %{public_url: url})
 
         {:noreply,
          socket
@@ -167,7 +167,10 @@ defmodule RuleMavenWeb.AdminLive.Index do
 
       <h1 style="font-size:1.5rem;font-weight:700;margin:0.25rem 0 1rem">Admin Dashboard</h1>
 
-      <div style={"display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0.75rem 1rem;margin-bottom:1rem;border-radius:0.5rem;border:1px solid #{if @asks_disabled, do: "var(--danger,#c0392b)", else: "var(--border)"};background:var(--bg-surface)"}>
+      <div
+        :if={@super_admin?}
+        style={"display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0.75rem 1rem;margin-bottom:1rem;border-radius:0.5rem;border:1px solid #{if @asks_disabled, do: "var(--danger,#c0392b)", else: "var(--border)"};background:var(--bg-surface)"}
+      >
         <div>
           <div style="font-weight:700;font-size:0.85rem;color:var(--text)">
             {if @asks_disabled, do: "⏸️ Asks are paused", else: "▶️ Asks are live"}
@@ -177,7 +180,6 @@ defmodule RuleMavenWeb.AdminLive.Index do
           </div>
         </div>
         <button
-          :if={@super_admin?}
           type="button"
           phx-click="toggle_asks"
           data-confirm={
@@ -190,34 +192,42 @@ defmodule RuleMavenWeb.AdminLive.Index do
         </button>
       </div>
 
-      <div style={"padding:0.75rem 1rem;margin-bottom:1rem;border-radius:0.5rem;border:1px solid #{if @email_disabled, do: "var(--danger,#c0392b)", else: "var(--border)"};background:var(--bg-surface)"}>
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-          <div style="min-width:0">
-            <div style="font-weight:700;font-size:0.85rem;color:var(--text)">
-              {if @email_disabled, do: "⏸️ Email is paused", else: "📧 Email is on"}
-            </div>
-            <div style="font-size:0.75rem;color:var(--text-muted)">
-              Kill switch for outbound email (confirmation, password reset). Skipped sends are logged; callers still succeed.
-              <span :if={!@resend_key_set} style="color:var(--danger,#c0392b)">
-                Resend key not set — real sends are skipped.
-              </span>
-              <span :if={@resend_key_set}>Resend key: set.</span>
-            </div>
+      <div
+        :if={@super_admin?}
+        style={"display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0.75rem 1rem;margin-bottom:1rem;border-radius:0.5rem;border:1px solid #{if @email_disabled, do: "var(--danger,#c0392b)", else: "var(--border)"};background:var(--bg-surface)"}
+      >
+        <div style="min-width:0">
+          <div style="font-weight:700;font-size:0.85rem;color:var(--text)">
+            {if @email_disabled, do: "⏸️ Email is paused", else: "📧 Email is on"}
           </div>
-          <button
-            :if={@super_admin?}
-            type="button"
-            phx-click="toggle_email"
-            data-confirm={
-              if !@email_disabled,
-                do: "Pause all outbound email (confirmation, password reset)?",
-                else: false
-            }
-            class="btn-sm"
-            style={"flex-shrink:0;border:1px solid #{if @email_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};color:#{if @email_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};background:none"}
-          >
-            {if @email_disabled, do: "Resume email", else: "Pause email"}
-          </button>
+          <div style="font-size:0.75rem;color:var(--text-muted)">
+            Kill switch for outbound email (confirmation, password reset). Skipped sends are logged; callers still succeed.
+          </div>
+        </div>
+        <button
+          type="button"
+          phx-click="toggle_email"
+          data-confirm={
+            if !@email_disabled,
+              do: "Pause all outbound email (confirmation, password reset)?",
+              else: false
+          }
+          class="btn-sm"
+          style={"flex-shrink:0;border:1px solid #{if @email_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};color:#{if @email_disabled, do: "var(--green)", else: "var(--danger,#c0392b)"};background:none"}
+        >
+          {if @email_disabled, do: "Resume email", else: "Pause email"}
+        </button>
+      </div>
+
+      <div style="padding:0.75rem 1rem;margin-bottom:1rem;border-radius:0.5rem;border:1px solid var(--border);background:var(--bg-surface)">
+        <div style="font-weight:700;font-size:0.85rem;color:var(--text)">
+          📧 Email settings
+        </div>
+        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.6rem">
+          <span :if={!@resend_key_set} style="color:var(--danger,#c0392b)">
+            Resend key not set — real sends are skipped.
+          </span>
+          <span :if={@resend_key_set}>Resend key: set.</span>
         </div>
 
         <form
@@ -233,25 +243,6 @@ defmodule RuleMavenWeb.AdminLive.Index do
             name="mail_from"
             type="email"
             value={@mail_from}
-            style="flex:1;min-width:12rem;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--bg);color:var(--text)"
-          />
-          <button type="submit" class="btn-sm btn-outline" style="flex-shrink:0">Save</button>
-        </form>
-
-        <form
-          id="public-url-form"
-          phx-submit="save_public_url"
-          style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.6rem"
-        >
-          <label for="public_url" style="font-size:0.75rem;color:var(--text-muted);flex-shrink:0">
-            Public URL (email links)
-          </label>
-          <input
-            id="public_url"
-            name="public_url"
-            type="text"
-            value={@public_url}
-            placeholder="https://rulemaven.app"
             style="flex:1;min-width:12rem;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--bg);color:var(--text)"
           />
           <button type="submit" class="btn-sm btn-outline" style="flex-shrink:0">Save</button>
@@ -296,6 +287,34 @@ defmodule RuleMavenWeb.AdminLive.Index do
           Send real email from dev via Resend (off = <code>/dev/mailbox</code>
           preview)
         </label>
+      </div>
+
+      <div style="padding:0.75rem 1rem;margin-bottom:1rem;border-radius:0.5rem;border:1px solid var(--border);background:var(--bg-surface)">
+        <div style="font-weight:700;font-size:0.85rem;color:var(--text)">
+          🌐 Public URL
+        </div>
+        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.6rem">
+          The app's canonical domain — used to build every absolute link the app sends out (email confirmation/reset links, group invite links, etc).
+        </div>
+
+        <form
+          id="public-url-form"
+          phx-submit="save_public_url"
+          style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap"
+        >
+          <label for="public_url" style="font-size:0.75rem;color:var(--text-muted);flex-shrink:0">
+            Public URL
+          </label>
+          <input
+            id="public_url"
+            name="public_url"
+            type="text"
+            value={@public_url}
+            placeholder="https://rulemaven.app"
+            style="flex:1;min-width:12rem;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--bg);color:var(--text)"
+          />
+          <button type="submit" class="btn-sm btn-outline" style="flex-shrink:0">Save</button>
+        </form>
       </div>
 
       <.section title="Review">
