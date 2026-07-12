@@ -1068,31 +1068,18 @@ a:not([class]):hover {
   z-index: 1;
 }
 
-/* Row 1: non-scrolling question chip. One line, truncated, tappable. */
+/* Slim fixed pager bar atop the Q&A column: prev / N-of-M / next. */
 .qa-chip {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
   font-size: 0.85rem;
   color: var(--text);
-}
-.qa-chip__text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-  background: none;
-  border: none;
-  text-align: left;
-  padding: 0;
-  font: inherit;
-  color: inherit;
 }
 .qa-chip__pager {
   display: inline-flex;

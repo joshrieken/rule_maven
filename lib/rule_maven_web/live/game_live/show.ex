@@ -3714,12 +3714,6 @@ defmodule RuleMavenWeb.GameLive.Show do
               disabled={@qa_active_index <= 0}
               aria-label="Previous question"
             >◂</button>
-            <button
-              type="button"
-              class="qa-chip__text"
-              phx-click="qa_show_question"
-              title="Show full question"
-            >{@qa_active_question}</button>
             <span class="qa-chip__pager">{@qa_active_index + 1} / {@qa_total}</span>
             <button
               type="button"

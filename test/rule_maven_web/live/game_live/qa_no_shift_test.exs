@@ -39,12 +39,18 @@ defmodule RuleMavenWeb.GameLive.QaNoShiftTest do
     # Landing on the newest thread puts the pager at index 0 (sidebar order is
     # recency-desc — see `sort_thread_summaries/1`), so "next" is the enabled
     # direction here; "prev" is disabled at the top of the list.
-    q1 = view |> element(".qa-chip__text") |> render()
+    # The chip no longer echoes the question — read it from the one place it
+    # renders, the user bubble in the scroll region.
+    refute has_element?(view, ".qa-chip__text")
+    q1 = view |> element(".chat-msg-user") |> render()
     view |> element("button[phx-click=qa_next]") |> render_click()
-    q0 = view |> element(".qa-chip__text") |> render()
+    q0 = view |> element(".chat-msg-user") |> render()
     refute q0 == q1
   end
 
+  # `.qa-chip__text` (the overlay trigger) was removed in Task 2; this test
+  # is rewritten/removed in Task 3 along with the overlay itself.
+  @tag :skip
   test "tapping the chip opens the full-question overlay",
        %{conn: conn, game: game, user: user, thread_ids: thread_ids} do
     {:ok, view, _html} = conn |> login(user) |> visit_newest(game, thread_ids)
