@@ -61,4 +61,27 @@ defmodule RuleMaven.GroupsTest do
 
     assert {:error, %Ecto.Changeset{}} = Groups.admin_rename(group, "")
   end
+
+  test "admin_set_invite_active flips the flag without membership" do
+    owner = create_user("adminflag_owner")
+    {:ok, group} = Groups.create_group(owner, %{name: "Flag Crew"})
+
+    assert {:ok, updated} = Groups.admin_set_invite_active(group, false)
+    refute updated.invite_active
+  end
+
+  test "admin_set_member_cap changes the cap without membership" do
+    owner = create_user("admincap_owner")
+    {:ok, group} = Groups.create_group(owner, %{name: "Cap Crew"})
+
+    assert {:ok, updated} = Groups.admin_set_member_cap(group, 5)
+    assert updated.member_cap == 5
+  end
+
+  test "admin_set_member_cap rejects a non-positive cap" do
+    owner = create_user("admincap_bad")
+    {:ok, group} = Groups.create_group(owner, %{name: "Cap Crew 2"})
+
+    assert {:error, %Ecto.Changeset{}} = Groups.admin_set_member_cap(group, 0)
+  end
 end

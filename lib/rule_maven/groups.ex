@@ -113,12 +113,21 @@ defmodule RuleMaven.Groups do
   """
   def set_invite_active(actor, %Group{} = group, active?) when is_boolean(active?) do
     if role_at_least?(actor, group, :admin) do
-      group
-      |> Group.changeset(%{invite_active: active?})
-      |> Repo.update()
+      do_set_invite_active(group, active?)
     else
       {:error, :forbidden}
     end
+  end
+
+  @doc "Same as `set_invite_active/3`, no membership check. Site-admin callers only."
+  def admin_set_invite_active(%Group{} = group, active?) when is_boolean(active?) do
+    do_set_invite_active(group, active?)
+  end
+
+  defp do_set_invite_active(group, active?) do
+    group
+    |> Group.changeset(%{invite_active: active?})
+    |> Repo.update()
   end
 
   @doc """
@@ -126,12 +135,21 @@ defmodule RuleMaven.Groups do
   """
   def set_member_cap(actor, %Group{} = group, cap) when is_integer(cap) do
     if role_at_least?(actor, group, :admin) do
-      group
-      |> Group.changeset(%{member_cap: cap})
-      |> Repo.update()
+      do_set_member_cap(group, cap)
     else
       {:error, :forbidden}
     end
+  end
+
+  @doc "Same as `set_member_cap/3`, no membership check. Site-admin callers only."
+  def admin_set_member_cap(%Group{} = group, cap) when is_integer(cap) do
+    do_set_member_cap(group, cap)
+  end
+
+  defp do_set_member_cap(group, cap) do
+    group
+    |> Group.changeset(%{member_cap: cap})
+    |> Repo.update()
   end
 
   @doc """
