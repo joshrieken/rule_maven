@@ -1,8 +1,8 @@
 defmodule RuleMavenWeb.GameLive.GameTheme do
   @moduledoc """
-  Shared rendering for the per-game theme + blurred cover background. Used by
+  Shared rendering for the per-game themes + blurred cover background. Used by
   every game-scoped page (Q&A `Show`, `FAQ`, `Review`, `Prepare`, `Form` edit)
-  so they all expose the Game Light / Dark themes and the cover-art backdrop —
+  so they all expose the game's generated theme sets and the cover-art backdrop —
   any new game-scoped LiveView should call both at the top of its `render/1`:
 
       {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
@@ -18,68 +18,122 @@ defmodule RuleMavenWeb.GameLive.GameTheme do
   """
   use Phoenix.Component
 
-  @doc """
-  Inline `[data-theme="game-light"]` / `[data-theme="game-dark"]` variable blocks
-  for a game, scoped via the `#game-theme` marker the picker script looks for.
-  Only values we generated (hex/rgba) go into the CSS body — no user input — so
-  raw/1 is safe there. Renders nothing until a palette exists.
+  alias RuleMaven.{Games, Metrics, ThemePalette}
 
-  The variant names ride along as `data-light-name` / `data-dark-name` on the
-  same marker; the picker script reads them to label the game options. Unlike
-  the colours these are model-authored free text, so they are HTML-escaped here
-  (on top of the character scrub in `ThemePalette.names/1`).
+  @doc """
+  Inline `[data-theme="…"]` variable blocks for every one of a game's theme
+  sets (set 1 keeps the historical `game-light`/`game-dark` slugs; sets 2+ are
+  `game-N-light`/`game-N-dark`), scoped via the `#game-theme` marker the picker
+  script looks for. Only values we generated (hex/rgba) go into the CSS body —
+  no user input — so raw/1 is safe there. Renders nothing until a palette
+  exists.
+
+  The full variant list rides along as a `data-variants` JSON attribute
+  (`[{"value": slug, "name": label}, …]`, picker order) on the same marker; the
+  picker script builds the game optgroup from it. Set 1's names also keep the
+  legacy `data-light-name`/`data-dark-name` attributes. The names are
+  model-authored free text, so both the JSON and the attributes are
+  HTML-escaped here (on top of the character scrub in `ThemePalette.names/1`).
 
   Expansions don't generate their own palette; this resolves to the base
   game's palette instead (see `RuleMaven.Games.effective_theme_palette/1`).
   """
   def style_block(%RuleMaven.Games.Game{} = game) do
-    case RuleMaven.Games.effective_theme_palette(game) do
-      %{"light" => light, "dark" => dark} when is_map(light) and is_map(dark) ->
-        # Palettes persisted before the text-contrast floors were raised (or
-        # before --accent-text escalated on mid-luminance accents) get lifted
-        # here at render time — no data backfill needed.
-        light =
-          light
-          |> RuleMaven.ThemePalette.fix_text_contrast()
-          |> RuleMaven.ThemePalette.fix_accent_text()
+    case theme_sets(game) do
+      [] ->
+        Phoenix.HTML.raw("")
 
-        dark =
-          dark
-          |> RuleMaven.ThemePalette.fix_text_contrast()
-          |> RuleMaven.ThemePalette.fix_accent_text()
-
+      [first | _] = sets ->
         css =
-          ~s|[data-theme="game-light"]{#{RuleMaven.ThemePalette.to_css(light)}}| <>
-            ~s|[data-theme="game-dark"]{#{RuleMaven.ThemePalette.to_css(dark)}}|
+          Enum.map_join(sets, "", fn set ->
+            ~s|[data-theme="#{set.light_slug}"]{#{ThemePalette.to_css(set.light)}}| <>
+              ~s|[data-theme="#{set.dark_slug}"]{#{ThemePalette.to_css(set.dark)}}|
+          end)
 
-        {light_name, dark_name} = variant_labels(game)
+        variants_json =
+          sets
+          |> Enum.flat_map(fn set ->
+            [
+              %{value: set.light_slug, name: set.light_name},
+              %{value: set.dark_slug, name: set.dark_name}
+            ]
+          end)
+          |> Jason.encode!()
 
         Phoenix.HTML.raw(
-          ~s(<style id="game-theme" data-light-name="#{escape(light_name)}" ) <>
-            ~s(data-dark-name="#{escape(dark_name)}">#{css}</style>)
+          ~s(<style id="game-theme" data-light-name="#{escape(first.light_name)}" ) <>
+            ~s(data-dark-name="#{escape(first.dark_name)}" ) <>
+            ~s(data-variants="#{escape(variants_json)}">#{css}</style>)
         )
-
-      _ ->
-        Phoenix.HTML.raw("")
     end
   end
 
   def style_block(_), do: Phoenix.HTML.raw("")
 
   @doc """
-  The `{light_label, dark_label}` shown for this game's two theme variants —
-  its generated names when it has them, otherwise the generic labels from
-  `RuleMaven.Metrics.game_themes/0`. Falls back per-variant, so a palette with
+  A game's renderable theme sets, picker order: a list of
+  `%{light_slug, dark_slug, light, dark, light_name, dark_name}` maps. Handles
+  both the stored sets shape and legacy single-set palettes, lifts old
+  palettes to the current contrast floors at render time (no data backfill),
+  and fills unusable names with the generic labels ("Game Light",
+  "Game Light 2", …). Empty when the game has no usable palette.
+  """
+  def theme_sets(%RuleMaven.Games.Game{} = game) do
+    palettes = ThemePalette.palette_sets(Games.effective_theme_palette(game) || %{})
+    names = ThemePalette.name_sets(Games.effective_theme_names(game) || %{})
+    defaults = Map.new(Metrics.game_themes())
+
+    palettes
+    |> Enum.with_index(1)
+    |> Enum.map(fn {%{"light" => light, "dark" => dark}, n} ->
+      set_names = Enum.at(names, n - 1) || %{}
+
+      %{
+        light_slug: Metrics.game_theme_slug(n, :light),
+        dark_slug: Metrics.game_theme_slug(n, :dark),
+        light: fixup(light),
+        dark: fixup(dark),
+        light_name: label(set_names["light"], default_label(defaults["game-light"], n)),
+        dark_name: label(set_names["dark"], default_label(defaults["game-dark"], n))
+      }
+    end)
+  end
+
+  def theme_sets(_), do: []
+
+  # Palettes persisted before the text-contrast floors were raised (or before
+  # --accent-text escalated on mid-luminance accents) get lifted at render
+  # time — no data backfill needed.
+  defp fixup(vars) do
+    vars
+    |> ThemePalette.fix_text_contrast()
+    |> ThemePalette.fix_accent_text()
+  end
+
+  defp default_label(base, 1), do: base
+  defp default_label(base, n), do: "#{base} #{n}"
+
+  @doc """
+  The `{light_label, dark_label}` shown for this game's FIRST theme set — its
+  generated names when it has them, otherwise the generic labels from
+  `RuleMaven.Metrics.game_themes/0`. Falls back per-variant, so a set with
   only one usable name still shows that one.
   """
   def variant_labels(game) do
     names =
       case game do
-        %RuleMaven.Games.Game{} -> RuleMaven.Games.effective_theme_names(game) || %{}
-        _ -> %{}
+        %RuleMaven.Games.Game{} ->
+          Games.effective_theme_names(game)
+          |> Kernel.||(%{})
+          |> ThemePalette.name_sets()
+          |> List.first()
+          |> Kernel.||(%{})
+
+        _ ->
+          %{}
       end
 
-    defaults = Map.new(RuleMaven.Metrics.game_themes())
+    defaults = Map.new(Metrics.game_themes())
 
     {
       label(names["light"], defaults["game-light"]),
@@ -99,15 +153,12 @@ defmodule RuleMavenWeb.GameLive.GameTheme do
   defp escape(text), do: text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
 
   @doc """
-  True when a game has a generated light+dark palette, i.e. the Game Light /
-  Game Dark themes are offered for it. Mirrors the guard in `style_block/1`;
-  use it to gate UI that nudges players toward the game themes.
+  True when a game has at least one generated light+dark theme set, i.e. the
+  game themes are offered for it. Mirrors the guard in `style_block/1`; use it
+  to gate UI that nudges players toward the game themes.
   """
   def has_palette?(%RuleMaven.Games.Game{} = game) do
-    case RuleMaven.Games.effective_theme_palette(game) do
-      %{"light" => light, "dark" => dark} when is_map(light) and is_map(dark) -> true
-      _ -> false
-    end
+    ThemePalette.palette_sets(Games.effective_theme_palette(game) || %{}) != []
   end
 
   def has_palette?(_), do: false

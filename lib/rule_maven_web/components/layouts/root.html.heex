@@ -186,18 +186,10 @@
 
           <div class="header-right">
             <div class="header-controls">
-              <select
-                class="theme-select"
-                id="game-theme-select"
-                aria-label="Game theme"
-                title="Match this game's colors"
-                hidden
-              >
-                <option value="0">🖌️ Off</option>
-                <option :for={{slug, label} <- RuleMaven.Metrics.game_themes()} value={slug}>
-                  🖌️ {label}
-                </option>
-              </select>
+              <%!-- Game-theme options aren't rendered here: game pages publish
+                    their variant list on the #game-theme marker
+                    (data-variants), and the script below folds them into
+                    #theme-select as a top optgroup. --%>
               <select
                 class="theme-select"
                 id="theme-select"
@@ -409,10 +401,6 @@
     <script>
       (function() {
         var select = document.getElementById('theme-select');
-        // Hidden source of the game-theme <option>s only. The single visible
-        // control is #theme-select; on game pages the game options fold into it
-        // as a top optgroup — one theme menu on every screen size.
-        var gameSource = document.getElementById('game-theme-select');
         var html = document.documentElement;
 
         // True when the current page exposes a per-game palette (the Q&A/FAQ
@@ -432,8 +420,11 @@
           return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'night-owl' : 'fresh-deck';
         }
 
+        // A game carries up to 5 generated theme sets: set 1 keeps the
+        // historical game-light/game-dark slugs, sets 2+ are game-N-light/dark
+        // (see RuleMaven.Metrics.game_theme_slug/2).
         function isGameTheme(v) {
-          return v === 'game-light' || v === 'game-dark';
+          return typeof v === 'string' && /^game(-[2-5])?-(light|dark)$/.test(v);
         }
 
         // Broadcast the effective game-match so in-page opt-in UI (the overview
@@ -445,20 +436,32 @@
           }));
         }
 
+        // The current page's game theme variants, published with the palette
+        // on the #game-theme marker as data-variants JSON:
+        // [{value: "game-light", name: "Harbor Daylight"}, …] in picker order.
+        // Server-side fallbacks already fill unusable names, so every entry
+        // carries a label. Markers rendered before data-variants existed fall
+        // back to the two legacy set-1 name attributes.
+        function gameVariants() {
+          var marker = document.getElementById('game-theme');
+          if (!marker) return [];
+          try {
+            var list = JSON.parse(marker.getAttribute('data-variants') || '');
+            if (Array.isArray(list)) {
+              return list.filter(function(v) {
+                return v && isGameTheme(v.value) && typeof v.name === 'string';
+              });
+            }
+          } catch (_e) {}
+          return [
+            { value: 'game-light', name: marker.getAttribute('data-light-name') || 'Game Light' },
+            { value: 'game-dark', name: marker.getAttribute('data-dark-name') || 'Game Dark' }
+          ];
+        }
+
         // Fold the game-theme options into the single site picker as a pinned
         // top optgroup whenever the page offers a palette — same control on
         // every screen size, so there's just one theme menu to learn.
-        // The game's own names for its two variants, generated with its palette
-        // and published on the #game-theme marker. Absent for palettes made
-        // before names existed — the static "Game Light"/"Game Dark" stand in.
-        function gameVariantLabel(value) {
-          var marker = document.getElementById('game-theme');
-          if (!marker) return null;
-          var attr = value === 'game-light' ? 'data-light-name' : 'data-dark-name';
-          var name = marker.getAttribute(attr);
-          return name && name.trim() ? name.trim() : null;
-        }
-
         function syncGameOptions(available) {
           var group = document.getElementById('theme-select-game-group');
           if (!available) {
@@ -469,26 +472,24 @@
             group = document.createElement('optgroup');
             group.id = 'theme-select-game-group';
             group.label = 'Match game';
-            Array.prototype.forEach.call(gameSource.options, function(opt) {
-              if (opt.value === '0') return;
-              var clone = opt.cloneNode(true);
-              // Stash the generic label ("🖌️ Game Light") to fall back to on a
-              // game whose palette carries no names.
-              clone.dataset.defaultLabel = opt.textContent.trim();
-              group.appendChild(clone);
-            });
             // Pin to the TOP: buried under 20+ site themes the game options
             // were effectively invisible. First thing you see now.
             select.insertBefore(group, select.firstChild);
           }
-          // Relabel on EVERY sync, not just on create: the group survives a
-          // LiveView navigation from one game to the next, and would otherwise
-          // still be advertising the previous game's variant names.
-          Array.prototype.forEach.call(group.children, function(opt) {
-            var name = gameVariantLabel(opt.value);
+          // Rebuild on EVERY sync, not just on create: the group survives a
+          // LiveView navigation from one game to the next, and both the number
+          // of sets and their names differ per game. Rebuilding can reset the
+          // select's value, so restore it.
+          var selected = select.value;
+          while (group.firstChild) group.removeChild(group.firstChild);
+          gameVariants().forEach(function(v) {
+            var opt = document.createElement('option');
+            opt.value = v.value;
             // textContent, never innerHTML — these names are model-authored.
-            opt.textContent = name ? '🖌️ ' + name : opt.dataset.defaultLabel;
+            opt.textContent = '🖌️ ' + v.name;
+            group.appendChild(opt);
           });
+          select.value = selected;
         }
 
         // Sync the picker and active theme to the current page: the chosen game
@@ -503,6 +504,11 @@
 
           var match = localStorage.getItem('themeGameMatch');
           if (available && isGameTheme(match)) {
+            // A standing selection from a game with more sets (e.g.
+            // game-4-dark) may not exist on this game — fall back to set 1 of
+            // the same scheme, which every game with a palette has.
+            var offered = gameVariants().some(function(v) { return v.value === match; });
+            if (!offered) match = /dark$/.test(match) ? 'game-dark' : 'game-light';
             html.setAttribute('data-theme', match);
             select.value = match;
           } else {

@@ -11,11 +11,15 @@ defmodule RuleMaven.ThemePalette do
     * we can force WCAG contrast on the text colors so an auto-generated theme is
       always legible, no matter how garish the cover is.
 
-  Output shape (stored on `games.theme_palette`):
+  Output shape (stored on `games.theme_palette`) — a game gets 3–5 distinct
+  light/dark theme sets, ordered best-first:
 
-      %{"light" => %{"--bg" => "#…", …}, "dark" => %{"--bg" => "#…", …}}
+      %{"sets" => [%{"light" => %{"--bg" => "#…", …}, "dark" => %{…}}, …]}
 
-  matching the `[data-theme="…"]` variable blocks hand-authored in `app.css`.
+  Rows persisted before sets existed hold a single bare
+  `%{"light" => …, "dark" => …}` map; `palette_sets/1` normalizes both shapes
+  to a list, so readers never branch. Each variant map matches the
+  `[data-theme="…"]` variable blocks hand-authored in `app.css`.
   """
 
   # Near-black the header gradient is built on; accent is mixed in for a hint of
@@ -56,6 +60,127 @@ defmodule RuleMaven.ThemePalette do
   end
 
   def build(_), do: {:error, :missing_variants}
+
+  # Hard cap on stored theme sets — matches `RuleMaven.Metrics.game_theme_slugs/0`,
+  # which allocates picker slugs for exactly this many.
+  @max_sets 5
+
+  # Two sets whose accents AND backgrounds sit this close (Euclidean RGB) read
+  # as the same theme in the picker; the later (lower-ranked) one is dropped.
+  # Judged on the model's RAW anchors, not the derived palettes — the contrast
+  # lifts push distinct mid-tone accents toward the same extreme, which would
+  # make genuinely different hues look like duplicates.
+  @dup_accent_distance 45
+  @dup_bg_distance 30
+
+  @doc """
+  Build every usable theme set from the model's `%{"sets" => [anchor_set, …]}`
+  response (a bare legacy `%{"light" => …, "dark" => …}` map counts as one
+  set). Each set runs through `build/1` — so every set gets the same contrast
+  guards — and carries its own optional names. Malformed sets are dropped, the
+  list is capped at #{@max_sets}, and near-duplicate sets (accent and bg both
+  close, per variant) are collapsed onto the earlier, better-ranked one.
+
+  Returns `{:ok, [%{palette: %{"light" => …, "dark" => …}, names: names_or_nil}, …]}`
+  (order preserved, at least one entry) or `{:error, reason}` when no set survives.
+  """
+  def build_sets(%{"sets" => sets}) when is_list(sets) do
+    built =
+      sets
+      |> Enum.flat_map(fn set ->
+        with true <- is_map(set),
+             {:ok, palette} <- build(set) do
+          names =
+            case names(set) do
+              {:ok, names} -> names
+              :error -> nil
+            end
+
+          [%{palette: palette, names: names, anchors: set}]
+        else
+          _ -> []
+        end
+      end)
+      |> dedupe_sets()
+      |> Enum.take(@max_sets)
+      |> Enum.map(&Map.delete(&1, :anchors))
+
+    case built do
+      [] -> {:error, :no_usable_sets}
+      list -> {:ok, list}
+    end
+  end
+
+  def build_sets(%{"light" => _, "dark" => _} = single), do: build_sets(%{"sets" => [single]})
+  def build_sets(_), do: {:error, :missing_variants}
+
+  @doc """
+  Normalize a stored `games.theme_palette` value to an ordered list of
+  `%{"light" => vars, "dark" => vars}` sets. Handles the sets shape, the
+  legacy single-set shape, and junk (→ `[]`). Sets missing either variant are
+  dropped, and the list is capped at #{@max_sets}.
+  """
+  def palette_sets(%{"sets" => sets}) when is_list(sets) do
+    sets
+    |> Enum.filter(fn
+      %{"light" => l, "dark" => d} when is_map(l) and is_map(d) -> true
+      _ -> false
+    end)
+    |> Enum.take(@max_sets)
+  end
+
+  def palette_sets(%{"light" => l, "dark" => d} = single) when is_map(l) and is_map(d),
+    do: [single]
+
+  def palette_sets(_), do: []
+
+  @doc """
+  Normalize a stored `games.theme_names` value to an ordered list of per-set
+  name maps, index-aligned with `palette_sets/1` (the worker writes both
+  columns from the same build). Entries may be `nil` — that set fell back to
+  the generic labels. Legacy single-set maps wrap; junk → `[]`.
+  """
+  def name_sets(%{"sets" => sets}) when is_list(sets) do
+    Enum.map(sets, fn
+      names when is_map(names) -> names
+      _ -> nil
+    end)
+  end
+
+  def name_sets(%{} = single) when map_size(single) > 0, do: [single]
+  def name_sets(_), do: []
+
+  # Keep the first (best-ranked) of any pair of look-alike sets. Similarity is
+  # judged on the DERIVED palettes so the comparison sees the same colors the
+  # user would.
+  defp dedupe_sets(sets) do
+    Enum.reduce(sets, [], fn set, kept ->
+      if Enum.any?(kept, &similar_sets?(&1, set)), do: kept, else: kept ++ [set]
+    end)
+  end
+
+  defp similar_sets?(%{anchors: a}, %{anchors: b}) do
+    Enum.all?(["light", "dark"], fn scheme ->
+      similar_variants?(a[scheme], b[scheme])
+    end)
+  end
+
+  defp similar_variants?(a, b) do
+    with {:ok, accent_a} <- parse(a["accent"]),
+         {:ok, accent_b} <- parse(b["accent"]),
+         {:ok, bg_a} <- parse(a["bg"]),
+         {:ok, bg_b} <- parse(b["bg"]) do
+      distance(accent_a, accent_b) < @dup_accent_distance and
+        distance(bg_a, bg_b) < @dup_bg_distance
+    else
+      # Unparseable colors can't be judged similar — keep both sets.
+      _ -> false
+    end
+  end
+
+  defp distance({r1, g1, b1}, {r2, g2, b2}) do
+    :math.sqrt(:math.pow(r1 - r2, 2) + :math.pow(g1 - g2, 2) + :math.pow(b1 - b2, 2))
+  end
 
   defp build_variant(anchors, scheme) when is_map(anchors) do
     with {:ok, accent} <- fetch(anchors, "accent"),

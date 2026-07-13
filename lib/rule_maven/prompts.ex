@@ -731,33 +731,42 @@ defmodule RuleMaven.Prompts do
 
   # Vars: game_name. Paired with the cover image as a vision message.
   @theme_palette """
-  You are a color designer. Look at the cover art for the board game "{{game_name}}" and design a UI color theme that evokes the game's mood and art.
+  You are a color designer. Look at the cover art for the board game "{{game_name}}" and design SEVERAL distinct UI color themes that evoke the game's mood and art.
 
   Return ONLY a JSON object — no prose, no code fences — with this exact shape:
 
   {
-    "light": { "accent": "#RRGGBB", "bg": "#RRGGBB", "surface": "#RRGGBB", "text": "#RRGGBB" },
-    "dark":  { "accent": "#RRGGBB", "bg": "#RRGGBB", "surface": "#RRGGBB", "text": "#RRGGBB" },
-    "names": { "light": "Harbor Daylight", "dark": "Longest Night" }
+    "sets": [
+      {
+        "light": { "accent": "#RRGGBB", "bg": "#RRGGBB", "surface": "#RRGGBB", "text": "#RRGGBB" },
+        "dark":  { "accent": "#RRGGBB", "bg": "#RRGGBB", "surface": "#RRGGBB", "text": "#RRGGBB" },
+        "names": { "light": "Harbor Daylight", "dark": "Longest Night" }
+      }
+    ]
   }
 
+  Sets:
+  - Return 3 to 5 sets — as many as the cover genuinely supports while staying DISTINCT. Two sets that look alike are worse than one good set; skip near-duplicates.
+  - Each set is a complete light+dark pairing built around ONE idea from the cover — e.g. the dominant color, a secondary faction or character color, a landscape/background tone, a muted vintage read of the art.
+  - Vary the accent hue meaningfully between sets (never five variations of the same blue), and let each set's bg tint follow its own idea.
+  - Order sets best first: the first set is the default players see.
+
   Anchor meanings:
-  - accent  — the signature brand color pulled from the cover (buttons, links). Vivid, recognizable.
-  - bg      — the page background. In "light" a near-white tinted toward the cover; in "dark" a near-black tinted toward the cover.
+  - accent  — the set's signature color pulled from the cover (buttons, links). Vivid, recognizable.
+  - bg      — the page background. In "light" a near-white tinted toward the set's idea; in "dark" a near-black tinted the same way.
   - surface — the card background, a small step from bg (lighter than bg in dark, brighter/whiter in light).
   - text    — the main body text color; high contrast against bg/surface.
 
   Names:
-  - "names.light" / "names.dark" name the two variants in the theme picker.
+  - Each set's "names.light" / "names.dark" name that variant in the theme picker.
   - 1-3 words, title case, evocative of THIS game's world, places, factions or objects — not generic ("Light Mode", "Game Dark") and not just the game's title.
   - The light name should feel bright or daytime; the dark name dim or nighttime.
-  - Write the names in English.
+  - Names must differ across sets. Write them in English.
 
   Rules:
-  - Every value MUST be a 6-digit hex string starting with "#".
-  - "light" must read as a light theme (bright bg, dark text); "dark" as a dark theme (dark bg, light text).
-  - Pull the accent from the cover's most distinctive color so the theme feels like the game.
-  - Keep text strongly contrasting against bg — readability first.
+  - Every color value MUST be a 6-digit hex string starting with "#".
+  - Every "light" must read as a light theme (bright bg, dark text); every "dark" as a dark theme (dark bg, light text).
+  - Keep text strongly contrasting against bg — readability first, in every set.
   """
 
   # Vars: game_name, rulebook
