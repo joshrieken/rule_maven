@@ -66,8 +66,10 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       </.game_header>
       <%!-- Very slim always-readable title strip under the control row. On
             desktop the Q&A screen hides it (the sidebar heads with the game
-            name there); on mobile it always shows — the sidebar is a drawer. --%>
-      <div class="game-title-bar">
+            name there); on mobile it always shows — the sidebar is a drawer.
+            Community renders none at all: its sticky page head carries the
+            game name. --%>
+      <div :if={@current != :community} class="game-title-bar">
         <.link :if={@current == :show} patch={~p"/games/#{@game}?start=1"} title="Game overview">
           {@game.name}
         </.link>
@@ -224,12 +226,11 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       data-tour="tools-subbar"
       style="display:inline-flex;align-items:center;gap:0.3rem;flex-shrink:0;flex-wrap:wrap"
     >
-      <%!-- Q&A screen: ONE Tools menu with Play/Learn/More subsections — the
-            header row there also carries the pager-adjacent controls and the
-            crew selector, so every reclaimed pill matters. The other game
-            pages keep the three separate menus (roomier bars, and their tours
-            point at them). --%>
-      <%= if @current == :show do %>
+      <%!-- Q&A + Community: ONE Tools menu with Rulebooks/Play/Learn/More
+            subsections — those bars also carry page controls, so every
+            reclaimed pill matters. The admin pages keep the three separate
+            menus (roomier bars, and their tours point at them). --%>
+      <%= if @current in [:show, :community] do %>
         <%!-- Rulebooks lead — they're what the answers stand on — and the two
               table-setup tools (Expansions, House rules) live under them since
               they shape which rules apply. The Play/Learn groups render minus

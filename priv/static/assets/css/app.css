@@ -1771,8 +1771,8 @@ button.motion-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.85rem;
-  height: 1.85rem;
+  width: 1.6rem;
+  height: 1.6rem;
   flex-shrink: 0;
   padding: 0;
   font-size: 0.85rem;
@@ -1844,9 +1844,11 @@ button.motion-toggle--menu:hover {
 .theme-select {
   font-family: var(--font-body);
   font-size: 0.7rem;
-  line-height: 1;
+  /* NOT 1: with the fixed height below, a unit line box sits high enough in
+     some engines to clip descenders ("Grave Digger" lost its g-tails). */
+  line-height: 1.6rem;
   /* Match the motion toggle's height so the header controls sit flush. */
-  height: 1.85rem;
+  height: 1.6rem;
   padding: 0 1.4rem 0 0.5rem;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
@@ -1910,6 +1912,29 @@ button.motion-toggle--menu:hover {
 .pill-link-accent:hover {
   color: var(--accent-text, #fff);
   background: var(--accent);
+}
+/* Element-qualified re-statement for <button>/<input> pills (e.g. the crew
+   Feed button, the table-context pills): the generic `[type="button"]` base
+   rule further down ties a lone class's specificity and comes later, so
+   button pills otherwise render with its bigger 0.85rem/var(--text) box and
+   read louder than the <summary>/<a> pills beside them. */
+button.pill-link,
+[type="button"].pill-link {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.3rem;
+  box-shadow: none;
+  line-height: normal;
+}
+button.pill-link-accent,
+[type="button"].pill-link-accent {
+  color: var(--accent-ink, var(--accent));
+  border-color: var(--accent-ink, var(--accent));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 /* Role badge: "A" beside an admin's username, "SA" for the super admin.
@@ -3396,6 +3421,35 @@ textarea {
   }
 }
 
+/* Community Q&A: sticky page head (title + universal search) pinned right
+   under the sticky game bar. --gamebar-h is measured by syncHeaderHeight in
+   app.js; the fallback approximates the desktop bar. Negative margins let
+   its opaque background span the container's side padding while scrolled. */
+.community-head {
+  position: sticky;
+  top: var(--gamebar-h, 2.7rem);
+  z-index: 20;
+  background: var(--bg);
+  margin: 0 -1rem 0.9rem;
+  padding: 0.9rem 1rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Entrance animations, mirroring the Q&A screen: head drops in, the page
+   body rises. One-shot; disabled with the rest under prefers-reduced-motion. */
+.community-head {
+  animation: qa-drop-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
+}
+.community-page {
+  animation: qa-rise-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .community-head,
+  .community-page {
+    animation: none !important;
+  }
+}
+
 /* Desktop: floating, resizable card, no backdrop, chat stays live. `bottom`
    clears the composer (--rm-tray-bottom) plus the minimized-tool tray
    (--rm-tray-h, unset when nothing is minimized), so the panel never covers
@@ -4381,9 +4435,9 @@ body:has([data-phx-main].phx-connected)::after {
   display: flex; align-items: center; gap: 0.35rem;
   cursor: pointer; list-style: none;
   padding: 0.2rem 0.5rem; border-radius: 6px;
-  /* Same 1.85rem the theme select and motion toggle share, so the header
+  /* Same 1.6rem the theme select and motion toggle share, so the header
      reads as one row of equal-height controls. */
-  height: 1.85rem;
+  height: 1.6rem;
   transition: background 0.15s; user-select: none;
 }
 .user-dropdown-toggle::-webkit-details-marker { display: none; }
@@ -4889,7 +4943,7 @@ body:has([data-phx-main].phx-connected)::after {
     padding: 0.2rem 0.6rem;
   }
 
-  /* Desktop deliberately sizes these two to a shared 1.85rem so the header
+  /* Desktop deliberately sizes these two to a shared 1.6rem so the header
      reads as one row of controls. Growing only the toggle for touch broke that
      pairing, so the select grows with it. */
   button.motion-toggle {
@@ -4899,6 +4953,8 @@ body:has([data-phx-main].phx-connected)::after {
 
   .theme-select {
     height: 2.5rem;
+    /* Track the height (see the desktop rule) or descenders clip. */
+    line-height: 2.5rem;
   }
 
   .btn-icon {

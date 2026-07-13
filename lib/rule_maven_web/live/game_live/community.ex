@@ -415,36 +415,41 @@ defmodule RuleMavenWeb.GameLive.Community do
       included_expansions={@included_expansions}
       house_rule_count={@house_rule_count}
     />
-    <div style="max-width:52rem;margin:0 auto;padding:1.5rem 1rem;position:relative;z-index:1">
-      <h1 style="font-size:1.25rem;font-weight:700;margin-bottom:0.25rem">
-        {@game.name} — Community Q&amp;A
-      </h1>
-      <p style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:1rem">
-        Questions players have asked, with answers drawn from the rulebook.
-      </p>
+    <div class="community-page" style="max-width:52rem;margin:0 auto;padding:0 1rem 1.5rem;position:relative;z-index:1">
+      <%!-- Sticky page head: title + universal search pin just below the
+            (also sticky) game bar — --gamebar-h is measured by app.js's
+            syncHeaderHeight, same mechanism as --header-height. --%>
+      <div class="community-head">
+        <h1 style="font-size:1.25rem;font-weight:700;margin-bottom:0.1rem">
+          {@game.name} — Community Q&amp;A
+        </h1>
+        <p style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.6rem">
+          Questions players have asked, with answers drawn from the rulebook.
+        </p>
 
-      <%!-- Search across all tabs at once --%>
-      <form id="community-search" phx-change="search" phx-submit="search" style="margin-bottom:0.9rem">
-        <div style="display:flex;align-items:center;gap:0.4rem">
-          <input
-            type="text"
-            name="q"
-            value={@search_query}
-            placeholder="Search all questions &amp; answers…"
-            phx-debounce="200"
-            autocomplete="off"
-            style="flex:1;font-size:0.78rem;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-surface);color:var(--text)"
-          />
-          <button
-            :if={@search_query != ""}
-            type="button"
-            phx-click="clear_search"
-            class="btn-xs"
-          >
-            Clear ✕
-          </button>
-        </div>
-      </form>
+        <%!-- Search across all tabs at once --%>
+        <form id="community-search" phx-change="search" phx-submit="search">
+          <div style="display:flex;align-items:center;gap:0.4rem">
+            <input
+              type="text"
+              name="q"
+              value={@search_query}
+              placeholder="Search all questions &amp; answers…"
+              phx-debounce="200"
+              autocomplete="off"
+              style="flex:1;font-size:0.78rem;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-surface);color:var(--text)"
+            />
+            <button
+              :if={@search_query != ""}
+              type="button"
+              phx-click="clear_search"
+              class="btn-xs"
+            >
+              Clear ✕
+            </button>
+          </div>
+        </form>
+      </div>
 
       <%= if @search_query != "" do %>
         <%!-- Universal search results: all tabs, status-badged --%>

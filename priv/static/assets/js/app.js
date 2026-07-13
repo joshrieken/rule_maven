@@ -2335,6 +2335,12 @@ function syncHeaderHeight() {
   if (header) {
     document.documentElement.style.setProperty("--header-height", header.offsetHeight + "px");
   }
+  // Same idea for the game bar: the Community page's sticky head pins at
+  // --gamebar-h, flush under the (also sticky) bar at any viewport width.
+  const gamebar = document.querySelector(".game-bar");
+  if (gamebar) {
+    document.documentElement.style.setProperty("--gamebar-h", gamebar.offsetHeight + "px");
+  }
   // Offset the whole sticky stack (header + any sticky list controls) so
   // scrollIntoView / scroll restore land cards below it instead of clipping
   // the top row under the bar.
