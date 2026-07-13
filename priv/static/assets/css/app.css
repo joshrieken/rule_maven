@@ -5148,3 +5148,75 @@ body:has([data-phx-main].phx-connected)::after {
     min-height: 36px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Easter egg: long-press the header brand → meeple parade across the bottom
+   of the screen. Six meeples waddle across; a seventh leaves late and sprints
+   to catch up. Spawned/removed by the brand long-press IIFE in app.js.
+   --------------------------------------------------------------------------- */
+
+/* Long-press shouldn't select the title text or pop the iOS link callout. */
+.header-brand {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.meeple-parade {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0.75rem;
+  height: 2.75rem;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 9000;
+}
+
+.meeple-walker {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 2rem;
+  height: 2rem;
+  /* Matches the meeple-march start frame so a delayed walker waits offscreen. */
+  transform: translateX(-3rem);
+  animation: meeple-march 8s linear forwards;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+}
+
+.meeple-walker svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+  transform-origin: 50% 90%;
+  animation: meeple-waddle 0.4s ease-in-out infinite;
+}
+
+/* The straggler: leaves after the pack, sprints (frantic waddle), and lands
+   just behind them — finishing last, so its animationend closes the parade
+   (last pack meeple: 1.75s delay + 8s; straggler: 4s + 6s). */
+.meeple-late {
+  animation-duration: 6s;
+  animation-delay: 4s;
+}
+
+.meeple-late svg {
+  animation-duration: 0.15s;
+}
+
+@keyframes meeple-march {
+  from { transform: translateX(-3rem); }
+  to   { transform: translateX(calc(100vw + 1rem)); }
+}
+
+@keyframes meeple-waddle {
+  0%   { transform: rotate(-9deg) translateY(0); }
+  50%  { transform: rotate(0deg) translateY(-3px); }
+  100% { transform: rotate(9deg) translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meeple-parade { display: none; }
+}

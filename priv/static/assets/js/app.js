@@ -2494,3 +2494,90 @@ if ("serviceWorker" in navigator) {
     if (e.key === 'Escape' && drawer.classList.contains('open')) close();
   });
 })();
+
+// Easter egg: long-press the header brand → meeple parade (styles: .meeple-parade
+// in app.css). The brand is a link, so a completed long-press swallows the
+// following click to keep the user on the page they're admiring the parade from.
+(function() {
+  var brand = document.querySelector('.header-brand');
+  if (!brand) return;
+
+  var MEEPLE =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-1.6 0-2.9 1.3-2.9 ' +
+    '2.9 0 .8.3 1.5.8 2-1.8.7-3.6 1.9-5.2 3.5-1 1-1.4 2-1 2.8.3.7 1.2 1.1 2.4 1.1.9 ' +
+    '0 1.9-.2 2.9-.6-.7 2.2-2 4.6-3.4 6.2-.6.7-.7 1.4-.4 1.9.3.5 1 .8 1.9.8 1.5 0 ' +
+    '3.4-.7 4.9-1.9 1.5 1.2 3.4 1.9 4.9 1.9.9 0 1.6-.3 1.9-.8.3-.5.2-1.2-.4-1.9-1.4-' +
+    '1.6-2.7-4-3.4-6.2 1 .4 2 .6 2.9.6 1.2 0 2.1-.4 2.4-1.1.4-.8 0-1.8-1-2.8-1.6-1.6' +
+    '-3.4-2.8-5.2-3.5.5-.5.8-1.2.8-2C14.9 3.3 13.6 2 12 2z"/></svg>';
+  var COLORS = ['#e74c3c', '#3498db', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22'];
+
+  var timer = null;
+  var marching = false;
+  var suppressClick = false;
+
+  function arm(e) {
+    if (e.button !== undefined && e.button !== 0) return;
+    disarm();
+    timer = setTimeout(function() {
+      suppressClick = true;
+      parade();
+    }, 600);
+  }
+
+  function disarm() {
+    if (timer) { clearTimeout(timer); timer = null; }
+  }
+
+  brand.addEventListener('pointerdown', arm);
+  brand.addEventListener('pointerup', disarm);
+  brand.addEventListener('pointerleave', disarm);
+  brand.addEventListener('pointercancel', disarm);
+  // Mobile long-press otherwise opens the link context menu before we fire.
+  brand.addEventListener('contextmenu', function(e) {
+    if (timer || suppressClick) e.preventDefault();
+  });
+  brand.addEventListener('click', function(e) {
+    if (suppressClick) {
+      e.preventDefault();
+      suppressClick = false;
+    }
+  });
+
+  function parade() {
+    if (marching) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    marching = true;
+
+    var strip = document.createElement('div');
+    strip.className = 'meeple-parade';
+    strip.setAttribute('aria-hidden', 'true');
+
+    for (var i = 0; i < COLORS.length; i++) {
+      var m = document.createElement('span');
+      m.className = 'meeple-walker';
+      m.style.color = COLORS[i];
+      m.style.animationDelay = (i * 0.35) + 's';
+      m.innerHTML = MEEPLE;
+      strip.appendChild(m);
+    }
+
+    // The straggler — .meeple-late's delay/duration make it leave last and
+    // sprint. It also finishes last, so its march ending ends the parade.
+    var late = document.createElement('span');
+    late.className = 'meeple-walker meeple-late';
+    late.style.color = '#e91e63';
+    late.innerHTML = MEEPLE;
+    strip.appendChild(late);
+    document.body.appendChild(strip);
+
+    function done() {
+      strip.remove();
+      marching = false;
+    }
+    late.addEventListener('animationend', function(e) {
+      if (e.animationName === 'meeple-march') done();
+    });
+    // The strip must never outlive a missed animationend (e.g. background tab).
+    setTimeout(done, 12000);
+  }
+})();
