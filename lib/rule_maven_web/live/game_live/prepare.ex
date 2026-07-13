@@ -1548,18 +1548,24 @@ defmodule RuleMavenWeb.GameLive.Prepare do
             </div>
           </div>
         <% :theme -> %>
-          <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
-            <%= for mode <- ["light", "dark"], is_map(@preview[mode]) do %>
-              <% v = @preview[mode] %>
-              <div style={"display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.5rem;border-radius:0.35rem;border:1px solid var(--border);background:#{v["--bg"]}"}>
-                <span style={"font-size:0.62rem;font-weight:700;text-transform:capitalize;color:#{v["--text"]}"}>
-                  {mode}
-                </span>
-                <span
-                  :for={key <- ["--accent", "--bg", "--bg-surface", "--text"]}
-                  title={key}
-                  style={"width:0.9rem;height:0.9rem;border-radius:0.2rem;border:1px solid var(--border);background:#{v[key]}"}
-                ></span>
+          <%!-- One swatch row per theme set (legacy single-set palettes
+               normalize to one row via palette_sets/1). --%>
+          <div style="display:flex;flex-direction:column;gap:0.5rem">
+            <%= for set <- RuleMaven.ThemePalette.palette_sets(@preview || %{}) do %>
+              <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+                <%= for mode <- ["light", "dark"], is_map(set[mode]) do %>
+                  <% v = set[mode] %>
+                  <div style={"display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.5rem;border-radius:0.35rem;border:1px solid var(--border);background:#{v["--bg"]}"}>
+                    <span style={"font-size:0.62rem;font-weight:700;text-transform:capitalize;color:#{v["--text"]}"}>
+                      {mode}
+                    </span>
+                    <span
+                      :for={key <- ["--accent", "--bg", "--bg-surface", "--text"]}
+                      title={key}
+                      style={"width:0.9rem;height:0.9rem;border-radius:0.2rem;border:1px solid var(--border);background:#{v[key]}"}
+                    ></span>
+                  </div>
+                <% end %>
               </div>
             <% end %>
           </div>

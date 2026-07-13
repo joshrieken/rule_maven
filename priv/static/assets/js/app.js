@@ -1355,13 +1355,19 @@ Hooks.FloatingPanel = {
 // light/dark game variant matching the viewer's CURRENT look (sampled from the
 // live background luminance, so it fits whatever base theme is active), exactly
 // like the header theme picker (localStorage themeGameMatch + data-theme).
-// The wrapper holds two pills: [data-role=dress] (opt in) while no game variant
-// is active, and [data-role=undress] (switch back) once one is applied. Which
-// one shows is driven by the shared `rm:gametheme` event the root layout
-// dispatches, so the pair stays in sync with the header theme picker too.
+// The wrapper holds three pills: [data-role=dress] (opt in) while no game
+// variant is active, and once one is applied, [data-role=undress] (switch
+// back) plus [data-role=restyle], which cycles through the game's other theme
+// sets in the same light/dark scheme — shown only when the game actually has
+// more than one set for that scheme. Which pills show is driven by the shared
+// `rm:gametheme` event the root layout dispatches, so they stay in sync with
+// the header theme picker too.
 Hooks.GameThemeHint = {
+  // Any of a game's generated theme sets counts as "dressed": set 1 is
+  // game-light/game-dark, sets 2-5 are game-N-light/dark (see
+  // RuleMaven.Metrics.game_theme_slug/2).
   isGame(v) {
-    return v === "game-light" || v === "game-dark";
+    return typeof v === "string" && /^game(-[2-5])?-(light|dark)$/.test(v);
   },
   // `hidden` alone loses to the pills' inline display:inline-flex (inline style
   // outranks the UA's [hidden]{display:none}), so set display explicitly.
@@ -1370,10 +1376,48 @@ Hooks.GameThemeHint = {
     el.hidden = !yes;
     el.style.display = yes ? "inline-flex" : "none";
   },
+  // The page's game theme variants, from the #game-theme marker's
+  // data-variants JSON (same source the header picker uses). Old markers
+  // without the attribute mean a single set: the two legacy slugs.
+  variants() {
+    var marker = document.getElementById("game-theme");
+    if (!marker) return [];
+    try {
+      var list = JSON.parse(marker.getAttribute("data-variants") || "");
+      if (Array.isArray(list)) {
+        var self = this;
+        return list.filter(function(v) { return v && self.isGame(v.value); });
+      }
+    } catch (_e) {}
+    return [{ value: "game-light" }, { value: "game-dark" }];
+  },
+  // The variants sharing `match`'s light/dark scheme, in set order.
+  schemeVariants(match) {
+    var dark = /dark$/.test(match);
+    return this.variants().filter(function(v) {
+      return /dark$/.test(v.value) === dark;
+    });
+  },
+  apply(variant) {
+    localStorage.setItem("themeGameMatch", variant);
+    document.documentElement.setAttribute("data-theme", variant);
+    var sel = document.getElementById("theme-select");
+    if (sel) sel.value = variant;
+    window.dispatchEvent(new CustomEvent("rm:gametheme", { detail: { match: variant } }));
+  },
   sync(match) {
     var on = this.isGame(match);
     this.show(this.el.querySelector('[data-role="dress"]'), !on);
     this.show(this.el.querySelector('[data-role="undress"]'), on);
+    var restyle = this.el.querySelector('[data-role="restyle"]');
+    var looks = on ? this.schemeVariants(match) : [];
+    this.show(restyle, on && looks.length > 1);
+    if (restyle && on && looks.length > 1) {
+      var idx = looks.findIndex(function(v) { return v.value === match; });
+      // textContent, never innerHTML — set names are model-authored.
+      restyle.textContent =
+        "\uD83C\uDFB2 Try another look (" + (idx < 0 ? 1 : idx + 1) + "/" + looks.length + ")";
+    }
   },
   mounted() {
     var self = this;
@@ -1395,11 +1439,17 @@ Hooks.GameThemeHint = {
             if (lum < 128) variant = "game-dark";
           }
         } catch (_e) {}
-        localStorage.setItem("themeGameMatch", variant);
-        document.documentElement.setAttribute("data-theme", variant);
-        var sel = document.getElementById("theme-select");
-        if (sel) sel.value = variant;
-        window.dispatchEvent(new CustomEvent("rm:gametheme", { detail: { match: variant } }));
+        self.apply(variant);
+        return;
+      }
+      if (btn.dataset.role === "restyle") {
+        // Advance to the game's next theme set, keeping the light/dark scheme.
+        var match = localStorage.getItem("themeGameMatch");
+        var looks = self.schemeVariants(match);
+        if (looks.length > 1) {
+          var idx = looks.findIndex(function(v) { return v.value === match; });
+          self.apply(looks[(idx + 1) % looks.length].value);
+        }
         return;
       }
       // Switch back: route through the header picker's change handler when it
@@ -2191,7 +2241,7 @@ Hooks.Tour = {
   },
   // Present on this page = highlightable now (or a centered sel:null card).
   // Requires a rendered box, not just a DOM match — controls hidden by
-  // responsive CSS (e.g. #game-theme-select on mobile) must skip, or the
+  // responsive CSS (e.g. .header-user on mobile) must skip, or the
   // spotlight lands on nothing.
   present(step) {
     if (!step.sel) return true;

@@ -50,8 +50,35 @@ defmodule RuleMaven.Metrics do
     {"game-dark", "Game Dark"}
   ]
 
+  # A game carries up to this many generated theme sets (see
+  # `RuleMaven.ThemePalette.build_sets/1`). Set 1 keeps the historical
+  # `game-light`/`game-dark` slugs — stored picker selections and past
+  # theme_events stay valid — and sets 2+ get `game-N-light`/`game-N-dark`.
+  @max_game_theme_sets 5
+
   @doc "Ordered `{slug, label}` list for the dynamic per-game themes."
   def game_themes, do: @game_themes
+
+  @doc "How many generated theme sets a game may carry."
+  def max_game_theme_sets, do: @max_game_theme_sets
+
+  @doc """
+  Picker slug for set `n`'s `:light`/`:dark` variant. Set 1 keeps the
+  historical two-slug form.
+  """
+  def game_theme_slug(1, :light), do: "game-light"
+  def game_theme_slug(1, :dark), do: "game-dark"
+
+  def game_theme_slug(n, scheme)
+      when n in 2..@max_game_theme_sets and scheme in [:light, :dark],
+      do: "game-#{n}-#{scheme}"
+
+  @doc "Every valid per-game theme slug, all sets, light before dark within a set."
+  def game_theme_slugs do
+    for n <- 1..@max_game_theme_sets, scheme <- [:light, :dark] do
+      game_theme_slug(n, scheme)
+    end
+  end
 
   @doc "Default theme slug for users who prefer light / dark color schemes."
   def default_theme(:dark), do: "night-owl"
@@ -73,9 +100,9 @@ defmodule RuleMaven.Metrics do
     end
   end
 
-  @doc "Allowlist of valid theme slugs (includes the dynamic per-game themes)."
+  @doc "Allowlist of valid theme slugs (includes every dynamic per-game theme set)."
   def theme_slugs do
-    Enum.map(@game_themes, &elem(&1, 0)) ++ Enum.map(@themes, &elem(&1, 0))
+    game_theme_slugs() ++ Enum.map(@themes, &elem(&1, 0))
   end
 
   @doc "Map of slug => label."

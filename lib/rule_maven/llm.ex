@@ -4386,11 +4386,13 @@ defmodule RuleMaven.LLM do
   end
 
   @doc """
-  Designs a per-game color theme from the game's cover art. Returns
-  `{:ok, %{"light" => anchors, "dark" => anchors}}` where each anchors map has
-  string keys `accent`/`bg`/`surface`/`text` (hex strings) — feed straight into
-  `RuleMaven.ThemePalette.build/1`. May also carry a `"names"` key for
-  `RuleMaven.ThemePalette.names/1`. `{:error, reason}` on fetch/LLM/parse failure.
+  Designs 3–5 distinct per-game color theme sets from the game's cover art.
+  Returns `{:ok, %{"sets" => [set, …]}}` where each set is
+  `%{"light" => anchors, "dark" => anchors, "names" => …}` with anchor maps of
+  string keys `accent`/`bg`/`surface`/`text` (hex strings) — feed straight
+  into `RuleMaven.ThemePalette.build_sets/1`, which also validates each set. A
+  model that ignores the sets shape and answers with one bare light/dark pair
+  is normalized to a one-set list. `{:error, reason}` on fetch/LLM/parse failure.
   """
   def generate_theme_palette(game_name, image_url, game_id \\ nil)
 
@@ -4406,7 +4408,9 @@ defmodule RuleMaven.LLM do
              ]
            }
          ],
-         body = %{model: vision_model(), max_tokens: 2000, messages: messages},
+         # 5 sets of anchors + names is ~5x the old single-set payload; leave the
+         # model room so the last sets aren't truncated mid-JSON.
+         body = %{model: vision_model(), max_tokens: 4000, messages: messages},
          # Read :raw_response, not :answer — decode_answer/1 assumes the Q&A JSON
          # schema and would extract a nonexistent "answer" key from our palette
          # JSON, yielding "". raw_response is the unparsed model content.
@@ -4466,10 +4470,16 @@ defmodule RuleMaven.LLM do
       end
 
     case Jason.decode(json || "") do
+      {:ok, %{"sets" => sets}} when is_list(sets) and sets != [] ->
+        # Per-set contents (anchors, names) are validated downstream by
+        # ThemePalette.build_sets/1 — a malformed set drops without failing
+        # the good ones.
+        {:ok, %{"sets" => Enum.map(sets, &take_set/1)}}
+
       {:ok, %{"light" => l, "dark" => d} = decoded} when is_map(l) and is_map(d) ->
-        # "names" rides along untouched (ThemePalette.names/1 validates it); a
-        # missing or malformed one must not fail an otherwise good palette.
-        {:ok, Map.take(decoded, ["light", "dark", "names"])}
+        # Legacy single-set answer (model ignored the sets shape): normalize
+        # to a one-set list so callers only ever see the sets shape.
+        {:ok, %{"sets" => [take_set(decoded)]}}
 
       {:ok, _} ->
         {:error, :bad_palette_shape}
@@ -4478,6 +4488,9 @@ defmodule RuleMaven.LLM do
         {:error, :palette_parse_failed}
     end
   end
+
+  defp take_set(set) when is_map(set), do: Map.take(set, ["light", "dark", "names"])
+  defp take_set(other), do: other
 
   defp api_key do
     provider = RuleMaven.Settings.get("llm_provider") || "openrouter"

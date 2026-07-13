@@ -3888,6 +3888,14 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </button>
                 <button
                   type="button"
+                  data-role="restyle"
+                  hidden
+                  style="display:none;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.72rem;font-weight:700;color:var(--accent-ink,var(--accent));cursor:pointer"
+                >
+                  🎲 Try another look
+                </button>
+                <button
+                  type="button"
                   data-role="undress"
                   hidden
                   style="display:none;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:transparent;border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.72rem;font-weight:600;color:var(--text-muted);cursor:pointer"

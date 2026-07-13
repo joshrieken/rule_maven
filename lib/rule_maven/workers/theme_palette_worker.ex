@@ -1,14 +1,16 @@
 defmodule RuleMaven.Workers.ThemePaletteWorker do
   @moduledoc """
   Durable per-game theme generation. Given a game with a BGG cover image, asks
-  the vision model for a small set of anchor colors, expands + contrast-guards
-  them into a full light/dark CSS-variable palette (`RuleMaven.ThemePalette`),
-  and stores it on `games.theme_palette`.
+  the vision model for 3–5 distinct sets of anchor colors, expands +
+  contrast-guards each into a full light/dark CSS-variable palette
+  (`RuleMaven.ThemePalette.build_sets/1`), and stores them on
+  `games.theme_palette` as `%{"sets" => [...]}`.
 
-  The same call names the two variants after the game's world (e.g. "Harbor
-  Daylight" / "Longest Night"); the names land on `games.theme_names` and label
-  the game options in the theme picker. Names are cosmetic — an unusable one
-  never fails an otherwise good palette, it just falls back to "Game Light".
+  The same call names every variant after the game's world (e.g. "Harbor
+  Daylight" / "Longest Night"); the names land on `games.theme_names` as an
+  index-aligned `%{"sets" => [...]}` and label the game options in the theme
+  picker. Names are cosmetic — an unusable one never fails an otherwise good
+  set, it just falls back to the generic labels.
 
   Enqueued after a successful BGG enrich (when `image_url` first lands) and
   re-runnable on demand. Skips silently when the game has no cover. Broadcasts
@@ -55,10 +57,9 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
     status =
       case build_palette(game) do
         {:ok, palette, names} ->
-          attrs = %{theme_palette: palette}
-          attrs = if names, do: Map.put(attrs, :theme_names, names), else: attrs
-
-          case Games.update_game(game, attrs) do
+          # Both columns are written together — palette_sets/1 and name_sets/1
+          # readers rely on the two lists staying index-aligned.
+          case Games.update_game(game, %{theme_palette: palette, theme_names: names}) do
             {:ok, _} -> {:ok, palette, names}
             {:error, reason} -> {:error, reason}
           end
@@ -75,7 +76,7 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
         Jobs.finish_run(
           run,
           "done",
-          "Palette generated (#{map_size(palette)} variants). #{name_summary(names)}"
+          "Palette generated (#{length(palette["sets"])} theme sets). #{name_summary(names)}"
         )
 
       :skip ->
@@ -104,22 +105,22 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
 
   defp build_palette(%{id: id, name: name, image_url: url}) when is_binary(url) and url != "" do
     with {:ok, anchors} <- LLM.generate_theme_palette(name, url, id),
-         {:ok, palette} <- ThemePalette.build(anchors) do
-      # Names are cosmetic: a model that returns junk (or nothing) still gets its
-      # colours, and the picker falls back to the generic "Game Light"/"Game Dark".
-      names =
-        case ThemePalette.names(anchors) do
-          {:ok, names} -> names
-          :error -> nil
-        end
-
-      {:ok, palette, names}
+         {:ok, sets} <- ThemePalette.build_sets(anchors) do
+      # Names are cosmetic and per-set: a set whose names are junk (nil entry)
+      # still gets its colours; the picker falls back to the generic labels.
+      {:ok, %{"sets" => Enum.map(sets, & &1.palette)}, %{"sets" => Enum.map(sets, & &1.names)}}
     end
   end
 
   defp build_palette(_), do: :skip
 
-  defp name_summary(%{"light" => light, "dark" => dark}), do: "Named #{light} / #{dark}."
+  defp name_summary(%{"sets" => name_sets}) when is_list(name_sets) do
+    case for %{"light" => l, "dark" => d} <- name_sets, do: "#{l} / #{d}" do
+      [] -> "Unnamed — using the default variant labels."
+      pairs -> "Named #{Enum.join(pairs, "; ")}."
+    end
+  end
+
   defp name_summary(_), do: "Unnamed — using the default variant labels."
 
   @doc """
