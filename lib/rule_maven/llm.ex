@@ -191,6 +191,7 @@ defmodule RuleMaven.LLM do
         call_llm(
           game,
           match_text,
+          question,
           expansion_ids,
           recent_context,
           question_embedding,
@@ -405,6 +406,7 @@ defmodule RuleMaven.LLM do
   defp call_llm(
          game,
          question,
+         raw_question,
          expansion_ids,
          recent_context,
          question_embedding,
@@ -435,6 +437,13 @@ defmodule RuleMaven.LLM do
 
     ctx = %{
       question: question,
+      # The RAW user question, before normalize. Premise detection judges
+      # against this, not the cleaned form: the normalizer drops fraction words
+      # ("a third") that `ignored_premises/2` needs to see, so checking the
+      # cleaned text would miss exactly the misconception the gate exists to
+      # catch. The retry warning carries the stripped premise forward into the
+      # normalized re-ask.
+      raw_question: raw_question,
       model_name: model_name,
       game_id: game.id,
       user_id: user_id,
@@ -959,8 +968,8 @@ defmodule RuleMaven.LLM do
       if refused_answer?(llm_result),
         do: [],
         else:
-          RuleMaven.Games.Citations.ignored_numbers(
-            to_string(ctx.question),
+          RuleMaven.Games.Citations.ignored_premises(
+            to_string(ctx.raw_question),
             to_string(llm_result[:answer])
           )
 
@@ -970,17 +979,25 @@ defmodule RuleMaven.LLM do
       require Logger
 
       Logger.warning(
-        "ignored premise: answer never engages stated value(s) #{inspect(missing)} (game=#{inspect(ctx.game_id)})"
+        "ignored premise: answer never engages stated premise(s) #{inspect(missing)} (game=#{inspect(ctx.game_id)})"
       )
 
       warning =
-        "\n\nIMPORTANT: a previous answer attempt IGNORED these values stated in the question: #{Enum.join(missing, ", ")}. " <>
+        "\n\nIMPORTANT: a previous answer attempt IGNORED these premises stated in the question: #{Enum.join(missing, ", ")}. " <>
           "A stated current value (a track position, a supply count, a hand size) REPLACES the game's setup default — answer for the exact state the question describes, and NEVER state a resulting value computed from any starting value other than the stated one. " <>
+          "A stated fraction, ratio, or quantity the asker ASSERTS is a claim to CONFIRM or CORRECT explicitly — if the rule differs, say so in those terms ('No — it is half, not a third'), never recite the correct rule while leaving the asserted one unaddressed. " <>
           "If the rules do not cover the stated state, LEAD with exactly that ('The rules do not specify what happens when …'), then give the closest applicable rule — and still CITE that rule verbatim in the citations, so the answer stays grounded."
 
       case request_answer(
              system_prompt <> warning,
-             ctx.question,
+             # Re-ask on the RAW question, not the normalized one. The premise
+             # gate fires precisely because normalize dropped a premise (e.g. a
+             # fraction), so re-asking the cleaned text would hand the model a
+             # question that STILL lacks it — the model would recite the generic
+             # rule again and the warning would read as contradicting the shown
+             # question. The retrieved chunks are already baked into
+             # system_prompt, so only the user turn changes.
+             ctx.raw_question,
              ctx.model_name,
              ctx.game_id,
              ctx.user_id,
@@ -1012,8 +1029,8 @@ defmodule RuleMaven.LLM do
       if refused_answer?(retried),
         do: [],
         else:
-          RuleMaven.Games.Citations.ignored_numbers(
-            to_string(ctx.question),
+          RuleMaven.Games.Citations.ignored_premises(
+            to_string(ctx.raw_question),
             to_string(retried[:answer])
           )
 
@@ -1025,7 +1042,8 @@ defmodule RuleMaven.LLM do
 
       case request_answer(
              warned_system_prompt,
-             ctx.question,
+             # Escalate on the raw question too — same reason as the retry rung.
+             ctx.raw_question,
              escalate_model,
              ctx.game_id,
              ctx.user_id,
@@ -1041,8 +1059,8 @@ defmodule RuleMaven.LLM do
           # discarded answer into, and it engages nothing).
           engaged? =
             String.trim(to_string(esc[:answer])) != @refusal_answer and
-              RuleMaven.Games.Citations.ignored_numbers(
-                to_string(ctx.question),
+              RuleMaven.Games.Citations.ignored_premises(
+                to_string(ctx.raw_question),
                 to_string(esc[:answer])
               ) == []
 

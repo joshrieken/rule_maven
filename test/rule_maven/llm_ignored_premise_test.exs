@@ -150,6 +150,40 @@ defmodule RuleMaven.LLMIgnoredPremiseTest do
     assert result.answer =~ "Terror Level is 2"
   end
 
+  test "an asserted fraction the answer recites past spends one retry" do
+    game = seed_corpus()
+
+    fraction_q = "Playing solo, do I move the Terror Track down a third when a Monster is defeated?"
+
+    reciting =
+      answer_result("When a Monster is defeated, move the Terror Track down one space.")
+
+    correcting =
+      answer_result(
+        "No — defeating a Monster moves the Terror Track down one space, not a third."
+      )
+
+    Process.put(:ask_calls, 0)
+
+    Application.put_env(:rule_maven, :llm_mock, fn body ->
+      if body[:response_format] do
+        n = Process.get(:ask_calls) + 1
+        Process.put(:ask_calls, n)
+        if n == 1, do: reciting, else: correcting
+      else
+        # Normalize echoes THIS question so the stated fraction survives.
+        {:ok, %{answer: fraction_q}}
+      end
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    {:ok, result} = LLM.ask(game, fraction_q)
+
+    assert result.answer =~ "not a third"
+    assert Process.get(:ask_calls) == 2
+  end
+
   test "a refusal never enters the premise gate" do
     game = seed_corpus()
 

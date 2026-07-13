@@ -561,4 +561,70 @@ defmodule RuleMaven.Games.CitationsTest do
       assert Citations.ignored_numbers("a question with 3", nil) == []
     end
   end
+
+  describe "ignored_fractions/2" do
+    test "flags a stated fraction the answer never engages" do
+      # Asker asserts "a third"; answer recites the generic half-rule and never
+      # confirms or corrects the third.
+      assert Citations.ignored_fractions(
+               "Do I discard a third of my cards when a 7 is rolled?",
+               "When a 7 is rolled, players with more than 7 cards discard half of them, rounded down."
+             ) == ["1/3"]
+    end
+
+    test "flags a quarter the answer ignores" do
+      assert Citations.ignored_fractions(
+               "Is it true I discard a quarter of my hand?",
+               "You discard half of your resource cards, rounded down."
+             ) == ["1/4"]
+    end
+
+    test "an answer that corrects the fraction by naming it passes" do
+      assert Citations.ignored_fractions(
+               "Do I discard a third of my cards?",
+               "No — you discard half, not a third."
+             ) == []
+    end
+
+    test "an answer that agrees with the stated fraction passes" do
+      assert Citations.ignored_fractions(
+               "Do I lose half my cards?",
+               "Yes, you discard half of your resource cards, rounded down."
+             ) == []
+    end
+
+    test "slash-form fractions are recognized on both sides" do
+      assert Citations.ignored_fractions("Do I discard 1/3?", "You discard 1/2.") == ["1/3"]
+      assert Citations.ignored_fractions("Do I discard 1/3?", "No, it is 1/3? No — 1/3.") == []
+    end
+
+    test "questions with no fractions never flag" do
+      assert Citations.ignored_fractions("How do I move the robber?", "Roll a 7 to move it.") == []
+    end
+
+    test "non-binary input never flags" do
+      assert Citations.ignored_fractions(nil, "an answer") == []
+      assert Citations.ignored_fractions("half of a question", nil) == []
+    end
+  end
+
+  describe "ignored_premises/2" do
+    test "combines ignored numbers and fractions" do
+      result =
+        Citations.ignored_premises(
+          "With 0 terror, do I lose a third of my cards?",
+          "You lose half of your cards."
+        )
+
+      assert "0" in result
+      assert "1/3" in result
+    end
+
+    test "empty when the answer engages every premise" do
+      assert Citations.ignored_premises(
+               "Do I lose half my 9 cards?",
+               "Yes — with 9 cards you lose half, so 4."
+             ) == []
+    end
+  end
 end

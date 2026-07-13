@@ -265,6 +265,74 @@ defmodule RuleMaven.Games.Citations do
 
   def ignored_numbers(_question, _answer), do: []
 
+  # Fraction words the question can assert as a premise, mapped to a canonical
+  # "n/m" form. Digits-in-slash form ("1/3") is recognized separately.
+  @fraction_words %{
+    "half" => "1/2",
+    "halves" => "1/2",
+    "third" => "1/3",
+    "thirds" => "1/3",
+    "quarter" => "1/4",
+    "quarters" => "1/4",
+    "fourth" => "1/4",
+    "fourths" => "1/4",
+    "fifth" => "1/5",
+    "fifths" => "1/5"
+  }
+
+  @doc """
+  Canonical fractions the `question` asserts that the `answer` never engages —
+  the fraction analogue of `ignored_numbers/2`. A player who asks "do I discard
+  **a third**?" has stated a premise the answer must confirm or correct; an
+  answer that merely recites the real rule ("discard half") without naming the
+  third leaves the misconception standing. `ignored_numbers/2` cannot see this:
+  "third"/"quarter" are not numeric tokens.
+
+  Both spelled fractions ("a third") and slash form ("1/3") count as mentions.
+  An answer that names the same fraction — whether to agree ("yes, half") or to
+  correct ("no, half, not a third") — clears it, because the correction restates
+  the asked fraction. Empty list means every stated fraction was engaged.
+  """
+  def ignored_fractions(question, answer) when is_binary(question) and is_binary(answer) do
+    mentioned = fraction_tokens(answer)
+
+    question
+    |> fraction_tokens()
+    |> MapSet.difference(mentioned)
+    |> Enum.sort()
+  end
+
+  def ignored_fractions(_question, _answer), do: []
+
+  @doc """
+  Every stated premise — numeric value or fraction — the `answer` fails to
+  engage. Union of `ignored_numbers/2` and `ignored_fractions/2`; the single
+  gate the ask pipeline checks before deciding an answer recited past the
+  question instead of answering it.
+  """
+  def ignored_premises(question, answer) do
+    ignored_numbers(question, answer) ++ ignored_fractions(question, answer)
+  end
+
+  # Canonical fraction mentions in a text: spelled words via @fraction_words,
+  # plus bare "n/m" slash forms.
+  defp fraction_tokens(text) do
+    words =
+      text
+      |> String.downcase()
+      |> String.split(~r/[^a-z]+/, trim: true)
+      |> Enum.flat_map(fn w ->
+        case Map.get(@fraction_words, w) do
+          nil -> []
+          canon -> [canon]
+        end
+      end)
+
+    slashes = Regex.scan(~r/\d+\/\d+/, text) |> Enum.map(&hd/1)
+
+    MapSet.new(words ++ slashes)
+  end
+
   # One entry per stated number; a ratio like "2:1" stays ONE premise.
   defp number_words(text) do
     text

@@ -163,7 +163,7 @@ defmodule RuleMaven.Prompts do
   {{context_block}}{{canonical_questions_block}}
   Rewrite this player's question as a standalone canonical question (resolve pronouns, add missing context, no game name).
   Remove "who did what" narrative colour: player names, table talk, and proper nouns that are not game terms.
-  KEEP every quantity, named component or action, player count, game mode, and board state the question hinges on — those decide the answer, and a rewrite that drops them produces a question nobody asked. Keep both halves of a two-part question. Keep who owns or does what as impersonal counts ("one player with two settlements", not "two settlements"), and keep any rule the asker asserts as a stated premise so it can be confirmed or corrected.
+  KEEP every quantity, named component or action, player count, game mode, and board state the question hinges on — those decide the answer, and a rewrite that drops them produces a question nobody asked. Keep both halves of a two-part question. Keep who owns or does what as impersonal counts ("one player with two settlements", not "two settlements"), and keep any rule the asker asserts as a stated premise so it can be confirmed or corrected. This includes FRACTIONS and PROPORTIONS the asker states ("a third", "half", "a quarter", "two-thirds") and any rate or ratio — preserve them verbatim; they are premises to confirm or correct, so "Do I discard a third of my cards?" must stay a question about "a third", never be flattened to "How many cards are discarded?".
 
   {{question}}
   """
