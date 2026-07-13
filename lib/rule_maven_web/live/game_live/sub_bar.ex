@@ -234,16 +234,74 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       data-tour="tools-subbar"
       style="display:inline-flex;align-items:center;gap:0.3rem;flex-shrink:0;flex-wrap:wrap"
     >
-      <.group_menu emoji="🎲" label="Play" tools={ToolRegistry.group(:play, @current_user)} />
-      <.group_menu emoji="📚" label="Learn" tools={ToolRegistry.group(:learn, @current_user)} />
-      <.more_menu
-        game={@game}
-        sources={@sources}
-        community_count={@community_count}
-        is_admin={@is_admin}
-        has_cheatsheet={@has_cheatsheet}
-        current={@current}
-      />
+      <%!-- Q&A screen: ONE Tools menu with Play/Learn/More subsections — the
+            header row there also carries the pager-adjacent controls and the
+            crew selector, so every reclaimed pill matters. The other game
+            pages keep the three separate menus (roomier bars, and their tours
+            point at them). --%>
+      <%= if @current == :show do %>
+        <details class="card-menu" style="flex-shrink:0">
+          <summary
+            class="pill-link"
+            title="Tools"
+            aria-label="Tools"
+            style="cursor:pointer;list-style:none;gap:0.25rem;user-select:none;font-weight:600"
+          >
+            <span aria-hidden="true">🧰</span>
+            <span class="pill-label">Tools</span>
+            <span class="pill-caret" style="font-size:0.6rem;opacity:0.6">▾</span>
+          </summary>
+          <div
+            class="card-menu__pop card-menu__pop--wide"
+            style="max-height:min(70vh, 34rem);overflow-y:auto"
+          >
+            <div class="card-menu__label">🎲 Play</div>
+            <button
+              :for={t <- ToolRegistry.group(:play, @current_user)}
+              type="button"
+              phx-click="open_tool"
+              phx-value-tool={t.id}
+              onclick="this.closest('details').open = false"
+              class="card-menu__item"
+            >
+              <span aria-hidden="true">{t.emoji}</span> {t.label}
+            </button>
+            <div class="card-menu__divider"></div>
+            <div class="card-menu__label">📚 Learn</div>
+            <button
+              :for={t <- ToolRegistry.group(:learn, @current_user)}
+              type="button"
+              phx-click="open_tool"
+              phx-value-tool={t.id}
+              onclick="this.closest('details').open = false"
+              class="card-menu__item"
+            >
+              <span aria-hidden="true">{t.emoji}</span> {t.label}
+            </button>
+            <div class="card-menu__divider"></div>
+            <div class="card-menu__label">💬 More</div>
+            <.more_items
+              game={@game}
+              sources={@sources}
+              community_count={@community_count}
+              is_admin={@is_admin}
+              has_cheatsheet={@has_cheatsheet}
+              current={@current}
+            />
+          </div>
+        </details>
+      <% else %>
+        <.group_menu emoji="🎲" label="Play" tools={ToolRegistry.group(:play, @current_user)} />
+        <.group_menu emoji="📚" label="Learn" tools={ToolRegistry.group(:learn, @current_user)} />
+        <.more_menu
+          game={@game}
+          sources={@sources}
+          community_count={@community_count}
+          is_admin={@is_admin}
+          has_cheatsheet={@has_cheatsheet}
+          current={@current}
+        />
+      <% end %>
     </div>
     """
   end
@@ -437,9 +495,33 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         <span class="pill-caret" style="font-size:0.6rem;opacity:0.6">▾</span>
       </summary>
       <div class="card-menu__pop card-menu__pop--right card-menu__pop--wide">
-        <.link :if={@current == :show} patch={~p"/games/#{@game}?start=1"} class="card-menu__item">
-          <span aria-hidden="true">🔍</span> Overview
-        </.link>
+        <.more_items
+          game={@game}
+          sources={@sources}
+          community_count={@community_count}
+          is_admin={@is_admin}
+          has_cheatsheet={@has_cheatsheet}
+          current={@current}
+        />
+      </div>
+    </details>
+    """
+  end
+
+  attr :game, :map, required: true
+  attr :sources, :list, required: true
+  attr :community_count, :integer, required: true
+  attr :is_admin, :boolean, required: true
+  attr :has_cheatsheet, :boolean, required: true
+  attr :current, :atom, required: true
+
+  # The More menu's items, shared verbatim between the standalone More menu
+  # (non-Q&A pages) and the combined Tools menu's More subsection (Q&A page).
+  defp more_items(assigns) do
+    ~H"""
+    <.link :if={@current == :show} patch={~p"/games/#{@game}?start=1"} class="card-menu__item">
+      <span aria-hidden="true">🔍</span> Overview
+    </.link>
         <.link
           :if={@current != :show}
           navigate={~p"/games/#{@game}?start=1"}
@@ -505,8 +587,6 @@ defmodule RuleMavenWeb.GameLive.SubBar do
             class="card-menu__item"
           ><span aria-hidden="true">🚀</span> Prepare</.link>
         <% end %>
-      </div>
-    </details>
     """
   end
 end
