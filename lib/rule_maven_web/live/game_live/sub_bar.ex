@@ -131,6 +131,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           included_expansions={@included_expansions}
           house_rule_count={@house_rule_count}
           current_user={@current_user}
+          current={@current}
         />
         <%!-- Its own flex item (not nested inside `.table-context`, which is
               deliberately `flex-wrap: nowrap` and squeeze-fits a *fixed* pair
@@ -324,6 +325,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :included_expansions, :map, default: %{}
   attr :house_rule_count, :integer, default: 0
   attr :current_user, :map, default: nil
+  attr :current, :atom, default: :show
 
   @doc """
   The table-context strip: what this user is actually playing with. Renders at
@@ -360,8 +362,10 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         <span class="tc-label-compact">{length(@selected)}</span>
       </button>
 
+      <%!-- Not on Community: house rules already live in its Tools menu
+            (Learn section), and the pill read as page chrome noise there. --%>
       <button
-        :if={ToolRegistry.visible?(:house_rules, @current_user)}
+        :if={@current != :community and ToolRegistry.visible?(:house_rules, @current_user)}
         type="button"
         data-testid="table-context-house-rules"
         phx-click="open_tool"

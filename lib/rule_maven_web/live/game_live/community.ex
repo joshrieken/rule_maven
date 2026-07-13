@@ -449,6 +449,37 @@ defmodule RuleMavenWeb.GameLive.Community do
             </button>
           </div>
         </form>
+
+        <%!-- Tab strip, part of the sticky head so the tabs stay reachable
+              while scrolling a long list. Hidden while searching (search
+              runs across all tabs). On phones (<=640px) the word labels hide
+              via .hide-mobile, leaving emoji + count so all three fit. --%>
+        <div
+          :if={@search_query == ""}
+          style="display:flex;gap:0.35rem;margin-top:0.6rem;overflow-x:auto;scrollbar-width:none"
+        >
+          <.tab_button
+            tab="verified"
+            active={@tab == "verified"}
+            emoji="✅"
+            word="Verified"
+            count={length(@verified_questions)}
+          />
+          <.tab_button
+            tab="community"
+            active={@tab == "community"}
+            emoji="🌐"
+            word="Community"
+            count={length(@community_questions)}
+          />
+          <.tab_button
+            tab="unverified"
+            active={@tab == "unverified"}
+            emoji="🧪"
+            word="Unverified"
+            count={length(@unverified_questions)}
+          />
+        </div>
       </div>
 
       <%= if @search_query != "" do %>
@@ -479,34 +510,6 @@ defmodule RuleMavenWeb.GameLive.Community do
           </p>
         </div>
       <% else %>
-        <%!-- Tab strip --%>
-        <%!-- On phones (<=640px) the word labels hide via .hide-mobile, leaving
-              emoji + count so all three tabs fit without sideways scroll.
-              overflow-x:auto stays as a safety net for edge cases. --%>
-        <div style="display:flex;gap:0.35rem;margin-bottom:1rem;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none">
-          <.tab_button
-            tab="verified"
-            active={@tab == "verified"}
-            emoji="✅"
-            word="Verified"
-            count={length(@verified_questions)}
-          />
-          <.tab_button
-            tab="community"
-            active={@tab == "community"}
-            emoji="🌐"
-            word="Community"
-            count={length(@community_questions)}
-          />
-          <.tab_button
-            tab="unverified"
-            active={@tab == "unverified"}
-            emoji="🧪"
-            word="Unverified"
-            count={length(@unverified_questions)}
-          />
-        </div>
-
         <% questions = tab_questions(assigns) %>
         <% status = @tab %>
 
