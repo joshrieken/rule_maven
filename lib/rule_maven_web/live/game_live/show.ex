@@ -3710,6 +3710,20 @@ defmodule RuleMavenWeb.GameLive.Show do
               moves while the reader is reading. The answer-pane is the one
               scroll region. --%>
         <div class="qa-column" style="flex:1;min-width:0;display:flex;flex-direction:column">
+        <!-- Persistent Did-you-know, pinned above the question (fixed, never scrolls) -->
+        <%= if @rule_card && @conversation != [] do %>
+          <div class="qa-dyk">
+            <button
+              type="button"
+              phx-click="shuffle_rule"
+              title="Another rule"
+              class="qa-dyk__shuffle"
+            >🔀</button>
+            <span class="qa-dyk__label">💡 Did you know?</span>
+            {clean_rule_text(@rule_card.content)}
+            <span :if={@rule_card.page_number} class="qa-dyk__page">· p.{@rule_card.page_number}</span>
+          </div>
+        <% end %>
         <!-- Question region: fixed height, never scrolls, never resizes.
              Carries the pager, the "· edited" marker (tap to see original vs
              normalized), and the "Ask exactly this" escape hatch — all inline
@@ -3777,23 +3791,6 @@ defmodule RuleMavenWeb.GameLive.Show do
               >
                 Add rulebook text or PDF
               </.link>
-            </div>
-          <% end %>
-
-          <!-- Persistent Did-you-know: once a conversation starts the full
-               empty-state card is gone, so keep a slim sticky version pinned
-               above the answers (a fast reply otherwise steals the fact). -->
-          <%= if @rule_card && @conversation != [] do %>
-            <div style="position:sticky;top:-1rem;z-index:5;margin:-1rem -1rem 1rem;padding:0.4rem 2.9rem 0.4rem 0.75rem;background:var(--bg-surface);border-bottom:1px solid var(--border);box-shadow:0 3px 8px rgba(0,0,0,0.07);font-size:0.72rem;line-height:1.35;color:var(--text)">
-              <button
-                type="button"
-                phx-click="shuffle_rule"
-                title="Another rule"
-                style="position:absolute;top:0.4rem;right:0.5rem;background:none;border:1px solid var(--border);border-radius:999px;font-size:0.65rem;cursor:pointer;padding:0.12rem 0.45rem;color:var(--text-muted);font-weight:600"
-              >🔀</button>
-              <span style="font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--accent-ink,var(--accent))">💡 Did you know?</span>
-              {clean_rule_text(@rule_card.content)}
-              <span :if={@rule_card.page_number} style="color:var(--text-muted);white-space:nowrap">· p.{@rule_card.page_number}</span>
             </div>
           <% end %>
 

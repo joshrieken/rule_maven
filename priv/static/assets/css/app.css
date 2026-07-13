@@ -1069,6 +1069,41 @@ a:not([class]):hover {
   z-index: 1;
 }
 
+/* Persistent Did-you-know bar, pinned above the question at the top of the column. */
+.qa-dyk {
+  flex: 0 0 auto;
+  position: relative;
+  padding: 0.4rem 2.9rem 0.4rem 0.9rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text);
+}
+.qa-dyk__label {
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent-ink, var(--accent));
+}
+.qa-dyk__page {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.qa-dyk__shuffle {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.5rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.65rem;
+  cursor: pointer;
+  padding: 0.12rem 0.45rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
 /* Fixed question region atop the Q&A column. Its height is LOCKED to two lines
    (min == max on __text) so a normalization rewrite swaps the text without ever
    resizing the box — the answer region below never moves. prev / question / N-of-M / next. */
@@ -1077,7 +1112,7 @@ a:not([class]):hover {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.6rem 0.9rem;
+  padding: 0.65rem 0.9rem;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
 }
@@ -1090,8 +1125,8 @@ a:not([class]):hover {
   border: none;
   cursor: pointer;
   color: var(--text);
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 700;
   line-height: 1.3;
   /* 2-line clamp with a fixed height (min == max) regardless of text length */
   display: -webkit-box;
@@ -1127,10 +1162,25 @@ a:not([class]):hover {
   color: var(--text-secondary);
   font-style: italic;
 }
-/* "Ask exactly this" lives on the fixed question bar so it never shifts the answer. */
+/* "Ask exactly this" lives on the fixed question bar so it never shifts the answer.
+   Override .ask-redo's translucent-on-accent-bubble look with a solid, readable
+   gold pill — the bar background is not the accent color. */
 .qa-question__reask {
   flex: 0 0 auto;
   white-space: nowrap;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+  font-size: 0.7rem;
+  padding: 0.2rem 0.55rem;
+}
+.qa-question__reask:hover,
+.qa-question__reask:focus-visible {
+  background: var(--accent-light);
+  border-color: var(--accent-light);
+}
+.qa-question__reask:disabled {
+  opacity: 0.5;
 }
 .qa-overlay__row {
   margin: 0 0 0.75rem;
