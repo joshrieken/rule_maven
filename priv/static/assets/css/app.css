@@ -5150,9 +5150,12 @@ body:has([data-phx-main].phx-connected)::after {
 }
 
 /* ---------------------------------------------------------------------------
-   Easter egg: long-press the header brand → meeple parade across the bottom
-   of the screen. Six meeples waddle across; a seventh leaves late and sprints
-   to catch up. Spawned/removed by the brand long-press IIFE in app.js.
+   Easter egg: long-press the header brand → meeple parade across the middle
+   of the screen. Six meeples of assorted sizes waddle across (one of them
+   hops as it goes); a seventh leaves late, sprints with a dust trail, trips
+   mid-screen into a full tumble, and scrambles on. Spawned/removed by the
+   brand long-press IIFE in app.js, which sets --ms (size) and --wd (waddle
+   speed) per walker.
    --------------------------------------------------------------------------- */
 
 /* Long-press shouldn't select the title text or pop the iOS link callout. */
@@ -5166,23 +5169,46 @@ body:has([data-phx-main].phx-connected)::after {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0.75rem;
-  height: 2.75rem;
+  top: 50%;
+  height: 6rem;
+  transform: translateY(-50%);
   overflow: hidden;
   pointer-events: none;
   z-index: 9000;
 }
 
+/* Walkers share a ground line (strip bottom); size varies per meeple. */
 .meeple-walker {
   position: absolute;
-  bottom: 0;
+  bottom: 0.4rem;
   left: 0;
-  width: 2rem;
-  height: 2rem;
+  width: calc(3.5rem * var(--ms, 1));
+  height: calc(3.5rem * var(--ms, 1));
   /* Matches the meeple-march start frame so a delayed walker waits offscreen. */
-  transform: translateX(-3rem);
+  transform: translateX(-6rem);
   animation: meeple-march 8s linear forwards;
-  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.4));
+}
+
+/* Ground shadow, squashing in time with nothing in particular — a soft
+   ellipse under the feet is enough to sell the ground line. */
+.meeple-walker::after {
+  content: "";
+  position: absolute;
+  left: 12%;
+  bottom: -0.45rem;
+  width: 76%;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(0, 0, 0, 0.35) 0%, transparent 70%);
+}
+
+/* Middle wrapper carries the one-shot stunts (hop, tumble) so they compose
+   with the march (outer) and the waddle (svg) instead of clobbering them. */
+.meeple-body {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .meeple-walker svg {
@@ -5191,11 +5217,17 @@ body:has([data-phx-main].phx-connected)::after {
   height: 100%;
   fill: currentColor;
   transform-origin: 50% 90%;
-  animation: meeple-waddle 0.4s ease-in-out infinite;
+  animation: meeple-waddle var(--wd, 0.4s) ease-in-out infinite;
 }
 
-/* The straggler: leaves after the pack, sprints (frantic waddle), and lands
-   just behind them — finishing last, so its animationend closes the parade
+/* One pack meeple can't contain itself and hops the whole way across. */
+.meeple-hopper .meeple-body {
+  transform-origin: 50% 100%;
+  animation: meeple-hop 1.3s ease-in-out infinite;
+}
+
+/* The straggler: leaves after the pack, sprints (frantic waddle + dust
+   trail), and finishes last, so its march ending closes the parade
    (last pack meeple: 1.75s delay + 8s; straggler: 4s + 6s). */
 .meeple-late {
   animation-duration: 6s;
@@ -5206,15 +5238,54 @@ body:has([data-phx-main].phx-connected)::after {
   animation-duration: 0.15s;
 }
 
+/* Trips ~2.5s into its run (mid-screen), rolls twice, scrambles up. The
+   march keeps translating underneath, so the tumble reads as momentum. */
+.meeple-late .meeple-body {
+  animation: meeple-tumble 0.9s cubic-bezier(0.3, 0.1, 0.4, 1) 6.5s 1;
+}
+
+/* Dust puffs kicked up behind the sprint. */
+.meeple-late::before {
+  content: "";
+  position: absolute;
+  left: -0.5rem;
+  bottom: 0.1rem;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  animation: meeple-dust 0.35s linear infinite;
+}
+
 @keyframes meeple-march {
-  from { transform: translateX(-3rem); }
-  to   { transform: translateX(calc(100vw + 1rem)); }
+  from { transform: translateX(-6rem); }
+  to   { transform: translateX(calc(100vw + 2rem)); }
 }
 
 @keyframes meeple-waddle {
   0%   { transform: rotate(-9deg) translateY(0); }
-  50%  { transform: rotate(0deg) translateY(-3px); }
+  50%  { transform: rotate(0deg) translateY(-4px); }
   100% { transform: rotate(9deg) translateY(0); }
+}
+
+@keyframes meeple-hop {
+  0%, 50%, 100% { transform: translateY(0) scaleY(1); }
+  58%  { transform: translateY(0) scaleY(0.82); }
+  75%  { transform: translateY(-1.7rem) scaleY(1.06); }
+  92%  { transform: translateY(0) scaleY(0.9); }
+}
+
+@keyframes meeple-tumble {
+  0%   { transform: rotate(0deg) translateY(0); }
+  22%  { transform: rotate(150deg) translateY(0.5rem); }
+  55%  { transform: rotate(380deg) translateY(0.8rem) scale(0.92); }
+  78%  { transform: rotate(650deg) translateY(0.25rem); }
+  100% { transform: rotate(720deg) translateY(0) scale(1); }
+}
+
+@keyframes meeple-dust {
+  0%   { opacity: 0.7; transform: translate(0, 0) scale(0.4); }
+  100% { opacity: 0; transform: translate(-1.5rem, -0.7rem) scale(1.7); }
 }
 
 @media (prefers-reduced-motion: reduce) {

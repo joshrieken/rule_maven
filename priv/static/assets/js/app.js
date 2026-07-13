@@ -2552,21 +2552,28 @@ if ("serviceWorker" in navigator) {
     strip.className = 'meeple-parade';
     strip.setAttribute('aria-hidden', 'true');
 
+    // Assorted sizes and waddle tempos so the pack reads as individuals;
+    // walker #2 hops the whole way (see .meeple-hopper).
+    var SIZES = [1.15, 0.85, 1, 0.8, 1.05, 0.9];
     for (var i = 0; i < COLORS.length; i++) {
       var m = document.createElement('span');
-      m.className = 'meeple-walker';
+      m.className = 'meeple-walker' + (i === 2 ? ' meeple-hopper' : '');
       m.style.color = COLORS[i];
       m.style.animationDelay = (i * 0.35) + 's';
-      m.innerHTML = MEEPLE;
+      m.style.setProperty('--ms', SIZES[i]);
+      m.style.setProperty('--wd', (0.34 + i * 0.03) + 's');
+      m.innerHTML = '<span class="meeple-body">' + MEEPLE + '</span>';
       strip.appendChild(m);
     }
 
-    // The straggler — .meeple-late's delay/duration make it leave last and
-    // sprint. It also finishes last, so its march ending ends the parade.
+    // The straggler — .meeple-late's delay/duration make it leave last,
+    // sprint, and trip into a tumble mid-screen. It also finishes last,
+    // so its march ending ends the parade.
     var late = document.createElement('span');
     late.className = 'meeple-walker meeple-late';
     late.style.color = '#e91e63';
-    late.innerHTML = MEEPLE;
+    late.style.setProperty('--ms', 0.9);
+    late.innerHTML = '<span class="meeple-body">' + MEEPLE + '</span>';
     strip.appendChild(late);
     document.body.appendChild(strip);
 
