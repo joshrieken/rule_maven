@@ -330,13 +330,65 @@ defmodule RuleMaven.Games.Citations do
     if length(missing) > @max_ignored_premises, do: [], else: missing
   end
 
+  # Unicode vulgar-fraction glyphs, canonicalized to the same "n/m" form as
+  # everything else. Mobile keyboards and autocorrect produce these routinely
+  # (pen round 4, 2026-07-13: "⅓" sailed past the gate unseen).
+  @fraction_glyphs %{
+    "½" => "1/2",
+    "⅓" => "1/3",
+    "⅔" => "2/3",
+    "¼" => "1/4",
+    "¾" => "3/4",
+    "⅕" => "1/5",
+    "⅖" => "2/5",
+    "⅗" => "3/5",
+    "⅘" => "4/5",
+    "⅙" => "1/6",
+    "⅚" => "5/6",
+    "⅐" => "1/7",
+    "⅛" => "1/8",
+    "⅜" => "3/8",
+    "⅝" => "5/8",
+    "⅞" => "7/8",
+    "⅑" => "1/9",
+    "⅒" => "1/10"
+  }
+
+  @fraction_numerators %{
+    "one" => "1",
+    "two" => "2",
+    "three" => "3",
+    "four" => "4",
+    "five" => "5",
+    "six" => "6",
+    "seven" => "7"
+  }
+
+  # "two-thirds" / "two thirds" → numerator + denominator word. Parsed before
+  # the bare-word scan so the pair canonicalizes as 2/3, never 1/3-via-"thirds"
+  # — a ⅔ question corrected with "not two-thirds" must clear, not refire.
+  @compound_fraction ~r/\b(one|two|three|four|five|six|seven)[-\s]+(halves|half|thirds|third|quarters|quarter|fourths|fourth|fifths|fifth)\b/i
+
   # Canonical fraction mentions in a text: spelled words via @fraction_words,
-  # bare "n/m" slash forms, and percentages ("25%" / "25 percent" → "25%").
+  # compound pairs ("two-thirds"), unicode glyphs ("⅓"), bare "n/m" slash
+  # forms, and percentages ("25%" / "25 percent" → "25%").
   defp fraction_tokens(text) do
+    compounds =
+      Regex.scan(@compound_fraction, text)
+      |> Enum.map(fn [_, num, den] ->
+        denom =
+          @fraction_words |> Map.fetch!(String.downcase(den)) |> String.split("/") |> List.last()
+
+        Map.fetch!(@fraction_numerators, String.downcase(num)) <> "/" <> denom
+      end)
+
+    # Strip matched compounds so their denominator word isn't re-counted bare.
+    remainder = Regex.replace(@compound_fraction, text, " ")
+
     words =
-      text
+      remainder
       |> String.downcase()
-      |> String.split(~r/[^a-z]+/, trim: true)
+      |> String.split(~r/[^a-z]+/u, trim: true)
       |> Enum.flat_map(fn w ->
         case Map.get(@fraction_words, w) do
           nil -> []
@@ -344,13 +396,18 @@ defmodule RuleMaven.Games.Citations do
         end
       end)
 
+    glyphs =
+      @fraction_glyphs
+      |> Enum.filter(fn {glyph, _} -> String.contains?(text, glyph) end)
+      |> Enum.map(fn {_, canon} -> canon end)
+
     slashes = Regex.scan(~r/\d+\/\d+/, text) |> Enum.map(&hd/1)
 
     percents =
       Regex.scan(~r/(\d+(?:\.\d+)?)\s*(?:%|percent\b)/i, text)
       |> Enum.map(fn [_, n] -> n <> "%" end)
 
-    MapSet.new(words ++ slashes ++ percents)
+    MapSet.new(compounds ++ words ++ glyphs ++ slashes ++ percents)
   end
 
   # One entry per stated number; a ratio like "2:1" stays ONE premise.

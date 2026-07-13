@@ -620,6 +620,48 @@ defmodule RuleMaven.Games.CitationsTest do
                "No — you discard half (50%), not 25%."
              ) == []
     end
+
+    test "a unicode fraction glyph the answer never engages is flagged" do
+      # Pen round 4: "⅓" was invisible to the gate — mobile keyboards and
+      # autocorrect produce these glyphs routinely.
+      assert Citations.ignored_fractions(
+               "Do I discard ⅓ of my cards on a 7?",
+               "You discard half of your resource cards, rounded down."
+             ) == ["1/3"]
+    end
+
+    test "a glyph question is cleared by a spelled-out correction" do
+      assert Citations.ignored_fractions(
+               "Do I discard ⅓ of my cards?",
+               "No — you discard half, not a third."
+             ) == []
+
+      assert Citations.ignored_fractions(
+               "Do I discard ⅔ of my cards?",
+               "No — you discard half, not two-thirds."
+             ) == []
+    end
+
+    test "compound fractions canonicalize with their numerator" do
+      # "two-thirds" must be 2/3, not 1/3-via-bare-"thirds" — otherwise a ⅔
+      # question's gate refires even after a correct "not two-thirds" answer.
+      assert Citations.ignored_fractions(
+               "Do I discard two-thirds of my cards?",
+               "You discard half of your cards."
+             ) == ["2/3"]
+
+      assert Citations.ignored_fractions(
+               "Do I discard two thirds of my cards?",
+               "No — half, not two-thirds."
+             ) == []
+    end
+
+    test "the half glyph matches the word half" do
+      assert Citations.ignored_fractions(
+               "Do I discard ½ of my cards?",
+               "Yes — you discard half, rounded down."
+             ) == []
+    end
   end
 
   describe "ignored_premises/2" do
