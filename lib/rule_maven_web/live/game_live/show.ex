@@ -3547,10 +3547,18 @@ defmodule RuleMavenWeb.GameLive.Show do
           <%!-- Title + search ride along at the top of the scrolling list.
                 The drawer itself is the scroll container, so a sticky child
                 pins against it. --%>
-          <%!-- No "Questions" label — the list is self-evident. The search
-                field IS the head row; the pending badge and the mobile close
-                button ride beside it. --%>
+          <%!-- The game name heads the sidebar (where the old "Questions"
+                label sat) — the Q&A header bar hides its own title line for
+                this page, so this is THE title. Tap = overview, same patch
+                the header title used. --%>
           <div class="sidebar-head">
+            <.link
+              patch={~p"/games/#{@game}?start=1"}
+              title="Game overview"
+              style="display:block;padding:0.45rem 0.75rem 0;font-size:0.82rem;font-weight:800;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            >
+              {@game.name}
+            </.link>
             <div style="padding:0.4rem 0.75rem 0.5rem;display:flex;align-items:center;gap:0.4rem">
               <form
                 id="thread-search"

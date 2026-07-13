@@ -1872,6 +1872,14 @@ button.motion-toggle--menu:hover {
   background: #1C1C30;
   color: #E0E0EC;
 }
+/* Optgroup labels ("Light"/"Dark") otherwise INHERIT the closed select's
+   70%-white text into the native popup — which many platforms paint white,
+   leaving the labels invisible. Pin them to the same dark scheme as options. */
+.theme-select optgroup {
+  background: #1C1C30;
+  color: #E0E0EC;
+  font-style: normal;
+}
 
 /* Small pill links in the Q&A toolbar (Overview, View on BGG). */
 .pill-link {
@@ -3347,23 +3355,45 @@ textarea {
   flex-wrap: wrap;
 }
 
-/* The game title lives on its own thin small-print line BELOW the icon row
-   (all widths): the icons then always fit one line, and long game names stop
-   fighting the pills for row-1 width. Centered so it reads as the bar's
-   caption rather than something dangling off the back button. */
-.game-header-row__left .chat-header__title {
-  order: 20;
-  flex: 1 1 100%;
-  min-width: 0;
-  justify-content: center;
+/* One shared height for every control on the bar row: emoji glyphs give some
+   pills a taller line box than plain-text ones (and the bare ← arrow), which
+   read as size mismatches side by side. */
+.game-header-row .action-link,
+.game-header-row .pill-link {
+  box-sizing: border-box;
+  height: 1.75rem;
 }
-.chat-header__title h1 {
-  max-width: 100% !important;
+.game-header-row .action-link {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-width: 1px;
+  border-radius: 0.3rem;
+}
+
+/* Very slim title strip under the control row — the game name no longer
+   fights the pills for row width anywhere. Desktop Q&A hides it (the
+   question sidebar heads with the game name there); everywhere else, and on
+   all mobile widths, it stays. */
+.game-title-bar {
+  text-align: center;
+  padding: 0.05rem 0.75rem 0.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.72rem;
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: 0.02em;
   color: var(--text-secondary);
+}
+.game-title-bar a {
+  color: inherit;
+  text-decoration: none;
+}
+@media (min-width: 641px) {
+  .chat-layout .chat-header .game-title-bar {
+    display: none;
+  }
 }
 
 /* Desktop: floating, resizable card, no backdrop, chat stays live. `bottom`
@@ -4351,6 +4381,9 @@ body:has([data-phx-main].phx-connected)::after {
   display: flex; align-items: center; gap: 0.35rem;
   cursor: pointer; list-style: none;
   padding: 0.2rem 0.5rem; border-radius: 6px;
+  /* Same 1.85rem the theme select and motion toggle share, so the header
+     reads as one row of equal-height controls. */
+  height: 1.85rem;
   transition: background 0.15s; user-select: none;
 }
 .user-dropdown-toggle::-webkit-details-marker { display: none; }
@@ -4918,6 +4951,12 @@ body:has([data-phx-main].phx-connected)::after {
   }
 
   .pill-link {
+    min-height: 36px;
+  }
+
+  /* An <a>, so the button[phx-click] catch-all below never reaches it; it
+     sits beside .pill-link pills and must share their touch floor. */
+  .action-link {
     min-height: 36px;
   }
 

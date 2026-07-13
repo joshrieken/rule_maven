@@ -64,6 +64,17 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       >
         {render_slot(@inner_block)}
       </.game_header>
+      <%!-- Very slim always-readable title strip under the control row. On
+            desktop the Q&A screen hides it (the sidebar heads with the game
+            name there); on mobile it always shows — the sidebar is a drawer. --%>
+      <div class="game-title-bar">
+        <.link :if={@current == :show} patch={~p"/games/#{@game}?start=1"} title="Game overview">
+          {@game.name}
+        </.link>
+        <.link :if={@current != :show} navigate={~p"/games/#{@game}?start=1"} title="Game overview">
+          {@game.name}
+        </.link>
+      </div>
     </div>
     """
   end
@@ -95,30 +106,6 @@ defmodule RuleMavenWeb.GameLive.SubBar do
     <div class="game-header-row">
       <div class="game-header-row__left">
         <.link navigate={~p"/"} class="action-link" style="flex-shrink:0">&larr;</.link>
-        <%!-- Same patch-here / navigate-elsewhere split the More menu's
-              Overview item uses: patching across LiveViews crashes. --%>
-        <.link
-          :if={@current == :show}
-          patch={~p"/games/#{@game}?start=1"}
-          title="Game overview"
-          class="chat-header__title"
-          style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;text-decoration:none;color:inherit"
-        >
-          <h1 class="text-sm font-bold truncate" style="max-width:min(220px,45vw)">
-            {@game.name}
-          </h1>
-        </.link>
-        <.link
-          :if={@current != :show}
-          navigate={~p"/games/#{@game}?start=1"}
-          title="Game overview"
-          class="chat-header__title"
-          style="display:inline-flex;align-items:center;gap:0.25rem;min-width:0;text-decoration:none;color:inherit"
-        >
-          <h1 class="text-sm font-bold truncate" style="max-width:min(220px,45vw)">
-            {@game.name}
-          </h1>
-        </.link>
         <.sub_bar
           game={@game}
           sources={@sources}
