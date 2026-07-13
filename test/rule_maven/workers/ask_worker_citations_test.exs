@@ -262,4 +262,85 @@ defmodule RuleMaven.Workers.AskWorkerCitationsTest do
     assert updated.cited_source == "Core rules"
     assert updated.pool_source_id == pooled.id
   end
+
+  # `valid_citations/2` drops every citation whose quote is not verbatim in the
+  # retrieved chunks — correctly. But the ANSWER was still served afterwards,
+  # so a fabricated quote was silently deleted and the fabrication it was
+  # supporting shipped BARE: no citation, no warning, `citation_valid: false`,
+  # rendered as an ordinary answer. Observed live — "The Rogue hero tile
+  # indicates that they have 3 actions per turn", a number that appears nowhere
+  # in the rulebook, with its invented quote stripped on the way out.
+  #
+  # Stripping the evidence is not a fix for an answer that had no evidence. If
+  # nothing survives validation, the answer is ungrounded and must refuse.
+  test "an answer whose every citation fails validation refuses instead of shipping bare", %{
+    game: game,
+    ql: ql
+  } do
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      {:ok,
+       %{
+         answer: "The Rogue hero tile indicates that they have 3 actions per turn.",
+         cited_passage: nil,
+         citations: [
+           %{
+             "quote" => "The Rogue has 3 actions per turn.",
+             "page" => 5,
+             "source" => "Core rules"
+           }
+         ],
+         followups: [],
+         also_asked: []
+       }}
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => nil
+             })
+
+    updated = Games.get_question_log(ql.id)
+
+    assert updated.answer == "The rulebook does not cover this question."
+    assert updated.refused == true
+    assert updated.verdict == "silent"
+    assert updated.citations == []
+    assert updated.citation_valid == false
+    assert updated.cited_passage == nil
+  end
+
+  test "a refusal is not disturbed by having no citations", %{game: game, ql: ql} do
+    Application.put_env(:rule_maven, :llm_mock, fn _body ->
+      {:ok,
+       %{
+         answer: "The rulebook does not cover this question.",
+         cited_passage: nil,
+         citations: [],
+         followups: [],
+         also_asked: []
+       }}
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => nil
+             })
+
+    updated = Games.get_question_log(ql.id)
+
+    assert updated.answer == "The rulebook does not cover this question."
+    assert updated.refused == true
+  end
 end

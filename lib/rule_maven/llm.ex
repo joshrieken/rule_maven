@@ -865,6 +865,66 @@ defmodule RuleMaven.LLM do
     quotes = citation_quotes(llm_result[:citations])
     full_texts = chunk_texts(chunks)
 
+    # Decided in code, BEFORE the critic, and not by it: the critic is handed the
+    # answer and the contradicting quote side by side and still returns
+    # "grounded" (reproduced 3/3 — see Citations.contradicted_quote/2). A
+    # support-shaped check cannot see an inverted polarity, so an LLM verdict is
+    # not evidence here and is not consulted.
+    case RuleMaven.Games.Citations.contradicted_quote(llm_result[:answer], quotes) do
+      nil -> reground_by_critic(llm_result, system_prompt, ctx, chunks, quotes, full_texts)
+      quote -> retry_contradicted_answer(llm_result, quote, system_prompt, ctx, chunks)
+    end
+  end
+
+  # The answer said **Yes** to the very thing its own citation forbids. Re-ask
+  # once, naming the rule it inverted; if the retry inverts it again, refuse —
+  # serving a confident "Yes" over a rule that says "may not" is the worst
+  # output this system can produce, and shipping it is not an option.
+  defp retry_contradicted_answer(llm_result, quote, system_prompt, ctx, chunks) do
+    require Logger
+
+    Logger.warning(
+      "contradiction: answer affirms what its citation forbids (game=#{inspect(ctx.game_id)}) — #{inspect(String.slice(quote, 0, 80))}"
+    )
+
+    warning =
+      "\n\nIMPORTANT: a previous answer attempt answered \"Yes\" to this question while citing this rule, which FORBIDS it: #{inspect(quote)}. " <>
+        "Read that rule again. If it forbids what the player asked, the answer is **No**. Do not affirm what the rulebook denies."
+
+    case request_answer(
+           system_prompt <> warning,
+           ctx.question,
+           ctx.model_name,
+           ctx.game_id,
+           ctx.user_id,
+           # Bypass the proxy's response cache — the messages differ, but be
+           # explicit: a cached replay of the contradicting answer defeats this.
+           true
+         ) do
+      {:ok, retried} ->
+        retried_quotes = citation_quotes(retried[:citations])
+
+        if RuleMaven.Games.Citations.contradicted_quote(retried[:answer], retried_quotes) do
+          Logger.warning("contradiction survived the retry — refusing")
+          refuse(retried)
+        else
+          # The retry is a fresh answer: it still owes the normal grounding pass.
+          reground_by_critic(
+            retried,
+            system_prompt,
+            ctx,
+            chunks,
+            retried_quotes,
+            chunk_texts(chunks)
+          )
+        end
+
+      {:error, _reason} ->
+        refuse(llm_result)
+    end
+  end
+
+  defp reground_by_critic(llm_result, system_prompt, ctx, chunks, quotes, full_texts) do
     case RuleMaven.Games.Citations.suspicion(llm_result[:answer], quotes, full_texts) do
       nil ->
         llm_result
@@ -886,6 +946,100 @@ defmodule RuleMaven.LLM do
             llm_result
         end
     end
+    |> enforce_citations(system_prompt, ctx)
+  end
+
+  # An answer with NO citations is ungrounded by construction, whatever the
+  # critic thought of it.
+  #
+  # The answer prompt already requires "every non-refusal answer MUST have at
+  # least one citation with a page set", but nothing enforced it, and two real
+  # failures walked out through the gap — one answer that was true but
+  # unverifiable, and one that asserted a diagram ("the Terror Level Track on
+  # page 2 shows a maximum of 6") the rulebook does not contain. With no quote
+  # there is nothing to tell those two apart: not the critic (which judges the
+  # answer's claims, and an uncited answer gives it nothing to anchor on), not
+  # `Citations.valid?` (no passage to check), and not the player at the table,
+  # who cannot flip to a page that was never named.
+  #
+  # The corrective-retry path is the main producer: told to "base your answer
+  # strictly on the RULEBOOK text", the model rewrites the prose and drops the
+  # citations array on the way. So this runs on the way OUT of the grounding
+  # gate, catching first-pass and retried answers alike. One retry demanding a
+  # quote (which rescues the merely-sloppy answer), then a refusal — an
+  # assertion nobody can check is exactly what "not covered" is for.
+  defp enforce_citations(llm_result, system_prompt, ctx) do
+    answer = String.trim(to_string(llm_result[:answer]))
+
+    cond do
+      # A refusal is *supposed* to have no citations, and a blank answer is the
+      # blank-answer retry's business, not ours.
+      refused_answer?(llm_result) or answer == "" ->
+        llm_result
+
+      cited?(llm_result) ->
+        llm_result
+
+      true ->
+        require Logger
+        Logger.warning("uncited answer — retrying for a quote (game=#{inspect(ctx.game_id)})")
+        retry_for_citation(llm_result, system_prompt, ctx)
+    end
+  end
+
+  # Support must be checked against BOTH shapes. `citations` is the current
+  # array, and `cited_passage` is the single-quote form that predates it —
+  # still produced by AskWorker's legacy wrap for rows written before the array
+  # existed. In a fresh decode `cited_passage` is just the first citation's
+  # quote, so the two agree; on a legacy row only the scalar is set. Judging on
+  # the array alone would condemn every legacy-shaped answer as uncited and
+  # refuse it.
+  defp cited?(llm_result) do
+    llm_result[:citations] not in [nil, []] or
+      String.trim(to_string(llm_result[:cited_passage])) != ""
+  end
+
+  @cite_nudge "\n\nIMPORTANT: your previous answer cited nothing. Every non-refusal answer MUST include at least one citation quoting the RULEBOOK text above VERBATIM, with its page number. If you cannot support the answer with a verbatim quote from that text, the question is not covered — respond with exactly \"The rulebook does not cover this question.\" and an empty citations array. Do NOT restate the claim without a quote."
+
+  defp retry_for_citation(original, system_prompt, ctx) do
+    case request_answer(
+           system_prompt <> @cite_nudge,
+           ctx.question,
+           ctx.model_name,
+           ctx.game_id,
+           ctx.user_id,
+           Map.get(ctx, :fresh, false)
+         ) do
+      {:ok, retried} ->
+        retried_answer = String.trim(to_string(retried[:answer]))
+
+        if cited?(retried) and retried_answer != "" do
+          retried
+        else
+          # Twice asked for a quote, twice unable to give one. Serving the claim
+          # anyway is how an unciteable fabrication reaches the pool.
+          refuse(retried)
+        end
+
+      # Budget exhaustion / 429 / transport lands here. The answer in hand is
+      # still uncited, so it still cannot be served.
+      {:error, _reason} ->
+        refuse(original)
+    end
+  end
+
+  defp refuse(llm_result) do
+    Map.merge(llm_result, %{
+      answer: @refusal_answer,
+      styled_answer: nil,
+      verdict: "silent",
+      citations: [],
+      followups: [],
+      also_asked: [],
+      cited_passage: nil,
+      cited_page: nil,
+      cited_source: nil
+    })
   end
 
   defp critic_verdict(quotes, answer, sources, ctx) do
@@ -1070,17 +1224,7 @@ defmodule RuleMaven.LLM do
         |> Map.put(:styled_answer, nil)
 
       :error ->
-        Map.merge(retried_result, %{
-          answer: @refusal_answer,
-          styled_answer: nil,
-          verdict: "silent",
-          citations: [],
-          followups: [],
-          also_asked: [],
-          cited_passage: nil,
-          cited_page: nil,
-          cited_source: nil
-        })
+        refuse(retried_result)
     end
   end
 
@@ -3015,8 +3159,16 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  @doc false
+  def __parse_response__(body), do: parse_response(body)
+
   defp parse_response(body) do
     case body do
+      # A real provider error always wins — it must surface as an error, never
+      # get swallowed as a blank answer and quietly re-asked.
+      %{"error" => %{"message" => message}} ->
+        {:error, message}
+
       %{"choices" => [%{"message" => %{"content" => content}} = choice | _]} ->
         # finish_reason == "length" (or Anthropic "max_tokens") means the model was
         # cut off at the token cap — surfaced so callers can reject a partial.
@@ -3028,11 +3180,29 @@ defmodule RuleMaven.LLM do
          |> Map.put(:raw_response, content)
          |> Map.put(:finish_reason, finish_reason)}
 
-      %{"error" => %{"message" => message}} ->
-        {:error, message}
-
+      # A 200 carrying no usable content: an empty object (seen live from
+      # OpenRouter as a bare `%{}`), an empty choices list, or a first choice
+      # whose message has no "content" key (the model emitted only reasoning
+      # tokens).
+      #
+      # The call SUCCEEDED — it was billed and logged as a success — so calling
+      # this "Unexpected API response format" sent a perfectly retryable flake
+      # down the TERMINAL error path: the ask died on "⚠️ Something went wrong.
+      # Please retry." and the player had to re-ask by hand. An empty answer is
+      # precisely what the blank-answer retry already exists to recover from, so
+      # decode it as one and let that machinery re-ask once, automatically.
       _ ->
-        {:error, "Unexpected API response format"}
+        finish_reason =
+          case body do
+            %{"choices" => [choice | _]} when is_map(choice) -> choice["finish_reason"]
+            _ -> nil
+          end
+
+        {:ok,
+         ""
+         |> decode_answer()
+         |> Map.put(:raw_response, "")
+         |> Map.put(:finish_reason, finish_reason || body["stop_reason"])}
     end
   end
 
@@ -3050,10 +3220,11 @@ defmodule RuleMaven.LLM do
       {:ok, map} ->
         citations = parse_citations(map["citations"])
         first = List.first(citations) || %{}
-        verdict = coerce_verdict(map["verdict"])
+        answer = trimmed_string(map["answer"])
+        verdict = map["verdict"] |> coerce_verdict() |> verdict_from_lead(answer)
 
         %{
-          answer: map["answer"] |> trimmed_string() |> strip_verdict_prefix(verdict),
+          answer: strip_verdict_prefix(answer, verdict),
           citations: citations,
           cited_passage: first["quote"],
           cited_page: first["page"],
@@ -3188,6 +3359,48 @@ defmodule RuleMaven.LLM do
   end
 
   defp coerce_verdict(_), do: nil
+
+  # The model sometimes drops "verdict" from its JSON, or emits a word outside
+  # the vocabulary ("forbidden"). coerce_verdict/1 then yields nil, and a nil
+  # verdict renders as NO stamp at all — an unambiguous "**No** — you may not
+  # trade like resources." shipped with no illegal badge, which reads as an
+  # answer the system declined to rule on.
+  #
+  # An answer that OPENS with Yes/No has already stated its own legality; the
+  # missing field is a serialization slip, not genuine uncertainty. Recover the
+  # stamp from the lead rather than dropping it. Only ever fills a nil — an
+  # explicit verdict always wins, including a deliberate "info" on a
+  # what/how question whose answer happens to begin with "Yes".
+  @yes_lead ~r/\A\s*(?:\*\*)?yes(?:\*\*)?\s*(?:[—–\-,.:!]|\z)/i
+  @no_lead ~r/\A\s*(?:\*\*)?no(?:\*\*)?\s*(?:[—–\-,.:!]|\z)/i
+
+  # The verdict may also CONTRADICT the answer it labels: an answer opening
+  # "No, you may not trade with the bank during another player's turn" came back
+  # stamped "legal", which renders as a green allowed badge over a prose "No".
+  # A reader who trusts the stamp gets the rule exactly backwards.
+  #
+  # The lead is the answer's own statement of legality and it is what the player
+  # reads, so on a straight contradiction the lead wins and the stamp is
+  # corrected to match. Only legal/illegal are overridden — an "info" or
+  # "silent" verdict is a claim about the KIND of question, not its polarity,
+  # and `strip_verdict_prefix/2` already handles a stray Yes/No lead on those.
+  defp verdict_from_lead(verdict, answer) when is_binary(answer) do
+    lead =
+      cond do
+        Regex.match?(@yes_lead, answer) -> "legal"
+        Regex.match?(@no_lead, answer) -> "illegal"
+        true -> nil
+      end
+
+    case {verdict, lead} do
+      {nil, lead} -> lead
+      {"legal", "illegal"} -> "illegal"
+      {"illegal", "legal"} -> "legal"
+      {verdict, _} -> verdict
+    end
+  end
+
+  defp verdict_from_lead(verdict, _answer), do: verdict
 
   defp api_url do
     provider_name = provider()

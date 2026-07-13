@@ -198,9 +198,9 @@ defmodule RuleMaven.Games.Citations do
 
   @doc """
   Like `suspicious?/2` but names WHICH heuristic fired: `:keyword`,
-  `:numeric`, `:length_ratio`, or `nil` when the answer looks grounded. The
-  reason is logged alongside the critic verdict so the triggers can be
-  recalibrated independently against real fire/confirm rates.
+  `:numeric`, `:length_ratio`, `:legality`, or `nil` when the answer looks
+  grounded. The reason is logged alongside the critic verdict so the triggers
+  can be recalibrated independently against real fire/confirm rates.
 
   `sources` (the full retrieved chunk texts) enables the `:numeric` check. It
   is deliberately judged against the whole context rather than the cited
@@ -234,11 +234,130 @@ defmodule RuleMaven.Games.Citations do
       keyword_hit? -> :keyword
       numeric_hit?(answer_norm, sources) -> :numeric
       length_ratio_hit? -> :length_ratio
+      legality_hit?(answer) -> :legality
       true -> nil
     end
   end
 
   def suspicion(_answer, _quotes, _sources), do: nil
+
+  # A yes/no legality answer is ALWAYS worth a critic call, whatever the other
+  # heuristics think.
+  #
+  # The three cheap triggers all detect *addition* — a word, a number, or a
+  # volume of prose the sources don't support. None of them can see a
+  # CONTRADICTION, where the answer's words are drawn entirely from the sources
+  # but its polarity is inverted. Observed in the wild: asked whether a player
+  # may trade with the bank on someone else's turn, the model answered "Yes"
+  # while its own citation list contained "You may not trade with the bank
+  # during another player's turn." Every word was grounded, no number appeared,
+  # and the answer was SHORTER than its quotes — all three triggers stayed
+  # silent, and a flat reversal of the rule shipped with a valid page cite and
+  # a green stamp.
+  #
+  # Polarity is the most damaging error the system can make (it tells players
+  # to do the one thing the rulebook forbids) and it is precisely the class the
+  # cheap gates are blind to, so the gate for it is unconditional rather than
+  # heuristic. Scoped to the verdict LEAD, not the word "yes" anywhere in the
+  # prose, so this stays a bounded extra cost on can-I questions instead of
+  # "run the critic on everything".
+  @legality_lead ~r/\A\s*(?:\*\*)?(?:yes|no)(?:\*\*)?\s*(?:[—–\-,.:!]|\z)/i
+
+  defp legality_hit?(answer), do: Regex.match?(@legality_lead, answer)
+
+  @yes_lead ~r/\A\s*(?:\*\*)?yes(?:\*\*)?\s*(?:[—–\-,.:!]|\z)/i
+
+  # Negation forms a rulebook uses to forbid something.
+  @prohibition ~r/\b(?:may not|must not|cannot|can not|may never|can never|are not allowed to|is not allowed to|do not|does not|never)\b/i
+
+  # A negation sitting immediately before the predicate inside the ANSWER, which
+  # means the answer is RESTATING the prohibition, not denying it.
+  @answer_negation ~r/\b(?:not|never|cannot|no)\b[^.!?]{0,20}\z/i
+
+  # Modal verbs are freely interchanged between the rulebook's phrasing and the
+  # model's, so "you may trade" and "a player can trade" must compare equal.
+  @modals ~r/\b(?:may|can|could|is able to|are able to|is permitted to|are permitted to)\b/i
+
+  @doc """
+  The cited quote that `answer` AFFIRMATIVELY CONTRADICTS, or nil.
+
+  Catches the single most damaging output the pipeline can produce: a **Yes**
+  answer whose own citation forbids the very thing it just permitted. Live
+  example, reproduced 3 times out of 3 —
+
+      Q: "Can I trade with the bank during another player's turn?"
+      A: "Yes, a player can trade with the bank during another player's turn."
+      cited: "You may not trade with the bank during another player's turn."
+
+  The LLM grounding critic is shown both texts and answers "grounded", because
+  every phrase in the answer really does appear in the source; support-shaped
+  checking cannot see an inverted polarity. So this decides it in code instead.
+
+  The test: the quote forbids some predicate ("trade with the bank during
+  another player's turn"), and the answer leads with **Yes** and states that
+  same predicate with NO negation in front of it. An answer that merely restates
+  the prohibition ("No — you may not trade with the bank…"), or cites it as a
+  caveat ("Yes, you may trade with players, but you may not trade with the
+  bank…"), carries the negation and is left alone.
+  """
+  def contradicted_quote(answer, quotes) when is_binary(answer) and is_list(quotes) do
+    if Regex.match?(@yes_lead, answer) do
+      answer_norm = answer |> normalize() |> String.replace(@modals, "may")
+
+      quotes
+      |> Enum.filter(&is_binary/1)
+      |> Enum.find(&affirmatively_contradicted?(answer_norm, &1))
+    end
+  end
+
+  def contradicted_quote(_answer, _quotes), do: nil
+
+  defp affirmatively_contradicted?(answer_norm, quote) do
+    quote_norm = quote |> normalize() |> String.replace(@modals, "may")
+
+    case Regex.split(@prohibition, quote_norm, parts: 2) do
+      [_before, predicate] ->
+        predicate = predicate |> String.trim() |> significant_predicate()
+
+        predicate != "" and asserted_without_negation?(answer_norm, predicate)
+
+      _ ->
+        false
+    end
+  end
+
+  # The first clause of what the rule forbids. Long enough to be specific (a
+  # two-word predicate would collide across unrelated rules), capped so a
+  # trailing subordinate clause the answer happens to omit can't defeat the
+  # match.
+  @predicate_words 8
+  @min_predicate_words 3
+
+  defp significant_predicate(predicate) do
+    words =
+      predicate
+      |> String.split(~r/[.,;:!?]/, parts: 2)
+      |> List.first()
+      |> String.split(" ", trim: true)
+      |> Enum.take(@predicate_words)
+
+    if length(words) >= @min_predicate_words, do: Enum.join(words, " "), else: ""
+  end
+
+  # Does the answer state `predicate` at least once with no negation immediately
+  # before it? A negated occurrence means the answer agrees with the rule.
+  defp asserted_without_negation?(answer_norm, predicate) do
+    case :binary.matches(answer_norm, predicate) do
+      [] ->
+        false
+
+      matches ->
+        Enum.any?(matches, fn {start, _len} ->
+          preceding = binary_part(answer_norm, 0, start)
+          not Regex.match?(@answer_negation, preceding)
+        end)
+    end
+  end
 
   # Spelled forms the model uses interchangeably with digits, so "3 cards" is
   # not treated as ungrounded when the quote says "three cards".

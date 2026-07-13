@@ -21,6 +21,8 @@ defmodule RuleMaven.Workers.AskWorker do
   # + critic + restyle) so a hang surfaces as a normal retryable timeout.
   @ask_hard_timeout_ms 180_000
 
+  @refusal_phrase "The rulebook does not cover this question."
+
   @impl Oban.Worker
   def perform(%Oban.Job{attempt: attempt, max_attempts: max_attempts, args: args} = job) do
     do_perform(job)
@@ -416,6 +418,36 @@ defmodule RuleMaven.Workers.AskWorker do
                   passage = primary["quote"]
                   cited_page = primary["page"]
                   cited_source = primary["source"]
+
+                  # `valid_citations/2` correctly drops every quote that is not
+                  # verbatim in the retrieved chunks — but dropping the evidence
+                  # is not a fix for an answer that never had any. A fabricated
+                  # citation was deleted here and the fabrication it supported
+                  # was served BARE: no quote, no page, `citation_valid: false`,
+                  # rendered to the player as an ordinary answer. Seen live —
+                  # "The Rogue hero tile indicates that they have 3 actions per
+                  # turn", a number found nowhere in the rulebook, whose invented
+                  # quote was stripped on the way out.
+                  #
+                  # Nothing downstream can recover the grounding: LLM.ask's own
+                  # citation gate ran BEFORE validation (it saw a citation and
+                  # passed it), and the player cannot check a page that was never
+                  # named. An answer with no surviving citation is ungrounded by
+                  # definition, so it refuses. Error rows (`error_kind`) are left
+                  # alone — they carry their own ⚠️ text and retry affordance.
+                  unsupported? =
+                    is_nil(error_kind) and not refused?(answer) and valid_citations == []
+
+                  {answer, valid_citations, citation_valid, passage, cited_page, cited_source} =
+                    if unsupported? do
+                      Logger.warning(
+                        "AskWorker: dropping ungrounded answer (no valid citation) for question #{question_log_id}"
+                      )
+
+                      {@refusal_phrase, [], false, nil, nil, nil}
+                    else
+                      {answer, valid_citations, citation_valid, passage, cited_page, cited_source}
+                    end
 
                   refused? = refused?(answer)
 
@@ -1082,8 +1114,6 @@ defmodule RuleMaven.Workers.AskWorker do
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
   end
-
-  @refusal_phrase "The rulebook does not cover this question."
 
   defp refused?(answer) do
     String.trim(answer) == @refusal_phrase

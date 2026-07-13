@@ -280,5 +280,130 @@ defmodule RuleMaven.Games.CitationsTest do
       sources = ["[Page 3] Each player takes actions during their turn."]
       assert Citations.suspicion("You get 3 action points per turn.", [], sources) == :numeric
     end
+
+    test "names the legality trigger for a Yes/No answer the other triggers miss" do
+      # The real miss this trigger exists for: asked "can I trade with the bank
+      # on another player's turn?", the model answered **Yes** while quoting the
+      # very sentence that forbids it. No number, no unquoted trigger word (the
+      # answer's "only"/"if" both appear in the quotes), and the answer is
+      # SHORTER than its quotes so the length ratio can't fire either — so the
+      # grounding critic never ran and a flat contradiction reached the user
+      # wearing a valid citation. A polarity flip is the single most damaging
+      # error this system can make, and it is exactly the class the cheap
+      # heuristics are blind to, so every yes/no legality answer gets checked.
+      quotes = [
+        "You may trade with another player between your turns, but only if it is that player's turn and they elect to trade with you.",
+        "You may not trade with the bank during another player's turn."
+      ]
+
+      answer =
+        "Yes, a player can trade with the bank during another player's turn, but only if it is that player's turn and they elect to trade with you."
+
+      assert Citations.suspicion(answer, quotes, quotes) == :legality
+    end
+
+    test "the legality trigger fires on a bolded No lead too" do
+      quotes = ["A settlement must connect to one of your own roads."]
+      answer = "**No** — a settlement must connect to one of your own roads."
+
+      assert Citations.suspicion(answer, quotes, quotes) == :legality
+    end
+
+    test "a non-legality answer that merely contains the word yes does not trigger" do
+      # "yes" has to be the ANSWER's verdict lead, not a word buried in prose,
+      # or the trigger degrades into "run the critic on everything".
+      quotes = ["Players may answer yes or no to a trade offer."]
+      sources = quotes
+      answer = "Players may answer yes or no to a trade offer."
+
+      assert Citations.suspicion(answer, quotes, sources) == nil
+    end
+
+    test "a stronger trigger still wins over legality" do
+      # Ordering matters only for the log label, but a fabricated number is the
+      # more specific diagnosis — keep it reported as :numeric.
+      sources = ["[Page 3] Each player draws three cards."]
+      answer = "Yes — each player draws 5 cards."
+
+      assert Citations.suspicion(answer, [], sources) == :numeric
+    end
+  end
+
+  # The worst failure this system produced, and the one the LLM critic cannot
+  # see: the answer affirms the exact thing its OWN cited quote forbids.
+  #
+  #   Q: "Can I trade with the bank during another player's turn?"
+  #   A: "Yes, a player can trade with the bank during another player's turn."
+  #   cited quote: "You may not trade with the bank during another player's turn."
+  #
+  # Handed both texts, the cheap critic model answered "grounded" 3 times out of
+  # 3 — every phrase in the answer does appear in the source, so a
+  # support-shaped check passes. Polarity is not a support question, it is a
+  # logic question, and it is decidable here without an LLM: the quote forbids a
+  # predicate, and the answer asserts that same predicate with no negation in
+  # front of it. So this is a deterministic check, not another prompt.
+  describe "contradicted_quote/2" do
+    test "catches a Yes answer that affirms what its quote forbids" do
+      quotes = ["You may not trade with the bank during another player's turn."]
+      answer = "Yes, a player can trade with the bank during another player's turn."
+
+      assert Citations.contradicted_quote(answer, quotes) == hd(quotes)
+    end
+
+    test "modal verbs are interchangeable (may / can / could)" do
+      quotes = ["A player cannot build a settlement adjacent to another settlement."]
+      answer = "Yes — a player may build a settlement adjacent to another settlement."
+
+      assert Citations.contradicted_quote(answer, quotes) == hd(quotes)
+    end
+
+    test "an answer that RESTATES the prohibition is not a contradiction" do
+      # The overwhelmingly common shape: the answer agrees with the quote.
+      quotes = ["You may not trade with the bank during another player's turn."]
+      answer = "No — you may not trade with the bank during another player's turn."
+
+      assert Citations.contradicted_quote(answer, quotes) == nil
+    end
+
+    test "a Yes answer that cites a prohibition as a CAVEAT is not a contradiction" do
+      # "Yes, X — but not Y" legitimately quotes the rule forbidding Y. The
+      # predicate appears in the answer, but negated. Flagging this would fire
+      # the critic on a large class of correct, nuanced answers.
+      quotes = ["You may not trade with the bank during another player's turn."]
+
+      answer =
+        "Yes — you may trade with another player on their turn, but you may not trade with the bank during another player's turn."
+
+      assert Citations.contradicted_quote(answer, quotes) == nil
+    end
+
+    test "an unrelated prohibition is not a contradiction" do
+      quotes = ["You may not trade like resources."]
+      answer = "Yes, you may build a road along the coast."
+
+      assert Citations.contradicted_quote(answer, quotes) == nil
+    end
+
+    test "a quote with no prohibition is never contradicted" do
+      quotes = ["Each city is worth 2 victory points."]
+      answer = "Yes, each city is worth 2 victory points."
+
+      assert Citations.contradicted_quote(answer, quotes) == nil
+    end
+
+    test "only a Yes-leading answer can contradict a prohibition" do
+      # An explanatory answer that happens to restate a predicate is not making
+      # a legality claim; the Yes lead is what asserts permission.
+      quotes = ["You may not trade with the bank during another player's turn."]
+      answer = "Trading with the bank during another player's turn is covered on page 14."
+
+      assert Citations.contradicted_quote(answer, quotes) == nil
+    end
+
+    test "handles nil and empty input" do
+      assert Citations.contradicted_quote(nil, ["You may not pass."]) == nil
+      assert Citations.contradicted_quote("Yes, you may pass.", []) == nil
+      assert Citations.contradicted_quote("Yes, you may pass.", [nil]) == nil
+    end
   end
 end

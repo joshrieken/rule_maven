@@ -45,4 +45,47 @@ defmodule RuleMaven.LLMVerdictPrefixTest do
       assert LLM.__strip_verdict_prefix__(answer, "rule") == answer
     end
   end
+
+  # The model occasionally omits "verdict" from its JSON (or emits a word
+  # outside the fixed vocabulary). coerce_verdict/1 turned that into nil, and a
+  # nil verdict renders as NO stamp at all — a clean "No, you cannot trade like
+  # resources" shipped with no illegal badge. The answer's own Yes/No lead is an
+  # unambiguous statement of legality, so use it rather than dropping the stamp.
+  describe "verdict falls back to the answer's Yes/No lead" do
+    defp verdict_for(json), do: LLM.decode_answer(json)[:verdict]
+
+    test "a missing verdict on a No lead becomes illegal" do
+      json = ~s({"answer": "**No** — you may not trade like resources.", "citations": []})
+      assert verdict_for(json) == "illegal"
+    end
+
+    test "a missing verdict on a Yes lead becomes legal" do
+      json = ~s({"answer": "Yes, a settlement may be built on the coast.", "citations": []})
+      assert verdict_for(json) == "legal"
+    end
+
+    test "an unrecognized verdict word also falls back to the lead" do
+      json = ~s({"verdict": "forbidden", "answer": "No. The robber must move.", "citations": []})
+      assert verdict_for(json) == "illegal"
+    end
+
+    test "a missing verdict with no Yes/No lead stays nil" do
+      # Nothing to infer from — inventing "info" here would stamp explanatory
+      # answers that the model deliberately left unclassified.
+      json = ~s({"answer": "Cities produce two resource cards.", "citations": []})
+      assert verdict_for(json) == nil
+    end
+
+    test "an explicit verdict always wins over the lead" do
+      # A real "info" verdict on a "what can counter X" answer that happens to
+      # open with "Yes" must stay info — the fallback is for MISSING verdicts.
+      json = ~s({"verdict": "info", "answer": "Yes, and also no.", "citations": []})
+      assert verdict_for(json) == "info"
+    end
+
+    test "the refusal phrase is not mistaken for a legality lead" do
+      json = ~s({"answer": "The rulebook does not cover this question.", "citations": []})
+      assert verdict_for(json) == nil
+    end
+  end
 end
