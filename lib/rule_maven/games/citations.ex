@@ -191,19 +191,34 @@ defmodule RuleMaven.Games.Citations do
   end
 
   @doc """
-  True when `quote` genuinely appears in one of `texts` (normalized, matched on
-  the same leading-words needle as citation passages). Too-short quotes can't
-  verify and return false — the caller is deciding whether to spend money on
-  the strength of this quote, so unverifiable means no.
+  True when `quote` genuinely appears in one of `texts`: the FULL normalized
+  quote must be contained in a normalized chunk. The leading-words needle used
+  for citation passages is not enough here — a real ten-word prefix spliced to
+  a fabricated tail must not verify, because the caller is deciding whether to
+  spend money on the strength of this quote and feeds it onward as a trusted
+  hint. Too-short quotes can't verify and return false.
   """
   def quoted_verbatim?(quote, texts) when is_binary(quote) and is_list(texts) do
-    needle = passage_needle(quote)
+    needle = normalize(quote)
 
     String.length(needle) >= @min_needle_len and
       Enum.any?(normalize_chunks(texts), &String.contains?(&1, needle))
   end
 
   def quoted_verbatim?(_quote, _texts), do: false
+
+  @doc """
+  The subset of `quotes` that verify against `texts`, deduplicated on their
+  normalized form — the same rule repeated or respelled counts once. Order
+  preserved.
+  """
+  def distinct_verified_quotes(quotes, texts) when is_list(quotes) and is_list(texts) do
+    quotes
+    |> Enum.filter(&quoted_verbatim?(&1, texts))
+    |> Enum.uniq_by(&normalize/1)
+  end
+
+  def distinct_verified_quotes(_quotes, _texts), do: []
 
   # An answer whose prose isn't plausibly grounded in its own cited quotes:
   # either it uses a consequence/causal word the quotes never state, or it's

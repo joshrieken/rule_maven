@@ -210,6 +210,79 @@ defmodule RuleMaven.LLMReasoningEscalationTest do
     assert Process.get(:ask_calls) == 1
   end
 
+  test "one real rule duplicated or respelled cannot pass as two" do
+    game = seed_multihop_corpus()
+
+    # Both entries verify against the context, but they're the SAME rule —
+    # without dedup this bought an escalation with a single premise.
+    padded =
+      Jason.encode!(%{
+        combinable: true,
+        rules: [
+          "Perk cards may be played only during the Hero Phase",
+          "perk cards MAY be played, only during the hero phase!"
+        ]
+      })
+
+    mock_asks(padded, fn
+      1 -> refusal_result()
+    end)
+
+    {:ok, result} = LLM.ask(game, @question)
+
+    assert result.answer == @refusal
+    assert Process.get(:ask_calls) == 1
+  end
+
+  test "a real prefix spliced to a fabricated tail cannot verify" do
+    game = seed_multihop_corpus()
+
+    spliced =
+      Jason.encode!(%{
+        combinable: true,
+        rules: [
+          "Perk cards may be played only during the Hero Phase and also block POW symbols",
+          "POW symbols are resolved during the Monster Phase"
+        ]
+      })
+
+    mock_asks(spliced, fn
+      1 -> refusal_result()
+    end)
+
+    {:ok, result} = LLM.ask(game, @question)
+
+    assert result.answer == @refusal
+    assert Process.get(:ask_calls) == 1
+  end
+
+  test "malformed rules shapes fail closed" do
+    game = seed_multihop_corpus()
+
+    # rules as a string instead of a list — the is_list guard must catch it.
+    mock_asks(Jason.encode!(%{combinable: true, rules: "Perk cards may be played"}), fn
+      1 -> refusal_result()
+    end)
+
+    {:ok, result} = LLM.ask(game, @question)
+
+    assert result.answer == @refusal
+    assert Process.get(:ask_calls) == 1
+  end
+
+  test "combinable true with the rules key missing fails closed" do
+    game = seed_multihop_corpus()
+
+    mock_asks(Jason.encode!(%{combinable: true}), fn
+      1 -> refusal_result()
+    end)
+
+    {:ok, result} = LLM.ask(game, @question)
+
+    assert result.answer == @refusal
+    assert Process.get(:ask_calls) == 1
+  end
+
   test "legacy bare YES/NO classifier output no longer triggers escalation" do
     game = seed_multihop_corpus()
 

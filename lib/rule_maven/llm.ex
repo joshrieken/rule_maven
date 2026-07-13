@@ -645,10 +645,11 @@ defmodule RuleMaven.LLM do
                json_object(to_string(text)),
              true <- is_list(rules) do
           texts = Enum.map(chunks, & &1.content)
-          verified = rules |> Enum.filter(&RuleMaven.Games.Citations.quoted_verbatim?(&1, texts))
+          verified = RuleMaven.Games.Citations.distinct_verified_quotes(rules, texts)
 
-          # "Combining two or more rules" needs two real rules — one verified
-          # quote means the classifier padded or paraphrased its chain.
+          # "Combining two or more rules" needs two DISTINCT real rules — a
+          # duplicate, a respelling of one rule, or a padded/paraphrased chain
+          # doesn't make two.
           if length(verified) >= 2, do: {:combinable, verified}, else: :not_combinable
         else
           _ -> :not_combinable

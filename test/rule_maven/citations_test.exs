@@ -439,5 +439,73 @@ defmodule RuleMaven.Games.CitationsTest do
       refute Citations.quoted_verbatim?(%{}, @texts)
       refute Citations.quoted_verbatim?("Perk cards may be played", "not a list")
     end
+
+    test "a real prefix spliced to a fabricated tail fails" do
+      # The old ten-word-needle match let an invented tail ride a real opening;
+      # the full quote must appear in the text.
+      refute Citations.quoted_verbatim?(
+               "Perk cards may be played only during the Hero Phase and also block POW symbols at any time",
+               @texts
+             )
+    end
+  end
+
+  describe "distinct_verified_quotes/2" do
+    @texts [
+      "[Page 1]\nPerk cards may be played only during the Hero Phase.",
+      "[Page 2]\nPOW symbols are resolved during the Monster Phase."
+    ]
+
+    test "keeps distinct verified quotes in order" do
+      assert Citations.distinct_verified_quotes(
+               [
+                 "Perk cards may be played only during the Hero Phase",
+                 "POW symbols are resolved during the Monster Phase"
+               ],
+               @texts
+             ) == [
+               "Perk cards may be played only during the Hero Phase",
+               "POW symbols are resolved during the Monster Phase"
+             ]
+    end
+
+    test "an exact duplicate counts once" do
+      assert Citations.distinct_verified_quotes(
+               [
+                 "Perk cards may be played only during the Hero Phase",
+                 "Perk cards may be played only during the Hero Phase"
+               ],
+               @texts
+             )
+             |> length() == 1
+    end
+
+    test "punctuation/case respellings of one rule count once" do
+      assert Citations.distinct_verified_quotes(
+               [
+                 "Perk cards may be played only during the Hero Phase",
+                 "perk cards MAY be played, only during the hero phase!"
+               ],
+               @texts
+             )
+             |> length() == 1
+    end
+
+    test "fabricated and non-string entries are dropped" do
+      assert Citations.distinct_verified_quotes(
+               [
+                 "The maximum Terror Level is 6",
+                 nil,
+                 42,
+                 "POW symbols are resolved during the Monster Phase"
+               ],
+               @texts
+             ) == ["POW symbols are resolved during the Monster Phase"]
+    end
+
+    test "non-list inputs yield no quotes" do
+      assert Citations.distinct_verified_quotes("not a list", @texts) == []
+      assert Citations.distinct_verified_quotes(["Perk cards may be played"], nil) == []
+    end
   end
 end
