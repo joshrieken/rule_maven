@@ -297,7 +297,7 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
     # Ambiguity now means "leave it exactly as it was".
     if normalized == "no" do
       # A conditional UPDATE, not a changeset write on the row we loaded before a
-      # multi-second LLM call. `retract_contributions/1` (contribute-off, group
+      # multi-second LLM call. `retract_contributions/1` (group
       # delete, owner account deletion) can commit inside that window, and this is
       # the ONLY writer in the system that opens the gate — a stale write here
       # would re-publish a row the crew just explicitly withdrew.
@@ -306,10 +306,11 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
       # assume. AskWorker re-pools a row off a `never_pool` value it read minutes
       # earlier, so a retraction could land, be undone, and this worker would find
       # `pooled: true` sitting there and publish the text of a withdrawn question.
-      # Consent is asked for directly now: the row's own retraction stamp, and the
-      # group's live `contribute_to_community` flag joined in at update time.
-      # Clearing the screen is what puts the answer INTO the pool and the question
-      # onto the browse — one statement, both flags, or neither.
+      # Consent is asked for directly now: the row's own retraction stamp, checked
+      # at update time (a mid-flight group delete stamps it via
+      # `retract_contributions/1`). Clearing the screen is what puts the answer
+      # INTO the pool and the question onto the browse — one statement, both
+      # flags, or neither.
       # The statement also re-asserts the two facts the screen's own VALIDITY rests
       # on, not just the consent facts. `screen/2` checked `question_normalized`
       # against the struct it loaded before the LLM call, and what the model
@@ -331,21 +332,7 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
           where: q.cleaned_question == ^screened
         )
 
-      # Solo rows have no group-level consent flag to check — their only consent
-      # lever is `never_pool`, already enforced upstream in AskWorker before this
-      # worker is ever enqueued.
-      publish_query =
-        if ql.group_id do
-          from(q in base_query,
-            join: g in RuleMaven.Groups.Group,
-            on: g.id == q.group_id,
-            where: g.contribute_to_community == true
-          )
-        else
-          base_query
-        end
-
-      {published, _} = Repo.update_all(publish_query, set: [browsable: true, pooled: true])
+      {published, _} = Repo.update_all(base_query, set: [browsable: true, pooled: true])
 
       if published == 1 do
         Jobs.finish_run(run, "done", "Cleared — published.")

@@ -123,13 +123,12 @@ defmodule RuleMaven.Workers.AskWorker do
     # withdrawn — `never_pool` for every fresh ask, forever.
     withdrawn? = retracted?(question_log_id)
 
-    # Folds in the per-group community-contribution switch (Task 6's composer
-    # toggle sets `never_pool` directly for a one-off "keep this in the crew"
-    # ask; a group with `contribute_to_community: false` makes EVERY ask from
-    # it never_pool, with no per-ask opt-in needed).
+    # A crew whose group row no longer resolves was deleted while this ask sat
+    # in the queue — fail closed rather than pool an answer the crew's
+    # deletion just retracted.
     never_pool =
       (args["never_pool"] || false) or withdrawn? or
-        not RuleMaven.Groups.contribute_to_community?(group_id)
+        (not is_nil(group_id) and not RuleMaven.Groups.exists?(group_id))
 
     skip_normalize = args["skip_normalize"] || false
     voice = args["voice"] || "neutral"
@@ -499,8 +498,8 @@ defmodule RuleMaven.Workers.AskWorker do
                         # — that would undo the pull with zero review of the replacement.
                         # `never_pool` was computed at the TOP of this job, before an
                         # ask that can run for 180 seconds. Consent is not a constant
-                        # over that window: `retract_contributions/1` (contribute-off,
-                        # group delete, sole-owner account deletion) can land inside
+                        # over that window: `retract_contributions/1` (group delete,
+                        # sole-owner account deletion) can land inside
                         # it, and it clears exactly the flags this block is about to
                         # re-set. The retraction was simply undone — `mark_pooled/1`
                         # put the answer back in the commons and the publish check,
@@ -988,7 +987,7 @@ defmodule RuleMaven.Workers.AskWorker do
         false
 
       %QuestionLog{group_id: gid} ->
-        not RuleMaven.Groups.contribute_to_community?(gid)
+        not RuleMaven.Groups.exists?(gid)
     end
   end
 

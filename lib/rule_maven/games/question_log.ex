@@ -35,7 +35,7 @@ defmodule RuleMaven.Games.QuestionLog do
     # false and is flipped true only by PublishCheckWorker (or an admin
     # force-publish override), which fails closed.
     field :browsable, :boolean, default: false
-    # Set when a crew explicitly WITHDREW this row (contribute-off, group delete,
+    # Set when a crew explicitly WITHDREW this row (group delete,
     # sole-owner account deletion). Durable, and deliberately never cleared:
     # turning contribution back on governs future asks, not ones already pulled
     # back. Withdrawal used to be INFERRED from `is_nil(group_id) and not

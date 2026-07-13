@@ -101,9 +101,6 @@ defmodule RuleMavenWeb.AdminLive.Groups do
                 Members
               </th>
               <th style="padding:0.45rem 0.75rem;font-weight:600;color:var(--text-muted)">
-                Sharing
-              </th>
-              <th style="padding:0.45rem 0.75rem;font-weight:600;color:var(--text-muted)">
                 Invite
               </th>
               <th style="padding:0.45rem 0.75rem;font-weight:600;color:var(--text-muted)">
@@ -124,9 +121,6 @@ defmodule RuleMavenWeb.AdminLive.Groups do
                 </td>
                 <td style="padding:0.45rem 0.75rem;color:var(--text-muted)">{owner}</td>
                 <td style="padding:0.45rem 0.75rem">{count} / {group.member_cap}</td>
-                <td style="padding:0.45rem 0.75rem">
-                  {if group.contribute_to_community, do: "On", else: "Off"}
-                </td>
                 <td style="padding:0.45rem 0.75rem">
                   {if group.invite_active, do: "Active", else: "Off"}
                 </td>

@@ -1,18 +1,16 @@
 defmodule RuleMavenWeb.GameLive.ShowTest do
   @moduledoc """
-  Task 6, Gate 4 (per-ask override): the "Keep this in the crew" composer
-  checkbox. Only rendered with a group active; checking it must flow into the
-  Oban `AskWorker` job's `never_pool` arg on the fresh-ask path.
+  The fresh-ask path through the real composer form: a submitted ask must be
+  born unbrowsable so PublishCheckWorker keeps its gate on the one path real
+  users actually hit.
   """
 
   # Submitting "ask" enqueues AskWorker via Oban.insert/1, which needs a named
   # instance (Oban isn't supervised in test) — not async.
   use RuleMavenWeb.ConnCase, async: false
-  use Oban.Testing, repo: RuleMaven.Repo
 
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
-  import RuleMaven.GroupsFixtures
 
   setup do
     start_supervised!(
@@ -38,63 +36,6 @@ defmodule RuleMavenWeb.GameLive.ShowTest do
       )
 
     user
-  end
-
-  test "the composer toggle is hidden with no active group", %{conn: conn} do
-    user = create_user("keep_nogrp")
-    game = published_game_fixture(%{bgg_id: 301})
-    conn = login(conn, user)
-
-    {:ok, _lv, html} = live(conn, ~p"/games/#{game}")
-
-    refute html =~ "Keep this in the crew"
-    refute html =~ "keep-in-crew-toggle"
-  end
-
-  test "the composer toggle appears once a group is active", %{conn: conn} do
-    user = create_user("keep_grp")
-    game = published_game_fixture(%{bgg_id: 302})
-    grp = group_fixture(user)
-    conn = login(conn, user)
-
-    {:ok, lv, _html} = live(conn, ~p"/games/#{game}")
-    lv |> element("[phx-value-group='#{Phoenix.Param.to_param(grp)}']") |> render_click()
-
-    assert render(lv) =~ "Keep this in the crew"
-  end
-
-  test "checking the toggle and asking sends never_pool: true to AskWorker", %{conn: conn} do
-    user = create_user("keep_send")
-    game = published_game_fixture(%{bgg_id: 303})
-    grp = group_fixture(user)
-    conn = login(conn, user)
-
-    {:ok, lv, _html} = live(conn, ~p"/games/#{game}")
-    lv |> element("[phx-value-group='#{Phoenix.Param.to_param(grp)}']") |> render_click()
-
-    lv |> element("#keep-in-crew-toggle") |> render_click()
-
-    lv
-    |> form("#ask-form", question: "Is Marcus cheating at this game?")
-    |> render_submit()
-
-    assert_enqueued(worker: RuleMaven.Workers.AskWorker, args: %{"never_pool" => true})
-  end
-
-  test "asking without checking the toggle does not force never_pool", %{conn: conn} do
-    user = create_user("keep_unchecked")
-    game = published_game_fixture(%{bgg_id: 304})
-    grp = group_fixture(user)
-    conn = login(conn, user)
-
-    {:ok, lv, _html} = live(conn, ~p"/games/#{game}")
-    lv |> element("[phx-value-group='#{Phoenix.Param.to_param(grp)}']") |> render_click()
-
-    lv
-    |> form("#ask-form", question: "How many cards do we draw each turn?")
-    |> render_submit()
-
-    assert_enqueued(worker: RuleMaven.Workers.AskWorker, args: %{"never_pool" => false})
   end
 
   test "a solo ask submitted through the real form is born unbrowsable", %{conn: conn} do

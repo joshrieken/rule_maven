@@ -63,23 +63,15 @@ defmodule RuleMaven.Groups do
   end
 
   @doc """
-  Whether a group contributes its answers to the community cache. `true` for a
-  nil group_id — a non-group ask always contributes, as it always has.
-
-  A group_id that no longer resolves means the crew was DELETED while this ask
-  was in flight (AskWorker's `group_id` can come from the Oban arg, which
-  outlives the row's nilified column). That must fail CLOSED: defaulting to
-  `true` there would pool the answer of a crew that had contribution switched
-  off, seconds after `delete_group/2` explicitly retracted everything it had
-  ever shared.
+  Whether the group row still exists. A group_id that no longer resolves means
+  the crew was DELETED while an ask was in flight (AskWorker's `group_id` can
+  come from the Oban arg, which outlives the row's nilified column). Callers
+  must fail CLOSED on `false`: pooling the answer of a deleted crew would land
+  seconds after `delete_group/2` explicitly retracted everything it had ever
+  shared.
   """
-  def contribute_to_community?(nil), do: true
-
-  def contribute_to_community?(group_id) do
-    case Repo.get(Group, group_id) do
-      nil -> false
-      group -> group.contribute_to_community
-    end
+  def exists?(group_id) do
+    Repo.exists?(from(g in Group, where: g.id == ^group_id))
   end
 
   @doc "Looks up a group by its opaque hashid token. Returns nil for a garbage token."
@@ -357,65 +349,20 @@ defmodule RuleMaven.Groups do
     |> Repo.update()
   end
 
-  @doc """
-  Sets whether the group's answers contribute to the community cache
-  (`contribute_to_community`). Requires the actor to be at least an admin —
-  same authorization shape as `rename/3`, via `role_at_least?/3`. A caller
-  without permission gets `{:error, :forbidden}`, like every other function in
-  this module.
-
-  When off, `AskWorker` forces `never_pool` for every ask made under this
-  group (see `contribute_to_community?/1`); the group's questions stay
-  private either way, this only affects whether the *answers* feed the
-  shared community cache.
-  """
-  def set_contribute(actor, %Group{} = group, contribute?) when is_boolean(contribute?) do
-    if role_at_least?(actor, group, :admin) do
-      do_set_contribute(group, contribute?)
-    else
-      {:error, :forbidden}
-    end
-  end
-
-  @doc "Same as `set_contribute/3`, no membership check. Site-admin callers only."
-  def admin_set_contribute(%Group{} = group, contribute?) when is_boolean(contribute?) do
-    do_set_contribute(group, contribute?)
-  end
-
-  defp do_set_contribute(group, contribute?) do
-    Repo.transaction(fn ->
-      result =
-        group
-        |> Group.changeset(%{contribute_to_community: contribute?})
-        |> Repo.update()
-
-      case result do
-        {:ok, updated} ->
-          if not contribute?, do: retract_contributions(group)
-          updated
-
-        {:error, changeset} ->
-          Repo.rollback(changeset)
-      end
-    end)
-  end
-
-  # Turning contribution off has to be retroactive, not just future-facing.
-  # The setting was previously read only at ask time, so a crew that flipped it
-  # off left every answer it had already contributed serving the cross-user
-  # cache, and every question the publish check had already cleared listed on
-  # the community browse — "stop sharing" that stopped nothing already shared.
+  # Withdrawal (group delete, sole-owner account deletion) has to be
+  # retroactive, not just future-facing: every answer the crew had already
+  # contributed keeps serving the cross-user cache, and every question the
+  # publish check had already cleared stays listed on the community browse,
+  # unless this closes them.
   #
   # Rows already promoted to `visibility: "community"` are left alone: those
   # passed a community vote and belong to the commons, not to the crew.
   # `retracted_at` is the DURABLE record of the withdrawal. Clearing `pooled` and
   # `browsable` states what the row looks like NOW; it says nothing about intent,
   # and both flags are writable by the ask pipeline. An ask already in flight
-  # re-pooled the row seconds later (`never_pool` is read once, ~180s earlier),
-  # and toggling contribution back on made every previously-withdrawn row
-  # eligible again — against a UI that calls the withdrawal permanent. AskWorker
-  # and PublishCheckWorker both refuse a row carrying this stamp, so neither the
-  # race nor the re-toggle can resurrect it.
+  # re-pooled the row seconds later (`never_pool` is read once, ~180s earlier).
+  # AskWorker and PublishCheckWorker both refuse a row carrying this stamp, so
+  # the race cannot resurrect it.
   defp retract_contributions(%Group{id: group_id}) do
     from(q in RuleMaven.Games.QuestionLog,
       where: q.group_id == ^group_id,

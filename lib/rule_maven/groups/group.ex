@@ -7,7 +7,6 @@ defmodule RuleMaven.Groups.Group do
     field :invite_code, :string
     field :invite_active, :boolean, default: true
     field :member_cap, :integer, default: 12
-    field :contribute_to_community, :boolean, default: true
 
     belongs_to :owner, RuleMaven.Users.User
     has_many :memberships, RuleMaven.Groups.Membership
@@ -22,8 +21,7 @@ defmodule RuleMaven.Groups.Group do
       :owner_id,
       :invite_code,
       :invite_active,
-      :member_cap,
-      :contribute_to_community
+      :member_cap
     ])
     |> validate_required([:name, :owner_id, :invite_code])
     |> validate_length(:name, min: 1, max: 60)

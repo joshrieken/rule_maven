@@ -3,9 +3,9 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
   Task 4: AskWorker writes a group ask unbrowsable and enqueues the publish
   check — except on the `skip_normalize` ("Ask exactly this") path, where the
   canonical question IS the raw user text and must never publish. Also
-  verifies the per-group `contribute_to_community: false` switch folds into
-  `never_pool` so a non-contributing group's asks are neither pooled nor
-  browsable.
+  verifies withdrawal folds into `never_pool`: a `retracted_at` stamp, or a
+  group_id that no longer resolves (`Groups.exists?/1`), means the crew's asks
+  are neither pooled nor browsable.
   """
   use RuleMaven.DataCase
   use Oban.Testing, repo: RuleMaven.Repo
@@ -309,37 +309,6 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
     assert_enqueued(worker: PublishCheckWorker, args: %{"question_log_id" => ql.id})
   end
 
-  test "a re-queue with no group_id arg honors the group's contribute_to_community: false" do
-    game = seeded_game(9206)
-    owner = user("pgw_requeue_noshare")
-    grp = GroupsFixtures.group_fixture(owner, %{contribute_to_community: false})
-    stub_ask("You roll the die to start.")
-
-    {:ok, ql} =
-      Games.log_question(%{
-        game_id: game.id,
-        user_id: owner.id,
-        question: "How do I start?",
-        answer: "Thinking...",
-        visibility: "private",
-        group_id: grp.id
-      })
-
-    assert :ok =
-             perform(%{
-               "game_id" => game.id,
-               "question_log_id" => ql.id,
-               "question" => ql.question,
-               "expansion_ids" => [],
-               "user_id" => owner.id,
-               "skip_pool" => true
-             })
-
-    updated = Repo.reload!(ql)
-    assert updated.pooled == false
-    assert updated.browsable == false
-  end
-
   test "an ungrounded group ask is not pooled and runs no publish check" do
     # mark_pooled/1 no-ops when the citation isn't grounded in the source, so the
     # row never surfaces cross-user — screening it would burn an LLM call and
@@ -397,46 +366,13 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
     refute_enqueued(worker: PublishCheckWorker)
   end
 
-  test "a group with contribute_to_community: false does not pool its asks" do
-    game = seeded_game(9204)
-    owner = user("pgw_noshare")
-    grp = GroupsFixtures.group_fixture(owner, %{contribute_to_community: false})
-    stub_ask("You roll the die to start.")
-
-    {:ok, ql} =
-      Games.log_question(%{
-        game_id: game.id,
-        user_id: owner.id,
-        question: "How do I start?",
-        answer: "Thinking...",
-        visibility: "private",
-        group_id: grp.id
-      })
-
-    assert :ok =
-             perform(%{
-               "game_id" => game.id,
-               "question_log_id" => ql.id,
-               "question" => ql.question,
-               "expansion_ids" => [],
-               "user_id" => owner.id,
-               "group_id" => grp.id,
-               "skip_pool" => true
-             })
-
-    updated = Repo.reload!(ql)
-    assert updated.pooled == false
-    assert updated.browsable == false
-  end
-
   test "a solo ask with never_pool: true is not pooled and runs no publish check" do
-    # Mirrors "a group with contribute_to_community: false does not pool its
-    # asks" above, but for a SOLO row (no group_id) whose `never_pool` comes
+    # A SOLO row (no group_id) whose `never_pool` comes
     # straight from the Oban args — the lever a regenerate/report-redo of an
     # already-voted solo answer uses to keep a one-off private. Nothing in the
     # unified gate should special-case that away: `never_pool` must still stop
     # the row from pooling AND from ever reaching `PublishCheckWorker`, same as
-    # it does for a group row.
+    # it does for a withdrawn group row.
     game = seeded_game(9215)
     u = user("pgw_solo_never_pool")
     stub_ask("You roll the die to start.")
@@ -468,11 +404,11 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
   end
 
   test "a re-queue does NOT re-pool a row the crew withdrew" do
-    # Deleting the crew retracts its rows AND nilifies their group_id, so nothing
-    # on the row says "crew" any more except its closed `browsable` flag. Without
-    # reading that flag, contribute_to_community?(nil) answers "yes, contribute"
-    # and the admin unblock re-queue puts an answer the crew explicitly withdrew
-    # straight back into the shared cache.
+    # Deleting the crew retracts its rows AND nilifies their group_id, so the
+    # `retracted_at` stamp is the only thing left saying "withdrawn" (the
+    # `Groups.exists?/1` fail-closed check only runs for a non-nil group_id).
+    # Without reading the stamp, the admin unblock re-queue puts an answer the
+    # crew explicitly withdrew straight back into the shared cache.
     game = seeded_game(9207)
     owner = user("pgw_withdrawn")
     grp = GroupsFixtures.group_fixture(owner)
@@ -545,7 +481,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
   #
   # The retraction is driven from INSIDE the stubbed LLM call, which is exactly
   # where the real one lands.
-  test "contribution turned off DURING the ask does not pool the answer" do
+  test "a crew deleted DURING the ask does not pool the answer" do
     game = seeded_game(9210)
     owner = user("pgw_race")
     grp = GroupsFixtures.group_fixture(owner)
@@ -553,9 +489,13 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
     Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, List.duplicate(0.1, 768)} end)
 
     Application.put_env(:rule_maven, :llm_mock, fn _body ->
-      # The owner flips "contribute to the community" off while the ask is in
-      # flight. retract_contributions/1 closes the row; the job must notice.
-      {:ok, _} = RuleMaven.Groups.set_contribute(owner, grp, false)
+      # The owner deletes the crew while the ask is in flight.
+      # retract_contributions/1 closes the row; the job must notice.
+      # The mock serves EVERY LLM call in the pipeline (normalize, critic, …),
+      # so only the first invocation still finds a group to delete.
+      if RuleMaven.Groups.exists?(grp.id) do
+        {:ok, :deleted} = RuleMaven.Groups.delete_group(owner, grp)
+      end
 
       {:ok,
        %{
@@ -603,6 +543,52 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
     refute row.browsable
     assert row.retracted_at, "the retraction left no durable mark on the row"
 
+    refute_enqueued(worker: PublishCheckWorker, args: %{"question_log_id" => ql.id})
+  end
+
+  test "a stale group_id arg whose group no longer exists fails closed" do
+    # The Oban arg outlives the row's nilified column: a job enqueued for a crew
+    # that is deleted before the job runs still carries "group_id". If the
+    # retraction stamp were ever missing (a legacy row, a write the retraction
+    # raced), `Groups.exists?/1` is the backstop — a group_id that no longer
+    # resolves must read as withdrawn, not as "no group, pool freely".
+    game = seeded_game(9216)
+    owner = user("pgw_stale_arg")
+    grp = GroupsFixtures.group_fixture(owner)
+    stub_ask("You roll the die to start.")
+
+    {:ok, ql} =
+      Games.log_question(%{
+        game_id: game.id,
+        user_id: owner.id,
+        question: "How do I start?",
+        answer: "Thinking...",
+        visibility: "private",
+        group_id: grp.id
+      })
+
+    {:ok, :deleted} = RuleMaven.Groups.delete_group(owner, grp)
+
+    # Strip the stamp the deletion wrote, leaving ONLY the stale arg to catch.
+    Repo.update_all(
+      from(q in RuleMaven.Games.QuestionLog, where: q.id == ^ql.id),
+      set: [retracted_at: nil]
+    )
+
+    assert :ok =
+             perform(%{
+               "game_id" => game.id,
+               "question_log_id" => ql.id,
+               "question" => ql.question,
+               "expansion_ids" => [],
+               "user_id" => owner.id,
+               "group_id" => grp.id,
+               "skip_pool" => true
+             })
+
+    updated = Repo.reload!(ql)
+    assert updated.pooled == false
+    assert updated.browsable == false
     refute_enqueued(worker: PublishCheckWorker, args: %{"question_log_id" => ql.id})
   end
 
