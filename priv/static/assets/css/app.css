@@ -1073,7 +1073,11 @@ a:not([class]):hover {
 .qa-dyk {
   flex: 0 0 auto;
   position: relative;
-  padding: 0.4rem 2.9rem 0.4rem 0.9rem;
+  /* Aligned to the same 48rem reading column as the answer + question bars. */
+  max-width: 48rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0.4rem 2.9rem 0.4rem 1rem;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   font-size: 0.72rem;
@@ -1112,7 +1116,11 @@ a:not([class]):hover {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.65rem 0.9rem;
+  /* Aligned to the same 48rem reading column as the answer below. */
+  max-width: 48rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0.65rem 1rem;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
 }
