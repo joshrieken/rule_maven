@@ -849,6 +849,8 @@ body {
   .chat-layout,
   .chat-layout .chat-header,
   .chat-layout .chat-input,
+  .qa-dyk,
+  .qa-question,
   .chat-msg,
   .chat-msg-user,
   .answer-in,
@@ -1073,6 +1075,10 @@ a:not([class]):hover {
 .qa-dyk {
   flex: 0 0 auto;
   position: relative;
+  /* Above the blurred game-image backdrop (position:absolute; z-index:0):
+     without an explicit z-index this bar's background paints under it. */
+  z-index: 1;
+  animation: qa-drop-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
   /* Aligned to the same 48rem reading column as the answer + question bars. */
   max-width: 48rem;
   width: 100%;
@@ -1094,18 +1100,31 @@ a:not([class]):hover {
   color: var(--text-muted);
   white-space: nowrap;
 }
-.qa-dyk__shuffle {
+/* Element-qualified (button.…) so these outrank the generic
+   `[type="button"]` base rule further down, which otherwise wins the
+   specificity tie and inflates the pill with its own padding/background. */
+button.qa-dyk__shuffle {
   position: absolute;
-  top: 0.4rem;
+  top: 50%;
   right: 0.5rem;
+  transform: translateY(-50%);
   background: none;
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 0.65rem;
+  line-height: 1;
   cursor: pointer;
-  padding: 0.12rem 0.45rem;
+  padding: 0.18rem 0.45rem;
   color: var(--text-muted);
   font-weight: 600;
+  box-shadow: none;
+}
+button.qa-dyk__shuffle:hover,
+button.qa-dyk__shuffle:focus-visible {
+  background: var(--bg-subtle);
+  border-color: var(--border-strong);
+  transform: translateY(-50%);
+  box-shadow: none;
 }
 
 /* Fixed question region atop the Q&A column. Its height is LOCKED to two lines
@@ -1113,6 +1132,12 @@ a:not([class]):hover {
    resizing the box — the answer region below never moves. prev / question / N-of-M / next. */
 .qa-question {
   flex: 0 0 auto;
+  /* Above the blurred game-image backdrop (position:absolute; z-index:0):
+     a non-positioned div's background paints UNDER it, tinting the bar. */
+  position: relative;
+  z-index: 1;
+  /* Entrance matches the chat header's drop-in, a beat later. */
+  animation: qa-drop-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1120,42 +1145,71 @@ a:not([class]):hover {
   max-width: 48rem;
   width: 100%;
   margin: 0 auto;
-  padding: 0.65rem 1rem;
+  padding: 0.6rem 1rem;
   background: var(--bg-surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--accent);
 }
-.qa-question__text {
+/* Element-qualified (button.…) throughout: the generic `[type="button"]`
+   base rule below wins the specificity tie against a lone class and re-adds
+   its box (border, surface background, big padding). */
+button.qa-question__text {
   flex: 1;
   min-width: 0;
   margin: 0;
+  padding: 0;
   text-align: left;
   background: none;
   border: none;
+  border-radius: 0;
+  box-shadow: none;
+  white-space: normal;
   cursor: pointer;
   color: var(--text);
   font-size: 1.05rem;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.35;
   /* 2-line clamp with a fixed height (min == max) regardless of text length */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: calc(0.95rem * 1.3 * 2);
-  max-height: calc(0.95rem * 1.3 * 2);
+  min-height: calc(1.05rem * 1.35 * 2);
+  max-height: calc(1.05rem * 1.35 * 2);
 }
-.qa-question__pager {
+button.qa-question__text:hover,
+button.qa-question__text:focus-visible,
+button.qa-question__text:active {
+  background: none;
+  border: none;
+  transform: none;
+  box-shadow: none;
+  color: var(--accent-ink, var(--accent));
+}
+button.qa-question__pager {
   flex: 0 0 auto;
   background: none;
   border: none;
+  border-radius: 0.3rem;
+  box-shadow: none;
   cursor: pointer;
   color: var(--text-secondary);
   font-size: 1rem;
-  padding: 0 0.2rem;
+  line-height: 1;
+  padding: 0.25rem 0.4rem;
 }
-.qa-question__pager:disabled {
+button.qa-question__pager:hover:not(:disabled),
+button.qa-question__pager:focus-visible:not(:disabled) {
+  background: var(--bg-subtle);
+  border: none;
+  transform: none;
+  box-shadow: none;
+  color: var(--text);
+}
+button.qa-question__pager:disabled {
   opacity: 0.3;
   cursor: default;
+  background: none;
+  border: none;
 }
 .qa-question__count {
   flex: 0 0 auto;
@@ -1163,31 +1217,44 @@ a:not([class]):hover {
   font-size: 0.78rem;
   white-space: nowrap;
 }
+/* Small gold pill: signals "the question was rewritten — tap to compare". */
 .qa-question__edited {
-  margin-left: 0.4rem;
-  font-weight: 500;
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-  font-style: italic;
-}
-/* "Ask exactly this" lives on the fixed question bar so it never shifts the answer.
-   Override .ask-redo's translucent-on-accent-bubble look with a solid, readable
-   gold pill — the bar background is not the accent color. */
-.qa-question__reask {
-  flex: 0 0 auto;
+  margin-left: 0.45rem;
+  font-weight: 600;
+  font-size: 0.68rem;
+  font-style: normal;
+  color: var(--accent-ink, var(--accent));
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+  vertical-align: 0.12em;
   white-space: nowrap;
-  background: var(--accent);
-  color: var(--accent-text);
-  border-color: var(--accent);
-  font-size: 0.7rem;
-  padding: 0.2rem 0.55rem;
 }
-.qa-question__reask:hover,
-.qa-question__reask:focus-visible {
+/* "Ask exactly this" now lives on the full-question sheet (opened by tapping
+   the pinned question), styled as a solid gold pill on the sheet surface. */
+.qa-overlay__hint {
+  margin: 0.9rem 0 0.5rem;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+button.qa-overlay__reask {
+  margin-top: 0;
+  background: var(--accent);
+  color: var(--accent-text, #fff);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.4rem 0.9rem;
+}
+button.qa-overlay__reask:hover:not(:disabled),
+button.qa-overlay__reask:focus-visible:not(:disabled) {
   background: var(--accent-light);
   border-color: var(--accent-light);
+  color: var(--accent-text, #fff);
 }
-.qa-question__reask:disabled {
+button.qa-overlay__reask:disabled {
   opacity: 0.5;
 }
 .qa-overlay__row {
@@ -4090,12 +4157,29 @@ body:has([data-phx-main].phx-connected)::after {
   /* Secondary pills (View on BGG) — still reachable from the Overview panel. */
   .hide-mobile { display: none !important; }
   .show-mobile { display: inline-flex !important; }
-  /* Collapse the game header to ONE row: back · title · 🎲 📚 💬 · ☰. The
-     sub-bar pills only fit because they go icon-only below; the title is the
-     one flexible item, so it truncates. */
-  .chat-layout .chat-header .flex { flex-wrap: nowrap !important; }
-  .chat-layout .chat-header > .flex > .flex:first-child { min-width: 0; }
-  .chat-header__title h1 { max-width: 100% !important; }
+  /* Collapse the game header to ONE row: back · title · 🎲 📚 💬 · 📦 🏠 · ☰.
+     (The markup is .game-header-row now — the old `.chat-header .flex`
+     selectors matched nothing, so the ☰ wrapped onto a lonely second row.)
+     Everything must FIT at 390px — a flex line wraps on BASE widths, shrink
+     never runs — so the title gets a hard cap and the pills are icon-only.
+     The crew selector is the one deliberate exception: variable-length, so
+     it takes its own full-width line instead of cramming into the row. */
+  .game-header-row { row-gap: 0.1rem; }
+  .game-header-row__left { flex: 1 1 0; min-width: 0; }
+  /* Top-aligned so ☰ rides the icon line even when the title / crew selector
+     add lines inside __left. */
+  .game-header-row__right { flex-shrink: 0; align-self: flex-start; }
+  /* The title yields its row-1 seat to the icons and takes its own thin
+     small-print line below them — icons always fit one line this way. */
+  .game-header-row__left .chat-header__title { order: 20; flex-basis: 100%; min-width: 0; }
+  .chat-header__title h1 {
+    max-width: 100% !important;
+    font-size: 0.66rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--text-muted);
+  }
+  .group-selector { flex-basis: 100%; order: 10; }
   .tool-subbar {
     gap: 0.2rem !important;
     flex-wrap: nowrap !important;

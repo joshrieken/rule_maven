@@ -130,13 +130,15 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
 
     conn = login(build_conn(), ctx.member)
 
-    {:ok, _view, html} =
+    {:ok, view, _html} =
       live(
         conn,
         ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
       )
 
-    assert html =~ "SECRETWORDING"
+    # The disclosure lives on the full-question sheet now (tap the pinned
+    # question); the raw wording is still the asker's to see there.
+    assert view |> element("button.qa-question__text") |> render_click() =~ "SECRETWORDING"
   end
 
   test "an admin does NOT see another user's raw wording in the disclosure", ctx do
@@ -327,7 +329,7 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
       also_asked: []
     })
 
-    assert render(view) =~ "SECRETWORDING"
+    assert view |> element("button.qa-question__text") |> render_click() =~ "SECRETWORDING"
   end
 
   test "a removed member stops seeing the crew feed and stops writing into it", ctx do

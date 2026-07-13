@@ -301,7 +301,9 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         style="flex-shrink:0"
       >
         <span aria-hidden="true">🏠</span>
-        <span>{if @house_rule_count == 0, do: "Add", else: @house_rule_count}</span>
+        <%!-- "Add" is the wide case — hidden on mobile (tc-label) so the strip
+              fits the one-row header; a real count is narrow and stays. --%>
+        <span class={if @house_rule_count == 0, do: "tc-label"}>{if @house_rule_count == 0, do: "Add", else: @house_rule_count}</span>
       </button>
     </div>
     """

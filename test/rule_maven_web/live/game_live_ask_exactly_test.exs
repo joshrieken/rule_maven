@@ -84,7 +84,12 @@ defmodule RuleMavenWeb.GameLiveAskExactlyTest do
         ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(copy.id)}"
       )
 
-    assert html =~ "Ask exactly this"
+    # The escape hatch lives on the full-question sheet now — opened by
+    # tapping the pinned question — not inline on the question bar.
+    refute html =~ "Ask exactly what I typed"
+
+    sheet = view |> element("button.qa-question__text") |> render_click()
+    assert sheet =~ "Ask exactly what I typed"
 
     view
     |> element("button[phx-click='ask_exactly'][phx-value-id='#{copy.id}']")
@@ -145,9 +150,14 @@ defmodule RuleMavenWeb.GameLiveAskExactlyTest do
         ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
       )
 
-    # Disclosure + escape hatch both present because the wording was rewritten.
-    assert html =~ "You asked:"
-    assert html =~ "Ask exactly this"
+    # The bar flags the rewrite; the disclosure + escape hatch open with the
+    # full-question sheet (tap the pinned question).
+    assert html =~ "edited"
+
+    sheet = view |> element("button.qa-question__text") |> render_click()
+    assert sheet =~ "We searched"
+    assert sheet =~ "You asked"
+    assert sheet =~ "Ask exactly what I typed"
 
     view
     |> element("button[phx-click='ask_exactly'][phx-value-id='#{ql.id}']")
@@ -190,7 +200,7 @@ defmodule RuleMavenWeb.GameLiveAskExactlyTest do
     user = setup_user("ax_fresh")
     game = published_game_fixture(%{name: "AX Fresh Game"})
 
-    {:ok, _q} =
+    {:ok, q} =
       Games.log_question(%{
         game_id: game.id,
         user_id: user.id,
@@ -202,8 +212,19 @@ defmodule RuleMavenWeb.GameLiveAskExactlyTest do
       })
 
     conn = login(conn, user)
-    {:ok, _view, html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
 
-    refute html =~ "Ask exactly this"
+    {:ok, view, html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(q.id)}"
+      )
+
+    refute html =~ "Ask exactly what I typed"
+
+    # Even on the full-question sheet: fresh, unrewritten, non-pool answers
+    # get no escape hatch.
+    sheet = view |> element("button.qa-question__text") |> render_click()
+    refute sheet =~ "Ask exactly what I typed"
+    refute sheet =~ "phx-click=\"ask_exactly\""
   end
 end

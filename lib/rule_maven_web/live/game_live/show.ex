@@ -2180,6 +2180,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       Games.record_pool_mismatch(q, user.id)
 
       socket
+      |> assign(:qa_show_question, false)
       |> put_flash(:info, "Asking your exact wording — fetching a fresh answer.")
       |> then(&resubmit_question(id, &1, skip_pool: true, verbatim: true))
     else
@@ -3730,15 +3731,8 @@ defmodule RuleMavenWeb.GameLive.Show do
              so their appearance never changes the bar height / moves the answer. -->
         <%= if @conversation != [] && @qa_active_question do %>
           <% u_msg = Enum.find(@conversation, &(&1.role == :user)) %>
-          <% a_msg = Enum.find(@conversation, &(&1.role == :assistant)) %>
           <% asked_as = u_msg && (Map.get(@reask_typed, u_msg[:id]) || u_msg[:original_question]) %>
           <% normalized? = !!(u_msg && normalization_changed?(asked_as, u_msg.content)) %>
-          <% a_ready? =
-            a_msg && !a_msg[:pending] && !a_msg[:refused] && a_msg.content != "Thinking..." &&
-              is_binary(a_msg.content) && not String.starts_with?(a_msg.content, "⚠️") %>
-          <% a_pending? = !!(a_msg && (a_msg[:pending] || a_msg.content == "Thinking...")) %>
-          <% show_reask? =
-            !!(u_msg && (a_pending? || (a_ready? && (a_msg[:pool_hit] || normalized?)))) %>
           <div class="qa-question">
             <button
               type="button"
@@ -3752,17 +3746,7 @@ defmodule RuleMavenWeb.GameLive.Show do
               class="qa-question__text"
               phx-click="qa_show_question"
               title="Show full question"
-            >{@qa_active_question}<span :if={normalized?} class="qa-question__edited">· edited</span></button>
-            <button
-              :if={show_reask?}
-              type="button"
-              phx-click="ask_exactly"
-              phx-value-id={u_msg.id}
-              disabled={a_pending? || @pending_count >= @max_concurrent}
-              data-confirm="Re-ask using your exact original wording, without rewriting or reusing a cached answer? We'll fetch a fresh answer for exactly what you asked."
-              class="ask-redo qa-question__reask"
-              title="Answer my literal wording — fresh, no rewrite"
-            >🎯 Ask exactly this</button>
+            >{@qa_active_question}<span :if={normalized?} class="qa-question__edited">edited</span></button>
             <span class="qa-question__count">{@qa_active_index + 1} / {@qa_total}</span>
             <button
               type="button"
@@ -5224,20 +5208,47 @@ defmodule RuleMavenWeb.GameLive.Show do
             without reflowing it — expanding the question never moves the answer. --%>
       <%= if @qa_show_question do %>
         <% u = Enum.find(@conversation, &(&1.role == :user)) %>
+        <% a = Enum.find(@conversation, &(&1.role == :assistant)) %>
         <% orig = u && (Map.get(@reask_typed, u[:id]) || u[:original_question]) %>
-        <div class="qa-overlay" phx-click="qa_hide_question">
+        <% normalized? = !!(u && normalization_changed?(orig, u.content)) %>
+        <% a_ready? =
+          a && !a[:pending] && !a[:refused] && a.content != "Thinking..." &&
+            is_binary(a.content) && not String.starts_with?(a.content, "⚠️") %>
+        <% a_pending? = !!(a && (a[:pending] || a.content == "Thinking...")) %>
+        <% show_reask? = !!(u && (a_pending? || (a_ready? && (a[:pool_hit] || normalized?)))) %>
+        <div
+          class="qa-overlay"
+          phx-click="qa_hide_question"
+          phx-window-keydown="qa_hide_question"
+          phx-key="escape"
+        >
           <div class="qa-overlay__sheet" phx-click="ignore">
-            <%= if u && normalization_changed?(orig, u.content) do %>
-              <div class="qa-overlay__row">
-                <span class="qa-overlay__k">You asked</span>
-                <p class="qa-overlay__v">"{orig}"</p>
-              </div>
+            <%= if normalized? do %>
               <div class="qa-overlay__row">
                 <span class="qa-overlay__k">We searched</span>
                 <p class="qa-overlay__v">{u.content}</p>
               </div>
+              <div class="qa-overlay__row">
+                <span class="qa-overlay__k">You asked</span>
+                <p class="qa-overlay__v">"{orig}"</p>
+              </div>
             <% else %>
               <p class="qa-overlay__v">{@qa_active_question}</p>
+            <% end %>
+            <%= if show_reask? do %>
+              <p class="qa-overlay__hint">
+                Answer didn't fit your question? Get a fresh answer for your exact
+                wording — no rewriting, no reused answer.
+              </p>
+              <button
+                type="button"
+                phx-click="ask_exactly"
+                phx-value-id={u.id}
+                disabled={a_pending? || @pending_count >= @max_concurrent}
+                data-confirm="Re-ask using your exact original wording, without rewriting or reusing a cached answer? We'll fetch a fresh answer for exactly what you asked."
+                class="qa-overlay__reask"
+                title="Answer my literal wording — fresh, no rewrite"
+              >🎯 Ask exactly what I typed</button>
             <% end %>
           </div>
         </div>
