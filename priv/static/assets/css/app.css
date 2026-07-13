@@ -3435,8 +3435,11 @@ textarea {
   border-bottom: 1px solid var(--border);
 }
 
-/* Entrance animations, mirroring the Q&A screen: head drops in, the page
-   body rises. One-shot; disabled with the rest under prefers-reduced-motion. */
+/* Entrance animations, mirroring the Q&A screen: sub-bar and head drop in,
+   the page body rises. One-shot; disabled under prefers-reduced-motion. */
+.game-bar.community-bar {
+  animation: qa-drop-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 .community-head {
   animation: qa-drop-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
 }
@@ -3444,6 +3447,7 @@ textarea {
   animation: qa-rise-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
 }
 @media (prefers-reduced-motion: reduce) {
+  .game-bar.community-bar,
   .community-head,
   .community-page {
     animation: none !important;

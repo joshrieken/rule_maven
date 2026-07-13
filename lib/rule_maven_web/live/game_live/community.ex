@@ -404,6 +404,7 @@ defmodule RuleMavenWeb.GameLive.Community do
     <%!-- Same tool sub-bar as the game page: every game screen keeps the
           table tools one tap away. Admin Review lives in the More menu. --%>
     <SubBar.game_bar
+      class="community-bar"
       game={@game}
       sources={@sources}
       community_count={@community_count}
