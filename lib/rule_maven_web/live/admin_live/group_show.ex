@@ -221,7 +221,7 @@ defmodule RuleMavenWeb.AdminLive.GroupShow do
   @impl true
   def render(assigns) do
     ~H"""
-    <div style="max-width:40rem;margin:0 auto;padding:1.25rem 1rem">
+    <div style="max-width:40rem;margin:0 auto;padding:0.5rem 1rem 1.25rem">
       <.link navigate={~p"/admin/groups"} class="back-link">&larr; All groups</.link>
 
       <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin:0.5rem 0 0.25rem">
@@ -233,14 +233,14 @@ defmodule RuleMavenWeb.AdminLive.GroupShow do
 
       <div
         :if={is_nil(@viewer_role)}
-        style="padding:0.5rem 0.75rem;margin-bottom:1.25rem;border-radius:0.5rem;border:1px solid var(--accent);background:var(--bg-surface);font-size:0.78rem;color:var(--text)"
+        style="padding:0.5rem 0.75rem;margin-bottom:0.75rem;border-radius:0.5rem;border:1px solid var(--accent);background:var(--bg-surface);font-size:0.78rem;color:var(--text)"
       >
         Admin view — you are not a member of this group. Every control below acts
         on the group directly.
       </div>
 
       <!-- Invite link -->
-      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:1.25rem">
+      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:0.75rem">
         <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">Invite link</h2>
         <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 0.6rem 0">
           <%= if @group.invite_active do %>
@@ -273,7 +273,7 @@ defmodule RuleMavenWeb.AdminLive.GroupShow do
       </section>
 
       <!-- Members -->
-      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:1.25rem">
+      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:0.75rem">
         <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">
           Members ({length(@members)})
         </h2>
@@ -337,7 +337,7 @@ defmodule RuleMavenWeb.AdminLive.GroupShow do
       </section>
 
       <!-- Member cap -->
-      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:1.25rem">
+      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:0.75rem">
         <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">Member cap</h2>
         <form
           id="admin-set-cap"
@@ -356,7 +356,7 @@ defmodule RuleMavenWeb.AdminLive.GroupShow do
       </section>
 
       <!-- Community contribution -->
-      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:1.25rem">
+      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:0.75rem">
         <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">Community sharing</h2>
         <label for="admin-contribute-toggle" class="crew-toggle">
           <input
@@ -372,7 +372,7 @@ defmodule RuleMavenWeb.AdminLive.GroupShow do
       </section>
 
       <!-- Rename -->
-      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:1.25rem">
+      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:0.75rem">
         <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">Rename group</h2>
         <.form
           for={@rename_form}

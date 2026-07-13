@@ -1355,15 +1355,20 @@ Hooks.FloatingPanel = {
 // light/dark game variant matching the viewer's CURRENT look (sampled from the
 // live background luminance, so it fits whatever base theme is active), exactly
 // like the header theme picker (localStorage themeGameMatch + data-theme).
-// Shows only while no game variant is active — it hides when one is applied and
-// reappears if the picker is switched back to Off, driven by the shared
-// `rm:gametheme` event the root layout dispatches.
+// The wrapper holds two pills: [data-role=dress] (opt in) while no game variant
+// is active, and [data-role=undress] (switch back) once one is applied. Which
+// one shows is driven by the shared `rm:gametheme` event the root layout
+// dispatches, so the pair stays in sync with the header theme picker too.
 Hooks.GameThemeHint = {
   isGame(v) {
     return v === "game-light" || v === "game-dark";
   },
   sync(match) {
-    this.el.hidden = this.isGame(match);
+    var on = this.isGame(match);
+    var dress = this.el.querySelector('[data-role="dress"]');
+    var undress = this.el.querySelector('[data-role="undress"]');
+    if (dress) dress.hidden = on;
+    if (undress) undress.hidden = !on;
   },
   mounted() {
     var self = this;
@@ -1372,22 +1377,53 @@ Hooks.GameThemeHint = {
       self.sync(e && e.detail ? e.detail.match : localStorage.getItem("themeGameMatch"));
     };
     window.addEventListener("rm:gametheme", this._onMatch);
-    this.el.addEventListener("click", function() {
-      var variant = "game-light";
-      try {
-        var bg = getComputedStyle(document.body).backgroundColor;
-        var m = bg.match(/\d+/g);
-        if (m && m.length >= 3) {
-          var lum = 0.299 * (+m[0]) + 0.587 * (+m[1]) + 0.114 * (+m[2]);
-          if (lum < 128) variant = "game-dark";
-        }
-      } catch (_e) {}
-      localStorage.setItem("themeGameMatch", variant);
-      document.documentElement.setAttribute("data-theme", variant);
-      var sel = document.getElementById("theme-select");
-      if (sel) sel.value = variant;
-      window.dispatchEvent(new CustomEvent("rm:gametheme", { detail: { match: variant } }));
+    this.el.addEventListener("click", function(ev) {
+      var btn = ev.target.closest("[data-role]");
+      if (!btn) return;
+      if (btn.dataset.role === "dress") {
+        var variant = "game-light";
+        try {
+          var bg = getComputedStyle(document.body).backgroundColor;
+          var m = bg.match(/\d+/g);
+          if (m && m.length >= 3) {
+            var lum = 0.299 * (+m[0]) + 0.587 * (+m[1]) + 0.114 * (+m[2]);
+            if (lum < 128) variant = "game-dark";
+          }
+        } catch (_e) {}
+        localStorage.setItem("themeGameMatch", variant);
+        document.documentElement.setAttribute("data-theme", variant);
+        var sel = document.getElementById("theme-select");
+        if (sel) sel.value = variant;
+        window.dispatchEvent(new CustomEvent("rm:gametheme", { detail: { match: variant } }));
+        return;
+      }
+      // Switch back: route through the header picker's change handler when it
+      // exists (it owns the off-switch semantics: themeGameMatch=0, base theme,
+      // announce, tracking). Fall back to doing the same by hand.
+      var base = localStorage.getItem("theme");
+      if (!base) {
+        base = window.matchMedia("(prefers-color-scheme: dark)").matches
+          ? "night-owl"
+          : "fresh-deck";
+      }
+      var picker = document.getElementById("theme-select");
+      var hasBase = picker && Array.prototype.some.call(picker.options, function(o) {
+        return o.value === base;
+      });
+      if (hasBase) {
+        picker.value = base;
+        picker.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        localStorage.setItem("themeGameMatch", "0");
+        document.documentElement.setAttribute("data-theme", base);
+        window.dispatchEvent(new CustomEvent("rm:gametheme", { detail: { match: "0" } }));
+      }
     });
+  },
+  // A LiveView patch rewrites the `hidden` attributes from the template
+  // (dress shown, undress hidden) — re-assert the real state.
+  updated() {
+    this.sync(localStorage.getItem("themeGameMatch"));
   },
   destroyed() {
     if (this._onMatch) window.removeEventListener("rm:gametheme", this._onMatch);

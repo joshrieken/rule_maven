@@ -3881,18 +3881,32 @@ defmodule RuleMavenWeb.GameLive.Show do
               </p>
 
               <%!-- One-click opt-in to this game's own colors. Only shown when
-                   a palette exists; the hook self-hides it once a game variant
-                   is already active. --%>
-              <button
+                   a palette exists; the hook swaps between the opt-in pill and
+                   a "switch back" pill depending on whether a game variant is
+                   already active. --%>
+              <div
                 :if={RuleMavenWeb.GameLive.GameTheme.has_palette?(@game)}
-                type="button"
                 id="game-theme-hint"
                 phx-hook="GameThemeHint"
                 data-tour="game-theme-hint"
-                style="margin:1.1rem auto 0;display:inline-flex;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.75rem;font-weight:700;color:var(--accent-ink,var(--accent));cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
+                style="margin:1.1rem auto 0"
               >
-                🖌️ Dress this page in {@game.name}'s colors
-              </button>
+                <button
+                  type="button"
+                  data-role="dress"
+                  style="display:inline-flex;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.75rem;font-weight:700;color:var(--accent-ink,var(--accent));cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
+                >
+                  🖌️ Dress this page in {@game.name}'s colors
+                </button>
+                <button
+                  type="button"
+                  data-role="undress"
+                  hidden
+                  style="display:inline-flex;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:transparent;border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.72rem;font-weight:600;color:var(--text-muted);cursor:pointer"
+                >
+                  🖌️ Wearing {@game.name}'s colors — switch back
+                </button>
+              </div>
 
               <%= if @suggestions != [] && !Enum.any?(@conversation, & &1[:refused]) do %>
                 <div style="margin-top:1.5rem;text-align:left;max-width:28rem;margin-left:auto;margin-right:auto">

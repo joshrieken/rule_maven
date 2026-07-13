@@ -36,7 +36,7 @@ defmodule RuleMavenWeb.GroupLive.Index do
 
   def render(assigns) do
     ~H"""
-    <div style="max-width:40rem;margin:0 auto;padding:1.25rem 1rem">
+    <div style="max-width:40rem;margin:0 auto;padding:0.5rem 1rem 1.25rem">
       <h1 style="font-size:1.25rem;font-weight:800;margin:0 0 0.25rem 0">Groups</h1>
       <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 1.25rem 0">
         A group shares one answer feed and answer cache per game across its

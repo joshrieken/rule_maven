@@ -2034,7 +2034,7 @@ button.pill-link-accent,
      .game-bar`'s `margin-inline: -1.5rem` below — keep the two in sync if
      this changes, or the bar will overhang and get silently clipped by
      overflow-x: hidden above. */
-  padding: 2rem 1.5rem 4rem;
+  padding: 1.25rem 1.5rem 4rem;
 }
 
 .container {

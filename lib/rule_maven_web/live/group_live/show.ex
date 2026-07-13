@@ -240,15 +240,15 @@ defmodule RuleMavenWeb.GroupLive.Show do
 
   def render(assigns) do
     ~H"""
-    <div style="max-width:40rem;margin:0 auto;padding:1.25rem 1rem">
+    <div style="max-width:40rem;margin:0 auto;padding:0.5rem 1rem 1.25rem">
       <.link navigate={~p"/groups"} class="back-link">&larr; Groups</.link>
       <h1 style="font-size:1.25rem;font-weight:800;margin:0 0 0.25rem 0">{@group.name}</h1>
-      <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 1.25rem 0">
+      <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 0.9rem 0">
         Your role: <strong>{String.capitalize(@role)}</strong>
       </p>
 
       <!-- Invite link -->
-      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:1.25rem">
+      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:0.75rem">
         <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">Invite link</h2>
         <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 0.6rem 0">
           Anyone with this link can join {@group.name}.
@@ -298,7 +298,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
       </section>
 
       <!-- Members -->
-      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:1.25rem">
+      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:0.75rem">
         <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">
           Members ({length(@members)})
         </h2>
@@ -371,7 +371,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
       <!-- Community contribution (admin+) -->
       <section
         :if={@role in ["admin", "owner"]}
-        style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:1.25rem"
+        style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:0.75rem"
       >
         <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">Community sharing</h2>
         <label for="contribute-toggle" class="crew-toggle">
@@ -398,7 +398,7 @@ defmodule RuleMavenWeb.GroupLive.Show do
       <!-- Rename (admin+) -->
       <section
         :if={@role in ["admin", "owner"]}
-        style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:1.25rem"
+        style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:0.75rem"
       >
         <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">Rename group</h2>
         <.form
