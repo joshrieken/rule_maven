@@ -10,7 +10,22 @@ defmodule RuleMaven.LLM.Pricing do
   """
 
   # {input_per_mtok, output_per_mtok} in USD.
+  #
+  # Anthropic models MUST stay in this table. The escalate model
+  # (`llm_escalate_model_<provider>`) is a Claude model, and there was no Claude
+  # entry here at all — so every refusal escalation fell through to
+  # @default_rate {0.50, 1.50} and was logged at ~1/6 of what it actually cost.
+  # On 2026-07-13 a single Sonnet escalation billed $0.326 (31% of the day's
+  # entire spend) and would have been recorded as ~$0.05. The cost dashboard and
+  # the budget cap both read these numbers, so the most expensive model in the
+  # pipeline was the one they were blindest to. Add the model here whenever
+  # `llm_escalate_model_*` changes.
   @prices [
+    {"claude-opus-4", {15.00, 75.00}},
+    {"claude-sonnet-5", {3.00, 15.00}},
+    {"claude-sonnet-4", {3.00, 15.00}},
+    {"claude-haiku-4", {1.00, 5.00}},
+    {"claude-3-5-haiku", {0.80, 4.00}},
     {"deepseek-v4-flash", {0.089, 0.18}},
     {"gpt-5-mini", {0.25, 2.00}},
     {"gemini-3.1-pro", {2.00, 12.00}},
