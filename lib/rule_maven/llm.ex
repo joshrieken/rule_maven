@@ -976,7 +976,7 @@ defmodule RuleMaven.LLM do
       warning =
         "\n\nIMPORTANT: a previous answer attempt IGNORED these values stated in the question: #{Enum.join(missing, ", ")}. " <>
           "A stated current value (a track position, a supply count, a hand size) REPLACES the game's setup default — answer for the exact state the question describes, and NEVER state a resulting value computed from any starting value other than the stated one. " <>
-          "If the rules do not cover the stated state, LEAD with exactly that ('The rules do not specify what happens when …'), then give the closest applicable rule."
+          "If the rules do not cover the stated state, LEAD with exactly that ('The rules do not specify what happens when …'), then give the closest applicable rule — and still CITE that rule verbatim in the citations, so the answer stays grounded."
 
       case request_answer(
              system_prompt <> warning,
@@ -988,8 +988,68 @@ defmodule RuleMaven.LLM do
              # premise-ignoring answer defeats this.
              true
            ) do
-        {:ok, retried} -> maybe_reground(retried, system_prompt, ctx, chunks)
-        {:error, _reason} -> llm_result
+        {:ok, retried} ->
+          retried = maybe_reground(retried, system_prompt, ctx, chunks)
+          maybe_escalate_ignored_premise(retried, system_prompt <> warning, ctx, chunks)
+
+        {:error, _reason} ->
+          llm_result
+      end
+    end
+  end
+
+  # Second rung: the default model ignored the stated value TWICE — with the
+  # premise explicitly called out — which is the strongest signal available
+  # that the question is beyond it. This path opens only on that double miss
+  # (rare by construction: most answers restate the question's numbers
+  # naturally), so its expected cost is near zero while firing exactly at the
+  # confidently-wrong-with-citations failure. One escalate call, and its
+  # answer is kept ONLY if it actually engages every stated number and isn't
+  # a refusal — otherwise the cheaper retry stands. Cost shows up in the
+  # dashboard under the escalate model's rates.
+  defp maybe_escalate_ignored_premise(retried, warned_system_prompt, ctx, chunks) do
+    still =
+      if refused_answer?(retried),
+        do: [],
+        else:
+          RuleMaven.Games.Citations.ignored_numbers(
+            to_string(ctx.question),
+            to_string(retried[:answer])
+          )
+
+    if still == [] do
+      retried
+    else
+      escalate_model = model(:escalate)
+      esc_ctx = %{ctx | model_name: escalate_model, fresh: true}
+
+      case request_answer(
+             warned_system_prompt,
+             ctx.question,
+             escalate_model,
+             ctx.game_id,
+             ctx.user_id,
+             true
+           ) do
+        {:ok, esc} ->
+          esc = maybe_reground(esc, warned_system_prompt, esc_ctx, chunks)
+
+          # "The rules do not specify what happens at 0" IS the ideal answer
+          # here, and models label it verdict "silent" — so unlike the refusal
+          # escalations, a silent verdict alone doesn't disqualify. Only the
+          # bare refusal phrase does (that's what maybe_reground collapses a
+          # discarded answer into, and it engages nothing).
+          engaged? =
+            String.trim(to_string(esc[:answer])) != @refusal_answer and
+              RuleMaven.Games.Citations.ignored_numbers(
+                to_string(ctx.question),
+                to_string(esc[:answer])
+              ) == []
+
+          if engaged?, do: esc, else: retried
+
+        {:error, _reason} ->
+          retried
       end
     end
   end
