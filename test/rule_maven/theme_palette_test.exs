@@ -292,9 +292,16 @@ defmodule RuleMaven.ThemePaletteTest do
 
       {:ok, %{"light" => light, "dark" => dark}} = ThemePalette.names(raw)
 
-      for name <- [light, dark], char <- ~w(< > " ' &) do
+      for name <- [light, dark], char <- ~w(< > " &) do
         refute String.contains?(name, char), "#{inspect(name)} still contains #{char}"
       end
+    end
+
+    test "keeps apostrophes — every sink escapes them" do
+      raw = %{"names" => %{"light" => "Dragon's Dawn", "dark" => "Dragon's Lair"}}
+
+      assert {:ok, %{"light" => "Dragon's Dawn", "dark" => "Dragon's Lair"}} =
+               ThemePalette.names(raw)
     end
 
     test "collapses whitespace and caps the length so the picker can't blow out" do

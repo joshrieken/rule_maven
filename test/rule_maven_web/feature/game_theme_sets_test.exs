@@ -88,23 +88,38 @@ defmodule RuleMavenWeb.Feature.GameThemeSetsTest do
     options =
       probe(conn, """
       () => {
-        var group = document.getElementById('theme-select-game-group');
-        if (!group) return {missing: true};
+        var read = function(scheme) {
+          var group = document.getElementById('theme-select-game-group-' + scheme);
+          if (!group) return null;
+          return {
+            label: group.label,
+            options: Array.prototype.map.call(group.children, function(o) {
+              return {value: o.value, label: o.textContent.trim()};
+            })
+          };
+        };
+        var sel = document.getElementById('theme-select');
         return {
-          missing: false,
-          options: Array.prototype.map.call(group.children, function(o) {
-            return {value: o.value, label: o.textContent.trim()};
-          })
+          light: read('light'),
+          dark: read('dark'),
+          firstGroup: sel.firstElementChild ? sel.firstElementChild.id : null
         };
       }
       """)
 
-    refute options["missing"], "game optgroup never folded into #theme-select"
+    assert options["light"], "light game optgroup never folded into #theme-select"
+    assert options["dark"], "dark game optgroup never folded into #theme-select"
+    assert options["firstGroup"] == "theme-select-game-group-light"
+    assert options["light"]["label"] == "Match Game Light"
+    assert options["dark"]["label"] == "Match Game Dark"
 
-    assert options["options"] == [
+    assert options["light"]["options"] == [
              %{"value" => "game-light", "label" => "🖌️ Harbor Daylight"},
+             %{"value" => "game-2-light", "label" => "🖌️ Tide Morning"}
+           ]
+
+    assert options["dark"]["options"] == [
              %{"value" => "game-dark", "label" => "🖌️ Longest Night"},
-             %{"value" => "game-2-light", "label" => "🖌️ Tide Morning"},
              %{"value" => "game-2-dark", "label" => "🖌️ Deep Current"}
            ]
 

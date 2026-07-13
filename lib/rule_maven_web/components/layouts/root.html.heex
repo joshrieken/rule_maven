@@ -459,35 +459,48 @@
           ];
         }
 
-        // Fold the game-theme options into the single site picker as a pinned
-        // top optgroup whenever the page offers a palette — same control on
-        // every screen size, so there's just one theme menu to learn.
+        // Fold the game-theme options into the single site picker as two
+        // pinned top optgroups — all the light looks under "Match Game Light",
+        // all the dark ones under "Match Game Dark" — whenever the page offers
+        // a palette. Same control on every screen size, one theme menu to learn.
         function syncGameOptions(available) {
-          var group = document.getElementById('theme-select-game-group');
+          var schemes = ['light', 'dark'];
+          var groups = {};
+          schemes.forEach(function(scheme) {
+            groups[scheme] = document.getElementById('theme-select-game-group-' + scheme);
+          });
           if (!available) {
-            if (group) group.remove();
+            schemes.forEach(function(scheme) {
+              if (groups[scheme]) groups[scheme].remove();
+            });
             return;
           }
-          if (!group) {
-            group = document.createElement('optgroup');
-            group.id = 'theme-select-game-group';
-            group.label = 'Match game';
-            // Pin to the TOP: buried under 20+ site themes the game options
-            // were effectively invisible. First thing you see now.
-            select.insertBefore(group, select.firstChild);
-          }
-          // Rebuild on EVERY sync, not just on create: the group survives a
+          // Rebuild on EVERY sync, not just on create: the groups survive a
           // LiveView navigation from one game to the next, and both the number
           // of sets and their names differ per game. Rebuilding can reset the
           // select's value, so restore it.
           var selected = select.value;
-          while (group.firstChild) group.removeChild(group.firstChild);
-          gameVariants().forEach(function(v) {
-            var opt = document.createElement('option');
-            opt.value = v.value;
-            // textContent, never innerHTML — these names are model-authored.
-            opt.textContent = '🖌️ ' + v.name;
-            group.appendChild(opt);
+          var variants = gameVariants();
+          // Reverse creation order + insertBefore(firstChild) pins the pair as
+          // [light, dark] at the TOP: buried under 20+ site themes the game
+          // options were effectively invisible.
+          ['dark', 'light'].forEach(function(scheme) {
+            var group = groups[scheme];
+            if (!group) {
+              group = document.createElement('optgroup');
+              group.id = 'theme-select-game-group-' + scheme;
+              group.label = scheme === 'light' ? 'Match Game Light' : 'Match Game Dark';
+              select.insertBefore(group, select.firstChild);
+            }
+            while (group.firstChild) group.removeChild(group.firstChild);
+            variants.forEach(function(v) {
+              if ((/dark$/.test(v.value) ? 'dark' : 'light') !== scheme) return;
+              var opt = document.createElement('option');
+              opt.value = v.value;
+              // textContent, never innerHTML — these names are model-authored.
+              opt.textContent = '🖌️ ' + v.name;
+              group.appendChild(opt);
+            });
           });
           select.value = selected;
         }

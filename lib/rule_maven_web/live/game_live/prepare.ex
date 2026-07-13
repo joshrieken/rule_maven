@@ -1148,7 +1148,9 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       setup: Setup.stored_checklist(game.id),
       did_you_know: load_did_you_know(game.id),
       voices: Voices.game_voice_defs(game.id),
-      theme: game.theme_palette,
+      # Full renderable sets (slugs, names, contrast-lifted vars) so the
+      # preview can show what the theme picker will actually offer.
+      theme: RuleMavenWeb.GameLive.GameTheme.theme_sets(game),
       bgg: game.bgg_data,
       first_player: load_json_list("first_player_#{game.id}"),
       common_mistakes: load_json_list("common_mistakes_#{game.id}"),
@@ -1548,24 +1550,35 @@ defmodule RuleMavenWeb.GameLive.Prepare do
             </div>
           </div>
         <% :theme -> %>
-          <%!-- One swatch row per theme set (legacy single-set palettes
-               normalize to one row via palette_sets/1). --%>
-          <div style="display:flex;flex-direction:column;gap:0.5rem">
-            <%= for set <- RuleMaven.ThemePalette.palette_sets(@preview || %{}) do %>
-              <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
-                <%= for mode <- ["light", "dark"], is_map(set[mode]) do %>
-                  <% v = set[mode] %>
-                  <div style={"display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.5rem;border-radius:0.35rem;border:1px solid var(--border);background:#{v["--bg"]}"}>
-                    <span style={"font-size:0.62rem;font-weight:700;text-transform:capitalize;color:#{v["--text"]}"}>
-                      {mode}
-                    </span>
-                    <span
-                      :for={key <- ["--accent", "--bg", "--bg-surface", "--text"]}
-                      title={key}
-                      style={"width:0.9rem;height:0.9rem;border-radius:0.2rem;border:1px solid var(--border);background:#{v[key]}"}
-                    ></span>
-                  </div>
-                <% end %>
+          <%!-- One row per theme set (GameTheme.theme_sets/1: legacy
+               single-set palettes normalize to one row), labeled with the
+               names + swatches the picker will actually offer. --%>
+          <div style="display:flex;flex-direction:column;gap:0.6rem">
+            <%= for {set, n} <- Enum.with_index(@preview, 1) do %>
+              <div>
+                <div style="font-size:0.68rem;font-weight:700;color:var(--text-secondary);margin-bottom:0.25rem">
+                  Set {n}
+                </div>
+                <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+                  <%= for {name, v, slug} <- [
+                        {set.light_name, set.light, set.light_slug},
+                        {set.dark_name, set.dark, set.dark_slug}
+                      ] do %>
+                    <div
+                      title={slug}
+                      style={"display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.5rem;border-radius:0.35rem;border:1px solid var(--border);background:#{v["--bg"]}"}
+                    >
+                      <span style={"font-size:0.62rem;font-weight:700;color:#{v["--text"]}"}>
+                        {name}
+                      </span>
+                      <span
+                        :for={key <- ["--accent", "--bg", "--bg-surface", "--text"]}
+                        title={"#{key}: #{v[key]}"}
+                        style={"width:0.9rem;height:0.9rem;border-radius:0.2rem;border:1px solid var(--border);background:#{v[key]}"}
+                      ></span>
+                    </div>
+                  <% end %>
+                </div>
               </div>
             <% end %>
           </div>

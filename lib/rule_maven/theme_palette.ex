@@ -540,9 +540,13 @@ defmodule RuleMaven.ThemePalette do
   def names(_), do: :error
 
   defp clean_name(name) when is_binary(name) do
+    # Apostrophes stay — "Dragon's Lair" was rendering as "Dragon s Lair".
+    # Safe because every sink escapes: the marker attributes go through
+    # Phoenix.HTML.html_escape (which escapes single quotes) and the picker
+    # options are written via textContent, never innerHTML.
     cleaned =
       name
-      |> String.replace(~r/[<>"'&\\\r\n\t]/u, " ")
+      |> String.replace(~r/[<>"&\\\r\n\t]/u, " ")
       |> String.replace(~r/\s+/u, " ")
       |> String.trim()
       |> String.slice(0, @max_name_length)
