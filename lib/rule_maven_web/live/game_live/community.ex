@@ -531,7 +531,7 @@ defmodule RuleMavenWeb.GameLive.Community do
           <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0.4rem">
             <span style="font-size:1.1rem;line-height:1">📖</span>
             <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
-              These answers are <strong>drawn from the official rules</strong>
+              These answers are <strong>drawn from this game's rulebooks and sources</strong>
               and surfaced by {if @tab == "verified", do: "admins", else: "the community"} as the most helpful. Always double-check the rulebook for anything that matters.
             </p>
           </div>
