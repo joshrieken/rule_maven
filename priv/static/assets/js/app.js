@@ -1363,12 +1363,17 @@ Hooks.GameThemeHint = {
   isGame(v) {
     return v === "game-light" || v === "game-dark";
   },
+  // `hidden` alone loses to the pills' inline display:inline-flex (inline style
+  // outranks the UA's [hidden]{display:none}), so set display explicitly.
+  show(el, yes) {
+    if (!el) return;
+    el.hidden = !yes;
+    el.style.display = yes ? "inline-flex" : "none";
+  },
   sync(match) {
     var on = this.isGame(match);
-    var dress = this.el.querySelector('[data-role="dress"]');
-    var undress = this.el.querySelector('[data-role="undress"]');
-    if (dress) dress.hidden = on;
-    if (undress) undress.hidden = !on;
+    this.show(this.el.querySelector('[data-role="dress"]'), !on);
+    this.show(this.el.querySelector('[data-role="undress"]'), on);
   },
   mounted() {
     var self = this;
