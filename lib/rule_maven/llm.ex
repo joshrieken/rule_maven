@@ -445,6 +445,7 @@ defmodule RuleMaven.LLM do
       {:ok, llm_result} ->
         broadcast_ask_stage(game.id, :checking)
         llm_result = maybe_reground(llm_result, system_prompt, ctx, chunks)
+        llm_result = maybe_retry_ignored_premise(llm_result, system_prompt, ctx, chunks)
 
         {llm_result, chunks} =
           maybe_escalate_refusal(
@@ -936,6 +937,60 @@ defmodule RuleMaven.LLM do
 
       {:error, _reason} ->
         refuse(llm_result)
+    end
+  end
+
+  # The "setup default" failure: the question states a current value ("my
+  # Terror Level is 0 and I defeat a Monster") and the model derives the
+  # generic case from the setup rule instead (3 - 1 = 2) — confidently wrong,
+  # with perfectly valid citations, so the grounding critic cannot see it
+  # (the answer IS grounded, in rules for a state nobody asked about). Prompt
+  # rules alone left it wrong 2/4 (pen round 2026-07-13), so it's decided
+  # here in code: every number the question states must appear in the answer
+  # (digits, spelled-out words, or ratio components — Citations.ignored_numbers/2).
+  # When one is missing, spend ONE retry that names the ignored value. The
+  # retried answer goes through the same contradiction + grounding checks as
+  # a first-pass answer and is kept even if it still omits the number — it
+  # was produced with the premise called out, so it is the better-informed
+  # answer either way. Refusals skip the gate: a refusal engages no numbers
+  # by design, and the refusal escalations downstream own that path.
+  defp maybe_retry_ignored_premise(llm_result, system_prompt, ctx, chunks) do
+    missing =
+      if refused_answer?(llm_result),
+        do: [],
+        else:
+          RuleMaven.Games.Citations.ignored_numbers(
+            to_string(ctx.question),
+            to_string(llm_result[:answer])
+          )
+
+    if missing == [] do
+      llm_result
+    else
+      require Logger
+
+      Logger.warning(
+        "ignored premise: answer never engages stated value(s) #{inspect(missing)} (game=#{inspect(ctx.game_id)})"
+      )
+
+      warning =
+        "\n\nIMPORTANT: a previous answer attempt IGNORED these values stated in the question: #{Enum.join(missing, ", ")}. " <>
+          "A stated current value (a track position, a supply count, a hand size) REPLACES the game's setup default — answer for the exact state the question describes, and NEVER state a resulting value computed from any starting value other than the stated one. " <>
+          "If the rules do not cover the stated state, LEAD with exactly that ('The rules do not specify what happens when …'), then give the closest applicable rule."
+
+      case request_answer(
+             system_prompt <> warning,
+             ctx.question,
+             ctx.model_name,
+             ctx.game_id,
+             ctx.user_id,
+             # Bypass the proxy's response cache — a cached replay of the
+             # premise-ignoring answer defeats this.
+             true
+           ) do
+        {:ok, retried} -> maybe_reground(retried, system_prompt, ctx, chunks)
+        {:error, _reason} -> llm_result
+      end
     end
   end
 

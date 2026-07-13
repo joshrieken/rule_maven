@@ -220,6 +220,70 @@ defmodule RuleMaven.Games.Citations do
 
   def distinct_verified_quotes(_quotes, _texts), do: []
 
+  # Spelled-out numbers count as engagement — "you discard four" answers
+  # "how many with 9 cards" questions that restate quantities in words.
+  @number_words %{
+    "zero" => "0",
+    "one" => "1",
+    "two" => "2",
+    "three" => "3",
+    "four" => "4",
+    "five" => "5",
+    "six" => "6",
+    "seven" => "7",
+    "eight" => "8",
+    "nine" => "9",
+    "ten" => "10",
+    "eleven" => "11",
+    "twelve" => "12"
+  }
+
+  @doc """
+  Numeric values the `question` states that the `answer` never mentions —
+  the signature of an answer that substituted the game's setup default for
+  the asked state. Digits and spelled-out numbers both count as mentions; a
+  ratio like "2:1" is satisfied by the exact ratio or by both components.
+  Empty list means the answer engaged with every stated number.
+  """
+  def ignored_numbers(question, answer) when is_binary(question) and is_binary(answer) do
+    mentioned = numeric_tokens(answer)
+
+    question
+    |> number_words()
+    |> Enum.uniq()
+    |> Enum.reject(fn token ->
+      case String.split(token, ":") do
+        [_single] ->
+          MapSet.member?(mentioned, token)
+
+        parts ->
+          MapSet.member?(mentioned, token) or
+            Enum.all?(parts, &MapSet.member?(mentioned, &1))
+      end
+    end)
+  end
+
+  def ignored_numbers(_question, _answer), do: []
+
+  # One entry per stated number; a ratio like "2:1" stays ONE premise.
+  defp number_words(text) do
+    text
+    |> String.downcase()
+    |> String.split(~r/[^a-z0-9:]+/, trim: true)
+    |> Enum.map(&Map.get(@number_words, &1, &1))
+    |> Enum.filter(&(&1 =~ ~r/^\d+(?::\d+)?$/))
+  end
+
+  # Mention set for the answer side: a ratio also mentions its components.
+  defp numeric_tokens(text) do
+    text
+    |> number_words()
+    |> Enum.flat_map(fn w ->
+      if String.contains?(w, ":"), do: [w | String.split(w, ":")], else: [w]
+    end)
+    |> MapSet.new()
+  end
+
   # An answer whose prose isn't plausibly grounded in its own cited quotes:
   # either it uses a consequence/causal word the quotes never state, or it's
   # much longer than the quotes could support. Cheap (no LLM call) first-pass

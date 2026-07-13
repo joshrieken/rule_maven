@@ -508,4 +508,57 @@ defmodule RuleMaven.Games.CitationsTest do
       assert Citations.distinct_verified_quotes(["Perk cards may be played"], nil) == []
     end
   end
+
+  describe "ignored_numbers/2" do
+    test "flags the exact setup-default failure" do
+      # Question states Terror 0; answer derives the generic 3 - 1 = 2 case.
+      assert Citations.ignored_numbers(
+               "What is the Terror Level in a solo game after defeating one Monster when the Terror Level is 0?",
+               "In a solo game the Terror Level starts at 3. Defeating a Monster moves it down one space, so it would be 2."
+             ) == ["0"]
+    end
+
+    test "an answer that engages every stated number passes" do
+      assert Citations.ignored_numbers(
+               "What do two players each with one settlement receive when the bank has 1 brick left?",
+               "With only 1 brick left and two players due brick, no player receives any."
+             ) == []
+    end
+
+    test "spelled-out numbers count as mentions" do
+      assert Citations.ignored_numbers(
+               "How many cards are discarded with 9 cards in hand when a 7 is rolled?",
+               "You discard half, rounded down — with nine cards that is four; the seven triggers the discard."
+             ) == []
+    end
+
+    test "a ratio is satisfied by the exact ratio or both components" do
+      q = "How many trades with a 2:1 brick harbor and 9 brick in hand?"
+
+      assert Citations.ignored_numbers(q, "The 2:1 harbor allows 4 trades with 9 brick.") == []
+
+      assert Citations.ignored_numbers(
+               q,
+               "Trading 2 brick for 1 resource each time, 9 brick allows 4 trades."
+             ) == []
+
+      assert Citations.ignored_numbers(
+               q,
+               "The brick harbor gives a better rate; 9 brick allows several trades."
+             ) ==
+               ["2:1"]
+    end
+
+    test "questions with no numbers never flag" do
+      assert Citations.ignored_numbers(
+               "Can a Perk card block a POW symbol?",
+               "No — Perk cards are Hero Phase only."
+             ) == []
+    end
+
+    test "non-binary input never flags" do
+      assert Citations.ignored_numbers(nil, "an answer") == []
+      assert Citations.ignored_numbers("a question with 3", nil) == []
+    end
+  end
 end
