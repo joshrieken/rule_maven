@@ -1502,6 +1502,36 @@ Hooks.VoiceDefault = {
   }
 };
 
+// Remembers the crew selector's choice per game (localStorage, same pattern
+// as VoiceDefault). On connect it offers the saved crew back to the server,
+// which re-verifies membership and applies it only if nothing chose a context
+// this table session; on every switch the server pushes the token to store.
+Hooks.CrewDefault = {
+  key() {
+    return "rm:crew:" + (this.el.dataset.game || "");
+  },
+  mounted() {
+    let saved = "";
+    try {
+      saved = localStorage.getItem(this.key()) || "";
+    } catch (_e) {
+      saved = "";
+    }
+    if (saved) {
+      this.pushEvent("crew_restore", { group: saved });
+    }
+    this.handleEvent("save_crew_choice", ({ group }) => {
+      try {
+        if (group) {
+          localStorage.setItem(this.key(), group);
+        } else {
+          localStorage.removeItem(this.key());
+        }
+      } catch (_e) {}
+    });
+  }
+};
+
 // Filters persona cards in the picker modal by label/description text. Purely
 // client-side so typing never round-trips; the input is phx-update="ignore".
 Hooks.PersonaFilter = {

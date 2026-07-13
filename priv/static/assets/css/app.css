@@ -3349,18 +3349,21 @@ textarea {
 
 /* The game title lives on its own thin small-print line BELOW the icon row
    (all widths): the icons then always fit one line, and long game names stop
-   fighting the pills for row-1 width. */
+   fighting the pills for row-1 width. Centered so it reads as the bar's
+   caption rather than something dangling off the back button. */
 .game-header-row__left .chat-header__title {
   order: 20;
   flex: 1 1 100%;
   min-width: 0;
+  justify-content: center;
 }
 .chat-header__title h1 {
   max-width: 100% !important;
-  font-size: 0.7rem;
-  font-weight: 600;
+  font-size: 0.72rem;
+  font-weight: 700;
   line-height: 1.2;
-  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
 }
 
 /* Desktop: floating, resizable card, no backdrop, chat stays live. `bottom`
@@ -4185,15 +4188,10 @@ body:has([data-phx-main].phx-connected)::after {
   /* Top-aligned so ☰ rides the icon line even when the title / crew selector
      add lines inside __left. */
   .game-header-row__right { flex-shrink: 0; align-self: flex-start; }
-  .chat-header__title h1 { font-size: 0.66rem; }
-  /* The crew selector rides the icon row (right-aligned) — the single Tools
-     menu freed the width. With several crews its base width outgrows the row
-     and it wraps whole onto the next line — never clipped. The title keeps
-     its own full line below either way. */
+  /* The crew switcher (one dropdown pill) rides the icon row, right-aligned —
+     the single Tools menu freed the width. Its name caps below so a long crew
+     name can't pop the row onto another line. */
   .group-selector { order: 19; margin-left: auto; }
-  /* Only the ACTIVE crew keeps its name; idle crews go icon-only, so extra
-     groups cost ~34px each instead of a full name. */
-  .group-selector .pill-link:not(.pill-link-accent) .gs-name { display: none; }
   .tool-subbar {
     gap: 0.2rem !important;
     flex-wrap: nowrap !important;

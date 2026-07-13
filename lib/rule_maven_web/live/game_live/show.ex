@@ -1305,7 +1305,43 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:noreply,
      socket
      |> assign(active_group_id: group_id, keep_in_crew: false)
+     # CrewDefault hook writes localStorage, so the choice survives the
+     # TableSession ETS TTL / restarts. "" clears it (Just me is the default).
+     |> push_event("save_crew_choice", %{
+       group: if(group_id, do: token, else: "")
+     })
      |> assign_group_feed()}
+  end
+
+  # Saved crew choice pushed by the CrewDefault hook on connect (localStorage,
+  # per user-browser and game). Applies only when nothing picked the context
+  # yet this table session: an explicit in-session choice — including "Just
+  # me", stored as an explicit nil — always wins over the browser default.
+  # Same trust model as set_active_group: the token is client-controlled and
+  # is re-verified with member?/2.
+  def handle_event("crew_restore", %{"group" => token}, socket) do
+    user = socket.assigns.current_user
+    game = socket.assigns.game
+    snap = (user && RuleMaven.TableSession.get(user.id, game.id)) || %{}
+
+    group_id =
+      with false <- Map.has_key?(snap, :active_group_id),
+           nil <- socket.assigns.active_group_id,
+           %{} = group <- user && RuleMaven.Groups.get_group_by_token(token),
+           true <- RuleMaven.Groups.member?(user, group) do
+        group.id
+      else
+        _ -> socket.assigns.active_group_id
+      end
+
+    if group_id == socket.assigns.active_group_id do
+      {:noreply, socket}
+    else
+      {:noreply,
+       socket
+       |> assign(active_group_id: group_id, keep_in_crew: false)
+       |> assign_group_feed()}
+    end
   end
 
   # Per-ask "Keep this in the crew" checkbox: a one-off never_pool for the
@@ -3511,28 +3547,16 @@ defmodule RuleMavenWeb.GameLive.Show do
           <%!-- Title + search ride along at the top of the scrolling list.
                 The drawer itself is the scroll container, so a sticky child
                 pins against it. --%>
+          <%!-- No "Questions" label — the list is self-evident. The search
+                field IS the head row; the pending badge and the mobile close
+                button ride beside it. --%>
           <div class="sidebar-head">
-            <div style="padding:0.35rem 0.75rem;font-size:0.78rem;font-weight:600;color:var(--text);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center">
-              <span>
-                Questions
-                <%= if @pending_count > 0 do %>
-                  <span style="display:inline-flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-text,#fff);border-radius:9999px;font-size:0.55rem;font-weight:700;padding:0 0.3rem;min-width:1.1em;height:1.1em;vertical-align:middle;margin-left:0.25rem">{@pending_count}</span>
-                <% end %>
-              </span>
-              <button
-                type="button"
-                phx-click="toggle_sidebar"
-                class="sidebar-close-btn btn-icon"
-              >✕</button>
-            </div>
-
-            <!-- Search -->
-            <div style="padding:0.25rem 0.75rem 0.5rem">
+            <div style="padding:0.4rem 0.75rem 0.5rem;display:flex;align-items:center;gap:0.4rem">
               <form
                 id="thread-search"
                 phx-change="search"
                 phx-submit="search"
-                style="position:relative;display:flex;align-items:center"
+                style="position:relative;display:flex;align-items:center;flex:1;min-width:0"
               >
                 <input
                   type="text"
@@ -3552,6 +3576,17 @@ defmodule RuleMavenWeb.GameLive.Show do
                   >✕</button>
                 <% end %>
               </form>
+              <%= if @pending_count > 0 do %>
+                <span
+                  title={"#{@pending_count} pending"}
+                  style="display:inline-flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-text,#fff);border-radius:9999px;font-size:0.6rem;font-weight:700;padding:0 0.35rem;min-width:1.3em;height:1.3em;flex-shrink:0"
+                >{@pending_count}</span>
+              <% end %>
+              <button
+                type="button"
+                phx-click="toggle_sidebar"
+                class="sidebar-close-btn btn-icon"
+              >✕</button>
             </div>
           </div>
 
@@ -3704,6 +3739,14 @@ defmodule RuleMavenWeb.GameLive.Show do
 
         <!-- Restores the saved default voice from localStorage on connect. -->
         <div id="voice-default-store" phx-hook="VoiceDefault" style="display:none"></div>
+        <!-- Restores the saved crew choice (per game) from localStorage on connect. -->
+        <div
+          :if={@my_groups != []}
+          id="crew-default-store"
+          phx-hook="CrewDefault"
+          data-game={RuleMaven.Hashid.encode(@game.id)}
+          style="display:none"
+        ></div>
 
         <%!-- Fixed two-region view: the question is pinned on top at a LOCKED
               height (2 lines), so a normalization rewrite or pop-in swaps the

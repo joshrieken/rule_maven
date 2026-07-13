@@ -131,9 +131,12 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         <%!-- Meaningless on the admin Edit screen: `included_expansions` there
               is a different concept (the expansion-*link* editor state, not
               "what this user plays with"), and the strip answers "what's at
-              my table" — a question Edit has no table for. --%>
+              my table" — a question Edit has no table for. Hidden on the Q&A
+              screen too: both destinations live in its 🧰 Tools menu
+              (Play → Expansions, Learn → House rules), and that bar needs the
+              width for the crew selector. --%>
         <.table_context
-          :if={@current != :edit}
+          :if={@current not in [:edit, :show]}
           game={@game}
           expansions={@expansions}
           included_expansions={@included_expansions}
@@ -240,6 +243,14 @@ defmodule RuleMavenWeb.GameLive.SubBar do
             pages keep the three separate menus (roomier bars, and their tours
             point at them). --%>
       <%= if @current == :show do %>
+        <%!-- Rulebooks lead — they're what the answers stand on — and the two
+              table-setup tools (Expansions, House rules) live under them since
+              they shape which rules apply. The Play/Learn groups render minus
+              those two, so nothing is listed twice. --%>
+        <% expansions_tool =
+          Enum.find(ToolRegistry.group(:play, @current_user), &(&1.id == :expansions)) %>
+        <% house_rules_tool =
+          Enum.find(ToolRegistry.group(:learn, @current_user), &(&1.id == :house_rules)) %>
         <details class="card-menu" style="flex-shrink:0">
           <summary
             class="pill-link"
@@ -255,9 +266,22 @@ defmodule RuleMavenWeb.GameLive.SubBar do
             class="card-menu__pop card-menu__pop--wide"
             style="max-height:min(70vh, 34rem);overflow-y:auto"
           >
+            <div class="card-menu__label">📖 Rulebooks</div>
+            <.rulebook_items game={@game} sources={@sources} is_admin={@is_admin} current={@current} />
+            <button
+              :for={t <- Enum.reject([expansions_tool, house_rules_tool], &is_nil/1)}
+              type="button"
+              phx-click="open_tool"
+              phx-value-tool={t.id}
+              onclick="this.closest('details').open = false"
+              class="card-menu__item"
+            >
+              <span aria-hidden="true">{t.emoji}</span> {t.label}
+            </button>
+            <div class="card-menu__divider"></div>
             <div class="card-menu__label">🎲 Play</div>
             <button
-              :for={t <- ToolRegistry.group(:play, @current_user)}
+              :for={t <- ToolRegistry.group(:play, @current_user) |> Enum.reject(&(&1.id == :expansions))}
               type="button"
               phx-click="open_tool"
               phx-value-tool={t.id}
@@ -269,7 +293,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
             <div class="card-menu__divider"></div>
             <div class="card-menu__label">📚 Learn</div>
             <button
-              :for={t <- ToolRegistry.group(:learn, @current_user)}
+              :for={t <- ToolRegistry.group(:learn, @current_user) |> Enum.reject(&(&1.id == :house_rules))}
               type="button"
               phx-click="open_tool"
               phx-value-tool={t.id}
@@ -287,6 +311,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
               is_admin={@is_admin}
               has_cheatsheet={@has_cheatsheet}
               current={@current}
+              include_rulebooks={false}
             />
           </div>
         </details>
@@ -371,41 +396,57 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :active_group_id, :integer, default: nil
   attr :current_user, :map, default: nil
 
-  # The sticky "who am I asking for" selector: "Just me" (the default) plus one
-  # pill per group the user belongs to. Sets the ask context server-side via
-  # `set_active_group` — see `GameLive.Show.handle_event/3` for the security
-  # check (a `phx-value-group` token is client-controlled and is re-verified
-  # with `Groups.member?/2` before it's ever trusted). Renders nothing for a
-  # user with no groups, so joining is opt-in with zero UI change otherwise.
+  # The sticky "who am I asking for" selector: a single dropdown pill showing
+  # the CURRENT context ("Just me" is the default), with one item per crew —
+  # a dropdown, not a pill row, so switching to a long crew name widens one
+  # pill instead of popping the header onto another line. Sets the ask context
+  # server-side via `set_active_group` — see `GameLive.Show.handle_event/3`
+  # for the security check (a `phx-value-group` token is client-controlled and
+  # is re-verified with `Groups.member?/2` before it's ever trusted). Renders
+  # nothing for a user with no groups, so joining is opt-in with zero UI
+  # change otherwise.
   defp group_selector(assigns) do
     ~H"""
     <div class="group-selector" data-testid="group-selector" data-tour="group-selector">
-      <button
-        type="button"
-        phx-click="set_active_group"
-        phx-value-group=""
-        title="Ask just for yourself"
-        aria-pressed={to_string(is_nil(@active_group_id))}
-        class={["pill-link", @active_group_id == nil && "pill-link-accent"]}
-      >
-        <span aria-hidden="true">🙋</span> <span class="gs-label">Just me</span>
-      </button>
-      <%!-- Group names run to 60 chars and a user may hold several crews, so
-            the name is the one part that must be allowed to shrink: `.gs-name`
-            ellipsizes, and below 640px `.gs-label` drops the "Just me"/"Feed"
-            text entirely — same icon-only collapse `.table-context` uses to
-            keep the header on a single row at 390px. --%>
-      <button
-        :for={g <- @my_groups}
-        type="button"
-        phx-click="set_active_group"
-        phx-value-group={Phoenix.Param.to_param(g)}
-        title={"Ask for the group: #{g.name}"}
-        aria-pressed={to_string(@active_group_id == g.id)}
-        class={["pill-link", @active_group_id == g.id && "pill-link-accent"]}
-      >
-        <span aria-hidden="true">👥</span> <span class="gs-name">{g.name}</span>
-      </button>
+      <% active = Enum.find(@my_groups, &(&1.id == @active_group_id)) %>
+      <details class="card-menu" style="flex-shrink:0">
+        <summary
+          class="pill-link pill-link-accent"
+          title={if active, do: "Asking for the crew: #{active.name} — tap to switch", else: "Asking just for yourself — tap to switch"}
+          aria-label="Who are you asking for?"
+          style="cursor:pointer;list-style:none;gap:0.25rem;user-select:none;font-weight:600"
+        >
+          <span aria-hidden="true">{if active, do: "👥", else: "🙋"}</span>
+          <span class="gs-name">{if active, do: active.name, else: "Just me"}</span>
+          <span class="pill-caret" style="font-size:0.6rem;opacity:0.6">▾</span>
+        </summary>
+        <div class="card-menu__pop card-menu__pop--right">
+          <button
+            type="button"
+            phx-click="set_active_group"
+            phx-value-group=""
+            onclick="this.closest('details').open = false"
+            aria-pressed={to_string(is_nil(@active_group_id))}
+            class="card-menu__item"
+          >
+            <span aria-hidden="true">🙋</span> Just me
+            <span :if={is_nil(@active_group_id)} aria-hidden="true" style="margin-left:auto">✓</span>
+          </button>
+          <button
+            :for={g <- @my_groups}
+            type="button"
+            phx-click="set_active_group"
+            phx-value-group={Phoenix.Param.to_param(g)}
+            onclick="this.closest('details').open = false"
+            title={"Ask for the group: #{g.name}"}
+            aria-pressed={to_string(@active_group_id == g.id)}
+            class="card-menu__item"
+          >
+            <span aria-hidden="true">👥</span> {g.name}
+            <span :if={@active_group_id == g.id} aria-hidden="true" style="margin-left:auto">✓</span>
+          </button>
+        </div>
+      </details>
       <%!-- Only meaningful once a group is actually active — no active group,
             no toggle, no clutter. Opens via the shared tool-panel machinery
             (`open_tool`/`ToolRegistry`), same as every other table tool — so it
@@ -425,6 +466,38 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         <span aria-hidden="true">📰</span> <span class="gs-label">Feed</span>
       </button>
     </div>
+    """
+  end
+
+  attr :game, :map, required: true
+  attr :sources, :list, required: true
+  attr :is_admin, :boolean, required: true
+  attr :current, :atom, required: true
+
+  # One row per rulebook source. Users see only source names (never the PDF —
+  # rulebook-copyright-access); admins get the HTML view + re-render shortcut.
+  defp rulebook_items(assigns) do
+    ~H"""
+    <%= for src <- @sources do %>
+      <%= if @is_admin and src.html_path do %>
+        <div class="card-menu__item" style="display:flex;align-items:center;gap:0.5rem">
+          <.link href={~p"/rulebooks/#{src}/html"} target="_blank" style="flex:1;min-width:0">
+            {src.label}
+          </.link>
+          <%!-- `regenerate_html` is handled only on the game page. --%>
+          <button
+            :if={@current == :show}
+            type="button"
+            phx-click="regenerate_html"
+            phx-value-id={src.id}
+            title="Re-render the HTML view from the current text"
+            class="btn-xs"
+          >↻</button>
+        </div>
+      <% else %>
+        <div class="card-menu__item" style="cursor:default">{src.label}</div>
+      <% end %>
+    <% end %>
     """
   end
 
@@ -514,6 +587,9 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :is_admin, :boolean, required: true
   attr :has_cheatsheet, :boolean, required: true
   attr :current, :atom, required: true
+  # false when the caller renders the rulebooks itself (the combined Tools
+  # menu hoists them to the top of the list).
+  attr :include_rulebooks, :boolean, default: true
 
   # The More menu's items, shared verbatim between the standalone More menu
   # (non-Q&A pages) and the combined Tools menu's More subsection (Q&A page).
@@ -539,29 +615,10 @@ defmodule RuleMavenWeb.GameLive.SubBar do
             <span aria-hidden="true">📋</span> Cheat Sheet
           </.link>
         <% end %>
-        <%= if @sources != [] do %>
+        <%= if @include_rulebooks and @sources != [] do %>
           <div class="card-menu__divider"></div>
           <div class="card-menu__label">📖 Rulebooks</div>
-          <%= for src <- @sources do %>
-            <%= if @is_admin and src.html_path do %>
-              <div class="card-menu__item" style="display:flex;align-items:center;gap:0.5rem">
-                <.link href={~p"/rulebooks/#{src}/html"} target="_blank" style="flex:1;min-width:0">
-                  {src.label}
-                </.link>
-                <%!-- `regenerate_html` is handled only on the game page. --%>
-                <button
-                  :if={@current == :show}
-                  type="button"
-                  phx-click="regenerate_html"
-                  phx-value-id={src.id}
-                  title="Re-render the HTML view from the current text"
-                  class="btn-xs"
-                >↻</button>
-              </div>
-            <% else %>
-              <div class="card-menu__item" style="cursor:default">{src.label}</div>
-            <% end %>
-          <% end %>
+          <.rulebook_items game={@game} sources={@sources} is_admin={@is_admin} current={@current} />
         <% end %>
         <.link
           :if={@game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category)}
