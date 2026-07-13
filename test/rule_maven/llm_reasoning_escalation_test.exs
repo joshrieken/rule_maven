@@ -24,12 +24,15 @@ defmodule RuleMaven.LLMReasoningEscalationTest do
   end
 
   defp put_chunk(doc, index, content) do
+    # Distinct embedding per chunk — identical vectors get collapsed by the
+    # retrieval near-duplicate dedup, and the classifier's quote verification
+    # needs BOTH premises present in the context.
     Repo.insert!(%Chunk{
       document_id: doc.id,
       chunk_index: index,
       content: content,
       page_number: index,
-      embedding: Pgvector.new(List.duplicate(0.0, 768) |> List.replace_at(0, 1.0))
+      embedding: Pgvector.new(List.duplicate(0.0, 768) |> List.replace_at(index - 1, 1.0))
     })
   end
 
@@ -114,10 +117,23 @@ defmodule RuleMaven.LLMReasoningEscalationTest do
     game
   end
 
+  # The classifier must now QUOTE the rules it claims combine; each quote is
+  # substring-verified against the retrieved context before the expensive
+  # escalation call is allowed to fire.
+  defp classifier_yes_real_quotes do
+    Jason.encode!(%{
+      combinable: true,
+      rules: [
+        "Perk cards may be played only during the Hero Phase",
+        "POW symbols are resolved during the Monster Phase"
+      ]
+    })
+  end
+
   test "a combinable multi-hop refusal escalates to the stronger model and answers" do
     game = seed_multihop_corpus()
 
-    mock_asks("YES", fn
+    mock_asks(classifier_yes_real_quotes(), fn
       1 -> refusal_result()
       2 -> combined_result()
     end)
@@ -133,7 +149,7 @@ defmodule RuleMaven.LLMReasoningEscalationTest do
   test "a refusal the classifier rejects as non-combinable is left untouched" do
     game = seed_multihop_corpus()
 
-    mock_asks("NO", fn
+    mock_asks(Jason.encode!(%{combinable: false, rules: []}), fn
       1 -> refusal_result()
     end)
 
@@ -141,7 +157,70 @@ defmodule RuleMaven.LLMReasoningEscalationTest do
 
     assert result.answer == @refusal
     assert result.verdict == "silent"
-    # Classifier said NO — no stronger-model call spent.
+    # Classifier said no — no stronger-model call spent.
+    assert Process.get(:ask_calls) == 1
+  end
+
+  test "a YES built on quotes the context does not contain spends nothing" do
+    game = seed_multihop_corpus()
+
+    # The flash-lite classifier said YES on bait ("what is the maximum Terror
+    # Level?") and burned an escalation call per false positive. A hallucinated
+    # combination can't produce two real quotes, so verification kills it.
+    fabricated =
+      Jason.encode!(%{
+        combinable: true,
+        rules: [
+          "The maximum Terror Level is 6 and the game ends there",
+          "Heroes lose when the Terror Marker reaches the final space"
+        ]
+      })
+
+    mock_asks(fabricated, fn
+      1 -> refusal_result()
+    end)
+
+    {:ok, result} = LLM.ask(game, @question)
+
+    assert result.answer == @refusal
+    assert Process.get(:ask_calls) == 1
+  end
+
+  test "a YES with only one verifiable quote spends nothing" do
+    game = seed_multihop_corpus()
+
+    # "Combining two or more rules" needs two real rules — one verified quote
+    # means the classifier padded or paraphrased its chain.
+    one_real =
+      Jason.encode!(%{
+        combinable: true,
+        rules: [
+          "Perk cards may be played only during the Hero Phase",
+          "POW symbols always hit twice during any phase"
+        ]
+      })
+
+    mock_asks(one_real, fn
+      1 -> refusal_result()
+    end)
+
+    {:ok, result} = LLM.ask(game, @question)
+
+    assert result.answer == @refusal
+    assert Process.get(:ask_calls) == 1
+  end
+
+  test "legacy bare YES/NO classifier output no longer triggers escalation" do
+    game = seed_multihop_corpus()
+
+    # Not JSON → unparseable → fail closed (no spend), never fail open.
+    mock_asks("YES", fn
+      1 -> refusal_result()
+    end)
+
+    {:ok, result} = LLM.ask(game, @question)
+
+    assert result.answer == @refusal
     assert Process.get(:ask_calls) == 1
   end
 end

@@ -56,6 +56,7 @@ defmodule RuleMaven.Prompts do
   - BUT when the question NAMES a specific mechanism, action, component, or cost ("using the Guide action", "with a Knight card", "at a 2:1 harbor", "in a single action"), the **Yes**/**No** judges THAT mechanism — not whether the goal is reachable by some other route. If the named mechanism cannot do it, the answer is **No**, even when a different one can. Say so, then point to the route that works: "**No** — a Guide action cannot move a Citizen through a Teleportation Circle; a Citizen may only travel through one by moving with a Hero as part of a Move action." Never open with **Yes** on the strength of the alternative route — the player asked about the mechanism they named, and a leading "Yes" tells them the exact thing the rules forbid.
   - Your **Yes**/**No** must agree with the rulebook text you cite. If the passage you are about to quote forbids what the player asked, the answer is **No** — never write **Yes** above a quote that says "may not", "cannot", or "must not". An answer that contradicts its own citation is the worst possible output.
   - Judge the **Yes**/**No** UNDER the condition the question states, not in general. When the question sets a situation ("but it is NOT my turn", "if the deck is empty", "with only 3 left"), the ruling is about THAT situation: "I just reached 10 victory points but it is not my turn — do I win?" is **No** (victory is claimed only on your own turn), even though reaching 10 points does win the game on your turn. Never answer the unconditioned version of the question and then bury the condition in the explanation — the lead word must already account for it. Your **Yes**/**No** must also agree with your own next sentence: if the body says "you must wait", the lead is not **Yes**.
+  - APPLY THE RULES, don't just recite them: when the question describes a concrete situation (specific counts, board state, a sequence of events) and asks for its outcome ("who receives what?", "what is my Terror Level now?", "how many do I discard?"), work the stated rules through to the concrete result and LEAD with it — "No one receives brick this turn", "Your Terror Level is now 2" — then give the rules that produce it. Do the arithmetic when the question's numbers allow it. Stating the governing rules without the outcome forces the player to finish the derivation themselves; the citations still ground the answer, so applying them to the asked numbers is not inference.
   - When restating a rule, preserve its exact trigger and condition wording. Never substitute a different condition than the text states (e.g. if the text says something happens when you "end your turn" somewhere, do NOT write "end an action" or "move through"; if it says "adjacent", do NOT write "within 2 spaces"). Getting a condition's timing or scope wrong is as bad as inventing a rule.
   - ARGUMENT SETTLING: if the question presents two or more opposing player readings of a rule (e.g. "Player A says …, Player B says …", "I think X but my friend says Y"), open "answer" with a one-line verdict — exactly "⚖️ **Player A is right.**", "⚖️ **Player B is right.**" (or the stated names), "⚖️ **Both are partly right.**", or "⚖️ **Neither is right.**" — then explain the ruling under the normal rules above. All other rules still apply: if the rulebook does not cover the disagreement, refuse as usual.
 
@@ -425,6 +426,33 @@ defmodule RuleMaven.Prompts do
 
   If grounded, output nothing further. Output only these exact English verdict
   lines — never another language.
+  """
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Refusal escalation. When an answer refuses, a cheap classifier decides
+  # whether the question is answerable by COMBINING explicitly stated rules;
+  # only a YES spends one stronger-model recheck. The classifier must QUOTE the
+  # rules it claims combine — the quotes are substring-verified against the
+  # retrieved context in code (Citations.quoted_verbatim?/2), so a hallucinated
+  # combination cannot trigger the expensive call. Verified quotes are then fed
+  # to the recheck as hints.
+  # ──────────────────────────────────────────────────────────────────────────
+  @combinable_refusal_check_system """
+  You audit a REFUSED board-game rules answer. Decide only whether the QUESTION can be answered by COMBINING two or more rules that are EXPLICITLY STATED in the RULEBOOK TEXT — for example a stated phase, timing, or restriction that rules the asked action in or out — even when no single sentence answers it directly.
+  Use ONLY the given text. Never use outside board-game knowledge. "The text does not mention X" is NOT a valid basis for an answer.
+
+  Respond with ONE json object (a single JSON object) and nothing else — no markdown fences, no prose:
+  {
+    "combinable": boolean,   // true ONLY if combining explicitly stated rules answers the question
+    "rules": [string]        // when true: each rule in the chain, quoted VERBATIM character-for-character from the RULEBOOK TEXT (at least 2 entries). When false: []
+  }
+  Each "rules" entry must be findable as an exact substring of the RULEBOOK TEXT — never paraphrase, shorten, or merge. If you cannot quote at least two real rules that together answer the question, "combinable" is false.
+  """
+
+  @combine_nudge """
+
+
+  ESCALATION NOTICE: A first pass refused this question. Before refusing again, apply COMBINING RULES strictly — if the answer follows from putting together two or more rules stated explicitly above (e.g. a stated phase/timing or restriction that rules the asked action in or out), you MUST answer it: give the derivation and cite each combined rule verbatim. Refuse ONLY if no such chain of explicitly stated rules exists. Do not use outside knowledge; "the text does not mention X" is never a valid step.{{rules_hint}}
   """
 
   @house_rule_check_system """
@@ -1344,6 +1372,24 @@ defmodule RuleMaven.Prompts do
         "Escalated check run only when the cheap heuristic flags an answer as possibly unsupported by its own citation. Typed verdict (grounded/hallucinated) plus the flagged clause.",
       vars: [],
       default: @grounding_critic
+    },
+    %{
+      key: "combinable_refusal_check_system",
+      group: "Q&A",
+      label: "Refusal escalation — combinable classifier",
+      description:
+        "Cheap gate run on a refused answer: is the question answerable by combining explicitly stated rules? Must quote the rules verbatim — the quotes are substring-verified in code before the expensive escalation call fires.",
+      vars: [],
+      default: @combinable_refusal_check_system
+    },
+    %{
+      key: "combine_nudge",
+      group: "Q&A",
+      label: "Refusal escalation — combine nudge",
+      description:
+        "Appended to the answer system prompt on the stronger-model recheck of a refused question the classifier judged combinable. {{rules_hint}} carries the classifier's verified rule quotes (or empty).",
+      vars: ~w(rules_hint),
+      default: @combine_nudge
     },
     %{
       key: "vision_transcribe",

@@ -190,6 +190,21 @@ defmodule RuleMaven.Games.Citations do
     |> String.trim()
   end
 
+  @doc """
+  True when `quote` genuinely appears in one of `texts` (normalized, matched on
+  the same leading-words needle as citation passages). Too-short quotes can't
+  verify and return false — the caller is deciding whether to spend money on
+  the strength of this quote, so unverifiable means no.
+  """
+  def quoted_verbatim?(quote, texts) when is_binary(quote) and is_list(texts) do
+    needle = passage_needle(quote)
+
+    String.length(needle) >= @min_needle_len and
+      Enum.any?(normalize_chunks(texts), &String.contains?(&1, needle))
+  end
+
+  def quoted_verbatim?(_quote, _texts), do: false
+
   # An answer whose prose isn't plausibly grounded in its own cited quotes:
   # either it uses a consequence/causal word the quotes never state, or it's
   # much longer than the quotes could support. Cheap (no LLM call) first-pass

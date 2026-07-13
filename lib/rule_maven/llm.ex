@@ -516,20 +516,6 @@ defmodule RuleMaven.LLM do
   @refusal_answer "The rulebook does not cover this question."
   @escalated_retrieval_limit 25
 
-  # Cheap YES/NO gate: is a refused question answerable purely by COMBINING
-  # rules already stated in the retrieved text? Deliberately narrow so it fires
-  # only on the multi-hop class — a genuinely off-topic or meta refusal answers
-  # NO and costs nothing further.
-  @combinable_classifier_system """
-  You audit a REFUSED board-game rules answer. Decide only whether the QUESTION can be answered by COMBINING two or more rules that are EXPLICITLY STATED in the RULEBOOK TEXT — for example a stated phase, timing, or restriction that rules the asked action in or out — even when no single sentence answers it directly.
-  Use ONLY the given text. Never use outside board-game knowledge. "The text does not mention X" is NOT a valid basis for an answer.
-  Reply with exactly one word: YES or NO.
-  """
-
-  # Appended to the answer system prompt on the stronger-model recheck, aimed
-  # squarely at the failure the classifier just flagged.
-  @combine_nudge "\n\nESCALATION NOTICE: A first pass refused this question. Before refusing again, apply COMBINING RULES strictly — if the answer follows from putting together two or more rules stated explicitly above (e.g. a stated phase/timing or restriction that rules the asked action in or out), you MUST answer it: give the derivation and cite each combined rule verbatim. Refuse ONLY if no such chain of explicitly stated rules exists. Do not use outside knowledge; \"the text does not mention X\" is never a valid step."
-
   defp refused_answer?(llm_result) do
     llm_result[:verdict] == "silent" or
       String.trim(to_string(llm_result[:answer])) == @refusal_answer
@@ -599,13 +585,13 @@ defmodule RuleMaven.LLM do
   # leak through. One escalation only.
   defp maybe_escalate_refusal_reasoning(llm_result, chunks, game, recent_context, voice, ctx) do
     with true <- refused_answer?(llm_result),
-         true <- combinable_question?(ctx.question, chunks, game) do
+         {:combinable, rule_quotes} <- combinable_question?(ctx.question, chunks, game) do
       escalate_model = model(:escalate)
       context = build_context_block(chunks, game.id)
 
       system_prompt =
         build_system_prompt(game.name, game.category, context, recent_context, voice, game) <>
-          @combine_nudge
+          RuleMaven.Prompts.render("combine_nudge", %{rules_hint: rules_hint(rule_quotes)})
 
       esc_ctx = %{ctx | model_name: escalate_model, fresh: true}
 
@@ -632,23 +618,51 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  # Cheap gate on a refused question: answerable purely by COMBINING rules
+  # already stated in the retrieved text? The classifier must QUOTE the rules
+  # it claims combine, and each quote is substring-verified against the actual
+  # context here — a hallucinated combination can't produce two real quotes, so
+  # it can't trigger the expensive escalation call. (The flash-lite classifier
+  # said YES on bait like "what is the maximum Terror Level?" and burned a
+  # Sonnet call per false positive.) Verified quotes flow into the recheck as
+  # hints via {{rules_hint}}.
   defp combinable_question?(question, chunks, game) do
     context = build_context_block(chunks, game.id)
     prompt = "QUESTION:\n#{question}\n\nRULEBOOK TEXT:\n#{context}"
 
     case chat(prompt, "combinable_refusal_check",
-           system: @combinable_classifier_system,
+           system: RuleMaven.Prompts.template("combinable_refusal_check_system"),
            model: model(:cheap),
            # Ceiling, not spend: a reasoning cheap model thinks before emitting
-           # the one-word verdict, and a tight cap starves it into null content.
+           # the small JSON verdict, and a tight cap starves it into null content.
            max_tokens: 4000,
            operation: "combinable_refusal_check",
            game_id: game.id,
            raw: true
          ) do
-      {:ok, text} -> text |> to_string() |> String.upcase() |> String.contains?("YES")
-      _ -> false
+      {:ok, text} ->
+        with {:ok, %{"combinable" => true, "rules" => rules}} <-
+               json_object(to_string(text)),
+             true <- is_list(rules) do
+          texts = Enum.map(chunks, & &1.content)
+          verified = rules |> Enum.filter(&RuleMaven.Games.Citations.quoted_verbatim?(&1, texts))
+
+          # "Combining two or more rules" needs two real rules — one verified
+          # quote means the classifier padded or paraphrased its chain.
+          if length(verified) >= 2, do: {:combinable, verified}, else: :not_combinable
+        else
+          _ -> :not_combinable
+        end
+
+      _ ->
+        :not_combinable
     end
+  end
+
+  # Never called with [] — combinable_question? requires >= 2 verified quotes.
+  defp rules_hint(quotes) do
+    "\nThe audit found these stated rules combine to answer it:\n" <>
+      Enum.map_join(quotes, "\n", &("- \"" <> String.trim(&1) <> "\""))
   end
 
   # Single answer-model call, extracted so `maybe_reground/3`'s retry can

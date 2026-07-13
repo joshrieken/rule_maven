@@ -406,4 +406,38 @@ defmodule RuleMaven.Games.CitationsTest do
       assert Citations.contradicted_quote("Yes, you may pass.", [nil]) == nil
     end
   end
+
+  describe "quoted_verbatim?/2" do
+    @texts [
+      "[Page 1]\nPerk cards may be played only during the Hero Phase.",
+      "[Page 2]\nPOW symbols are resolved during the Monster Phase."
+    ]
+
+    test "a real quote verifies despite punctuation/case drift" do
+      assert Citations.quoted_verbatim?(
+               "perk cards MAY be played, only during the hero phase",
+               @texts
+             )
+    end
+
+    test "a fabricated quote fails" do
+      refute Citations.quoted_verbatim?("The maximum Terror Level is 6", @texts)
+    end
+
+    test "a paraphrase fails" do
+      refute Citations.quoted_verbatim?("Perk cards are restricted to the Hero Phase", @texts)
+    end
+
+    test "a too-short quote cannot verify" do
+      # The caller is deciding whether to spend money on this quote's strength;
+      # unverifiable means no.
+      refute Citations.quoted_verbatim?("Perk", @texts)
+    end
+
+    test "non-binary input fails" do
+      refute Citations.quoted_verbatim?(nil, @texts)
+      refute Citations.quoted_verbatim?(%{}, @texts)
+      refute Citations.quoted_verbatim?("Perk cards may be played", "not a list")
+    end
+  end
 end
