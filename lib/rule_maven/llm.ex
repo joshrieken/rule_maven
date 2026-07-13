@@ -961,12 +961,23 @@ defmodule RuleMaven.LLM do
   # retried answer goes through the same contradiction + grounding checks as
   # a first-pass answer and is kept even if it still omits the number — it
   # was produced with the premise called out, so it is the better-informed
-  # answer either way. Refusals skip the gate: a refusal engages no numbers
-  # by design, and the refusal escalations downstream own that path.
+  # answer either way. A refusal enters this rung only for FRACTION/PERCENT
+  # premises: pen round 3 (2026-07-13) showed normalize can mangle "25% of my
+  # cards" into nonsense the answer model then refuses, and a stated proportion
+  # is un-refusable (the real rule always exists to confirm or correct against)
+  # — so the raw re-ask is exactly the rescue. Plain numbers stay out of the
+  # refusal path: "what if two players tie?" refusals are routine, and firing a
+  # retry on every numeric refusal buys latency, not rescues. The escalate rung
+  # below still skips refusals; the refusal escalations downstream own that
+  # path.
   defp maybe_retry_ignored_premise(llm_result, system_prompt, ctx, chunks) do
     missing =
       if refused_answer?(llm_result),
-        do: [],
+        do:
+          RuleMaven.Games.Citations.ignored_fractions(
+            to_string(ctx.raw_question),
+            to_string(llm_result[:answer])
+          ),
         else:
           RuleMaven.Games.Citations.ignored_premises(
             to_string(ctx.raw_question),

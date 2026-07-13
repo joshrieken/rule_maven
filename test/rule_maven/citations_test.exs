@@ -606,6 +606,20 @@ defmodule RuleMaven.Games.CitationsTest do
       assert Citations.ignored_fractions(nil, "an answer") == []
       assert Citations.ignored_fractions("half of a question", nil) == []
     end
+
+    test "a stated percentage the answer never engages is flagged" do
+      assert Citations.ignored_fractions(
+               "Do I discard 25% of my cards when a 7 is rolled?",
+               "You discard half of your resource cards, rounded down."
+             ) == ["25%"]
+    end
+
+    test "percent and spelled percent match across sides" do
+      assert Citations.ignored_fractions(
+               "Do I discard 25 percent of my cards?",
+               "No — you discard half (50%), not 25%."
+             ) == []
+    end
   end
 
   describe "ignored_premises/2" do
@@ -625,6 +639,31 @@ defmodule RuleMaven.Games.CitationsTest do
                "Do I lose half my 9 cards?",
                "Yes — with 9 cards you lose half, so 4."
              ) == []
+    end
+
+    test "a flood of narrative numbers is noise, not premises" do
+      # A rambling preamble ("turn 1... turn 12...") is table talk, not a set of
+      # asserted premises; a real question states a handful of quantities at
+      # most. More than four missing premises means the numbers are narrative,
+      # and the gate must stay silent instead of burning a retry + escalate.
+      ramble =
+        Enum.map_join(1..12, " ", fn i -> "On turn #{i} someone argued about snacks." end)
+
+      assert Citations.ignored_premises(
+               ramble <> " What do I need to build a road?",
+               "You need 1 brick and 1 lumber."
+             ) == []
+    end
+
+    test "four or fewer missing premises still flag" do
+      result =
+        Citations.ignored_premises(
+          "With 9 cards, 2 cities, and 3 roads, do I discard a third?",
+          "You discard half of your cards."
+        )
+
+      assert "9" in result
+      assert "1/3" in result
     end
   end
 end

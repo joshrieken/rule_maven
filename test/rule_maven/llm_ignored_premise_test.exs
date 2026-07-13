@@ -184,28 +184,142 @@ defmodule RuleMaven.LLMIgnoredPremiseTest do
     assert Process.get(:ask_calls) == 2
   end
 
-  test "a refusal never enters the premise gate" do
+  defp refusal_result do
+    {:ok,
+     %{
+       answer: "The rulebook does not cover this question.",
+       verdict: "silent",
+       citations: [],
+       followups: [],
+       also_asked: [],
+       cited_passage: nil
+     }}
+  end
+
+  # Pen round 3 (2026-07-13): "Do I discard 25% of my cards?" was refused
+  # outright — normalize mangled the premise into nonsense and the gate's old
+  # blanket refusal skip meant nothing rescued it. A stated fraction or percent
+  # is un-refusable (the real rule exists to confirm or correct against), so a
+  # refusal now spends the single retry — re-asked on the RAW question — when
+  # the question asserts one. Plain-number refusals stay out (routine "what if
+  # two players tie?" refusals must not buy retries).
+  test "a refusal of a numeric-only-premise question stays out of the gate" do
     game = seed_corpus()
 
     mock_asks(fn
-      1 ->
-        {:ok,
-         %{
-           answer: "The rulebook does not cover this question.",
-           verdict: "silent",
-           citations: [],
-           followups: [],
-           also_asked: [],
-           cited_passage: nil
-         }}
+      1 -> refusal_result()
     end)
 
     {:ok, result} = LLM.ask(game, @question)
 
     assert result.answer == "The rulebook does not cover this question."
-    # One first-pass call only — refusal paths own their own escalations
-    # (classifier said nothing combinable here since the mock echoes the
-    # question for non-answer calls).
     assert Process.get(:ask_calls) == 1
+  end
+
+  defp fraction_mock(question, answers_by_call) do
+    Process.put(:ask_calls, 0)
+
+    Application.put_env(:rule_maven, :llm_mock, fn body ->
+      if body[:response_format] do
+        n = Process.get(:ask_calls) + 1
+        Process.put(:ask_calls, n)
+        answers_by_call.(n)
+      else
+        # Normalize echoes THIS question so the stated fraction survives.
+        {:ok, %{answer: question}}
+      end
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+  end
+
+  test "a refusal of a fraction-premise question spends the retry" do
+    game = seed_corpus()
+    fraction_q = "Do I move the Terror Track down a third when a Monster is defeated?"
+
+    correcting =
+      answer_result(
+        "No — defeating a Monster moves the Terror Track down one space, not a third."
+      )
+
+    fraction_mock(fraction_q, fn
+      1 -> refusal_result()
+      2 -> correcting
+    end)
+
+    {:ok, result} = LLM.ask(game, fraction_q)
+
+    assert result.answer =~ "not a third"
+    assert Process.get(:ask_calls) == 2
+  end
+
+  test "a refusal that survives the retry stands without escalating" do
+    game = seed_corpus()
+    fraction_q = "Do I move the Terror Track down a third when a Monster is defeated?"
+
+    fraction_mock(fraction_q, fn
+      1 -> refusal_result()
+      2 -> refusal_result()
+    end)
+
+    {:ok, result} = LLM.ask(game, fraction_q)
+
+    assert result.answer == "The rulebook does not cover this question."
+    # Two calls, no third: the escalate rung never fires on a refusal — the
+    # refusal escalations downstream own that path.
+    assert Process.get(:ask_calls) == 2
+  end
+
+  test "a refusal of a premise-free question never enters the gate" do
+    game = seed_corpus()
+    plain_q = "How does the Terror Track work?"
+
+    Process.put(:ask_calls, 0)
+
+    Application.put_env(:rule_maven, :llm_mock, fn body ->
+      if body[:response_format] do
+        n = Process.get(:ask_calls) + 1
+        Process.put(:ask_calls, n)
+        refusal_result()
+      else
+        {:ok, %{answer: plain_q}}
+      end
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    {:ok, result} = LLM.ask(game, plain_q)
+
+    assert result.answer == "The rulebook does not cover this question."
+    assert Process.get(:ask_calls) == 1
+  end
+
+  test "an asserted percentage refused first-pass is rescued by the raw re-ask" do
+    game = seed_corpus()
+    percent_q = "Do I move the Terror Track down 25% when a Monster is defeated?"
+
+    correcting =
+      answer_result(
+        "No — defeating a Monster moves the Terror Track down one space, not 25% of it."
+      )
+
+    Process.put(:ask_calls, 0)
+
+    Application.put_env(:rule_maven, :llm_mock, fn body ->
+      if body[:response_format] do
+        n = Process.get(:ask_calls) + 1
+        Process.put(:ask_calls, n)
+        if n == 1, do: refusal_result(), else: correcting
+      else
+        {:ok, %{answer: percent_q}}
+      end
+    end)
+
+    on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
+
+    {:ok, result} = LLM.ask(game, percent_q)
+
+    assert result.answer =~ "not 25%"
+    assert Process.get(:ask_calls) == 2
   end
 end

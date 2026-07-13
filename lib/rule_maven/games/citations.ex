@@ -288,7 +288,10 @@ defmodule RuleMaven.Games.Citations do
   third leaves the misconception standing. `ignored_numbers/2` cannot see this:
   "third"/"quarter" are not numeric tokens.
 
-  Both spelled fractions ("a third") and slash form ("1/3") count as mentions.
+  Both spelled fractions ("a third") and slash form ("1/3") count as mentions,
+  and so do percentages ("25%" / "25 percent", canonical "25%") — a percent is
+  a fraction premise in different clothes, and `ignored_numbers/2` clearing the
+  bare digit must not clear the proportion claim it rode in on.
   An answer that names the same fraction — whether to agree ("yes, half") or to
   correct ("no, half, not a third") — clears it, because the correction restates
   the asked fraction. Empty list means every stated fraction was engaged.
@@ -304,18 +307,31 @@ defmodule RuleMaven.Games.Citations do
 
   def ignored_fractions(_question, _answer), do: []
 
+  # A real question asserts a handful of quantities at most; a question whose
+  # answer leaves more than this many numbers unengaged is table-talk narrative
+  # ("on turn 37 someone argued..."), and firing the premise retry + escalate on
+  # it burns real money on noise (pen round 3, 2026-07-13: a rambling road-cost
+  # question escalated to the expensive model 3/3 times).
+  @max_ignored_premises 4
+
   @doc """
   Every stated premise — numeric value or fraction — the `answer` fails to
   engage. Union of `ignored_numbers/2` and `ignored_fractions/2`; the single
   gate the ask pipeline checks before deciding an answer recited past the
   question instead of answering it.
+
+  Returns `[]` when more than #{@max_ignored_premises} premises are missing:
+  that many unengaged numbers means the question is narrative ramble, not a
+  stack of asserted premises, and the gate must not spend a retry on it.
   """
   def ignored_premises(question, answer) do
-    ignored_numbers(question, answer) ++ ignored_fractions(question, answer)
+    missing = ignored_numbers(question, answer) ++ ignored_fractions(question, answer)
+
+    if length(missing) > @max_ignored_premises, do: [], else: missing
   end
 
   # Canonical fraction mentions in a text: spelled words via @fraction_words,
-  # plus bare "n/m" slash forms.
+  # bare "n/m" slash forms, and percentages ("25%" / "25 percent" → "25%").
   defp fraction_tokens(text) do
     words =
       text
@@ -330,7 +346,11 @@ defmodule RuleMaven.Games.Citations do
 
     slashes = Regex.scan(~r/\d+\/\d+/, text) |> Enum.map(&hd/1)
 
-    MapSet.new(words ++ slashes)
+    percents =
+      Regex.scan(~r/(\d+(?:\.\d+)?)\s*(?:%|percent\b)/i, text)
+      |> Enum.map(fn [_, n] -> n <> "%" end)
+
+    MapSet.new(words ++ slashes ++ percents)
   end
 
   # One entry per stated number; a ratio like "2:1" stays ONE premise.

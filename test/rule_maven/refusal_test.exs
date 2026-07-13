@@ -105,8 +105,9 @@ defmodule RuleMaven.RefusalTest do
   # Mock returns parse_response output: {:ok, %{answer: text, cited_passage: text}}
   defp with_mock_echo do
     mock = fn body ->
-      # body has atom keys: %{messages: [%{role: "system", content: _}, %{role: "user", content: q}]}
-      %{messages: [_, %{role: "user", content: q}]} = body
+      # Retries append extra system messages (regeneration nonce), so match the
+      # last user message rather than assuming a fixed [system, user] shape.
+      %{content: q} = body.messages |> Enum.filter(&(&1.role == "user")) |> List.last()
       answer = "ECHO: question='#{String.slice(q, 0, 60)}'"
       {:ok, %{answer: answer, cited_passage: "mock-citation-text"}}
     end
