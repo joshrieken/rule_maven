@@ -86,28 +86,6 @@ defmodule RuleMavenWeb.AdminLive.GroupShow do
     end
   end
 
-  # --- Community contribution -------------------------------------------------
-
-  @impl true
-  def handle_event("toggle_contribute", _params, socket) do
-    group = socket.assigns.group
-    contribute? = !group.contribute_to_community
-
-    case Groups.admin_set_contribute(group, contribute?) do
-      {:ok, _group} ->
-        audit(socket, "group.set_contribute", group, %{contribute: contribute?})
-        {:noreply, load_group(socket)}
-
-      {:error, _changeset} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "Couldn't change the community contribution setting."
-         )}
-    end
-  end
-
   # --- Member cap --------------------------------------------------------
 
   @impl true
@@ -353,22 +331,6 @@ defmodule RuleMavenWeb.AdminLive.GroupShow do
           />
           <button type="submit" class="btn-sm">Save</button>
         </form>
-      </section>
-
-      <!-- Community contribution -->
-      <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:0.75rem">
-        <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">Community sharing</h2>
-        <label for="admin-contribute-toggle" class="crew-toggle">
-          <input
-            type="checkbox"
-            id="admin-contribute-toggle"
-            phx-click="toggle_contribute"
-            checked={@group.contribute_to_community}
-          />
-          <span class="crew-toggle__text">
-            <span class="crew-toggle__label">Contribute answers to the community</span>
-          </span>
-        </label>
       </section>
 
       <!-- Rename -->

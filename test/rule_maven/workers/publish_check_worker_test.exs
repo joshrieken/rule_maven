@@ -270,41 +270,6 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
       assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => -1})
     end
 
-    # `pooled` is not consent. It is a flag the ask pipeline rewrites — AskWorker
-    # re-pools a row off a `never_pool` value it read minutes earlier, so a
-    # retraction could land, be undone, and this worker would find `pooled: true`
-    # and publish the text of a question the crew had explicitly withdrawn. The
-    # gate asks the group directly now.
-    test "a row whose crew has stopped contributing does not publish" do
-      stub_llm("no")
-
-      owner = user_fixture()
-      group = group_fixture(owner)
-
-      ql =
-        question_fixture(
-          group_id: group.id,
-          pooled: true,
-          browsable: false,
-          cleaned_question: "May a player retract a move?"
-        )
-
-      {:ok, _} = RuleMaven.Groups.set_contribute(owner, group, false)
-
-      # Put the row back into the state the OLD guard would have published on:
-      # pooled, unbrowsable, no retraction stamp. Only the group's live consent
-      # flag now stands between it and the public browse.
-      Repo.update_all(
-        from(q in RuleMaven.Games.QuestionLog, where: q.id == ^ql.id),
-        set: [pooled: true, browsable: false, retracted_at: nil]
-      )
-
-      assert :ok = perform_job(PublishCheckWorker, %{"question_log_id" => ql.id})
-
-      refute Repo.reload!(ql).browsable,
-             "published a crew question after the crew turned contribution off"
-    end
-
     # A "yes" is the system PROVING the scrub failed — it looked at the text this
     # row's answer was generated from and found a person in it. Leaving the answer
     # pooled at that exact moment was the one place the gate had hard evidence and
@@ -436,7 +401,7 @@ defmodule RuleMaven.Workers.PublishCheckWorkerTest do
           cleaned_question: "May a player retract a move?"
         )
 
-      {:ok, _} = RuleMaven.Groups.set_contribute(owner, group, false)
+      {:ok, :deleted} = RuleMaven.Groups.delete_group(owner, group)
 
       # Retracted, but still flagged pooled — the pre-round-6 shape.
       Repo.update_all(

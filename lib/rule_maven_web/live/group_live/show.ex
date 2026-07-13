@@ -107,33 +107,6 @@ defmodule RuleMavenWeb.GroupLive.Show do
     end
   end
 
-  # --- Community contribution (admin+) ------------------------------------
-
-  def handle_event("toggle_contribute", _params, socket) do
-    actor = socket.assigns.current_user
-    group = socket.assigns.group
-
-    case Groups.set_contribute(actor, group, !group.contribute_to_community) do
-      {:ok, _group} ->
-        {:noreply, load_group(socket)}
-
-      {:error, :forbidden} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "You don't have permission to change the community contribution setting."
-         )}
-
-      # set_contribute/3 runs in a transaction and can roll back with a changeset;
-      # matching only {:ok, _} and :forbidden killed the LiveView with a
-      # CaseClauseError.
-      {:error, _changeset} ->
-        {:noreply,
-         put_flash(socket, :error, "Couldn't change the community contribution setting.")}
-    end
-  end
-
   # --- Roles (owner only) -------------------------------------------------
 
   def handle_event("set_role", %{"user_id" => user_id, "role" => role}, socket) do
@@ -366,33 +339,6 @@ defmodule RuleMavenWeb.GroupLive.Show do
             </div>
           </li>
         </ul>
-      </section>
-
-      <!-- Community contribution (admin+) -->
-      <section
-        :if={@role in ["admin", "owner"]}
-        style="border:1px solid var(--border);border-radius:0.75rem;padding:1rem 1.25rem;background:var(--bg-surface);margin-bottom:0.75rem"
-      >
-        <h2 style="font-size:0.95rem;font-weight:700;margin:0 0 0.6rem 0">Community sharing</h2>
-        <label for="contribute-toggle" class="crew-toggle">
-          <input
-            type="checkbox"
-            id="contribute-toggle"
-            phx-click="toggle_contribute"
-            checked={@group.contribute_to_community}
-          />
-          <span class="crew-toggle__text">
-            <span class="crew-toggle__label">Contribute answers to the community</span>
-            <span class="crew-toggle__hint">
-              On: your crew's answers feed the community's shared cache, and your questions
-              can be listed publicly — but only reworded to remove names and personal
-              details, and only after an automatic privacy check clears them. Off: neither
-              happens. Turning it off also withdraws what you've already shared (unless the
-              community voted it in), permanently — turning it back on shares future
-              answers only.
-            </span>
-          </span>
-        </label>
       </section>
 
       <!-- Rename (admin+) -->

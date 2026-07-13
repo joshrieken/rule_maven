@@ -39,9 +39,6 @@ defmodule RuleMavenWeb.GameLive.Show do
        is_admin: RuleMaven.Users.can?(socket.assigns.current_user, :admin),
        my_groups: [],
        active_group_id: nil,
-       # "Keep this in the crew" composer checkbox — never_pool for this ask.
-       # Only rendered/read while a group is active; reset on group switch.
-       keep_in_crew: false,
        group_feed: [],
        # Per-page-load seed (set by the :put_dyk_seed plug). Identical across the
        # dead render and the connected mount, so the "Did you know?" card picks
@@ -1304,7 +1301,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     {:noreply,
      socket
-     |> assign(active_group_id: group_id, keep_in_crew: false)
+     |> assign(active_group_id: group_id)
      # CrewDefault hook writes localStorage, so the choice survives the
      # TableSession ETS TTL / restarts. "" clears it (Just me is the default).
      |> push_event("save_crew_choice", %{
@@ -1339,15 +1336,9 @@ defmodule RuleMavenWeb.GameLive.Show do
     else
       {:noreply,
        socket
-       |> assign(active_group_id: group_id, keep_in_crew: false)
+       |> assign(active_group_id: group_id)
        |> assign_group_feed()}
     end
-  end
-
-  # Per-ask "Keep this in the crew" checkbox: a one-off never_pool for the
-  # NEXT ask, independent of the group's own contribute_to_community setting.
-  def handle_event("toggle_keep_in_crew", _params, socket) do
-    {:noreply, assign(socket, :keep_in_crew, not socket.assigns.keep_in_crew)}
   end
 
   # Table tools (window state, quiz, turn wizard, checklist, house rules) are
@@ -1714,7 +1705,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                       recent_context: recent,
                       user_id: socket.assigns.current_user.id,
                       group_id: group_id,
-                      never_pool: socket.assigns[:keep_in_crew] || false,
                       voice: socket.assigns.default_voice
                     }
                     |> RuleMaven.Workers.AskWorker.new()
@@ -1747,7 +1737,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                      |> grouped_cache_add(question_log)
                      |> assign(
                        question: "",
-                       keep_in_crew: false,
                        active_thread_id: question_log.id,
                        rule_card: ToolHost.fact_card(socket.assigns.dyk_facts),
                        pending_count: socket.assigns.pending_count + 1,
@@ -2585,16 +2574,15 @@ defmodule RuleMavenWeb.GameLive.Show do
               group_id: group_id,
               skip_pool: skip_pool,
               skip_normalize: verbatim,
-              # Either a private one-off (regenerate/report redo of an already-voted
-              # answer) or the composer's "keep this in the crew" toggle keeps the
-              # answer out of the shared pool. `protect_existing?` is `old_q && (...)`,
-              # which can be `nil` (not a strict boolean) when there's no prior row —
-              # `||` tolerates that where `or` would raise.
+              # A private one-off (regenerate/report redo of an already-voted
+              # answer) keeps the answer out of the shared pool. `protect_existing?`
+              # is `old_q && (...)`, which can be `nil` (not a strict boolean) when
+              # there's no prior row — `||` tolerates that where `or` would raise.
               # A re-ask of a WITHDRAWN row must not put its answer back into the
               # commons through the side door: the crew pulled it, and copying the
               # text into a fresh row does not un-pull it.
               never_pool:
-                ((protect_existing? || false) or (socket.assigns[:keep_in_crew] || false) or
+                ((protect_existing? || false) or
                    (old_q && not is_nil(old_q.retracted_at))) || false,
               # Without the voice a persona user's regenerate skips the
               # single-call persona path and pays a separate restyle call.
@@ -5066,26 +5054,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                 </button>
               </div>
             </div>
-            <%!-- Per-ask privacy override (Gate 4): only shown with a group active.
-                  Checked ⇒ never_pool for this one ask — the answer never joins
-                  the community cache and the question is never publish-checked,
-                  regardless of the group's own contribute_to_community setting. --%>
-            <label
-              :if={@active_group_id}
-              for="keep-in-crew-toggle"
-              class="crew-toggle composer-keep-crew"
-            >
-              <input
-                type="checkbox"
-                id="keep-in-crew-toggle"
-                phx-click="toggle_keep_in_crew"
-                checked={@keep_in_crew}
-              />
-              <span class="crew-toggle__text">
-                <span class="crew-toggle__label">Keep this in the crew</span>
-                <span class="crew-toggle__hint">Don't share this answer with the wider community.</span>
-              </span>
-            </label>
             <button
               type="button"
               id="voice-ask-btn"

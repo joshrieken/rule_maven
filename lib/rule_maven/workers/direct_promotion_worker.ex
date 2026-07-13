@@ -121,7 +121,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
 
   defp promote(best) do
     # The `browsable` filter is re-asserted HERE, not just in the candidate read.
-    # `retract_contributions/1` (set_contribute(false), delete_group/2) can commit
+    # `retract_contributions/1` (delete_group/2, sole-owner account deletion) can commit
     # between the two, and a bare update would then land the row in
     # `visibility: "community"` with `browsable: false` — a state every other gate
     # exists to prevent, and one the community browse surfaces (which list on

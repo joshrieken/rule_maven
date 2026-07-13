@@ -95,39 +95,6 @@ defmodule RuleMaven.GroupsManageTest do
     end
   end
 
-  describe "set_contribute/3" do
-    test "defaults to true", %{group: g} do
-      assert g.contribute_to_community == true
-      assert RuleMaven.Groups.contribute_to_community?(g.id) == true
-    end
-
-    test "owner can turn contribution off and back on", %{owner: o, group: g} do
-      assert {:ok, g2} = Groups.set_contribute(o, g, false)
-      refute g2.contribute_to_community
-      refute Groups.contribute_to_community?(g.id)
-
-      assert {:ok, g3} = Groups.set_contribute(o, g2, true)
-      assert g3.contribute_to_community
-      assert Groups.contribute_to_community?(g.id)
-    end
-
-    test "admin can turn contribution off", %{owner: o, member: m, group: g} do
-      {:ok, _} = Groups.set_role(o, g, m.id, "admin")
-      assert {:ok, g2} = Groups.set_contribute(m, g, false)
-      refute g2.contribute_to_community
-    end
-
-    test "a plain member cannot change the contribution setting", %{member: m, group: g} do
-      assert {:error, :forbidden} = Groups.set_contribute(m, g, false)
-      assert Groups.contribute_to_community?(g.id) == true
-    end
-
-    test "a non-member cannot change the contribution setting", %{group: g} do
-      stranger = create_user("u9")
-      assert {:error, :forbidden} = Groups.set_contribute(stranger, g, false)
-    end
-  end
-
   describe "regenerate_code/2" do
     test "old code invalidated, forbidden for member/non-member, allowed for admin", %{
       owner: o,

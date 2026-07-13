@@ -516,25 +516,25 @@ defmodule RuleMavenWeb.GameLive.Community do
 
         <%!-- Intro banner — copy varies by tab; category pills + grouping below
              are shared across all three tabs so unverified questions are just as
-             browsable-by-category as verified/community ones. --%>
-        <%= if questions != [] do %>
-          <%= if @tab == "unverified" do %>
-            <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--orange,orange);border-radius:0.4rem">
-              <span style="font-size:1.1rem;line-height:1">🧪</span>
-              <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
-                Questions other players asked, <strong>not yet reviewed</strong>
-                by the community. Answers cite the rulebook but haven't been vetted — double-check before relying on one. Upvoting an answer counts toward community promotion and adds it to your own questions list.
-              </p>
-            </div>
-          <% else %>
-            <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0.4rem">
-              <span style="font-size:1.1rem;line-height:1">📖</span>
-              <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
-                These answers are <strong>drawn from the official rules</strong>
-                and surfaced by {if @tab == "verified", do: "admins", else: "the community"} as the most helpful. Always double-check the rulebook for anything that matters.
-              </p>
-            </div>
-          <% end %>
+             browsable-by-category as verified/community ones. Not gated on the
+             tab having questions: the banner is what tells a visitor what the
+             tab IS, which matters most when there's nothing else to look at. --%>
+        <%= if @tab == "unverified" do %>
+          <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--orange,orange);border-radius:0.4rem">
+            <span style="font-size:1.1rem;line-height:1">🧪</span>
+            <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
+              Questions other players asked, <strong>not yet reviewed</strong>
+              by the community. Answers cite the rulebook but haven't been vetted — double-check before relying on one. Upvoting an answer counts toward community promotion and adds it to your own questions list.
+            </p>
+          </div>
+        <% else %>
+          <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0.4rem">
+            <span style="font-size:1.1rem;line-height:1">📖</span>
+            <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
+              These answers are <strong>drawn from the official rules</strong>
+              and surfaced by {if @tab == "verified", do: "admins", else: "the community"} as the most helpful. Always double-check the rulebook for anything that matters.
+            </p>
+          </div>
         <% end %>
 
         <%!-- Category filter pills — only categories that actually tag a question

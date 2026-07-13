@@ -213,50 +213,6 @@ defmodule RuleMaven.GroupGateHolesTest do
     end
   end
 
-  describe "Groups.set_contribute/3 — turning it off is retroactive" do
-    test "already-pooled crew rows stop serving the cache and stop being listed", ctx do
-      cleared = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
-      pending = group_question!(ctx.game, ctx.member, ctx.grp)
-
-      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, false)
-
-      for id <- [cleared.id, pending.id] do
-        row = Repo.get(QuestionLog, id)
-        refute row.pooled
-        refute row.browsable
-      end
-    end
-
-    test "a row the community already voted in is left alone", ctx do
-      q =
-        group_question!(ctx.game, ctx.member, ctx.grp, %{
-          browsable: true,
-          visibility: "community"
-        })
-
-      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, false)
-
-      row = Repo.get(QuestionLog, q.id)
-      assert row.pooled
-      assert row.browsable
-    end
-
-    test "turning it back on does not silently re-publish the retracted rows", ctx do
-      q = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
-
-      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, false)
-      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, true)
-
-      refute Repo.get(QuestionLog, q.id).browsable
-    end
-
-    test "a non-admin cannot flip it", ctx do
-      outsider = create_user("outsider")
-
-      assert {:error, :forbidden} = Groups.set_contribute(outsider, ctx.grp, false)
-    end
-  end
-
   describe "SuggestionsWorker's already-asked list" do
     setup ctx do
       {:ok, _doc} =
@@ -500,15 +456,37 @@ defmodule RuleMaven.GroupGateHolesTest do
     test "retracts the crew's rows before nilifying their group_id", ctx do
       # group_id is on_delete: :nilify_all, so after the delete nothing on the row
       # says it came from a crew. Close the rows while we can still find them —
-      # otherwise every group_id-keyed guard downstream misjudges them.
-      q = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
+      # otherwise every group_id-keyed guard downstream misjudges them. The
+      # closing is retroactive: both a screen-cleared row and one still pending
+      # the screen are pulled, and `retracted_at` is the durable stamp — unlike
+      # pooled/browsable, nothing in the ask pipeline ever rewrites it, so a
+      # deleted crew's withdrawal cannot be undone by a later re-run.
+      cleared = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
+      pending = group_question!(ctx.game, ctx.member, ctx.grp)
+
+      {:ok, :deleted} = Groups.delete_group(ctx.member, ctx.grp)
+
+      for id <- [cleared.id, pending.id] do
+        row = Repo.get(QuestionLog, id)
+        assert is_nil(row.group_id), "precondition: group_id is nilified"
+        refute row.browsable, "a deleted crew's row stayed publicly listable"
+        refute row.pooled
+        assert row.retracted_at, "the withdrawal left no durable trace"
+      end
+    end
+
+    test "a row the community already voted in is left alone", ctx do
+      q =
+        group_question!(ctx.game, ctx.member, ctx.grp, %{
+          browsable: true,
+          visibility: "community"
+        })
 
       {:ok, :deleted} = Groups.delete_group(ctx.member, ctx.grp)
 
       row = Repo.get(QuestionLog, q.id)
-      assert is_nil(row.group_id), "precondition: group_id is nilified"
-      refute row.browsable, "a deleted crew's row stayed publicly listable"
-      refute row.pooled
+      assert row.pooled
+      assert row.browsable
     end
 
     test "a non-owner cannot delete", ctx do
@@ -591,9 +569,10 @@ defmodule RuleMaven.GroupGateHolesTest do
     test "a row withdrawn during the LLM call is not re-published", ctx do
       q = group_question!(ctx.game, ctx.member, ctx.grp)
 
-      # Simulate retract_contributions committing inside the screen's LLM window.
+      # Simulate retract_contributions committing inside the screen's LLM window
+      # — a crew deletion is what triggers it now.
       Application.put_env(:rule_maven, :llm_mock, fn _body ->
-        {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, false)
+        {:ok, :deleted} = Groups.delete_group(ctx.member, ctx.grp)
         {:ok, %{answer: "no", finish_reason: "stop"}}
       end)
 
@@ -717,30 +696,6 @@ defmodule RuleMaven.GroupGateHolesTest do
 
       row = Repo.get(QuestionLog, q.id)
       refute row.browsable, "a name in also_asked did not withhold the row"
-    end
-  end
-
-  describe "retraction is durable" do
-    # `retract_contributions/1` used to write only pooled/browsable — flags the ask
-    # pipeline itself rewrites. Turning contribution off and back on made every
-    # withdrawn row eligible again, against a UI that calls the withdrawal permanent.
-    test "turning contribute off stamps retracted_at, and turning it back on does not clear it",
-         ctx do
-      q = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
-
-      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, false)
-
-      q = Repo.get!(QuestionLog, q.id)
-      assert q.retracted_at, "the withdrawal left no durable trace"
-      refute q.pooled
-      refute q.browsable
-
-      {:ok, _} = Groups.set_contribute(ctx.member, ctx.grp, true)
-
-      q = Repo.get!(QuestionLog, q.id)
-
-      assert q.retracted_at,
-             "re-enabling contribution un-withdrew a row the crew had already pulled back"
     end
   end
 

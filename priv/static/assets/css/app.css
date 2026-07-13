@@ -4212,50 +4212,6 @@ body:has([data-phx-main].phx-connected)::after {
   min-width: 0;
 }
 
-/* Shared "crew" checkbox row: the per-ask "Keep this in the crew" toggle in
-   the composer, and the per-group "Contribute answers to the community"
-   toggle on the group settings page. The whole label is the tap target
-   (checkbox + text), comfortably clearing the 36px coarse-pointer floor. */
-.crew-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  min-height: 36px;
-  padding: 0.25rem 0;
-  cursor: pointer;
-}
-.crew-toggle input[type="checkbox"] {
-  width: 1.15rem;
-  height: 1.15rem;
-  flex-shrink: 0;
-  margin-top: 0.15rem;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-.crew-toggle__text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-}
-.crew-toggle__label {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text);
-}
-.crew-toggle__hint {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  line-height: 1.35;
-}
-
-/* Composer variant: claims its own wrapped row above the ask box, same as
-   .composer-controls, so it never squeezes the input/Send row on phones. */
-.composer-keep-crew {
-  flex-basis: 100%;
-  min-width: 0;
-}
-
 /* Q&A page on phones: the chrome (site header + game toolbar + composer)
    already eats most of a small viewport, so trim everything non-essential.
    Budget at 390x844 after this block: 40px game header + ~80px composer, both

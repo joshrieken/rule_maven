@@ -2403,7 +2403,7 @@ defmodule RuleMaven.Games do
   `update_question_visibility/2` action; this only unlocks the row from the
   publish gate.
 
-  Refuses a retracted row (`retracted_at` set — contribute-off, group delete,
+  Refuses a retracted row (`retracted_at` set — group delete,
   owner account deletion). This override exists to bypass an ambiguous/failed
   AUTOMATED SCREEN result, not to re-expose content its own crew explicitly
   withdrew — `retracted_at` is treated as durable and never-re-exposed
@@ -3558,7 +3558,7 @@ defmodule RuleMaven.Games do
 
         # `stale` as well as `pooled`. Clearing `pooled` retires an answer from the
         # CROSS-USER cache, but the crew branch of `find_pool_candidates/3`
-        # deliberately does not require `pooled` (so a "keep this in the crew" row
+        # deliberately does not require `pooled` (so a `never_pool` crew row
         # still feeds its own crew's cache) — so demotion was a no-op inside the
         # crew, and the answer went on being served, as a labelled cache hit, to
         # exactly the members who had just reported it wrong.
