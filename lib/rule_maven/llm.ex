@@ -166,6 +166,7 @@ defmodule RuleMaven.LLM do
             expansion_ids,
             skip_pool,
             match_text,
+            question,
             user_id,
             active_group_id
           ) ->
@@ -241,6 +242,7 @@ defmodule RuleMaven.LLM do
          _expansion_ids,
          _skip_pool,
          _match_text,
+         _question,
          _user_id,
          _active_group_id
        ),
@@ -252,6 +254,7 @@ defmodule RuleMaven.LLM do
          _expansion_ids,
          true,
          _match_text,
+         _question,
          _user_id,
          _active_group_id
        ),
@@ -263,6 +266,7 @@ defmodule RuleMaven.LLM do
          expansion_ids,
          false,
          match_text,
+         question,
          user_id,
          active_group_id
        ) do
@@ -272,6 +276,7 @@ defmodule RuleMaven.LLM do
         threshold: RuleMaven.Games.pool_tiebreaker_distance_threshold(),
         active_group_id: active_group_id
       )
+      |> reject_polarity_flips(question)
 
     floor = RuleMaven.Games.pool_similarity_floor()
     {direct, ambiguous} = Enum.split_with(candidates, fn {_row, sim} -> sim >= floor end)
@@ -312,6 +317,28 @@ defmodule RuleMaven.LLM do
           _ -> nil
         end)
     end
+  end
+
+  # Drops pool candidates whose POLARITY disagrees with the question as the asker
+  # actually typed it. Applied to the candidate list itself, so it gates BOTH
+  # acceptance paths — the direct hit above the similarity floor (which takes no
+  # LLM call at all and so has no other check) and the ambiguous-band tiebreaker.
+  #
+  # Runs on the RAW `question`, never on `match_text`. `match_text` is the
+  # NORMALIZED text, and normalization is where the polarity is lost: measured,
+  # "Is it forbidden to put the robber on the desert?" normalizes to "Can the
+  # robber be placed on the desert?" — by the time the pool sees it, there is no
+  # negation left to disagree with.
+  #
+  # A dropped candidate is not an error: the ask simply proceeds to the LLM and
+  # buys a correct answer at full price. That is the cheap direction. The
+  # expensive direction is answering "**Yes** — the robber can be placed on the
+  # desert hex" to someone who asked whether it was FORBIDDEN.
+  defp reject_polarity_flips(candidates, question) do
+    Enum.reject(candidates, fn {row, _sim} ->
+      candidate_text = row.canonical_question || row.cleaned_question || row.question
+      not RuleMaven.LLM.Polarity.compatible?(question, candidate_text)
+    end)
   end
 
   # Cheap-model yes/no equivalence check for a pool candidate whose similarity
@@ -801,7 +828,29 @@ defmodule RuleMaven.LLM do
     |> do_request(1, opts)
     |> maybe_retry_stalled_stream(body, opts)
     |> maybe_retry_bad_answer(body, game_id, opts)
+    |> drop_lead_on_negative_question(question)
   end
+
+  # On a negatively-phrased question the leading **Yes**/**No** is the one part of
+  # the answer that flips, and it flips silently: the body stays correct while the
+  # lead word comes to mean its opposite. Measured on three runs of "Is a player
+  # prohibited from trading before rolling?" — two led **Yes** (correct), one led
+  # "**No**, a player cannot trade before rolling", contradicting its own next
+  # clause. The grounding critic passed all three; it cannot see polarity.
+  #
+  # The system prompt now warns about this and that took it from always-wrong to
+  # mostly-right, which is not good enough for a rule someone follows mid-game. So
+  # the lead is DROPPED rather than trusted. What remains ("A player cannot trade
+  # before rolling for resource production.") is correct whichever way the model was
+  # leaning, costs no extra call, and has nothing left to invert. The `verdict`
+  # field still feeds the verdict stamp — it is judged on the action, not on how the
+  # question happened to be phrased.
+  defp drop_lead_on_negative_question({:ok, %{answer: answer} = res}, question)
+       when is_binary(answer) do
+    {:ok, %{res | answer: RuleMaven.LLM.Polarity.strip_inverted_lead(answer, question)}}
+  end
+
+  defp drop_lead_on_negative_question(result, _question), do: result
 
   # The rulebook block is the same text on every ask for a game (whole-corpus
   # retrieval, stable-ordered — see `build_context_block/3`), and it is ~14k of
@@ -1704,6 +1753,20 @@ defmodule RuleMaven.LLM do
 
     cond do
       raw == "" ->
+        {:fallback, raw}
+
+      # No letters at all — emoji, punctuation, symbols. There is no question here
+      # to canonicalize, and asking the model to try is how "🎲🎲🎲" came back as
+      # "Can a Knight card move the robber?" and then landed a pool hit on it: with
+      # no signal in the input, the nearest-canonical hint list is the only thing
+      # left for the model to copy, so it copies one. Rule 11 already forbids
+      # inventing a question from gibberish and the model did it anyway — the hint
+      # list sits nearer the data than the rule does. Decide it here instead.
+      #
+      # Falling back leaves the raw text to embed and answer on its own merits,
+      # which ends in an honest refusal rather than a confident answer to a
+      # question nobody asked.
+      not String.match?(raw, ~r/\p{L}/u) ->
         {:fallback, raw}
 
       # Followups resolve against the conversation — not cacheable by raw text.
