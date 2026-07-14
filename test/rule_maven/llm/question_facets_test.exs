@@ -230,6 +230,66 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
              )
     end
 
+    test "empty/occupied — whether a space holds a piece, 0.93" do
+      refute Facets.compatible?(
+               "Can the robber sit on an empty hex?",
+               "Can the robber sit on an occupied hex?"
+             )
+
+      assert Facets.conflict(
+               "Can the robber sit on an empty hex?",
+               "Can the robber sit on an occupied hex?"
+             ) == :occupancy
+
+      # "vacant"/"unoccupied" are the SAME pole as "empty", so a paraphrase survives.
+      assert Facets.compatible?(
+               "Can the robber sit on an empty hex?",
+               "Can the robber sit on a vacant hex?"
+             )
+    end
+
+    test "highest/lowest — a superlative that decides a roll-off, 0.92" do
+      refute Facets.compatible?(
+               "Does the player with the highest roll go first?",
+               "Does the player with the lowest roll go first?"
+             )
+
+      assert Facets.conflict(
+               "Does the player with the highest roll go first?",
+               "Does the player with the lowest roll go first?"
+             ) == :superlative
+
+      # "greatest" sits on the HIGHEST pole, so a paraphrase survives.
+      assert Facets.compatible?(
+               "Does the player with the highest roll go first?",
+               "Does the player with the greatest roll go first?"
+             )
+    end
+
+    test "most/least stay on the comparative axis, not the superlative one" do
+      # `most`/`least` are the at-most/at-least BOUND ("at least seven" = seven or
+      # more), a different sense than the highest/lowest superlative. They must not
+      # leak onto the superlative axis, or a token would fire two axes at once.
+      assert Facets.conflict(
+               "Do I discard with at least seven cards?",
+               "Do I discard with at most seven cards?"
+             ) == :comparative
+    end
+
+    test "valid/invalid is gated as a negation (delegated to Polarity)" do
+      # "invalid" carries negation exactly like "illegal", so it rides Polarity
+      # rather than an axis here.
+      refute Facets.compatible?(
+               "Is a trade with the bank valid before rolling?",
+               "Is a trade with the bank invalid before rolling?"
+             )
+
+      assert Facets.conflict(
+               "Is a trade with the bank valid before rolling?",
+               "Is a trade with the bank invalid before rolling?"
+             ) == :negation
+    end
+
     test "negation is still gated (delegated to Polarity)" do
       refute Facets.compatible?(
                "Can the robber NOT be placed on the desert hex?",
@@ -388,6 +448,29 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
       assert Facets.compatible?(
                "Does the longest road count broken segments?",
                "How is the longest road measured?"
+             )
+    end
+
+    test "left/right is deliberately NOT gated — 'left' also means remaining" do
+      # "left" doubles as REMAINING; gating a left/right direction axis would wreck
+      # every "how many cards are left" question. Documented ungated at 0.96.
+      assert Facets.compatible?(
+               "How many cards are left in the deck?",
+               "How many cards are left in my hand?"
+             )
+
+      assert Facets.compatible?(
+               "Do cards pass to the player on my left?",
+               "Do cards pass to the player on my right?"
+             )
+    end
+
+    test "once/twice is deliberately NOT gated — 'once' also means when" do
+      # "once you roll a seven, discard" uses once=WHEN, not once=one time, so it
+      # cannot be mapped to a count without false-gating a timing paraphrase.
+      assert Facets.compatible?(
+               "Once you roll a seven, do you discard?",
+               "When you roll a seven, do you discard?"
              )
     end
   end

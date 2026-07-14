@@ -24,6 +24,9 @@ defmodule RuleMaven.LLM.QuestionFacets do
       "robber let me STEAL a card?"          -> "let me GIVE a card"          0.93
       "play proceed CLOCKWISE?"              -> "proceed COUNTERCLOCKWISE"    0.95
       "does the FIRST player go first?"      -> "does the LAST player"        0.93
+      "trade with the bank INVALID?"         -> "with the bank VALID"         0.96
+      "robber sit on an EMPTY hex?"          -> "sit on an OCCUPIED hex"      0.93
+      "does the HIGHEST roll go first?"      -> "does the LOWEST roll"        0.92
 
   This is a finite list against an open-ended problem: any antonym pair whose swap
   leaves the wording — and so the embedding — almost unchanged is a candidate, and
@@ -32,7 +35,10 @@ defmodule RuleMaven.LLM.QuestionFacets do
   the dangerous pairs are single-token antonyms that actually occur in rules
   questions; the sweeps that found `same`/`different`, `gain`/`lose`,
   `include`/`exclude`, `open`/`closed`, `clockwise`/`counterclockwise`,
-  `first`/`last`, `steal`/`give` and `face up`/`face down` cover the common ones.
+  `first`/`last`, `steal`/`give`, `face up`/`face down`, `empty`/`occupied` and
+  `highest`/`lowest` cover the common ones. `valid`/`invalid` is a flip too, but
+  `invalid` carries negation and so is handled by `Polarity` alongside `illegal`,
+  not by an axis here.
 
   Three classes are deliberately left UNGATED, because the word that would flip the
   answer is also the word a harmless paraphrase swaps, and blocking it bills every
@@ -44,6 +50,23 @@ defmodule RuleMaven.LLM.QuestionFacets do
       the whole pronoun space (measured: "my" vs "opponent" drops to 0.86 anyway).
     * scope and quantifier — "per turn" vs "per game", "each" vs "any": the deciding
       tokens (turn, game, each, any, every) are common and freely interchangeable.
+
+  A round-7 sweep turned up more single-token flips that stay above the 0.92 floor
+  but are left ungated for the same reason — the deciding word doubles as neutral
+  phrasing, so gating it would bill honest paraphrases:
+
+    * `left`/`right` (0.96) — "left" also means REMAINING ("how many cards are LEFT
+      in the deck"), so it cannot be treated as a direction pole.
+    * `once`/`twice` (0.97) — "once" also means WHEN ("ONCE you roll a seven"), so
+      mapping it to the count 1 would false-gate a legitimate timing paraphrase.
+    * `raise`/`lower` (0.94) — "raise" also means UPGRADE ("raise a settlement to a
+      city"), a neutral action, not a value direction.
+    * `own`/`opponent's`, `friendly`/`enemy` (0.92-0.94) — the possessor class again.
+    * `buy`/`build` (0.93), `ahead`/`behind` (0.94), `immediately`/`later` (0.94),
+      `forward`/`backward` (0.94), `north`/`south` (0.97), `adjacent`/`distant`
+      (0.92) — either not true antonyms (buy/build), polysemous (behind/backward),
+      contrived opposites whose natural form is a negation (adjacent vs NOT adjacent,
+      already covered by `Polarity`), or too rare in the corpus to earn a gate.
 
   `face up`/`face down` is gated as a PHRASE, not on the bare tokens up/down, which
   carry no direction of their own ("up to seven cards").
@@ -148,6 +171,24 @@ defmodule RuleMaven.LLM.QuestionFacets do
     visibility: [
       ~w(faceup revealed visible public exposed),
       ~w(facedown hidden concealed secret)
+    ],
+    # "can the robber sit on an EMPTY hex" vs "an OCCUPIED hex" — whether a space
+    # holds a piece is the whole question of robber placement and building spots,
+    # and it stays 0.93 on the embedding. Kept to the distinctive occupancy words:
+    # "full"/"taken" are left off because they carry other senses ("full hand",
+    # "take a card") that appear constantly in neutral phrasing.
+    occupancy: [
+      ~w(empty vacant unoccupied),
+      ~w(occupied)
+    ],
+    # "the HIGHEST roll goes first" vs "the LOWEST roll" — a superlative that
+    # decides a roll-off, most points, most knights. `most`/`least` are NOT here
+    # on purpose: `comparative` already uses them for the at-most/at-least bound
+    # ("at least seven" = seven-or-more), which is a different sense, and a token
+    # cannot sit on two axes without firing both.
+    superlative: [
+      ~w(highest greatest largest biggest),
+      ~w(lowest smallest)
     ]
   }
 

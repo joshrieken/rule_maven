@@ -35,6 +35,7 @@ defmodule RuleMaven.LLM.Polarity do
     wont shouldnt couldnt wouldnt havent hasnt hadnt nor without
     forbidden prohibited banned illegal disallowed disallow barred
     prevented unable forbid forbids prohibit prohibits
+    invalid invalidate invalidates invalidated
   )
 
   @doc """
