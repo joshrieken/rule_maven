@@ -1916,11 +1916,20 @@ defmodule RuleMaven.LLM do
   # preamble ("Sure — here's the canonical form:") instead of the question;
   # such a line passes every length check and would drive the embedding, pool
   # lookup, and answer prompt.
+  #
+  # ...and only if it still asks the SAME question. The normalizer is handed the
+  # nearest canonical questions as hints, and the nearest canonical question to
+  # "Can a player trade after rolling?" is "Can a player trade before rolling?" —
+  # so the hint list is a standing invitation to snap a question onto its opposite.
+  # A rewrite that crosses one of those axes is discarded for the raw text, which
+  # is never wrong, only less tidy. The asker cannot catch this themselves: the UI
+  # displays the NORMALIZED question back to them.
   defp accept_normalized?(cleaned, raw) do
     cleaned != "" and String.length(cleaned) <= 200 and
       String.length(cleaned) <= max(String.length(raw) * 3, 80) and
       not String.ends_with?(cleaned, ":") and
-      not preamble_line?(cleaned)
+      not preamble_line?(cleaned) and
+      RuleMaven.LLM.QuestionFacets.preserved_in_rewrite?(raw, cleaned)
   end
 
   # Meta-language a model uses to introduce (or refuse) a rewrite rather than

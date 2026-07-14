@@ -102,6 +102,58 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
     end
   end
 
+  describe "preserved_in_rewrite?/2 — the normalizer must not snap a question onto its neighbour" do
+    test "rejects a rewrite that crosses an answer-deciding axis" do
+      # The nearest canonical question to this one IS its opposite, and the
+      # normalizer is handed the nearest canonicals as hints.
+      refute Facets.preserved_in_rewrite?(
+               "Can a player trade after rolling?",
+               "Can a player trade before rolling?"
+             )
+
+      refute Facets.preserved_in_rewrite?(
+               "Must I move the robber?",
+               "Can the robber be moved?"
+             )
+
+      refute Facets.preserved_in_rewrite?(
+               "Is it forbidden to trade before rolling?",
+               "Can a player trade before rolling?"
+             )
+    end
+
+    test "a number may be DROPPED as a premise but never introduced or swapped" do
+      # Legitimate: the 8 is a premise, and canonicalizing drops it.
+      assert Facets.preserved_in_rewrite?(
+               "If I roll a 7 and I have 8 cards, how many do I discard?",
+               "How many cards must be discarded on a 7?"
+             )
+
+      # Not legitimate: this invents the very fact in dispute.
+      refute Facets.preserved_in_rewrite?(
+               "How many cards must be discarded on an 8?",
+               "How many cards must be discarded on a 7?"
+             )
+
+      refute Facets.preserved_in_rewrite?(
+               "How many cards do I discard?",
+               "How many cards must be discarded on a 7?"
+             )
+    end
+
+    test "an ordinary tidy-up survives" do
+      assert Facets.preserved_in_rewrite?(
+               "can i stick the robber on the desert lol",
+               "Can the robber be placed on the desert hex?"
+             )
+
+      assert Facets.preserved_in_rewrite?(
+               "how many cards do i toss when someone rolls a 7?",
+               "How many cards must be discarded on a 7?"
+             )
+    end
+  end
+
   describe "still lets real paraphrases through — the pool must keep working" do
     test "a reworded question with the same facets matches" do
       assert Facets.compatible?(

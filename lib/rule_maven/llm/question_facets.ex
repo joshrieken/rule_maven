@@ -116,6 +116,34 @@ defmodule RuleMaven.LLM.QuestionFacets do
   end
 
   @doc """
+  True when a normalizer rewrite still asks the ORIGINAL question.
+
+  The normalizer is handed the 20 nearest canonical questions as hints, and the
+  nearest canonical question to "Can a player trade AFTER rolling?" is "Can a
+  player trade BEFORE rolling?" — so the hint list is itself a standing invitation
+  to snap a question onto its opposite. It has done exactly this before ("how is
+  the robber moved" was rewritten into "is it moved after discarding", a different
+  question) and the asker never sees it, because the UI displays the NORMALIZED
+  text. The prompt is told to preserve polarity; this does not depend on it
+  obeying.
+
+  Numbers get a SUBSET rule rather than an equality one, because dropping a number
+  is a legitimate rewrite and introducing one never is: "If I roll a 7 and I have
+  8 cards, how many do I discard?" properly canonicalizes to "How many cards must
+  be discarded on a 7?" (the 8 is a premise, and the ignored-premise guard is what
+  covers it). Turning "discarded on an 8" into "discarded on a 7", on the other
+  hand, invents the very fact under dispute.
+  """
+  def preserved_in_rewrite?(raw, rewrite) do
+    r = tokens(raw)
+    w = tokens(rewrite)
+
+    Polarity.compatible?(raw, rewrite) and
+      MapSet.subset?(numbers(w), numbers(r)) and
+      Enum.all?(Map.keys(@axes), &axis_agrees?(&1, r, w))
+  end
+
+  @doc """
   The axis on which two questions disagree, or nil when they are compatible.
   Diagnostic only — logged on a rejected candidate so a lost pool hit can be
   explained without re-deriving it.
