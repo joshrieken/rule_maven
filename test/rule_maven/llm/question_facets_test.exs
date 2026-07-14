@@ -80,10 +80,34 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
                "Do I discard if I have more than 7 cards?"
              )
 
-      # Ratios fall out of the digit scan: {4,1} vs {2,1}.
+      # A DIFFERENT ratio falls out of the digit scan: {4,1} vs {2,1}.
       refute Facets.compatible?(
                "Can I trade with the bank at 2:1?",
                "Can I trade with the bank at 4:1?"
+             )
+
+      # A REVERSED ratio has the same digits, so the set check passes it — the
+      # colon-ratio order check is what catches 2:1 (give 2 get 1) vs 1:2.
+      refute Facets.compatible?(
+               "Can I trade with the bank at 2:1?",
+               "Can I trade with the bank at 1:2?"
+             )
+
+      assert Facets.conflict(
+               "Can I trade with the bank at 2:1?",
+               "Can I trade with the bank at 1:2?"
+             ) == :ratio
+
+      # Same ratio, reworded around it, still matches.
+      assert Facets.compatible?(
+               "Is the harbor rate 3:1?",
+               "Can I trade at 3:1 with a generic harbor?"
+             )
+
+      # A rewrite may drop a ratio premise but never reverse it.
+      refute Facets.preserved_in_rewrite?(
+               "At a 2:1 harbor can I trade?",
+               "Can I trade at a 1:2 harbor?"
              )
 
       refute Facets.compatible?("Can a player roll only two dice?", "Can a player roll only one die?")

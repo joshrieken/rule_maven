@@ -150,6 +150,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
 
     Polarity.compatible?(question, candidate) and
       numbers_agree?(q, c) and
+      ratios_agree?(question, candidate) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, q, c))
   end
 
@@ -178,6 +179,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
 
     Polarity.compatible?(raw, rewrite) and
       MapSet.subset?(numbers(w), numbers(r)) and
+      MapSet.subset?(ratios(rewrite), ratios(raw)) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, r, w))
   end
 
@@ -193,6 +195,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
     cond do
       not Polarity.compatible?(question, candidate) -> :negation
       not numbers_agree?(q, c) -> :number
+      not ratios_agree?(question, candidate) -> :ratio
       true -> Enum.find(Map.keys(@axes), &(not axis_agrees?(&1, q, c)))
     end
   end
@@ -218,14 +221,41 @@ defmodule RuleMaven.LLM.QuestionFacets do
   # An embedding barely moves between "more than 7 cards" and "more than 9 cards"
   # while the answer changes completely.
   #
-  # Compared as sets, and only when BOTH questions carry numbers — a question that
-  # mentions none is not disagreeing about them. Ratios are handled by the plain
-  # digit scan: "4:1" yields 4 and 1, "2:1" yields 2 and 1, and the sets differ.
+  # Compared as SETS, and only when BOTH questions carry numbers — a question that
+  # mentions none is not disagreeing about them. A set is deliberate: the same
+  # premises named in a different order ("roll a 7 with 8 cards" vs "8 cards, roll
+  # a 7") must still match, so position cannot be load-bearing for loose numbers.
+  #
+  # That set comparison is blind to ONE thing: a ratio's direction. "trade at 2:1"
+  # and "trade at 1:2" carry the same digits, so as sets they agree, but they are
+  # opposite trades (0.97 apart on the embedding). A colon-ratio is the one place
+  # the order of two numbers IS the rule, so it is checked separately by
+  # `ratios_agree?/2`. The prose form ("give 3 and get 1") is left ungated on
+  # purpose — parsing give/get order robustly would over-block more paraphrases
+  # than the rare reversed-ratio flip is worth.
   defp numbers_agree?(q, c) do
     nq = numbers(q)
     nc = numbers(c)
 
     Enum.empty?(nq) or Enum.empty?(nc) or MapSet.equal?(nq, nc)
+  end
+
+  # A colon-ratio is compared on the RAW text — `tokens/1` splits on the colon and
+  # throws the direction away. Only fires when both sides carry a ratio; the digit
+  # scan in `numbers_agree?/2` already handles a ratio vs a different one (`{4,1}`
+  # vs `{2,1}`), this is only for same-digits-opposite-direction (`2:1` vs `1:2`).
+  defp ratios_agree?(qtext, ctext) do
+    rq = ratios(qtext)
+    rc = ratios(ctext)
+
+    Enum.empty?(rq) or Enum.empty?(rc) or MapSet.equal?(rq, rc)
+  end
+
+  defp ratios(text) do
+    ~r/(\d+)\s*:\s*(\d+)/
+    |> Regex.scan(to_string(text))
+    |> Enum.map(fn [_, a, b] -> "#{a}:#{b}" end)
+    |> MapSet.new()
   end
 
   defp numbers(tokens) do
