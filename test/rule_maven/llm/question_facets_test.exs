@@ -562,6 +562,34 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
       assert Facets.compatible?("Do I draw once?", "Do I draw twice?")
     end
 
+    test "exactly N is an equality bound, flipping against at-least / more-than / up-to" do
+      refute Facets.compatible?(
+               "Do I need exactly seven cards to win?",
+               "Do I need at least seven cards to win?"
+             )
+
+      refute Facets.compatible?(
+               "Do I need exactly seven cards to win?",
+               "Do I need more than seven cards to win?"
+             )
+
+      refute Facets.compatible?("Can I hold exactly five cards?", "Can I hold up to five cards?")
+
+      assert Facets.conflict(
+               "Do I need exactly seven cards to win?",
+               "Do I need at least seven cards to win?"
+             ) == :bound
+
+      # Emphasis over a plain count is the SAME requirement, and the filler sense
+      # (no adjacent number) must not trip the bound.
+      assert Facets.compatible?("Must I have precisely three coins?", "Must I have three coins?")
+
+      assert Facets.compatible?(
+               "Tell me exactly what happens on a seven.",
+               "Tell me what happens on a seven."
+             )
+    end
+
     test "most/least stay on the comparative axis, not the superlative one" do
       # `most`/`least` are the at-most/at-least BOUND ("at least seven" = seven or
       # more), a different sense than the highest/lowest superlative. They must not

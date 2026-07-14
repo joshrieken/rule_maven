@@ -469,7 +469,14 @@ defmodule RuleMaven.LLM.QuestionFacets do
     "exceeding" => :gt,
     "exceed" => :gt,
     "under" => :lt,
-    "below" => :lt
+    "below" => :lt,
+    # "EXACTLY seven" is an equality bound: it flips against "at least seven"
+    # (ge), "more than seven" (gt) and "up to seven" (le). Like every other bound
+    # marker it only counts when a number sits ADJACENT, which kills the filler
+    # sense ("exactly what happens") and keeps "exactly seven" vs a plain "seven"
+    # compatible — same requirement, just stated emphatically.
+    "exactly" => :eq,
+    "precisely" => :eq
   }
 
   @bound_before %{
