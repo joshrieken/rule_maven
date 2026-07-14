@@ -304,6 +304,31 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
              )
     end
 
+    test "top/bottom — deck-position manipulation, hidden-info class, 0.96" do
+      refute Facets.compatible?(
+               "Do I draw from the top of the deck?",
+               "Do I draw from the bottom of the deck?"
+             )
+
+      assert Facets.conflict(
+               "Do I draw from the top of the deck?",
+               "Do I draw from the bottom of the deck?"
+             ) == :deck_position
+
+      # A question naming neither pole survives — only top-vs-bottom opposition
+      # fires, so "draw a card from the deck" still matches, and "on top of a
+      # resource" does not fire without a `bottom` on the other side.
+      assert Facets.compatible?(
+               "Do I draw from the top of the deck?",
+               "Do I draw a card from the deck?"
+             )
+
+      assert Facets.compatible?(
+               "Can the robber sit on top of a resource?",
+               "Can the robber block a resource?"
+             )
+    end
+
     test "most/least stay on the comparative axis, not the superlative one" do
       # `most`/`least` are the at-most/at-least BOUND ("at least seven" = seven or
       # more), a different sense than the highest/lowest superlative. They must not

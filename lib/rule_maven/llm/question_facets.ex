@@ -68,6 +68,26 @@ defmodule RuleMaven.LLM.QuestionFacets do
       contrived opposites whose natural form is a negation (adjacent vs NOT adjacent,
       already covered by `Polarity`), or too rare in the corpus to earn a gate.
 
+  A round-10 sweep added `top`/`bottom` (0.96) — drawing from the top of a deck
+  vs the bottom is the same hidden-vs-public class as `face up`/`face down`, and
+  the two words only oppose each other so "on top of a resource" cannot fire
+  without a `bottom` present. The same sweep left more ≥0.92 flips ungated for the
+  usual reason — the deciding word doubles as neutral phrasing or the opposite pole
+  is never asked:
+
+    * `and`/`or` (0.97) — the two highest-frequency tokens in the corpus, swapped
+      freely without flipping meaning ("wood and brick" / "wood or brick").
+    * `odd`/`even` (0.97) — `even` is heavily polysemous ("even if", "break even",
+      "an even split"), so treating it as a parity pole would false-gate constantly.
+    * `exactly`/`at least` (0.96) — a real bound flip, but the opposite of `exactly`
+      is a MULTI-WORD family (at least / at most / up to / about), not a single
+      token, so there is no clean pole to gate without overlapping `comparative`.
+    * `majority`/`minority` (0.93) — the `minority` pole is essentially never asked
+      (no one asks who holds the FEWEST), so the flip cannot occur in practice.
+    * `inside`/`outside` (0.96), `keep`/`return` (0.92) — `keep` is far more common
+      as neutral phrasing ("how many cards can I keep") and territory in/out is rare
+      in this corpus.
+
   `face up`/`face down` is gated as a PHRASE, not on the bare tokens up/down, which
   carry no direction of their own ("up to seven cards").
 
@@ -189,6 +209,17 @@ defmodule RuleMaven.LLM.QuestionFacets do
     superlative: [
       ~w(highest greatest largest biggest),
       ~w(lowest smallest)
+    ],
+    # "draw from the TOP of the deck" vs "the BOTTOM of the deck" — deck-position
+    # manipulation is the same hidden-vs-public class as `visibility` (face
+    # up/down) and stays 0.96 on the embedding, one token deciding the whole
+    # answer. Kept to the two distinctive words: `top`/`bottom` only oppose each
+    # other, so a question naming neither ("draw a card from the deck") still
+    # matches, and "on top of a resource" never fires without a `bottom` on the
+    # other side.
+    deck_position: [
+      ~w(top topmost),
+      ~w(bottom bottommost)
     ]
   }
 
