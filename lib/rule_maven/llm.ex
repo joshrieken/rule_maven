@@ -802,8 +802,6 @@ defmodule RuleMaven.LLM do
   # Splits `text` right after `cache_block` and marks the leading half as an
   # explicit cache breakpoint. Everything after the block — per-turn context,
   # corrective warnings, the question itself — stays uncached and free to change.
-  defp cacheable_content(text, cache_block, cache_control \\ %{type: "ephemeral"})
-
   defp cacheable_content(text, nil, _cache_control), do: text
 
   # An empty corpus trivially satisfies the small-corpus test, so the block can
@@ -1006,7 +1004,9 @@ defmodule RuleMaven.LLM do
   # pass itself falls back to the full set, exactly the old behavior.
   defp maybe_reground(llm_result, system_prompt, ctx, chunks) do
     quotes = citation_quotes(llm_result[:citations])
-    full_texts = chunk_texts(chunks)
+
+    full_texts =
+      if cacheable_critic?(ctx), do: stable_chunk_texts(chunks), else: chunk_texts(chunks)
 
     # Decided in code, BEFORE the critic, and not by it: the critic is handed the
     # answer and the contradicting quote side by side and still returns
@@ -1234,10 +1234,17 @@ defmodule RuleMaven.LLM do
         llm_result
 
       reason ->
-        narrowed = narrowed_chunk_texts(chunks, quotes)
+        # Narrowing exists ONLY to hold the critic's price down — the full set
+        # was "nearly as large as the answer call itself". Once the excerpts
+        # block is a cached prefix that is no longer true, so a cacheable corpus
+        # skips narrowing and judges against the full context on the first pass:
+        # the full-context critic was already the sole authority for a
+        # destructive verdict, and this makes it both cheaper and the default.
+        cacheable? = cacheable_critic?(ctx)
+        narrowed = unless cacheable?, do: narrowed_chunk_texts(chunks, quotes)
 
         verdict =
-          critic_verdict(quotes, llm_result[:answer], narrowed || full_texts, ctx)
+          critic_verdict(quotes, llm_result[:answer], narrowed || full_texts, cacheable?, ctx)
           |> confirm_against_full(narrowed, quotes, llm_result[:answer], full_texts, ctx)
 
         log_critic(reason, narrowed != nil, verdict, ctx)
@@ -1347,13 +1354,35 @@ defmodule RuleMaven.LLM do
     })
   end
 
-  defp critic_verdict(quotes, answer, sources, ctx) do
+  # `cacheable?` says the sources ARE the whole corpus in document order, the
+  # only shape stable enough to be a cache breakpoint. A narrowed slice is
+  # chosen per answer: it would miss every time and still bill the cache-write
+  # premium, so it is never marked.
+  defp critic_verdict(quotes, answer, sources, cacheable?, ctx) do
     critique_grounding(quotes, answer,
       sources: sources,
+      cacheable_sources: cacheable?,
       game_id: ctx.game_id,
       user_id: ctx.user_id
     )
   end
+
+  # The critic's excerpts block is only a cache breakpoint when it is the same
+  # bytes on every question for this game — exactly the condition the answer
+  # prompt already tracks.
+  defp cacheable_critic?(ctx), do: Map.get(ctx, :stable_corpus, false)
+
+  # The chunk texts the critic judges against, in the SAME document order the
+  # cached answer prefix uses. Retrieval order is per-question, so ordering the
+  # critic's excerpts that way would reshuffle the block on every ask and defeat
+  # its cache.
+  defp stable_chunk_texts(chunks) when is_list(chunks) do
+    chunks
+    |> Enum.sort_by(&{Map.get(&1, :document_id, 0), Map.get(&1, :id, 0)})
+    |> chunk_texts()
+  end
+
+  defp stable_chunk_texts(_chunks), do: []
 
   # A narrowed-context "hallucinated" is only a candidate: the flagged clause
   # may be supported by a chunk the answer drew on without citing. Re-judge
@@ -1368,7 +1397,9 @@ defmodule RuleMaven.LLM do
          ctx
        )
        when is_list(narrowed) do
-    critic_verdict(quotes, answer, full_texts, ctx)
+    # Reached only from the narrowed path, which by construction is the path
+    # where the corpus is NOT cacheable — so the confirm pass is never marked.
+    critic_verdict(quotes, answer, full_texts, false, ctx)
   end
 
   defp confirm_against_full(verdict, _narrowed, _quotes, _answer, _full_texts, _ctx),
@@ -1989,6 +2020,11 @@ defmodule RuleMaven.LLM do
 
     case chat(user, "grounding_critic",
            system: RuleMaven.Prompts.template("grounding_critic"),
+           # The excerpts block leads the prompt and — when the caller says the
+           # sources are the whole corpus in document order — is byte-identical
+           # for every question on this game, so it is a cache breakpoint. The
+           # quotes and the answer, which change every call, sit after it.
+           cache_block: if(opts[:cacheable_sources] && excerpts_block != "", do: excerpts_block),
            # `raw: true` — without it a JSON-wrapped critic reply decodes to ""
            # (no "answer" key), which parse_grounding_verdict defaults to
            # :grounded, silently failing the whole critic open. Ceiling, not
@@ -2234,7 +2270,8 @@ defmodule RuleMaven.LLM do
     # explicit cache breakpoint — see `cacheable_content/2`. The block must be a
     # PREFIX of the prompt for this to pay, so any caller passing it puts the
     # rulebook first and the per-question text last.
-    user_content = cacheable_content(prompt, opts[:cache_block])
+    model_name = opts[:model] || model()
+    user_content = cacheable_content(prompt, opts[:cache_block], cache_control(model_name))
 
     messages =
       if system = opts[:system] do
@@ -2245,7 +2282,7 @@ defmodule RuleMaven.LLM do
 
     body =
       %{
-        model: opts[:model] || model(),
+        model: model_name,
         max_tokens: opts[:max_tokens] || 2048,
         messages: messages
       }

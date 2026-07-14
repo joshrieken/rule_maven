@@ -122,6 +122,100 @@ defmodule RuleMaven.LLMPromptCacheTest do
     end
   end
 
+  # The critic re-sends the rulebook on over half of all asks and, before this,
+  # re-bought it every time (measured: 1% cached). Its excerpts block is the same
+  # bytes on every question for a game, so it is a breakpoint of its own.
+  describe "the grounding critic's excerpts prefix" do
+    # A long answer over a short quote trips the length_ratio suspicion trigger,
+    # which is what buys the critic call.
+    @long_answer "You draw five cards at setup, and this applies to every player " <>
+                   "regardless of seating order or the number of players in the game."
+
+    defp critic_bodies do
+      bodies()
+      |> Enum.filter(fn b ->
+        Enum.any?(b.messages, fn m ->
+          m.role == "user" and
+            (is_list(m.content) or is_binary(m.content)) and
+            String.contains?(message_text(m.content), "RULEBOOK EXCERPTS:")
+        end)
+      end)
+    end
+
+    defp message_text(content) when is_binary(content), do: content
+    defp message_text(parts) when is_list(parts), do: Enum.map_join(parts, "", & &1.text)
+
+    defp answer_then_critic(body) do
+      user = Enum.find(body.messages, &(&1.role == "user"))
+
+      if user && String.contains?(message_text(user.content), "RULEBOOK EXCERPTS:") do
+        # `raw: true` — the critic reads raw_response, not the ask-shaped answer.
+        {:ok, %{answer: "", raw_response: "VERDICT: grounded", finish_reason: "stop"}}
+      else
+        {:ok,
+         %{
+           answer: @long_answer,
+           cited_passage: "Each player draws 5 cards at setup.",
+           citations: [
+             %{"quote" => "Each player draws 5 cards at setup.", "page" => 1, "source" => "Core"}
+           ],
+           followups: []
+         }}
+      end
+    end
+
+    test "is marked, is document-ordered, and is identical across questions", %{game: game} do
+      capture_bodies(&answer_then_critic/1)
+
+      {:ok, _} = LLM.ask(game, "How many cards at setup?", [], [])
+      {:ok, _} = LLM.ask(game, "What happens on a 7?", [], [])
+
+      critics = critic_bodies()
+      assert length(critics) >= 2
+
+      prefixes =
+        Enum.map(critics, fn body ->
+          [prefix | rest] = Enum.find(body.messages, &(&1.role == "user")).content
+
+          # The answer and its quotes change every call and must stay out of the
+          # cached half, or the prefix never matches twice.
+          assert prefix.cache_control == %{type: "ephemeral"}
+          assert Enum.all?(rest, &(not Map.has_key?(&1, :cache_control)))
+          refute prefix.text =~ "ANSWER:"
+
+          prefix.text
+        end)
+
+      assert prefixes |> Enum.uniq() |> length() == 1
+
+      # Document order, not retrieval order — page 1 before page 2 whatever the
+      # question was about.
+      [prefix | _] = prefixes
+      assert prefix =~ "RULEBOOK EXCERPTS:"
+
+      {p1, _} = :binary.match(prefix, "draws 5 cards")
+      {p2, _} = :binary.match(prefix, "discard half your hand")
+      assert p1 < p2
+    end
+
+    test "judges the FULL corpus on the first pass — no narrowing, no confirm pass", %{
+      game: game
+    } do
+      capture_bodies(&answer_then_critic/1)
+
+      {:ok, _} = LLM.ask(game, "How many cards at setup?", [], [])
+
+      # Narrowing exists only to make an uncached critic affordable. With the
+      # excerpts cached, the critic sees everything on the first pass — so ONE
+      # critic call, carrying every chunk, and no second confirming call.
+      assert [critic] = critic_bodies()
+
+      text = message_text(Enum.find(critic.messages, &(&1.role == "user")).content)
+      assert text =~ "draws 5 cards"
+      assert text =~ "discard half your hand"
+    end
+  end
+
   describe "cache TTL" do
     test "the cheap model takes the default TTL", %{game: game} do
       capture_bodies(fn _ ->
