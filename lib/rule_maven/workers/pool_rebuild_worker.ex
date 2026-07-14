@@ -176,7 +176,8 @@ defmodule RuleMaven.Workers.PoolRebuildWorker do
         order_by: [desc: q.inserted_at],
         select: %{
           cleaned_question: q.cleaned_question,
-          expansion_ids: q.expansion_ids
+          expansion_ids: q.expansion_ids,
+          question_embedding: q.question_embedding
         }
       )
     )
@@ -185,19 +186,18 @@ defmodule RuleMaven.Workers.PoolRebuildWorker do
     |> Enum.take(max_questions())
   end
 
-  # A question someone has already re-asked since the invalidation is rebuilt
-  # and pooled; asking it a second time would pay for an answer we hold.
-  defp already_live?(game_id, %{cleaned_question: text, expansion_ids: exp}) do
-    exp = Enum.sort(exp || [])
-
-    Repo.exists?(
-      from(q in QuestionLog,
-        where: q.game_id == ^game_id,
-        where: q.stale == false and q.pooled == true,
-        where: q.cleaned_question == ^text,
-        where: q.expansion_ids == ^exp
-      )
-    )
+  # A question already answered and pooled — because a user re-asked it, or
+  # because an earlier rebuild did — must not be paid for again.
+  #
+  # Matched by EMBEDDING, not by `cleaned_question` equality. String equality was
+  # a real cost bug: a rebuilt row is normalized afresh, so its canonical text
+  # routinely differs from the text on the stale row that seeded it ("What causes
+  # Terror Level increase?" vs "What causes the Terror Level to increase?"). The
+  # rebuild then failed to recognise its OWN output as live and re-asked all 47
+  # questions on the next rulebook edit — the exact waste this worker exists to
+  # remove. Caught by re-running a rebuild and asserting it queues nothing.
+  defp already_live?(game_id, %{question_embedding: emb, expansion_ids: exp}) do
+    RuleMaven.Games.pooled_equivalent_exists?(game_id, emb, exp)
   end
 
   defp reask(%{cleaned_question: text, expansion_ids: exp}, game_id) do

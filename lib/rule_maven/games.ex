@@ -3692,6 +3692,38 @@ defmodule RuleMaven.Games do
   def pool_similarity_floor, do: 1.0 - pool_distance_threshold()
 
   @doc """
+  True when a live, pooled answer already exists for this question — matched the
+  way the POOL matches, by embedding, not by string equality.
+
+  Used by `PoolRebuildWorker` to skip questions it would otherwise pay to re-ask.
+  Exact `cleaned_question` equality is the wrong test and was a real cost bug: the
+  rebuilt row is normalized afresh, so its canonical text routinely differs from
+  the text on the stale row that seeded it ("What causes Terror Level increase?"
+  vs "What causes the Terror Level to increase?"). Every rebuild then failed to
+  recognise its own output and re-bought the whole question set on the next
+  rulebook edit.
+
+  The question being asked is semantic — "do we already hold an answer to this?" —
+  so it is answered with the same embedding threshold the pool lookup itself uses.
+  """
+  def pooled_equivalent_exists?(_game_id, nil, _expansion_ids), do: false
+
+  def pooled_equivalent_exists?(game_id, embedding, expansion_ids) do
+    exp = Enum.sort(expansion_ids || [])
+
+    Repo.exists?(
+      from(q in QuestionLog,
+        where: q.game_id == ^game_id,
+        where: q.pooled == true and q.stale == false,
+        where: q.expansion_ids == ^exp,
+        where: not is_nil(q.question_embedding),
+        where:
+          fragment("? <=> ? < ?", q.question_embedding, ^embedding, ^pool_distance_threshold())
+      )
+    )
+  end
+
+  @doc """
   Cosine distance ceiling for the widened pool lookup that also surfaces
   tiebreaker-eligible near-misses, down to a fixed 0.80 similarity floor.
   Not admin-configurable — the tiebreaker LLM call is the safety net that

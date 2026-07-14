@@ -54,6 +54,12 @@ defmodule RuleMaven.Workers.PoolRebuildWorkerTest do
     game
   end
 
+  # Distinct unit vectors, so two rows are "the same question" to the embedding
+  # matcher only when they are given the same seed.
+  defp vec(seed) do
+    Pgvector.new(List.duplicate(0.0, 768) |> List.replace_at(rem(seed, 768), 1.0))
+  end
+
   # A row in the state `invalidate_pool/1` leaves behind: previously servable,
   # now staled and demoted.
   defp staled_row(game, attrs \\ %{}) do
@@ -62,6 +68,7 @@ defmodule RuleMaven.Workers.PoolRebuildWorkerTest do
       user_id: user_fixture().id,
       question: "How many cards do I draw?",
       cleaned_question: "how many cards do i draw",
+      question_embedding: vec(1),
       answer: "You draw five cards.",
       citation_valid: true,
       browsable: true,
@@ -203,13 +210,56 @@ defmodule RuleMaven.Workers.PoolRebuildWorkerTest do
       game = game_with_doc()
       staled_row(game)
 
-      # The live row that a user's own ask already rebuilt.
-      staled_row(game, %{stale: false, pooled: true})
+      # The live row that a user's own ask (or an earlier rebuild) already
+      # produced. Its `cleaned_question` is DELIBERATELY different: a rebuilt row
+      # is normalized afresh, so its canonical text routinely differs from the
+      # stale row that seeded it ("What causes Terror Level increase?" vs "What
+      # causes the Terror Level to increase?"). Matching on text equality made the
+      # rebuild fail to recognise its own output and re-buy the whole question set
+      # on every rulebook edit — so this must match on the EMBEDDING.
+      staled_row(game, %{
+        stale: false,
+        pooled: true,
+        cleaned_question: "how many cards must be drawn at setup",
+        question_embedding: vec(1)
+      })
 
       assert :ok = run_worker(game)
 
       # Paying for an answer we already hold is the exact waste this worker exists
       # to remove.
+      assert ask_jobs() == []
+    end
+
+    test "a rebuild is idempotent — re-running it queues nothing" do
+      game = game_with_doc()
+      staled_row(game, %{cleaned_question: "q one", question_embedding: vec(1)})
+      staled_row(game, %{cleaned_question: "q two", question_embedding: vec(2)})
+
+      assert :ok = run_worker(game)
+      assert length(ask_jobs()) == 2
+
+      # Simulate what AskWorker does to the rows the first pass queued: they come
+      # back answered, grounded and pooled, under freshly-normalized canonical text.
+      for {j, i} <- Enum.with_index(ask_jobs(), 1) do
+        Repo.get!(QuestionLog, j.args["question_log_id"])
+        |> Ecto.Changeset.change(%{
+          answer: "An answer.",
+          citation_valid: true,
+          browsable: true,
+          pooled: true,
+          stale: false,
+          cleaned_question: "freshly normalized text #{i}",
+          question_embedding: vec(i)
+        })
+        |> Repo.update!()
+      end
+
+      Repo.delete_all(Oban.Job)
+
+      # The second rebuild must recognise its own output and queue NOTHING. Before
+      # the embedding match this re-asked every question, on every rulebook edit.
+      assert :ok = run_worker(game)
       assert ask_jobs() == []
     end
 
