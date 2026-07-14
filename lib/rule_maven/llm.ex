@@ -1222,14 +1222,13 @@ defmodule RuleMaven.LLM do
   defp maybe_escalate_ignored_premise(retried, warned_system_prompt, ctx, chunks) do
     still =
       if refused_answer?(retried),
-        do:
-          # A retry that refuses AGAIN on an unrefusable premise is the double
-          # miss this rung exists for — the refusal skip used to slam the door
-          # here, so "do I discard a third or a quarter?" refused 3/3 (pen round
-          # 6, 2026-07-14) with the escalate model never consulted. The keep-check
-          # below still throws out an escalated refusal, so the worst case is one
-          # extra call and the same refusal the user would have gotten anyway.
-          unrefusable_premises(ctx.raw_question),
+        # A retry that refuses AGAIN on an unrefusable premise is the double
+        # miss this rung exists for — the refusal skip used to slam the door
+        # here, so "do I discard a third or a quarter?" refused 3/3 (pen round
+        # 6, 2026-07-14) with the escalate model never consulted. The keep-check
+        # below still throws out an escalated refusal, so the worst case is one
+        # extra call and the same refusal the user would have gotten anyway.
+        do: unrefusable_premises(ctx.raw_question),
         else:
           RuleMaven.Games.Citations.ignored_premises(
             to_string(ctx.raw_question),
@@ -4076,6 +4075,33 @@ defmodule RuleMaven.LLM do
       }
     end)
     |> Enum.sort_by(& &1.cost, :desc)
+  end
+
+  @doc """
+  Ask volume and pool efficiency over the last N days. A pool hit
+  (`llm_provider == "pool"`) is the only ask that costs nothing, so
+  `pool_hit_rate` is the share of questions answered for free. Same-user
+  re-asks that redirect to the asker's own prior row leave no new log row,
+  so the rate slightly undercounts.
+  """
+  def ask_stats(days \\ 30) do
+    alias RuleMaven.Repo
+    import Ecto.Query
+
+    since = DateTime.add(DateTime.utc_now(), -days, :day)
+
+    {asks, pool_hits} =
+      Repo.one(
+        from q in RuleMaven.Games.QuestionLog,
+          where: q.inserted_at >= ^since,
+          select: {count(q.id), filter(count(q.id), q.llm_provider == "pool")}
+      )
+
+    %{
+      asks: asks || 0,
+      pool_hits: pool_hits || 0,
+      pool_hit_rate: if(asks && asks > 0, do: (pool_hits || 0) / asks, else: 0.0)
+    }
   end
 
   @doc """
