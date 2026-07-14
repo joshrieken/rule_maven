@@ -702,6 +702,46 @@ defmodule RuleMaven.GamesTest do
       assert Games.find_user_similar(game.id, nil, e0) == nil
       assert Games.find_user_similar(game.id, user.id, nil) == nil
     end
+
+    # The caller filters these through QuestionFacets and serves the nearest
+    # SURVIVOR, so the query has to offer it more than one row to choose from.
+    # With limit 1, one answer-flipping nearest row (the asker's own "…MORE than
+    # seven cards?" against their "…FEWER than…") would blank the whole tier.
+    test "candidates come back nearest-first, not just the single nearest", %{
+      game: game,
+      user: user,
+      q: q
+    } do
+      {:ok, far} =
+        Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "further q",
+          answer: "further answer",
+          visibility: "private"
+        })
+
+      # cos = 0.99 to the query axis: a real match, but further than the stored row.
+      cos = 0.99
+      near_axis = [cos, :math.sqrt(1.0 - cos * cos) | List.duplicate(0.0, 766)]
+
+      Repo.update_all(
+        from(ql in RuleMaven.Games.QuestionLog, where: ql.id == ^far.id),
+        set: [question_embedding: Pgvector.new(near_axis)]
+      )
+
+      e0 = [1.0 | List.duplicate(0.0, 767)]
+      ids = Games.find_user_similar_candidates(game.id, user.id, e0) |> Enum.map(& &1.id)
+
+      assert ids == [q.id, far.id]
+      assert Games.find_user_similar_candidates(game.id, user.id, e0, limit: 1) |> length() == 1
+    end
+
+    test "no candidates for nil user_id or nil embedding", %{game: game, user: user} do
+      e0 = [1.0 | List.duplicate(0.0, 767)]
+      assert Games.find_user_similar_candidates(game.id, nil, e0) == []
+      assert Games.find_user_similar_candidates(game.id, user.id, nil) == []
+    end
   end
 
   describe "list_canonical_questions/2" do

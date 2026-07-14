@@ -3365,39 +3365,54 @@ defmodule RuleMaven.Games do
   Scoped by `opts[:expansion_ids]` (default `[]`) — compared sorted
   ascending against the row's `expansion_ids`.
   """
-  def find_user_similar(game_id, user_id, embedding, opts \\ [])
-  def find_user_similar(_game_id, nil, _embedding, _opts), do: nil
-  def find_user_similar(_game_id, _user_id, nil, _opts), do: nil
+  def find_user_similar(game_id, user_id, embedding, opts \\ []) do
+    case find_user_similar_candidates(game_id, user_id, embedding, opts) do
+      [] -> nil
+      [row | _] -> {row, pool_tier(row)}
+    end
+  end
 
-  def find_user_similar(game_id, user_id, embedding, opts) do
+  @doc """
+  The asker's own nearest prior questions above the same-user floor, nearest
+  first, as plain rows.
+
+  Exposed separately from `find_user_similar/4` because the nearest row is not
+  automatically the right one to serve: an embedding cannot see the tokens that
+  decide a rules answer. Measured, "Do I discard when I have FEWER than seven
+  cards?" sits 0.96 from the asker's own "...MORE than seven cards?" — over this
+  floor — so the strict threshold does not save this path, and unlike the pool it
+  has no tiebreaker behind it. The caller filters these through
+  `RuleMaven.LLM.QuestionFacets` and takes the nearest SURVIVOR, which is why more
+  than one candidate is fetched.
+  """
+  def find_user_similar_candidates(game_id, user_id, embedding, opts \\ [])
+  def find_user_similar_candidates(_game_id, nil, _embedding, _opts), do: []
+  def find_user_similar_candidates(_game_id, _user_id, nil, _opts), do: []
+
+  def find_user_similar_candidates(game_id, user_id, embedding, opts) do
     threshold = Keyword.get(opts, :threshold, user_dup_distance_threshold())
+    limit = Keyword.get(opts, :limit, 5)
     expansion_ids = opts |> Keyword.get(:expansion_ids, []) |> Enum.sort()
     vec = Pgvector.new(embedding)
 
-    row =
-      Repo.one(
-        from q in QuestionLog,
-          where: q.game_id == ^game_id and q.user_id == ^user_id,
-          where: q.expansion_ids == ^expansion_ids,
-          where:
-            q.refused == false and q.blocked == false and q.needs_review == false and
-              q.stale == false,
-          where: q.answer != "Thinking..." and not is_nil(q.answer),
-          # A failed answer must never be served as a cache hit — a repeat ask
-          # would collapse onto the error row with no way to re-ask out of it.
-          # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
-          where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
-          where: not is_nil(q.question_embedding),
-          where:
-            fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec) <= ^threshold,
-          order_by: [asc: fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec)],
-          limit: 1
-      )
-
-    case row do
-      nil -> nil
-      q -> {q, pool_tier(q)}
-    end
+    Repo.all(
+      from q in QuestionLog,
+        where: q.game_id == ^game_id and q.user_id == ^user_id,
+        where: q.expansion_ids == ^expansion_ids,
+        where:
+          q.refused == false and q.blocked == false and q.needs_review == false and
+            q.stale == false,
+        where: q.answer != "Thinking..." and not is_nil(q.answer),
+        # A failed answer must never be served as a cache hit — a repeat ask
+        # would collapse onto the error row with no way to re-ask out of it.
+        # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
+        where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
+        where: not is_nil(q.question_embedding),
+        where:
+          fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec) <= ^threshold,
+        order_by: [asc: fragment("cosine_distance(?, ?::vector)", q.question_embedding, ^vec)],
+        limit: ^limit
+    )
   end
 
   @doc """

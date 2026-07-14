@@ -125,11 +125,20 @@ defmodule RuleMaven.LLM do
       !skip_pool && user_id &&
         RuleMaven.Games.find_user_duplicate(game.id, user_id, match_text, question, expansion_ids)
 
+    # Gated by QuestionFacets exactly as the pool is, and for a sharper reason: at
+    # 0.95 this floor is stricter than the pool's, but "…FEWER than seven cards?"
+    # sits 0.96 from the asker's own "…MORE than seven cards?", so the threshold
+    # does not save it — and this tier has no tiebreaker behind it, so a match here
+    # is served outright. Nearest SURVIVING candidate wins, not merely the nearest.
     user_semantic =
       !user_exact && !skip_pool && user_id && question_embedding &&
-        RuleMaven.Games.find_user_similar(game.id, user_id, question_embedding,
+        game.id
+        |> RuleMaven.Games.find_user_similar_candidates(user_id, question_embedding,
           expansion_ids: expansion_ids
         )
+        |> Enum.reject(&answer_flipping?(question, &1))
+        |> List.first()
+        |> then(&(&1 && {&1, RuleMaven.Games.pool_tier(&1)}))
 
     cond do
       # The asker's OWN exact (normalized-text) repeat wins over everything else:
@@ -276,7 +285,7 @@ defmodule RuleMaven.LLM do
         threshold: RuleMaven.Games.pool_tiebreaker_distance_threshold(),
         active_group_id: active_group_id
       )
-      |> reject_polarity_flips(question)
+      |> reject_answer_flipping_candidates(question)
 
     floor = RuleMaven.Games.pool_similarity_floor()
     {direct, ambiguous} = Enum.split_with(candidates, fn {_row, sim} -> sim >= floor end)
@@ -319,26 +328,52 @@ defmodule RuleMaven.LLM do
     end
   end
 
-  # Drops pool candidates whose POLARITY disagrees with the question as the asker
-  # actually typed it. Applied to the candidate list itself, so it gates BOTH
-  # acceptance paths — the direct hit above the similarity floor (which takes no
-  # LLM call at all and so has no other check) and the ambiguous-band tiebreaker.
+  # Drops pool candidates that differ from the asked question on a token which
+  # DECIDES THE ANSWER — a negation, a modal, a before/after, a comparative, a
+  # number. Applied to the candidate list itself, so it gates BOTH acceptance
+  # paths: the ambiguous-band tiebreaker AND the direct hit above the similarity
+  # floor, which takes no LLM call at all and so has no other check on it.
+  #
+  # The direct-hit path is the one that matters. Measured against real pooled
+  # rows, "Can a player trade AFTER rolling?" took a direct hit on "Can a player
+  # trade BEFORE rolling?" and served "**No.** Trading before rolling is not
+  # permitted." to a player asking about the one thing they may do every single
+  # turn. The pool cannot see the difference — a one-token flip of a function word
+  # leaves cosine similarity at 0.93, well over the floor — and above the floor
+  # there is nothing else looking.
+  #
+  # The tiebreaker, when it does run, catches these (it rejected "discarded on an
+  # 8" against "discarded on a 7"). That is exactly the point: the check exists,
+  # the direct hit just never reaches it.
   #
   # Runs on the RAW `question`, never on `match_text`. `match_text` is the
-  # NORMALIZED text, and normalization is where the polarity is lost: measured,
+  # NORMALIZED text, and normalization is where these tokens are lost: measured,
   # "Is it forbidden to put the robber on the desert?" normalizes to "Can the
-  # robber be placed on the desert?" — by the time the pool sees it, there is no
+  # robber be placed on the desert?" — by the time the pool sees it there is no
   # negation left to disagree with.
   #
-  # A dropped candidate is not an error: the ask simply proceeds to the LLM and
-  # buys a correct answer at full price. That is the cheap direction. The
-  # expensive direction is answering "**Yes** — the robber can be placed on the
-  # desert hex" to someone who asked whether it was FORBIDDEN.
-  defp reject_polarity_flips(candidates, question) do
-    Enum.reject(candidates, fn {row, _sim} ->
-      candidate_text = row.canonical_question || row.cleaned_question || row.question
-      not RuleMaven.LLM.Polarity.compatible?(question, candidate_text)
-    end)
+  # A dropped candidate is not an error: the ask proceeds to the LLM and buys a
+  # correct answer at full price (~$0.005). That is the cheap direction.
+  defp reject_answer_flipping_candidates(candidates, question) do
+    Enum.reject(candidates, fn {row, _sim} -> answer_flipping?(question, row) end)
+  end
+
+  # True when serving this row's answer would answer a DIFFERENT question than the
+  # one asked. Shared by the cross-user pool and the same-user semantic cache —
+  # both match on embedding distance alone, so both are blind the same way.
+  defp answer_flipping?(question, row) do
+    require Logger
+
+    candidate_text = row.canonical_question || row.cleaned_question || row.question
+
+    case RuleMaven.LLM.QuestionFacets.conflict(question, candidate_text) do
+      nil ->
+        false
+
+      axis ->
+        Logger.info("cache candidate rejected axis=#{axis} candidate_id=#{row.id}")
+        true
+    end
   end
 
   # Cheap-model yes/no equivalence check for a pool candidate whose similarity
