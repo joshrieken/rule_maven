@@ -611,7 +611,7 @@ defmodule RuleMaven.Games.CitationsTest do
       assert Citations.ignored_fractions(
                "Do I discard 25% of my cards when a 7 is rolled?",
                "You discard half of your resource cards, rounded down."
-             ) == ["25%"]
+             ) == ["1/4"]
     end
 
     test "percent and spelled percent match across sides" do
@@ -619,6 +619,91 @@ defmodule RuleMaven.Games.CitationsTest do
                "Do I discard 25 percent of my cards?",
                "No — you discard half (50%), not 25%."
              ) == []
+    end
+
+    test "a percentage equal to the real rule is not a false premise" do
+      # Pen round 5: "50%" and "half" ARE the same premise. Canonicalizing the
+      # percent to 1/2 is what lets a word-phrased answer clear a percent-phrased
+      # question — otherwise the gate fires forever on a premise the player got
+      # RIGHT, and the retry warning eventually pushes the model into
+      # "half rounded down, not exactly 50%", correcting a correct player.
+      assert Citations.ignored_fractions(
+               "Do I lose 50% of my cards when a 7 is rolled?",
+               "You discard half of your resource cards, rounded down."
+             ) == []
+
+      assert Citations.ignored_fractions(
+               "Do I discard 25 percent?",
+               "No — you discard a quarter... actually, one quarter is right."
+             ) == []
+    end
+
+    test "the digits inside a percent are not a separate numeric premise" do
+      # Both guards run over the same question. If the number guard keeps the
+      # bare "50" from "50%", it re-flags what the fraction guard just cleared.
+      assert Citations.ignored_premises(
+               "Do I lose 50% of my cards when a 7 is rolled?",
+               "On a 7, a player holding more than 7 cards discards half, rounded down."
+             ) == []
+
+      # A real count next to a percent still flags on its own.
+      assert Citations.ignored_premises(
+               "I am holding 9 cards — do I lose 50%?",
+               "You discard half of your resource cards, rounded down."
+             ) == ["9"]
+    end
+
+    test "a percentage that reduces to no common fraction still flags" do
+      # 33% is NOT a third; a near-miss percent is a real false premise.
+      assert Citations.ignored_fractions(
+               "Do I discard 33% of my cards?",
+               "You discard half of your resource cards."
+             ) == ["33/100"]
+    end
+
+    test "a fractional percentage reduces too" do
+      assert Citations.ignored_fractions(
+               "Do I discard 12.5% of my hand?",
+               "You discard one eighth... no: half."
+             ) == ["1/8"]
+    end
+
+    test "an ordinal is not a stated fraction" do
+      # Pen round 5: an enumerated compound question ("First: … Third: …") read
+      # "Third" as a 1/3 premise and burned a retry + escalate on a phantom.
+      assert Citations.ignored_premises(
+               "First: how long is Longest Road? Second: can roads pass settlements? " <>
+                 "Third: how many knights for Largest Army?",
+               "Longest Road needs 5 segments. A settlement breaks a road. " <>
+                 "Largest Army needs 3 knights."
+             ) == []
+
+      assert Citations.ignored_fractions(
+               "I came in third place — do I still score?",
+               "Scoring is unaffected by finishing order."
+             ) == []
+
+      assert Citations.ignored_fractions(
+               "Does the third player get a bonus?",
+               "No player order bonus exists."
+             ) == []
+    end
+
+    test "a determined fraction still flags despite the ordinal guard" do
+      assert Citations.ignored_fractions(
+               "Do I discard a third of my cards?",
+               "You discard half of your cards."
+             ) == ["1/3"]
+
+      assert Citations.ignored_fractions(
+               "Do I lose another quarter on the next 7?",
+               "You discard half each time."
+             ) == ["1/4"]
+
+      assert Citations.ignored_fractions(
+               "Do we split the deck into thirds?",
+               "The deck is not divided."
+             ) == ["1/3"]
     end
 
     test "a unicode fraction glyph the answer never engages is flagged" do

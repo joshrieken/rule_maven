@@ -289,9 +289,12 @@ defmodule RuleMaven.Games.Citations do
   "third"/"quarter" are not numeric tokens.
 
   Both spelled fractions ("a third") and slash form ("1/3") count as mentions,
-  and so do percentages ("25%" / "25 percent", canonical "25%") — a percent is
-  a fraction premise in different clothes, and `ignored_numbers/2` clearing the
-  bare digit must not clear the proportion claim it rode in on.
+  and so do percentages ("25%" / "25 percent") — a percent is a fraction premise
+  in different clothes, and `ignored_numbers/2` clearing the bare digit must not
+  clear the proportion claim it rode in on. Percents reduce to the same "n/m"
+  canonical form as words, so "50%" and "half" are the same premise: an answer
+  that says "half" engages a question that asked "50%", and the gate stays quiet
+  on a premise the player got right.
   An answer that names the same fraction — whether to agree ("yes, half") or to
   correct ("no, half, not a third") — clears it, because the correction restates
   the asked fraction. Empty list means every stated fraction was engaged.
@@ -369,9 +372,24 @@ defmodule RuleMaven.Games.Citations do
   # — a ⅔ question corrected with "not two-thirds" must clear, not refire.
   @compound_fraction ~r/\b(one|two|three|four|five|six|seven)[-\s]+(halves|half|thirds|third|quarters|quarter|fourths|fourth|fifths|fifth)\b/i
 
-  # Canonical fraction mentions in a text: spelled words via @fraction_words,
+  # "half" reads as a proportion bare ("discard half of your hand"); the others
+  # do not. A bare "third"/"quarter"/"fifth" is far more often an ordinal —
+  # "Third: how many knights?", "I came in third place" — and counting those as
+  # asserted fractions makes the gate fire on a premise the player never stated
+  # (pen round 5, 2026-07-13: an enumerated 3-part question burned an escalate
+  # on a phantom 1/3). Singular forms therefore need a proportion determiner in
+  # front, and must not be followed by a noun that makes them ordinal anyway.
+  @bare_half ~r/\b(half|halves)\b/i
+  @plural_fraction ~r/\b(thirds|quarters|fourths|fifths)\b/i
+  @ordinal_nouns "place|places|player|players|party|parties|person|edition|time|times|turn|turns|round|rounds|printing|game|games"
+  @determined_fraction ~r/\b(?:a|an|another|the)\s+(third|quarter|fourth|fifth)\b(?!\s+(?:#{@ordinal_nouns})\b)/i
+
+  # Canonical fraction mentions in a text: spelled words in proportion context,
   # compound pairs ("two-thirds"), unicode glyphs ("⅓"), bare "n/m" slash
-  # forms, and percentages ("25%" / "25 percent" → "25%").
+  # forms, and percentages — reduced to the same n/m form as everything else, so
+  # "50%" and "half" are one premise, not two (pen round 5: a TRUE "do I lose
+  # 50%?" could never be cleared by an answer that said "half", so the gate kept
+  # firing and eventually pushed the model into correcting a correct premise).
   defp fraction_tokens(text) do
     compounds =
       Regex.scan(@compound_fraction, text)
@@ -386,15 +404,9 @@ defmodule RuleMaven.Games.Citations do
     remainder = Regex.replace(@compound_fraction, text, " ")
 
     words =
-      remainder
-      |> String.downcase()
-      |> String.split(~r/[^a-z]+/u, trim: true)
-      |> Enum.flat_map(fn w ->
-        case Map.get(@fraction_words, w) do
-          nil -> []
-          canon -> [canon]
-        end
-      end)
+      [@bare_half, @plural_fraction, @determined_fraction]
+      |> Enum.flat_map(&Regex.scan(&1, remainder))
+      |> Enum.map(fn [_, word] -> Map.fetch!(@fraction_words, String.downcase(word)) end)
 
     glyphs =
       @fraction_glyphs
@@ -405,15 +417,38 @@ defmodule RuleMaven.Games.Citations do
 
     percents =
       Regex.scan(~r/(\d+(?:\.\d+)?)\s*(?:%|percent\b)/i, text)
-      |> Enum.map(fn [_, n] -> n <> "%" end)
+      |> Enum.map(fn [_, n] -> percent_to_fraction(n) end)
 
     MapSet.new(compounds ++ words ++ glyphs ++ slashes ++ percents)
   end
 
+  # "50%" → "1/2", "25%" → "1/4", "12.5%" → "1/8", "33%" → "33/100". A percent
+  # is a fraction written differently; canonicalizing both to lowest terms is
+  # what lets an answer phrased in words clear a premise phrased in percent.
+  defp percent_to_fraction(digits) do
+    {num, den} =
+      case String.split(digits, ".", parts: 2) do
+        [whole] -> {String.to_integer(whole), 100}
+        [whole, frac] -> {String.to_integer(whole <> frac), 100 * 10 ** String.length(frac)}
+      end
+
+    d = Integer.gcd(num, den)
+    "#{div(num, d)}/#{div(den, d)}"
+  end
+
   # One entry per stated number; a ratio like "2:1" stays ONE premise.
+  # The digits inside a percent belong to the proportion, not to the count guard:
+  # "50%" is one premise (1/2) that `ignored_fractions/2` owns, and an answer
+  # saying "half" engages it without ever writing "50". Leaving the bare 50 here
+  # made the number guard re-flag a premise the fraction guard had already
+  # cleared — the same escalate burn and the same false correction of a correct
+  # player (pen round 5, 2026-07-13).
+  @percent_expr ~r/\d+(?:\.\d+)?\s*(?:%|percent\b)/i
+
   defp number_words(text) do
     text
     |> String.downcase()
+    |> then(&Regex.replace(@percent_expr, &1, " "))
     |> String.split(~r/[^a-z0-9:]+/, trim: true)
     |> Enum.map(&Map.get(@number_words, &1, &1))
     |> Enum.filter(&(&1 =~ ~r/^\d+(?::\d+)?$/))
