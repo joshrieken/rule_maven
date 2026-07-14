@@ -710,7 +710,7 @@ defmodule RuleMaven.LLM do
   # shape.
   defp request_answer(system_prompt, question, model_name, game_id, user_id, fresh, cache_block) do
     messages = [
-      cacheable_system(system_prompt, cache_block),
+      cacheable_system(system_prompt, cache_block, model_name),
       %{role: "user", content: question}
     ]
 
@@ -765,27 +765,60 @@ defmodule RuleMaven.LLM do
   # block can't be located in the rendered prompt at all — a prod Prompts
   # override is free to reorder the template, and a wrong breakpoint is worse
   # than none.
-  defp cacheable_system(system_prompt, cache_block),
-    do: %{role: "system", content: cacheable_content(system_prompt, cache_block)}
+  defp cacheable_system(system_prompt, cache_block, model_name),
+    do: %{
+      role: "system",
+      content: cacheable_content(system_prompt, cache_block, cache_control(model_name))
+    }
+
+  # TTL is chosen by how far apart that model's calls actually land.
+  #
+  # Anthropic (the escalate model) gets ONE call per ask, so on a 5-minute TTL
+  # every escalate is a cache WRITE and almost never a read — and a write costs
+  # 1.25x, which makes the breakpoint a net LOSS versus not caching at all. The
+  # 1-hour TTL costs 2x once and then reads at 0.1x for the rest of the hour,
+  # which is the window that matters: escalates cluster by game, because a group
+  # asks a run of questions about the game they are playing. Break-even is 3
+  # escalates on one game per hour; below that a lone escalate costs ~$0.016
+  # extra, above it this is ~4x cheaper.
+  #
+  # Gemini's TTL is not configurable through OpenRouter (fixed ~5 min, and it
+  # does not refresh on a hit) — nothing to tune, and nothing to tune it for: the
+  # base call and its premise retry are seconds apart, so it reads from cache
+  # anyway.
+  defp cache_control(model_name) when is_binary(model_name) do
+    if String.contains?(model_name, "anthropic") or String.contains?(model_name, "claude"),
+      do: %{type: "ephemeral", ttl: "1h"},
+      else: %{type: "ephemeral"}
+  end
+
+  defp cache_control(_model_name), do: %{type: "ephemeral"}
+
+  @doc false
+  # Test seam: the TTL choice is a pure cost decision with no observable effect on
+  # an answer, so the request body is the only place it can be asserted.
+  def __cache_control__(model_name), do: cache_control(model_name)
 
   # Splits `text` right after `cache_block` and marks the leading half as an
   # explicit cache breakpoint. Everything after the block — per-turn context,
   # corrective warnings, the question itself — stays uncached and free to change.
-  defp cacheable_content(text, nil), do: text
+  defp cacheable_content(text, cache_block, cache_control \\ %{type: "ephemeral"})
+
+  defp cacheable_content(text, nil, _cache_control), do: text
 
   # An empty corpus trivially satisfies the small-corpus test, so the block can
   # come through as "" — which is not a valid :binary.match pattern, and would
   # have nothing to cache anyway.
-  defp cacheable_content(text, ""), do: text
+  defp cacheable_content(text, "", _cache_control), do: text
 
-  defp cacheable_content(text, cache_block) do
+  defp cacheable_content(text, cache_block, cache_control) do
     case :binary.match(text, cache_block) do
       {start, len} ->
         cut = start + len
         prefix = binary_part(text, 0, cut)
         tail = binary_part(text, cut, byte_size(text) - cut)
 
-        [%{type: "text", text: prefix, cache_control: %{type: "ephemeral"}}] ++
+        [%{type: "text", text: prefix, cache_control: cache_control}] ++
           if tail == "", do: [], else: [%{type: "text", text: tail}]
 
       :nomatch ->
