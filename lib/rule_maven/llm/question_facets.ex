@@ -17,6 +17,18 @@ defmodule RuleMaven.LLM.QuestionFacets do
       "robber moved BEFORE discarding?"      -> hit "moved AFTER discarding"  0.93
       "Does the robber ALLOW production?"    -> hit "does the robber BLOCK"   0.93
       "discard with MORE than 9 cards?"      -> "MORE than 7 cards"           0.93
+      "robber on a DIFFERENT hex?"           -> hit "on the SAME hex"         0.97
+      "do I GAIN a victory point?"           -> "do I LOSE a victory point"   0.95
+      "longest road INCLUDE broken roads?"   -> "EXCLUDE broken roads"        0.95
+
+  This is a finite list against an open-ended problem: any antonym pair whose swap
+  leaves the wording — and so the embedding — almost unchanged is a candidate, and
+  new ones surface as the corpus grows. The scope stays bounded because a swap only
+  survives the direct-hit floor when the rest of the phrasing is near-identical, so
+  the dangerous pairs are single-token antonyms that actually occur in rules
+  questions; the sweep that found `same`/`different`, `gain`/`lose`,
+  `include`/`exclude` and `open`/`closed` covers the common ones. `add`/`remove` is
+  deliberately absent: it appears too often in neutral phrasing to gate an answer.
 
   The first of those served "**No.** Trading before rolling is not permitted." to
   a player asking whether they may trade after rolling — which they may, every
@@ -63,6 +75,32 @@ defmodule RuleMaven.LLM.QuestionFacets do
     permission_verb: [
       ~w(allow allows allowed permit permits permitted enable enables produce produces),
       ~w(block blocks blocked prevent prevents prevented stop stops halt halts)
+    ],
+    # "robber on the SAME hex" vs "robber on a DIFFERENT hex". These stay 0.97
+    # apart on the embedding — one token, and the answer inverts. "another" sits
+    # on the DIFFERENT side, so "another settlement" and "a different settlement"
+    # agree (both right) and a real paraphrase survives; only same-vs-different
+    # opposition fires.
+    identity: [
+      ~w(same identical unchanged),
+      ~w(different another separate distinct)
+    ],
+    # "do I GAIN a victory point" vs "do I LOSE a victory point"; "do I WIN at
+    # ten" vs "do I LOSE at ten". `add`/`remove` are deliberately excluded — too
+    # common in neutral phrasing ("add a road") to swap an answer reliably.
+    value_direction: [
+      ~w(gain gains gained earn earns earned win wins won),
+      ~w(lose loses lost forfeit forfeits forfeited)
+    ],
+    # "does the longest road INCLUDE broken segments" vs "EXCLUDE" / "IGNORE".
+    inclusion: [
+      ~w(include includes including included count counts counted counting),
+      ~w(exclude excludes excluding excluded ignore ignores ignored ignoring)
+    ],
+    # "is trading OPEN before rolling" vs "CLOSED". Narrow but observed at 0.94.
+    state: [
+      ~w(open opens opened),
+      ~w(closed closes closing shut)
     ]
   }
 

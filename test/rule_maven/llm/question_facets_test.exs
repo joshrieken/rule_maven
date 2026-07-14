@@ -89,6 +89,58 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
       refute Facets.compatible?("Can a player roll only two dice?", "Can a player roll only one die?")
     end
 
+    test "same/different — a single-token antonym that stays 0.97 on the embedding" do
+      # Live: "Can the robber be placed on the same hex?" is a real pooled row,
+      # so "...a different hex?" false-hit it and served the opposite.
+      refute Facets.compatible?(
+               "Can the robber be placed on a different hex?",
+               "Can the robber be placed on the same hex?"
+             )
+
+      assert Facets.conflict(
+               "Can the robber be placed on a different hex?",
+               "Can the robber be placed on the same hex?"
+             ) == :identity
+
+      # "another" and "different" are BOTH the different-pole, so a real
+      # paraphrase off the pooled "another settlement" survives.
+      assert Facets.compatible?(
+               "two spaces from another settlement",
+               "two spaces from a different settlement"
+             )
+    end
+
+    test "gain/lose — the value direction inverts the answer" do
+      refute Facets.compatible?(
+               "Do I gain a victory point for the longest road?",
+               "Do I lose a victory point for the longest road?"
+             )
+
+      assert Facets.conflict(
+               "Do I win if I reach ten points?",
+               "Do I lose if I reach ten points?"
+             ) == :value_direction
+    end
+
+    test "include/exclude — whether a rule counts or ignores something" do
+      refute Facets.compatible?(
+               "Does the longest road include roads broken by a settlement?",
+               "Does the longest road exclude roads broken by a settlement?"
+             )
+
+      refute Facets.compatible?(
+               "Does the longest road count broken segments?",
+               "Does the longest road ignore broken segments?"
+             )
+    end
+
+    test "open/closed — a narrow state pair, observed at 0.94" do
+      refute Facets.compatible?(
+               "Is trading open before I roll?",
+               "Is trading closed before I roll?"
+             )
+    end
+
     test "negation is still gated (delegated to Polarity)" do
       refute Facets.compatible?(
                "Can the robber NOT be placed on the desert hex?",
@@ -198,6 +250,26 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
       assert Facets.compatible?(
                "Is a player permitted to trade prior to rolling?",
                "Can a player trade before rolling?"
+             )
+    end
+
+    test "the new antonym axes only fire when BOTH sides name a pole" do
+      # "win" on one side, neither win nor lose on the other — not a dispute.
+      assert Facets.compatible?(
+               "Do I win at ten victory points?",
+               "How do I reach ten victory points?"
+             )
+
+      # "same" with no different-pole word opposite it.
+      assert Facets.compatible?(
+               "Can the robber stay on the same hex?",
+               "Can the robber remain where it is?"
+             )
+
+      # "count/include" with no exclude-pole opposite it.
+      assert Facets.compatible?(
+               "Does the longest road count broken segments?",
+               "How is the longest road measured?"
              )
     end
   end
