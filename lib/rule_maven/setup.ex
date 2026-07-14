@@ -224,8 +224,7 @@ defmodule RuleMaven.Setup do
       case LLM.chat(prompt, "setup_verify_#{game_name}",
              operation: "setup",
              game_id: game_id,
-             system:
-               "You are a strict board-game rulebook fact-checker. Pass only setup items that are fully and accurately supported; reject anything misleading, garbled, or unconfirmed.",
+             system: RuleMaven.Prompts.template("setup_verify_system"),
              max_tokens: 600
            ) do
         {:ok, out} ->
