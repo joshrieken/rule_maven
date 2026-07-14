@@ -608,6 +608,26 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
              ) == :replacement
     end
 
+    test "a reversed prose trade ratio no longer matches its opposite" do
+      # The colon form was already gated; the prose form ("2 wood for 1 ore") was
+      # not, because the resource nouns were off the unit whitelist. Binding each
+      # number to its own resource catches the reversal order-independently.
+      refute Facets.compatible?(
+               "Do I trade two wood for one ore?",
+               "Do I trade one wood for two ore?"
+             )
+
+      refute Facets.compatible?("Trade 2 wood for 1 ore?", "Trade 1 wood for 2 ore?")
+
+      # A genuine paraphrase, and a resource synonym, must still match.
+      assert Facets.compatible?(
+               "Do I trade two wood for one ore?",
+               "Do I exchange two wood for one ore?"
+             )
+
+      assert Facets.compatible?("Do I collect two wood?", "Do I collect two lumber?")
+    end
+
     test "most/least stay on the comparative axis, not the superlative one" do
       # `most`/`least` are the at-most/at-least BOUND ("at least seven" = seven or
       # more), a different sense than the highest/lowest superlative. They must not

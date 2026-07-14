@@ -613,7 +613,40 @@ defmodule RuleMaven.LLM.QuestionFacets do
     "space" => "space",
     "spaces" => "space",
     "token" => "token",
-    "tokens" => "token"
+    "tokens" => "token",
+    # Tradeable resources — the counts in "trade 2 wood for 1 ore". Binding each
+    # number to its own resource noun catches the reversed trade ("1 wood for 2
+    # ore", 0.98 on the embedding) without any give/get order parsing: the pairs
+    # {2:wood,1:ore} and {1:wood,2:ore} simply differ. Plurals fold to the
+    # singular; distinct resources are kept distinct (ore != stone) so a real
+    # trade is never wrongly merged.
+    "wood" => "wood",
+    "lumber" => "wood",
+    "brick" => "brick",
+    "bricks" => "brick",
+    "clay" => "brick",
+    "ore" => "ore",
+    "ores" => "ore",
+    "wheat" => "wheat",
+    "grain" => "wheat",
+    "grains" => "wheat",
+    "sheep" => "sheep",
+    "wool" => "wool",
+    "stone" => "stone",
+    "stones" => "stone",
+    "gold" => "gold",
+    "coin" => "coin",
+    "coins" => "coin",
+    "gem" => "gem",
+    "gems" => "gem",
+    "food" => "food",
+    "energy" => "energy",
+    "worker" => "worker",
+    "workers" => "worker",
+    "cube" => "cube",
+    "cubes" => "cube",
+    "meeple" => "meeple",
+    "meeples" => "meeple"
   }
 
   defp unit_numbers(tokens) do
