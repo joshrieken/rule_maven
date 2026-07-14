@@ -1,9 +1,19 @@
 defmodule RuleMavenWeb.GameTableContextTest do
   @moduledoc """
-  Task 2: the always-visible table-context strip — what this user is playing
-  with (selected expansions + house-rule count) — renders under the game
-  title on every game screen and taps into the `:expansions` / `:house_rules`
-  tools.
+  The table-context strip — what this user is playing with (selected expansions
+  + house-rule count) — and the screens it belongs on.
+
+  It is NOT on every game screen. Each half was pulled from the screen that
+  already owned its destination elsewhere:
+
+    * `:show` (Q&A) renders neither half — its 🧰 Tools menu carries both
+      Expansions and House rules, and the header needs the width for the crew
+      selector.
+    * `:community` renders the expansions half only — house rules live in that
+      page's Tools menu (Learn section).
+    * `:prepare` / `:review` render both halves. Both are admin-only views.
+    * `:edit` renders neither: `included_expansions` there is the expansion-link
+      editor's state, not "what this user plays with".
   """
   use RuleMavenWeb.ConnCase, async: true
 
@@ -34,9 +44,9 @@ defmodule RuleMavenWeb.GameTableContextTest do
     %{conn: login(conn, user), user: user, base: base}
   end
 
-  # The game must HAVE an expansion for the 🎲 half to render at all; the user
+  # The game must HAVE an expansion for the 📦 half to render at all; the user
   # simply hasn't selected it. A game with no expansions hides the half entirely
-  # — see the last test in this file.
+  # — see "a game with no expansions hides the expansions half".
   test "an unselected expansion shows the muted base label",
        %{conn: conn, user: user, base: base} do
     exp = published_game_fixture(%{name: "Oceania", bgg_id: 9102})
@@ -44,12 +54,18 @@ defmodule RuleMavenWeb.GameTableContextTest do
 
     RuleMaven.Games.put_expansion_selection(user.id, base.id, [])
 
-    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}/community")
     assert html =~ "Base game"
   end
 
+  # Prepare is the only non-admin-free screen carrying the house-rules half, so
+  # this one needs an admin to get past `UserLiveAuth`'s @admin_views gate.
   test "no house rules shows an Add affordance", %{conn: conn, base: base} do
-    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+    admin = create_user("tablectx_admin", %{role: "admin"})
+
+    conn = login(conn, admin)
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}/prepare")
+
     assert html =~ ~s|data-testid="table-context-house-rules"|
     assert html =~ "Add"
   end
@@ -64,14 +80,14 @@ defmodule RuleMavenWeb.GameTableContextTest do
     ids = base |> RuleMaven.Games.expansions_with_documents() |> Enum.map(& &1.id)
     RuleMaven.Games.put_expansion_selection(user.id, base.id, ids)
 
-    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}/community")
     assert html =~ "Oceania"
     assert html =~ "+2"
   end
 
   test "a game with no expansions hides the expansions half",
        %{conn: conn, base: base} do
-    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}/community")
     refute html =~ ~s|data-testid="table-context-expansions"|
   end
 
@@ -89,7 +105,7 @@ defmodule RuleMavenWeb.GameTableContextTest do
     ids = base |> RuleMaven.Games.expansions_with_documents() |> Enum.map(& &1.id)
     RuleMaven.Games.put_expansion_selection(user.id, base.id, ids)
 
-    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}/community")
 
     assert html =~ ~s|class="tc-label"|
     assert html =~ ~s|class="tc-label-compact"|
@@ -106,7 +122,7 @@ defmodule RuleMavenWeb.GameTableContextTest do
     exp = published_game_fixture(%{name: "Oceania", bgg_id: 9106})
     RuleMaven.Games.link_expansion(exp.id, base.id)
 
-    {:ok, _view, html} = live(conn, ~p"/games/#{base}")
+    {:ok, _view, html} = live(conn, ~p"/games/#{base}/community")
     assert html =~ ~s|data-tour="expansions"|
   end
 
@@ -116,13 +132,7 @@ defmodule RuleMavenWeb.GameTableContextTest do
   # not render at all, regardless of what the admin has linked/selected.
   test "the strip does not render on the admin Edit screen",
        %{conn: conn, user: user, base: base} do
-    {:ok, admin} =
-      RuleMaven.Users.create_user(%{
-        username: "tablectx_admin",
-        email: "tablectx_admin@test.com",
-        password: "password1234",
-        role: "admin"
-      })
+    admin = create_user("tablectx_edit_admin", %{role: "admin"})
 
     exp = published_game_fixture(%{name: "Oceania", bgg_id: 9107})
     RuleMaven.Games.link_expansion(exp.id, base.id)
@@ -135,11 +145,24 @@ defmodule RuleMavenWeb.GameTableContextTest do
     refute html =~ ~s|data-testid="table-context-house-rules"|
   end
 
-  test "the strip still renders on show and community", %{conn: conn, base: base} do
+  # Both halves were deliberately taken off the Q&A screen: its 🧰 Tools menu
+  # already owns both destinations (Play → Expansions, Learn → House rules) and
+  # the header needs the reclaimed width for the crew selector. Community keeps
+  # the expansions half — it is the one bit of table context an answer's
+  # provenance depends on — but drops the house-rules pill, which its Tools menu
+  # also carries and which read as chrome noise there.
+  test "the strip is absent on Q&A; Community keeps expansions but not house rules",
+       %{conn: conn, user: user, base: base} do
+    exp = published_game_fixture(%{name: "Oceania", bgg_id: 9108})
+    RuleMaven.Games.link_expansion(exp.id, base.id)
+    RuleMaven.Games.put_expansion_selection(user.id, base.id, [exp.id])
+
     {:ok, _view, show_html} = live(conn, ~p"/games/#{base}")
-    assert show_html =~ ~s|data-testid="table-context-house-rules"|
+    refute show_html =~ ~s|data-testid="table-context-expansions"|
+    refute show_html =~ ~s|data-testid="table-context-house-rules"|
 
     {:ok, _view, community_html} = live(conn, ~p"/games/#{base}/community")
-    assert community_html =~ ~s|data-testid="table-context-house-rules"|
+    assert community_html =~ ~s|data-testid="table-context-expansions"|
+    refute community_html =~ ~s|data-testid="table-context-house-rules"|
   end
 end

@@ -309,14 +309,18 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
         )
       )
 
-    # No answer yet — the loader is still up.
+    # No answer yet — the loader is still up, and the pinned bar still shows the
+    # raw wording it was submitted with.
     html = render(view)
     assert html =~ "voice-loader"
-    refute html =~ "You asked:"
+    assert html =~ "how many cards do i draw"
+    refute html =~ "qa-question__edited"
 
-    # Normalized form arrives well before any answer token: the bubble settles
-    # to its final layout (cleaned text + "You asked" disclosure) now, so the
-    # streaming answer below never reflows it.
+    # Normalized form arrives well before any answer token: the pinned question
+    # bar settles to its final text NOW, so the streaming answer below never
+    # reflows under a question that changes out from under it. The bar reads
+    # `@qa_active_question` off the thread summary, not the conversation row —
+    # patching only the row left the raw wording up for the whole stream.
     send(
       view.pid,
       {:ask_normalized,
@@ -328,9 +332,15 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
     )
 
     html = render(view)
-    assert html =~ "How many cards does a player draw per turn?"
-    assert html =~ "You asked:"
-    assert html =~ "how many cards do i draw"
+
+    bar = view |> element(".qa-question__text") |> render()
+    assert bar =~ "How many cards does a player draw per turn?"
+    refute bar =~ "how many cards do i draw"
+
+    # The rewrite is disclosed by the chip, not by an inline subline; the raw
+    # wording only surfaces in the tap-to-open overlay.
+    assert html =~ "qa-question__edited"
+
     # Still pending — the answer has not landed.
     assert html =~ "voice-loader"
 

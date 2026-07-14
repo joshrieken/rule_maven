@@ -60,10 +60,12 @@ defmodule RuleMavenWeb.GameLivePersonaAnswerAnimTest do
         ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
       )
 
-    # Neutral: both rows render, and the role prefix keeps their ids distinct
-    # even though the question and its answer share one question_log id.
-    assert html =~ ~s(id="ans-user-#{ql.id}-neutral")
+    # Only the assistant row carries an answer node. The two-pane redesign pinned
+    # the question in the fixed `.qa-question` bar, so the user row no longer
+    # emits an `ans-user-…` node at all — the role prefix now guards against a
+    # collision that can only come from a future second answer-bearing role.
     assert html =~ ~s(id="ans-assistant-#{ql.id}-neutral")
+    refute html =~ ~s(id="ans-user-#{ql.id})
 
     # Pick the persona, then land its restyle: the answer node's id changes, so
     # LiveView swaps the node and the rise animation replays.
@@ -73,9 +75,7 @@ defmodule RuleMavenWeb.GameLivePersonaAnswerAnimTest do
     html = render(view)
     assert html =~ ~s(id="ans-assistant-#{ql.id}-pirate")
     refute html =~ ~s(id="ans-assistant-#{ql.id}-neutral")
-
-    # The question row is never restyled, so its node must stay put.
-    assert html =~ ~s(id="ans-user-#{ql.id}-neutral")
+    refute html =~ ~s(id="ans-user-#{ql.id})
   end
 
   test "a streamed persona answer keeps one node across the stream → final swap", %{conn: conn} do

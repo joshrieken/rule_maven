@@ -3119,7 +3119,23 @@ defmodule RuleMavenWeb.GameLive.Show do
             msg
         end)
 
-      {:noreply, assign(socket, conversation: conversation)}
+      # The pinned question bar renders `@qa_active_question`, which comes from
+      # the `threads` summary — not from `conversation`. Settling only the
+      # conversation row left the bar showing the RAW typed wording for the whole
+      # stream, until `:ask_complete` rebuilt the thread list: exactly the reflow
+      # this handler exists to prevent. Patched by hand rather than by re-running
+      # `assign_qa_nav/1`, which also slams shut an open question overlay.
+      threads =
+        Enum.map(socket.assigns.threads, fn
+          %{id: ^ql_id} = t -> %{t | question: cleaned}
+          t -> t
+        end)
+
+      {:noreply,
+       socket
+       |> assign(:conversation, conversation)
+       |> assign(:threads, threads)
+       |> assign(:qa_active_question, cleaned)}
     else
       {:noreply, socket}
     end

@@ -1,11 +1,15 @@
 defmodule RuleMavenWeb.GameLiveNormalizationDisclosureTest do
   @moduledoc """
-  When we rewrite (normalize) an asker's raw question, the chat bubble shows the
-  normalized form as the main text plus a "You asked:" subline with the original
-  wording, so the asker knows it was changed. The disclosure only renders for the
-  asker (own questions) and admins — the main-chat query already scopes
-  non-admins to their own rows. It stays hidden when raw and normalized match
-  after case/whitespace folding.
+  When we rewrite (normalize) an asker's raw question, they have to be able to
+  tell. The two-pane redesign moved that disclosure out of the message pane: the
+  question lives once in the fixed `.qa-question` bar, which carries an italic
+  `edited` chip, and tapping the bar opens an overlay pairing "You asked" (raw)
+  with "We searched" (cleaned). Both are cheap to render and never reflow the
+  answer, which is why the old inline "You asked:" subline is gone.
+
+  The disclosure only renders for the asker (own questions) and admins — the
+  main-chat query already scopes non-admins to their own rows. It stays hidden
+  when raw and normalized match after case/whitespace folding.
   """
 
   use RuleMavenWeb.ConnCase, async: true
@@ -27,16 +31,10 @@ defmodule RuleMavenWeb.GameLiveNormalizationDisclosureTest do
     user
   end
 
-  defp view_html(conn, user, game, ql) do
-    conn = login(conn, user)
-
-    {:ok, _view, html} =
-      live(
-        conn,
-        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
-      )
-
-    html
+  # The overlay is the only place the raw wording is spelled out, so every
+  # assertion about it has to go through the bar's tap target first.
+  defp open_question_overlay(view) do
+    view |> element(".qa-question__text") |> render_click()
   end
 
   test "shows original wording when the question was normalized", %{conn: conn} do
@@ -53,13 +51,27 @@ defmodule RuleMavenWeb.GameLiveNormalizationDisclosureTest do
         visibility: "private"
       })
 
-    html = view_html(conn, user, game, ql)
+    conn = login(conn, user)
 
-    # Normalized form is the main bubble text.
+    {:ok, view, html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
+
+    # The bar carries the normalized wording plus the chip that advertises the
+    # rewrite. The raw wording is deliberately NOT in the initial payload.
     assert html =~ "How many cards does a player draw per turn?"
-    # Original wording is disclosed under it.
-    assert html =~ "You asked:"
+    assert html =~ "qa-question__edited"
+    refute html =~ "how many cards do i draw"
+
+    html = open_question_overlay(view)
+
+    assert html =~ "qa-overlay"
+    assert html =~ "You asked"
     assert html =~ "how many cards do i draw"
+    assert html =~ "We searched"
+    assert html =~ "How many cards does a player draw per turn?"
   end
 
   test "discloses the just-typed wording when a re-ask is redirected to an existing thread",
@@ -104,10 +116,17 @@ defmodule RuleMavenWeb.GameLiveNormalizationDisclosureTest do
        }}
     )
 
+    # The row's own stored raw would say "not edited"; the `reask_typed` stash is
+    # what makes the chip appear, so the chip is proof the stash survived.
     html = render(view)
+    assert html =~ "How are walls placed?"
+    assert html =~ "qa-question__edited"
 
-    assert html =~ "You asked:"
+    html = open_question_overlay(view)
+
+    assert html =~ "You asked"
     assert html =~ "can walls block movement how do i place them"
+    assert html =~ "We searched"
     assert html =~ "How are walls placed?"
   end
 
@@ -125,8 +144,20 @@ defmodule RuleMavenWeb.GameLiveNormalizationDisclosureTest do
         visibility: "private"
       })
 
-    html = view_html(conn, user, game, ql)
+    conn = login(conn, user)
 
-    refute html =~ "You asked:"
+    {:ok, view, html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+      )
+
+    refute html =~ "qa-question__edited"
+
+    # Nothing to disclose, so even the opened overlay stays a plain restatement.
+    html = open_question_overlay(view)
+
+    refute html =~ "You asked"
+    refute html =~ "We searched"
   end
 end

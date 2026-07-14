@@ -7,6 +7,22 @@ defmodule RuleMavenWeb.AdminEmailControlsTest do
 
   alias RuleMaven.{Settings, Users}
 
+  # Settings.resend_api_key/0 intentionally falls back to RESEND_API_KEY (that's
+  # how prod is configured before an admin saves a key in the DB), so a developer
+  # shell that exports the real key would shadow the DB row and make the "not set"
+  # assertions below fail. Unset it for the duration and put it back afterwards.
+  # Safe because this case is async: false — env vars are global to the VM.
+  setup do
+    original = System.get_env("RESEND_API_KEY")
+    System.delete_env("RESEND_API_KEY")
+
+    on_exit(fn ->
+      if original, do: System.put_env("RESEND_API_KEY", original)
+    end)
+
+    :ok
+  end
+
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
 
   defp create_admin do
