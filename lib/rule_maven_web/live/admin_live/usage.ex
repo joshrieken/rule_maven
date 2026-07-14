@@ -26,7 +26,8 @@ defmodule RuleMavenWeb.AdminLive.Usage do
       stats: LLM.stats(days),
       by_user: by_user,
       total_cost: Enum.reduce(by_user, 0.0, &(&1.cost + &2)),
-      savings: RuleMaven.LLM.Savings.summary(days)
+      savings: RuleMaven.LLM.Savings.summary(days),
+      ask_stats: LLM.ask_stats(days)
     )
   end
 
@@ -70,6 +71,14 @@ defmodule RuleMavenWeb.AdminLive.Usage do
 
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:0.6rem;margin-bottom:1.25rem">
         <.stat label="Est. cost" value={"$#{fmt_cost(@total_cost)}"} />
+        <.stat
+          label="$ / question"
+          value={"$#{fmt_cost4(cost_per_question(@total_cost, @ask_stats.asks))}"}
+        />
+        <.stat
+          label="Pool hit rate"
+          value={"#{fmt_pct(@ask_stats.pool_hit_rate)} (#{@ask_stats.pool_hits}/#{@ask_stats.asks})"}
+        />
         <.stat label="Requests" value={@stats.total_requests} />
         <.stat label="Tokens" value={fmt_int(@stats.total_tokens)} />
         <.stat label="Errors" value={@stats.error_count} />
@@ -172,6 +181,14 @@ defmodule RuleMavenWeb.AdminLive.Usage do
   defp savings_label(other), do: other
 
   defp fmt_cost(n), do: :erlang.float_to_binary(n * 1.0, decimals: 2)
+
+  # Per-question cost lives in tenths of a cent; two decimals would round it to $0.00.
+  defp fmt_cost4(n), do: :erlang.float_to_binary(n * 1.0, decimals: 4)
+
+  defp fmt_pct(r), do: :erlang.float_to_binary(r * 100.0, decimals: 1) <> "%"
+
+  defp cost_per_question(_cost, 0), do: 0.0
+  defp cost_per_question(cost, asks), do: cost / asks
 
   defp fmt_int(n) when is_integer(n) do
     n

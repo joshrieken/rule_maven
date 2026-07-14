@@ -95,6 +95,18 @@ defmodule RuleMavenWeb.AdminLive.Llm do
          llm_escalate_model_groq: Settings.get("llm_escalate_model_groq") || "",
          llm_escalate_model_gemini: Settings.get("llm_escalate_model_gemini") || "",
          llm_escalate_model_ollama: Settings.get("llm_escalate_model_ollama") || "",
+         # Cheap text model for classify/normalize side jobs. Blank = the cleanup
+         # model, then the answering model.
+         llm_cheap_model_openrouter: Settings.get("llm_cheap_model_openrouter") || "",
+         llm_cheap_model_groq: Settings.get("llm_cheap_model_groq") || "",
+         llm_cheap_model_gemini: Settings.get("llm_cheap_model_gemini") || "",
+         llm_cheap_model_ollama: Settings.get("llm_cheap_model_ollama") || "",
+         # Grounding-critic model, separate from :cheap because the two cheap jobs
+         # fail in opposite directions. Blank = the cheap model chain.
+         llm_critic_model_openrouter: Settings.get("llm_critic_model_openrouter") || "",
+         llm_critic_model_groq: Settings.get("llm_critic_model_groq") || "",
+         llm_critic_model_gemini: Settings.get("llm_critic_model_gemini") || "",
+         llm_critic_model_ollama: Settings.get("llm_critic_model_ollama") || "",
          # Rulebook extraction mode: "vision" (transcribe every page image — highest
          # accuracy) or "ocr" (pdftotext + OCR, vision only on junk pages).
          rulebook_extract_mode: Settings.get("rulebook_extract_mode") || "vision"
@@ -136,6 +148,14 @@ defmodule RuleMavenWeb.AdminLive.Llm do
       "llm_escalate_model_groq" => params["llm_escalate_model_groq"],
       "llm_escalate_model_gemini" => params["llm_escalate_model_gemini"],
       "llm_escalate_model_ollama" => params["llm_escalate_model_ollama"],
+      "llm_cheap_model_openrouter" => params["llm_cheap_model_openrouter"],
+      "llm_cheap_model_groq" => params["llm_cheap_model_groq"],
+      "llm_cheap_model_gemini" => params["llm_cheap_model_gemini"],
+      "llm_cheap_model_ollama" => params["llm_cheap_model_ollama"],
+      "llm_critic_model_openrouter" => params["llm_critic_model_openrouter"],
+      "llm_critic_model_groq" => params["llm_critic_model_groq"],
+      "llm_critic_model_gemini" => params["llm_critic_model_gemini"],
+      "llm_critic_model_ollama" => params["llm_critic_model_ollama"],
       "rulebook_extract_mode" => params["rulebook_extract_mode"]
     }
 
@@ -151,7 +171,9 @@ defmodule RuleMavenWeb.AdminLive.Llm do
       ~w(llm_cleanup_model_openrouter llm_cleanup_model_groq llm_cleanup_model_gemini llm_cleanup_model_ollama
          llm_vision_model_openrouter llm_vision_model_groq llm_vision_model_gemini llm_vision_model_ollama
          llm_vision_escalate_model_openrouter llm_vision_escalate_model_groq llm_vision_escalate_model_gemini llm_vision_escalate_model_ollama
-         llm_escalate_model_openrouter llm_escalate_model_groq llm_escalate_model_gemini llm_escalate_model_ollama),
+         llm_escalate_model_openrouter llm_escalate_model_groq llm_escalate_model_gemini llm_escalate_model_ollama
+         llm_cheap_model_openrouter llm_cheap_model_groq llm_cheap_model_gemini llm_cheap_model_ollama
+         llm_critic_model_openrouter llm_critic_model_groq llm_critic_model_gemini llm_critic_model_ollama),
       fn key ->
         if trim(params[key]) == "", do: Settings.delete(key)
       end
@@ -184,6 +206,14 @@ defmodule RuleMavenWeb.AdminLive.Llm do
        llm_escalate_model_groq: fields["llm_escalate_model_groq"] |> trim(),
        llm_escalate_model_gemini: fields["llm_escalate_model_gemini"] |> trim(),
        llm_escalate_model_ollama: fields["llm_escalate_model_ollama"] |> trim(),
+       llm_cheap_model_openrouter: fields["llm_cheap_model_openrouter"] |> trim(),
+       llm_cheap_model_groq: fields["llm_cheap_model_groq"] |> trim(),
+       llm_cheap_model_gemini: fields["llm_cheap_model_gemini"] |> trim(),
+       llm_cheap_model_ollama: fields["llm_cheap_model_ollama"] |> trim(),
+       llm_critic_model_openrouter: fields["llm_critic_model_openrouter"] |> trim(),
+       llm_critic_model_groq: fields["llm_critic_model_groq"] |> trim(),
+       llm_critic_model_gemini: fields["llm_critic_model_gemini"] |> trim(),
+       llm_critic_model_ollama: fields["llm_critic_model_ollama"] |> trim(),
        rulebook_extract_mode: fields["rulebook_extract_mode"] |> trim(),
        saved: true
      )}
@@ -209,7 +239,11 @@ defmodule RuleMavenWeb.AdminLive.Llm do
         Settings saved.
       </div>
 
-      <form phx-submit="save" style="display:flex;flex-direction:column;gap:1.25rem">
+      <form
+        id="llm-settings-form"
+        phx-submit="save"
+        style="display:flex;flex-direction:column;gap:1.25rem"
+      >
         <section style="border:1px solid var(--border);border-radius:0.75rem;padding:1.25rem;background:var(--bg-surface)">
           <div style="display:flex;flex-direction:column;gap:0.75rem">
             <div>
@@ -286,6 +320,42 @@ defmodule RuleMavenWeb.AdminLive.Llm do
                   Use Answer model
                 </option>
                 <.or_model_options selected={@llm_escalate_model_openrouter} />
+              </select>
+            </div>
+
+            <div :if={@llm_provider == "openrouter"}>
+              <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">
+                Cheap-task model
+                <span style="font-weight:400;color:var(--text-muted)">— classify/normalize side jobs (NOT the grounding critic). A false "yes" from the refusal classifier buys an escalate call, so don't chase the cheapest model here. Blank = Cleanup model, then Answer model</span>
+              </label>
+              <select
+                name="llm_cheap_model_openrouter"
+                id="llm_cheap_model_openrouter"
+                style="width:100%;border:1px solid var(--border-strong);border-radius:0.375rem;padding:0.5rem 0.75rem;font-size:0.85rem;background:var(--bg);color:var(--text)"
+              >
+                <option value="" selected={@llm_cheap_model_openrouter == ""}>
+                  Use Cleanup model (then Answer model)
+                </option>
+                <.or_model_options selected={@llm_cheap_model_openrouter} />
+              </select>
+            </div>
+
+            <div :if={@llm_provider == "openrouter"}>
+              <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.25rem">
+                Grounding critic model
+                <span style="font-weight:400;color:var(--text-muted)">— checks answers against the cited rulebook text; one-word output over a cached prompt, so the cheapest accurate model wins. Verify with
+                <code>mix rule_maven.eval_critic</code>
+                before shipping a change. Blank = Cheap-task model</span>
+              </label>
+              <select
+                name="llm_critic_model_openrouter"
+                id="llm_critic_model_openrouter"
+                style="width:100%;border:1px solid var(--border-strong);border-radius:0.375rem;padding:0.5rem 0.75rem;font-size:0.85rem;background:var(--bg);color:var(--text)"
+              >
+                <option value="" selected={@llm_critic_model_openrouter == ""}>
+                  Use Cheap-task model
+                </option>
+                <.or_model_options selected={@llm_critic_model_openrouter} />
               </select>
             </div>
 
