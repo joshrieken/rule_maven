@@ -270,6 +270,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
     Polarity.compatible?(question, candidate) and
       numbers_agree?(q, c) and
       ratios_agree?(question, candidate) and
+      bounds_agree?(q, c) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, q, c))
   end
 
@@ -300,6 +301,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       MapSet.subset?(numbers(w), numbers(r)) and
       MapSet.subset?(unit_numbers(w), unit_numbers(r)) and
       MapSet.subset?(ratios(rewrite), ratios(raw)) and
+      MapSet.subset?(bound_preds(w), bound_preds(r)) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, r, w))
   end
 
@@ -316,7 +318,9 @@ defmodule RuleMaven.LLM.QuestionFacets do
       not Polarity.compatible?(question, candidate) -> :negation
       not numbers_agree?(q, c) -> :number
       not ratios_agree?(question, candidate) -> :ratio
-      true -> Enum.find(Map.keys(@axes), &(not axis_agrees?(&1, q, c)))
+      true ->
+        Enum.find(Map.keys(@axes), &(not axis_agrees?(&1, q, c))) ||
+          if(not bounds_agree?(q, c), do: :bound)
     end
   end
 
@@ -335,6 +339,86 @@ defmodule RuleMaven.LLM.QuestionFacets do
       {{false, true}, {true, false}} -> false
       _ -> true
     end
+  end
+
+  # A comparison's INCLUSIVITY is a rule the antonym axes and the number set both
+  # miss. "discard with AT LEAST seven cards" (>=7, discard on a 7) and "discard
+  # with MORE THAN seven cards" (>7, do NOT discard on a 7) carry the SAME number
+  # 7, and both `least` and `more` sit on the SAME (left) side of `comparative`, so
+  # every existing guard sees them as identical — yet the answer flips at exactly
+  # the boundary value, and that boundary is the discard-on-a-7 rule, the single
+  # most-asked Catan question. Measured 0.97 apart on the embedding.
+  #
+  # Each question is reduced to the set of bound predicates it states — `:ge` (>=),
+  # `:gt` (>), `:le` (<=), `:lt` (<) — and two questions disagree when both state
+  # bounds and the sets differ. Empty-safe on either side like the number and ratio
+  # comparisons: a question with no explicit bound is not held to one.
+  #
+  # A marker only counts as a bound when a NUMBER sits adjacent to it, which is what
+  # ties it to a real threshold and kills the polysemy that would otherwise fire it:
+  # "game OVER at ten points" has `over` but no number after it, so it states no
+  # bound, while "OVER seven cards" does. `over`/`under`/`above`/`below` take the
+  # number after; "seven OR MORE" takes it before; "AT LEAST seven" after the phrase.
+  #
+  # `at least`/`at most` etc. leave `least`/`most` on `comparative` too, so a
+  # DIRECTION flip (at-least vs at-most) is caught there and reported as `:comparative`;
+  # this axis is what additionally catches the same-direction INCLUSIVITY flip
+  # (at-least vs more-than) that `comparative` cannot see.
+  @bound_after %{
+    ["at", "least"] => :ge,
+    ["at", "most"] => :le,
+    ["more", "than"] => :gt,
+    ["greater", "than"] => :gt,
+    ["fewer", "than"] => :lt,
+    ["less", "than"] => :lt,
+    ["up", "to"] => :le
+  }
+
+  @bound_single %{
+    "over" => :gt,
+    "above" => :gt,
+    "exceeds" => :gt,
+    "exceeding" => :gt,
+    "exceed" => :gt,
+    "under" => :lt,
+    "below" => :lt
+  }
+
+  @bound_before %{
+    ["or", "more"] => :ge,
+    ["or", "greater"] => :ge,
+    ["or", "higher"] => :ge,
+    ["or", "fewer"] => :le,
+    ["or", "less"] => :le
+  }
+
+  defp bounds_agree?(q, c) do
+    bq = bound_preds(q)
+    bc = bound_preds(c)
+
+    Enum.empty?(bq) or Enum.empty?(bc) or MapSet.equal?(bq, bc)
+  end
+
+  defp bound_preds(toks) do
+    toks_t = List.to_tuple(toks)
+    n = tuple_size(toks_t)
+    num? = fn i -> i >= 0 and i < n and to_number(elem(toks_t, i)) != nil end
+
+    toks
+    |> Enum.with_index()
+    |> Enum.reduce(MapSet.new(), fn {t, i}, acc ->
+      pair = if i + 1 < n, do: [t, elem(toks_t, i + 1)], else: nil
+      single = @bound_single[t]
+      after_c = pair && @bound_after[pair]
+      before_c = pair && @bound_before[pair]
+
+      cond do
+        single -> if num?.(i + 1), do: MapSet.put(acc, single), else: acc
+        after_c -> if num?.(i + 2), do: MapSet.put(acc, after_c), else: acc
+        before_c -> if num?.(i - 1), do: MapSet.put(acc, before_c), else: acc
+        true -> acc
+      end
+    end)
   end
 
   # Numbers ARE the rule in a rules question: 7 cards, 4:1, 2 dice, 10 points.

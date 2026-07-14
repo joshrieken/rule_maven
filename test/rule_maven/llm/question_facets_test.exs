@@ -304,6 +304,54 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
              )
     end
 
+    test "inclusive vs exclusive bound on the same number, 0.97" do
+      # ">= 7" vs "> 7" share the number 7 and both put their comparative word on
+      # the SAME side, so no existing guard sees a difference — but the answer
+      # flips at exactly 7, and that is the discard-on-a-7 rule.
+      refute Facets.compatible?(
+               "Do I discard with at least seven cards?",
+               "Do I discard with more than seven cards?"
+             )
+
+      assert Facets.conflict(
+               "Do I discard with at least seven cards?",
+               "Do I discard with more than seven cards?"
+             ) == :bound
+
+      # "<= 7" vs "< 7" is the same flip on the upper bound.
+      refute Facets.compatible?(
+               "Is it safe with at most seven cards?",
+               "Is it safe with fewer than seven cards?"
+             )
+
+      # "up to 3" (<=3) vs "at least 3" (>=3) are opposite bound directions.
+      refute Facets.compatible?(
+               "Do I draw up to three cards?",
+               "Do I draw at least three cards?"
+             )
+    end
+
+    test "same-inclusivity bound paraphrases still match" do
+      # "> 7" phrased two ways stays compatible; the guard fires on inclusivity,
+      # not on the surface phrase.
+      assert Facets.compatible?(
+               "Do I discard with more than seven cards?",
+               "Do I discard with over seven cards?"
+             )
+
+      assert Facets.compatible?(
+               "Do I discard with at least seven cards?",
+               "Do I discard with seven or more cards?"
+             )
+
+      # A bound marker with no adjacent number is not a bound: "game over at ten"
+      # must not collide with a real threshold.
+      assert Facets.compatible?(
+               "Is the game over at ten points?",
+               "Does the game end at ten points?"
+             )
+    end
+
     test "top/bottom — deck-position manipulation, hidden-info class, 0.96" do
       refute Facets.compatible?(
                "Do I draw from the top of the deck?",
