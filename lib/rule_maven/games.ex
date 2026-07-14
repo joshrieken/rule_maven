@@ -2226,7 +2226,7 @@ defmodule RuleMaven.Games do
           case {a.verified, b.verified} do
             {true, false} -> true
             {false, true} -> false
-            _ -> NaiveDateTime.compare(a.inserted_at, b.inserted_at) == :gt
+            _ -> newest_first?(a, b)
           end
         end)
 
@@ -2235,7 +2235,21 @@ defmodule RuleMaven.Games do
 
       %{primary: primary, history: history, followups: []}
     end)
-    |> Enum.sort_by(& &1.primary.inserted_at, {:desc, DateTime})
+    |> Enum.sort(&newest_first?(&1.primary, &2.primary))
+  end
+
+  # `inserted_at` is `:utc_datetime` — SECOND precision. Two regens of the same
+  # question (or two questions) landing inside the same second therefore carry
+  # an identical timestamp, and a timestamp-only ordering leaves those ties for
+  # Postgres to break however the plan happens to scan the heap. That made the
+  # newest answer's promotion to `primary` depend on unrelated table contents.
+  # `id` is monotonic, so it is the authoritative tie-break: newest row wins.
+  defp newest_first?(a, b) do
+    case DateTime.compare(a.inserted_at, b.inserted_at) do
+      :gt -> true
+      :lt -> false
+      :eq -> a.id >= b.id
+    end
   end
 
   def toggle_favorite(nil), do: {:error, :not_found}
@@ -2743,7 +2757,10 @@ defmodule RuleMaven.Games do
         from q in QuestionLog,
           where: q.game_id == ^game.id and q.group_id == ^group_id,
           where: q.refused == false and q.blocked == false,
-          order_by: [desc: q.inserted_at],
+          # desc: q.id breaks second-precision `inserted_at` ties (see
+          # `newest_first?/2`); without it the `limit` cut point among rows
+          # sharing a timestamp is whatever order the plan produced.
+          order_by: [desc: q.inserted_at, desc: q.id],
           preload: [:user],
           select: struct(q, ^@question_list_fields)
 
@@ -2757,7 +2774,7 @@ defmodule RuleMaven.Games do
       base =
         from q in QuestionLog,
           where: q.game_id == ^game.id,
-          order_by: [desc: q.inserted_at],
+          order_by: [desc: q.inserted_at, desc: q.id],
           preload: [:user],
           select: struct(q, ^@question_feed_fields)
 
