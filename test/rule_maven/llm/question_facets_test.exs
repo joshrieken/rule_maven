@@ -590,6 +590,24 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
              )
     end
 
+    test "borrow/lend — direction of a loan, 0.94" do
+      refute Facets.compatible?("Can I borrow a card?", "Can I lend a card?")
+      assert Facets.conflict("Can I borrow a card?", "Can I lend a card?") == :lending
+      assert Facets.compatible?("Can I borrow a card?", "Can I use a card?")
+    end
+
+    test "instead-of vs in-addition-to — replacement vs augmentation, 0.93" do
+      refute Facets.compatible?(
+               "Do I resolve this effect instead of drawing?",
+               "Do I resolve this effect in addition to drawing?"
+             )
+
+      assert Facets.conflict(
+               "Do I resolve this effect instead of drawing?",
+               "Do I resolve this effect in addition to drawing?"
+             ) == :replacement
+    end
+
     test "most/least stay on the comparative axis, not the superlative one" do
       # `most`/`least` are the at-most/at-least BOUND ("at least seven" = seven or
       # more), a different sense than the highest/lowest superlative. They must not

@@ -284,6 +284,21 @@ defmodule RuleMaven.LLM.QuestionFacets do
     horizontal_extreme: [
       ~w(leftmost),
       ~w(rightmost)
+    ],
+    # "can I BORROW a card" vs "LEND a card" — direction of a loan, 0.94, one
+    # token deciding who ends up holding it. Distinct from `transfer` (steal/give,
+    # a permanent take): these only oppose each other.
+    lending: [
+      ~w(borrow borrows borrowed),
+      ~w(lend lends lent loan loans loaned)
+    ],
+    # "resolve this INSTEAD of drawing" vs "IN ADDITION to drawing" — replacement
+    # vs augmentation, 0.93. It decides whether the other action still happens.
+    # `instead` is unambiguous; the augment side keys on `additionally`/`addition`
+    # ("in addition to"), never bare `also`/`add` which are far too common.
+    replacement: [
+      ~w(instead),
+      ~w(additionally addition)
     ]
   }
 
