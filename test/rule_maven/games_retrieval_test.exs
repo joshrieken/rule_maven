@@ -255,7 +255,9 @@ defmodule RuleMaven.GamesRetrievalTest do
     {:ok, game} = Games.create_game(%{name: "BoostCap #{System.unique_integer([:positive])}"})
     doc = published_doc(game, "Rulebook", "rulebook")
 
-    for i <- 1..26 do
+    # One past the cap, read from the cap itself: hardcoding the number turns
+    # this test into a silent no-op the day the budget is raised.
+    for i <- 1..(Games.max_corpus_chunks() + 1) do
       put_chunk(doc, "[Page 1]\nchunk number #{i}", sparse_vec([{i, 1.0}]))
     end
 
@@ -272,7 +274,8 @@ defmodule RuleMaven.GamesRetrievalTest do
   test "small_corpus_boost does not expand past the char budget" do
     {:ok, game} = Games.create_game(%{name: "BoostChars #{System.unique_integer([:positive])}"})
     doc = published_doc(game, "Rulebook", "rulebook")
-    big = String.duplicate("a", 35_000)
+    # Two chunks that together bust the char budget, whatever the budget is.
+    big = String.duplicate("a", div(Games.corpus_char_budget(), 2) + 1_000)
 
     put_chunk(doc, "[Page 1]\n#{big} alpha", sparse_vec([{1, 1.0}]))
     put_chunk(doc, "[Page 2]\n#{big} beta", sparse_vec([{2, 1.0}]))

@@ -217,7 +217,20 @@ defmodule RuleMaven.LLM do
   # the near-exact match entirely (the old query returned only that one row).
   # Direct hits (>= the 0.92 floor) are settled by trust; only if there are
   # none do we pay the tiebreaker, and then on the NEAREST candidates first.
-  @max_tiebreaker_calls 2
+  # 2 -> 6 (2026-07). A pool hit is the only free answer in this system: it skips
+  # the answer call, the critic, and every retry rung. A tiebreaker costs
+  # ~$0.00003 and the fresh ask it avoids costs ~$0.005 — 150x — so a cap of 2
+  # was pure loss aversion: it walked away from candidates in the band rather
+  # than spend a twentieth of a cent to check them. Six tiebreakers cost
+  # $0.00018, still 3% of one ask.
+  #
+  # They run CONCURRENTLY, which is what makes the wider cap free in latency as
+  # well as money: sequentially, six ~600-token calls would add seconds to every
+  # pool MISS (the case where the user then waits for a full ask anyway). Results
+  # stay ordered, so the nearest equivalent candidate still wins, not whichever
+  # call returned first.
+  @max_tiebreaker_calls 6
+  @tiebreaker_timeout_ms 8_000
 
   defp find_pool_hit(
          _game,
@@ -265,15 +278,34 @@ defmodule RuleMaven.LLM do
         hit
 
       nil ->
-        # Nearest-first, capped: each tiebreaker is a cheap ~600-token call, but
-        # an unbounded walk down a 0.80-floor candidate list could fire ten of
-        # them and still miss.
+        # Nearest-first and capped, but judged concurrently — see
+        # @max_tiebreaker_calls. `ordered: true` is what preserves "nearest
+        # equivalent wins": without it the winner would be whichever provider
+        # call happened to return first, which is not a property of the match.
+        budget = call_budget_handle()
+
         ambiguous
         |> Enum.take(@max_tiebreaker_calls)
-        |> Enum.find_value(fn {row, _sim} ->
-          if paraphrase_equivalent?(row, match_text, game, user_id, active_group_id) do
-            {row, RuleMaven.Games.pool_tier(row)}
-          end
+        |> Task.async_stream(
+          fn {row, _sim} ->
+            # Spawned tasks start unbudgeted, and an unbudgeted LLM call is one
+            # that cannot be refused — the per-ask cap exists precisely because
+            # retries nest. Join the caller's allowance.
+            adopt_call_budget(budget)
+            {row, paraphrase_equivalent?(row, match_text, game, user_id, active_group_id)}
+          end,
+          ordered: true,
+          max_concurrency: @max_tiebreaker_calls,
+          timeout: @tiebreaker_timeout_ms,
+          # A tiebreaker that times out or crashes is a MISS, never a hit — the
+          # same direction paraphrase_equivalent?/5 already fails in. Exiting
+          # would fail the whole ask over an optional cache lookup.
+          on_timeout: :kill_task,
+          zip_input_on_exit: true
+        )
+        |> Enum.find_value(fn
+          {:ok, {row, true}} -> {row, RuleMaven.Games.pool_tier(row)}
+          _ -> nil
         end)
     end
   end

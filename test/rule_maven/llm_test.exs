@@ -1315,6 +1315,99 @@ defmodule RuleMaven.LLMTest do
     end
   end
 
+  # A pool hit is the only free answer in this system, and the tiebreaker that
+  # unlocks one costs ~1/150th of the fresh ask it avoids. The old cap of 2
+  # therefore walked away from real hits to save a hundredth of a cent.
+  describe "tiebreaker depth and ordering" do
+    # Unit vectors in the first two dimensions: cosine similarity to the query
+    # ([1, 0, ...]) is just the first component, so each candidate's place in the
+    # 0.80-0.92 ambiguous band is exact and independent of any embedding model.
+    defp band_vec(sim) do
+      [sim, :math.sqrt(1.0 - sim * sim) | List.duplicate(0.0, 766)]
+    end
+
+    defp pool_row(game, question, sim) do
+      {:ok, q} =
+        Games.log_question(%{
+          game_id: game.id,
+          question: question,
+          answer: "Answer to #{question}",
+          visibility: "community",
+          citation_valid: true,
+          browsable: true
+        })
+
+      Repo.update_all(
+        from(ql in QuestionLog, where: ql.id == ^q.id),
+        set: [question_embedding: Pgvector.new(band_vec(sim))]
+      )
+
+      q
+    end
+
+    setup do
+      {:ok, game} = Games.create_game(%{name: "TiebreakDepth"})
+
+      # The query lands 0.90 / 0.87 / 0.84 from three candidates — all inside the
+      # ambiguous band, none a direct hit.
+      first = pool_row(game, "FIRST candidate question", 0.90)
+      second = pool_row(game, "SECOND candidate question", 0.87)
+      third = pool_row(game, "THIRD candidate question", 0.84)
+
+      query = [1.0 | List.duplicate(0.0, 767)]
+      Application.put_env(:rule_maven, :embed_mock, fn _text -> {:ok, query} end)
+      on_exit(fn -> Application.delete_env(:rule_maven, :embed_mock) end)
+
+      %{game: game, first: first, second: second, third: third}
+    end
+
+    test "a hit on the THIRD-nearest candidate is found, not abandoned at the old cap of 2", %{
+      game: game,
+      third: third
+    } do
+      mock_llm(fn body ->
+        content = body[:messages] |> List.last() |> Map.get(:content)
+
+        cond do
+          content =~ "Same underlying rules question?" and content =~ "THIRD" -> {:ok, %{answer: "yes"}}
+          content =~ "Same underlying rules question?" -> {:ok, %{answer: "no"}}
+          true -> {:ok, %{answer: "Fresh answer.", cited_passage: "p.1", followups: []}}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "some paraphrase")
+
+      assert result[:pool_hit] == true
+      assert result[:source_question_log_id] == third.id
+    end
+
+    test "when several candidates are equivalent, the NEAREST wins — not the fastest to reply", %{
+      game: game,
+      first: first
+    } do
+      # The tiebreakers run concurrently, so without ordered results the winner
+      # would be whichever provider call returned first — which is not a property
+      # of the match. Every candidate says yes; the nearest must still win.
+      mock_llm(fn body ->
+        content = body[:messages] |> List.last() |> Map.get(:content)
+
+        if content =~ "Same underlying rules question?" do
+          # The nearest candidate answers slowest, so a first-past-the-post
+          # implementation would serve the WRONG row here.
+          if content =~ "FIRST", do: Process.sleep(60)
+          {:ok, %{answer: "yes"}}
+        else
+          {:ok, %{answer: "Fresh answer.", cited_passage: "p.1", followups: []}}
+        end
+      end)
+
+      {:ok, result} = LLM.ask(game, "some paraphrase")
+
+      assert result[:pool_hit] == true
+      assert result[:source_question_log_id] == first.id
+    end
+  end
+
   describe "cache tier ordering" do
     test "own-user semantic fallback wins over a cross-user pool candidate" do
       {:ok, game} = Games.create_game(%{name: "OrderingGame"})

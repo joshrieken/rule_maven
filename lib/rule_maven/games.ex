@@ -4323,8 +4323,26 @@ defmodule RuleMaven.Games do
   # limit to the corpus size so nothing can be crowded out. Opt-in
   # (`small_corpus_boost: true`, set by the answer pipeline) so callers that
   # exercise top-k semantics directly keep exact `limit` behavior.
-  @small_corpus_max_chunks 25
-  @small_corpus_char_budget 60_000
+  #
+  # The budget is set by what the whole corpus COSTS, and that changed: the
+  # rulebook block is now an explicit prompt-cache prefix, and a cached input
+  # token bills at 0.25x. Measured on Catan (25 chunks / 47k chars / ~11.7k
+  # tokens) the whole corpus read from cache costs ~$0.00088 an ask, while the
+  # 10-chunk top-k slice it replaced costs ~$0.0014 uncached — sending
+  # EVERYTHING is now the cheaper option as well as the accurate one, and it
+  # stays cheaper up to ~19k tokens (~75k chars). Past that the whole corpus
+  # costs more than top-k, but only slowly (~$0.0002 an ask per extra 10k
+  # chars), so the budget buys real accuracy for very little: a rulebook under
+  # ~120k chars can never have the one chunk that answers the question ranked
+  # out of the prompt.
+  #
+  # These are the cost ceiling, not a context-window limit (flash holds 1M).
+  # Overridable in prod without a deploy — the right value depends on how
+  # densely a game's questions cluster in time (a cold cache pays full price
+  # for the whole corpus, so a game asked one lonely question a day wants a
+  # smaller budget than one worked through at a table).
+  @small_corpus_max_chunks 60
+  @small_corpus_char_budget 120_000
 
   defp maybe_expand_to_small_corpus(limit, game_ids, opts) do
     if Keyword.get(opts, :small_corpus_boost, false) and small_corpus?(game_ids) do
@@ -4349,8 +4367,16 @@ defmodule RuleMaven.Games do
   def small_corpus?(game_ids) when is_list(game_ids) do
     {count, chars} = corpus_size(game_ids)
 
-    count <= @small_corpus_max_chunks and chars <= @small_corpus_char_budget
+    count <= max_corpus_chunks() and chars <= corpus_char_budget()
   end
+
+  @doc "Chunk ceiling for whole-corpus retrieval. Setting-backed; see @small_corpus_max_chunks."
+  def max_corpus_chunks,
+    do: parse_limit(RuleMaven.Settings.get("corpus_max_chunks"), @small_corpus_max_chunks)
+
+  @doc "Character ceiling for whole-corpus retrieval. Setting-backed."
+  def corpus_char_budget,
+    do: parse_limit(RuleMaven.Settings.get("corpus_char_budget"), @small_corpus_char_budget)
 
   # Chunk count + total content chars for a game set, read through
   # `RuleMaven.CorpusCache` — this aggregate scans every published chunk for

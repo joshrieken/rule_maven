@@ -69,7 +69,11 @@ defmodule RuleMaven.LLMGroundingNarrowingTest do
   # where narrowing still applies.
   defp seed_big_chunks(game) do
     doc = published_doc(game)
-    padding = String.duplicate("Filler prose about tokens and tracks. ", 400)
+
+    # Five chunks is well under the chunk ceiling, so the CHAR budget is what has
+    # to be busted — and it must stay busted if that budget is raised again, hence
+    # the assertion at the end of this function rather than a magic number here.
+    padding = String.duplicate("Filler prose about tokens and tracks. ", 800)
 
     for i <- 0..4 do
       content =
