@@ -165,6 +165,71 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
              )
     end
 
+    test "clockwise/counterclockwise — direction of play, 0.95" do
+      refute Facets.compatible?(
+               "Does play proceed clockwise?",
+               "Does play proceed counterclockwise?"
+             )
+
+      assert Facets.conflict(
+               "Does play proceed clockwise?",
+               "Does play proceed counterclockwise?"
+             ) == :direction
+    end
+
+    test "first/last — turn order inverts the answer, 0.93" do
+      refute Facets.compatible?(
+               "Does the first player take the opening turn?",
+               "Does the last player take the opening turn?"
+             )
+
+      assert Facets.conflict(
+               "Does the first player take the opening turn?",
+               "Does the last player take the opening turn?"
+             ) == :order
+    end
+
+    test "steal/give — the robber transfer direction, 0.93" do
+      refute Facets.compatible?(
+               "Does the robber let me steal a card?",
+               "Does the robber let me give a card?"
+             )
+
+      assert Facets.conflict(
+               "Does the robber let me steal a card?",
+               "Does the robber let me give a card?"
+             ) == :transfer
+    end
+
+    test "face up/down — hidden vs public information, 0.99" do
+      # The single scariest pair found: the whole meaning of a card game's
+      # hidden information hangs on it, and the embedding barely moves.
+      refute Facets.compatible?(
+               "Are development cards kept face up?",
+               "Are development cards kept face down?"
+             )
+
+      assert Facets.conflict(
+               "Are development cards kept face up?",
+               "Are development cards kept face down?"
+             ) == :visibility
+
+      # "hidden"/"face down" are the SAME pole, so a paraphrase survives.
+      assert Facets.compatible?(
+               "Are development cards kept face down?",
+               "Are development cards kept hidden?"
+             )
+    end
+
+    test "bare up/down is NOT gated — only the face-up/face-down phrase" do
+      # "up to seven" must not collide with anything on the visibility axis;
+      # gating the bare token would wreck every question that counts cards.
+      assert Facets.compatible?(
+               "Do I discard with up to seven cards?",
+               "Do I discard with up to seven cards in hand?"
+             )
+    end
+
     test "negation is still gated (delegated to Polarity)" do
       refute Facets.compatible?(
                "Can the robber NOT be placed on the desert hex?",
@@ -274,6 +339,35 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
       assert Facets.compatible?(
                "Is a player permitted to trade prior to rolling?",
                "Can a player trade before rolling?"
+             )
+    end
+
+    test "person-paraphrase is deliberately NOT gated" do
+      # "do I" / "do you" / "does a player" are the most common paraphrase of
+      # one another. Gating a pronoun axis would bill every rephrase; the rare
+      # possessor flip ("my hex" vs "their hex") is not worth that cost.
+      assert Facets.compatible?(
+               "Do I collect resources on this roll?",
+               "Does a player collect resources on this roll?"
+             )
+
+      assert Facets.compatible?(
+               "Can I move the robber?",
+               "Can you move the robber?"
+             )
+    end
+
+    test "each/any and per-turn/per-game are deliberately NOT gated" do
+      # "each"/"any"/"every" and "turn"/"game" are too common and too often
+      # interchangeable in casual phrasing to gate an answer on.
+      assert Facets.compatible?(
+               "Does each player discard on a seven?",
+               "Does any player discard on a seven?"
+             )
+
+      assert Facets.compatible?(
+               "Can I play one knight per turn?",
+               "Can I play one knight per game?"
              )
     end
 

@@ -20,15 +20,33 @@ defmodule RuleMaven.LLM.QuestionFacets do
       "robber on a DIFFERENT hex?"           -> hit "on the SAME hex"         0.97
       "do I GAIN a victory point?"           -> "do I LOSE a victory point"   0.95
       "longest road INCLUDE broken roads?"   -> "EXCLUDE broken roads"        0.95
+      "kept FACE UP?"                        -> "kept FACE DOWN"              0.99
+      "robber let me STEAL a card?"          -> "let me GIVE a card"          0.93
+      "play proceed CLOCKWISE?"              -> "proceed COUNTERCLOCKWISE"    0.95
+      "does the FIRST player go first?"      -> "does the LAST player"        0.93
 
   This is a finite list against an open-ended problem: any antonym pair whose swap
   leaves the wording — and so the embedding — almost unchanged is a candidate, and
   new ones surface as the corpus grows. The scope stays bounded because a swap only
   survives the direct-hit floor when the rest of the phrasing is near-identical, so
   the dangerous pairs are single-token antonyms that actually occur in rules
-  questions; the sweep that found `same`/`different`, `gain`/`lose`,
-  `include`/`exclude` and `open`/`closed` covers the common ones. `add`/`remove` is
-  deliberately absent: it appears too often in neutral phrasing to gate an answer.
+  questions; the sweeps that found `same`/`different`, `gain`/`lose`,
+  `include`/`exclude`, `open`/`closed`, `clockwise`/`counterclockwise`,
+  `first`/`last`, `steal`/`give` and `face up`/`face down` cover the common ones.
+
+  Three classes are deliberately left UNGATED, because the word that would flip the
+  answer is also the word a harmless paraphrase swaps, and blocking it bills every
+  rephrase at full price:
+
+    * `add`/`remove` — "add a road" is neutral phrasing far more often than a flip.
+    * person / possessor — "do I" / "do you" / "does a player" are each other's most
+      common paraphrase; the rare "my hex" vs "their hex" flip is not worth gating
+      the whole pronoun space (measured: "my" vs "opponent" drops to 0.86 anyway).
+    * scope and quantifier — "per turn" vs "per game", "each" vs "any": the deciding
+      tokens (turn, game, each, any, every) are common and freely interchangeable.
+
+  `face up`/`face down` is gated as a PHRASE, not on the bare tokens up/down, which
+  carry no direction of their own ("up to seven cards").
 
   The first of those served "**No.** Trading before rolling is not permitted." to
   a player asking whether they may trade after rolling — which they may, every
@@ -101,6 +119,35 @@ defmodule RuleMaven.LLM.QuestionFacets do
     state: [
       ~w(open opens opened),
       ~w(closed closes closing shut)
+    ],
+    # "does play go CLOCKWISE" vs "COUNTERCLOCKWISE". Direction of play — one
+    # token, and it is the whole answer. Near-zero paraphrase collision: you
+    # only write a direction when the direction IS the question.
+    direction: [
+      ~w(clockwise),
+      ~w(counterclockwise anticlockwise widdershins)
+    ],
+    # "does the FIRST player go first" vs "the LAST player". Turn order.
+    # "starting"/"initial" are left off the FIRST side on purpose — they are
+    # common neutral paraphrases of "first" and gating them would over-block.
+    order: [
+      ~w(first earliest),
+      ~w(last final latest)
+    ],
+    # "does the robber let me STEAL a card" vs "GIVE a card". A transfer that
+    # reverses direction. Kept narrow to the two distinctive verbs — "take"
+    # and "pay" appear too often neutrally ("take your turn", "pay the cost").
+    transfer: [
+      ~w(steal steals stole stolen),
+      ~w(give gives gave given)
+    ],
+    # "kept FACE UP" vs "FACE DOWN" — hidden vs public information, the whole
+    # point of a card game's secrecy, and 0.99 on the embedding. `tokens/1`
+    # collapses the phrase "face up" -> "faceup" so the BARE tokens up/down
+    # stay ungated ("up to seven cards" must not fire this).
+    visibility: [
+      ~w(faceup revealed visible public exposed),
+      ~w(facedown hidden concealed secret)
     ]
   }
 
@@ -277,11 +324,17 @@ defmodule RuleMaven.LLM.QuestionFacets do
 
   # Digits are kept (they carry the rule) and apostrophes dropped, so that
   # "can't"/"can’t" collapse the way Polarity collapses them.
+  #
+  # "face up"/"face down" collapse to single tokens first, so the visibility
+  # axis fires on the PHRASE while the bare tokens up/down stay ungated — "up
+  # to seven cards" must not be dragged onto a visibility pole.
   defp tokens(text) do
     text
     |> to_string()
     |> String.downcase()
     |> String.replace(~r/['’]/u, "")
+    |> String.replace(~r/\bface\s+up\b/u, "faceup")
+    |> String.replace(~r/\bface\s+down\b/u, "facedown")
     |> String.split(~r/[^a-z0-9]+/u, trim: true)
   end
 end
