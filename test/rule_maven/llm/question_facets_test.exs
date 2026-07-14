@@ -436,6 +436,59 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
              )
     end
 
+    test "horizontal/vertical — placement orientation, 0.94; up is not an axis" do
+      refute Facets.compatible?(
+               "Must the tiles be placed horizontally?",
+               "Must the tiles be placed vertically?"
+             )
+
+      assert Facets.conflict(
+               "Must the tiles be placed horizontally?",
+               "Must the tiles be placed vertically?"
+             ) == :orientation
+
+      assert Facets.compatible?(
+               "Must the tiles be placed horizontally?",
+               "How must the tiles be placed?"
+             )
+
+      # `up` must not become an orientation pole — it belongs to the `up to N`
+      # bound and everyday phrasing.
+      assert Facets.compatible?(
+               "Can I hold up to seven cards?",
+               "May I keep up to seven cards?"
+             )
+    end
+
+    test "inner/outer — radial position, 0.96" do
+      refute Facets.compatible?(
+               "Do I place the marker on the inner ring?",
+               "Do I place the marker on the outer ring?"
+             )
+
+      assert Facets.conflict(
+               "Do I place the marker on the inner ring?",
+               "Do I place the marker on the outer ring?"
+             ) == :radial
+
+      assert Facets.compatible?(
+               "Do I place the marker on the inner ring?",
+               "Do I place the marker on a ring?"
+             )
+    end
+
+    test "major/minor — scoring tier, 0.93" do
+      refute Facets.compatible?(
+               "Is this scored as a major set?",
+               "Is this scored as a minor set?"
+             )
+
+      assert Facets.conflict(
+               "Is this scored as a major set?",
+               "Is this scored as a minor set?"
+             ) == :tier
+    end
+
     test "most/least stay on the comparative axis, not the superlative one" do
       # `most`/`least` are the at-most/at-least BOUND ("at least seven" = seven or
       # more), a different sense than the highest/lowest superlative. They must not

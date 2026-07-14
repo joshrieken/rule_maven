@@ -248,6 +248,28 @@ defmodule RuleMaven.LLM.QuestionFacets do
     movement: [
       ~w(forward forwards),
       ~w(backward backwards)
+    ],
+    # "must the tiles be placed HORIZONTALLY" vs "VERTICALLY" — placement
+    # orientation, 0.94 on the embedding. Distinctive antonyms with near-zero
+    # neutral use. `up`/`down` are deliberately NOT an axis: "up" collides with
+    # the `up to N` bound marker and appears in "set up"/"sum up"/"up to date".
+    orientation: [
+      ~w(horizontal horizontally),
+      ~w(vertical vertically)
+    ],
+    # "place the marker on the INNER ring" vs "the OUTER ring" — radial position,
+    # 0.96. inner/outer only oppose each other, so a question naming neither ring
+    # still matches.
+    radial: [
+      ~w(inner innermost),
+      ~w(outer outermost)
+    ],
+    # "scored as a MAJOR set" vs "a MINOR set" — tier, 0.93, one token flipping
+    # the score. The pair only fires against each other; a false fire would need
+    # two otherwise-identical questions split on major/minor, which is rare.
+    tier: [
+      ~w(major),
+      ~w(minor)
     ]
   }
 
