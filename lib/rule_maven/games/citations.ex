@@ -222,6 +222,15 @@ defmodule RuleMaven.Games.Citations do
 
   # Spelled-out numbers count as engagement — "you discard four" answers
   # "how many with 9 cards" questions that restate quantities in words.
+  #
+  # The map ran out at twelve until pen round 6 (2026-07-14), which made every
+  # premise above it invisible: "the robber lets me steal fifteen cards, right?"
+  # produced the correct "steal 1 resource card" 4/4 while never once saying
+  # "not fifteen" — the guard never fired, so the false belief stood. Board-game
+  # premises live comfortably in the tens (road segments, victory points, card
+  # counts), so the map now runs to a hundred; @compound_number folds
+  # "twenty-five" into one token before the split, so it does not read as a
+  # separate 20 and 5 that the answer must engage independently.
   @number_words %{
     "zero" => "0",
     "one" => "1",
@@ -235,8 +244,37 @@ defmodule RuleMaven.Games.Citations do
     "nine" => "9",
     "ten" => "10",
     "eleven" => "11",
-    "twelve" => "12"
+    "twelve" => "12",
+    "thirteen" => "13",
+    "fourteen" => "14",
+    "fifteen" => "15",
+    "sixteen" => "16",
+    "seventeen" => "17",
+    "eighteen" => "18",
+    "nineteen" => "19",
+    "twenty" => "20",
+    "thirty" => "30",
+    "forty" => "40",
+    "fifty" => "50",
+    "sixty" => "60",
+    "seventy" => "70",
+    "eighty" => "80",
+    "ninety" => "90",
+    "hundred" => "100"
   }
+
+  @tens %{
+    "twenty" => 20,
+    "thirty" => 30,
+    "forty" => 40,
+    "fifty" => 50,
+    "sixty" => 60,
+    "seventy" => 70,
+    "eighty" => 80,
+    "ninety" => 90
+  }
+
+  @compound_number ~r/\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-](one|two|three|four|five|six|seven|eight|nine)\b/i
 
   @doc """
   Numeric values the `question` states that the `answer` never mentions —
@@ -332,6 +370,46 @@ defmodule RuleMaven.Games.Citations do
 
     if length(missing) > @max_ignored_premises, do: [], else: missing
   end
+
+  # A question that ends in a confirmation tag is asserting, not asking: the
+  # asker has a belief and wants it graded. Refusing one ("The rulebook does not
+  # cover this question.") is the worst possible reply — it withholds a rule the
+  # corpus does state AND leaves the false belief intact.
+  @confirmation_tag ~r/(?:,?\s*(?:right|correct|yes|yeah|true)\s*\?)|(?:\bis(?:n'?t)? that (?:right|correct|true)\b)|(?:\bam i right\b)|(?:\bisn'?t it\b)|(?:\bdon'?t i\b)|(?:\bdo i not\b)|(?:\bis it true\b)/i
+
+  # Deliberately tighter than @max_ignored_premises: this budget opens a retry on
+  # a REFUSAL, where there is no answer text to check the premises against, so
+  # every stated number counts as missing. Two keeps the rescue aimed at genuine
+  # assertions ("you need 20 road segments, yes?") and away from narrative that
+  # happens to end in "right?".
+  @max_refusal_premises 2
+
+  @doc """
+  Premises a refused question asserted and therefore still deserves an answer
+  for — the rescue path for the failure pen round 6 (2026-07-14) found: "You
+  need 20 road segments for Longest Road, yes?" was refused 3/4 runs even though
+  the rulebook plainly states 5. The answer model reads the false number, decides
+  the question describes a state the rules never mention, and goes silent.
+
+  Only confirmation-seeking questions qualify (see `@confirmation_tag`), and only
+  when they assert at most #{@max_refusal_premises} values. An open numeric
+  question ("what happens if two players tie?") must keep refusing when the rules
+  really are silent — firing a retry on every numeric refusal buys latency, not
+  rescues.
+  """
+  def refusal_premises(question) when is_binary(question) do
+    if Regex.match?(@confirmation_tag, question) do
+      # No answer text to compare against on a refusal, so "" makes every stated
+      # premise read as unengaged — which, for a refusal, it is.
+      asserted = ignored_numbers(question, "") ++ ignored_fractions(question, "")
+
+      if length(asserted) > @max_refusal_premises, do: [], else: asserted
+    else
+      []
+    end
+  end
+
+  def refusal_premises(_question), do: []
 
   # Unicode vulgar-fraction glyphs, canonicalized to the same "n/m" form as
   # everything else. Mobile keyboards and autocorrect produce these routinely
@@ -449,6 +527,9 @@ defmodule RuleMaven.Games.Citations do
     text
     |> String.downcase()
     |> then(&Regex.replace(@percent_expr, &1, " "))
+    |> then(&Regex.replace(@compound_number, &1, fn _, tens, unit ->
+      " #{Map.fetch!(@tens, tens) + String.to_integer(Map.fetch!(@number_words, unit))} "
+    end))
     |> String.split(~r/[^a-z0-9:]+/, trim: true)
     |> Enum.map(&Map.get(@number_words, &1, &1))
     |> Enum.filter(&(&1 =~ ~r/^\d+(?::\d+)?$/))

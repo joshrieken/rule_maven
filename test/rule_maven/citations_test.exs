@@ -793,4 +793,71 @@ defmodule RuleMaven.Games.CitationsTest do
       assert "1/3" in result
     end
   end
+
+  describe "spelled-out numbers above twelve" do
+    test "a spelled premise the answer never engages still flags" do
+      # Pen round 6: "steal fifteen cards, right?" answered "steal 1 resource
+      # card" 4/4 and never once said "not fifteen" — the guard stopped at twelve.
+      assert Citations.ignored_numbers(
+               "The robber lets me steal fifteen cards, right?",
+               "The robber steals 1 resource card from an opponent."
+             ) == ["15"]
+
+      assert Citations.ignored_numbers(
+               "You need twenty road segments for Longest Road, yes?",
+               "You need a continuous road of at least 5 segments."
+             ) == ["20"]
+    end
+
+    test "an answer that spells the number back engages it" do
+      assert Citations.ignored_numbers(
+               "Do I need fifteen victory points?",
+               "No — you need ten victory points, not fifteen."
+             ) == []
+    end
+
+    test "a compound number is one premise, not its parts" do
+      assert Citations.ignored_numbers(
+               "Do I win at twenty-five points?",
+               "You win at 10 points."
+             ) == ["25"]
+
+      # The compound must not decompose into a 20 the answer has to engage
+      # separately — an answer naming 25 clears the whole premise.
+      assert Citations.ignored_numbers(
+               "Do I win at twenty five points?",
+               "No — 10 points, not 25."
+             ) == []
+    end
+  end
+
+  describe "refusal_premises/1" do
+    test "a confirmation-seeking numeric assertion earns a rescue" do
+      assert Citations.refusal_premises("You need 20 road segments for Longest Road, yes?") == [
+               "20"
+             ]
+
+      assert Citations.refusal_premises("The robber steals fifteen cards, right?") == ["15"]
+      assert Citations.refusal_premises("I discard a third on a 7, isn't it?") == ["7", "1/3"]
+    end
+
+    test "an open numeric question is not rescued" do
+      # A genuine "the rules are silent here" refusal must stand — no tag, no
+      # rescue, no retry spent.
+      assert Citations.refusal_premises("What happens if 2 players tie for Longest Road?") == []
+      assert Citations.refusal_premises("How many cards do I discard on a 7?") == []
+    end
+
+    test "a confirmation tag with no stated number is not rescued" do
+      assert Citations.refusal_premises("The robber blocks the hex, right?") == []
+    end
+
+    test "narrative that happens to end in a tag is not rescued" do
+      ramble =
+        Enum.map_join(1..6, " ", fn i -> "On turn #{i} we argued." end) <>
+          " So I discard 4 of my 9 cards and lose 2 roads, right?"
+
+      assert Citations.refusal_premises(ramble) == []
+    end
+  end
 end

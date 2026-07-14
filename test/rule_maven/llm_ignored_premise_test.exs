@@ -253,21 +253,42 @@ defmodule RuleMaven.LLMIgnoredPremiseTest do
     assert Process.get(:ask_calls) == 2
   end
 
-  test "a refusal that survives the retry stands without escalating" do
+  test "a refusal that survives the retry escalates" do
     game = seed_corpus()
     fraction_q = "Do I move the Terror Track down a third when a Monster is defeated?"
 
     fraction_mock(fraction_q, fn
       1 -> refusal_result()
       2 -> refusal_result()
+      3 -> answer_result("No — the Terror Track moves down one space, not a third.")
     end)
 
     {:ok, result} = LLM.ask(game, fraction_q)
 
+    # A stated proportion is un-refusable: the real rule always exists to confirm
+    # or correct against. Refusing it twice is the double miss the escalate rung
+    # exists for (pen round 6, 2026-07-14 — "a third or a quarter?" refused 3/3
+    # because the rung skipped refusals outright).
+    assert result.answer =~ "not a third"
+    assert Process.get(:ask_calls) == 3
+  end
+
+  test "an escalate that also refuses leaves the refusal standing" do
+    game = seed_corpus()
+    fraction_q = "Do I move the Terror Track down a third when a Monster is defeated?"
+
+    fraction_mock(fraction_q, fn
+      1 -> refusal_result()
+      2 -> refusal_result()
+      3 -> refusal_result()
+    end)
+
+    {:ok, result} = LLM.ask(game, fraction_q)
+
+    # The escalate costs one call and changes nothing — the truthful refusal is
+    # still what the user sees, never a fabricated rescue.
     assert result.answer == "The rulebook does not cover this question."
-    # Two calls, no third: the escalate rung never fires on a refusal — the
-    # refusal escalations downstream own that path.
-    assert Process.get(:ask_calls) == 2
+    assert Process.get(:ask_calls) == 3
   end
 
   test "a refusal of a premise-free question never enters the gate" do

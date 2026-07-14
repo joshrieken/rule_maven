@@ -961,23 +961,22 @@ defmodule RuleMaven.LLM do
   # retried answer goes through the same contradiction + grounding checks as
   # a first-pass answer and is kept even if it still omits the number — it
   # was produced with the premise called out, so it is the better-informed
-  # answer either way. A refusal enters this rung only for FRACTION/PERCENT
+  # answer either way. A refusal enters this rung on two counts. FRACTION/PERCENT
   # premises: pen round 3 (2026-07-13) showed normalize can mangle "25% of my
   # cards" into nonsense the answer model then refuses, and a stated proportion
   # is un-refusable (the real rule always exists to confirm or correct against)
-  # — so the raw re-ask is exactly the rescue. Plain numbers stay out of the
-  # refusal path: "what if two players tie?" refusals are routine, and firing a
-  # retry on every numeric refusal buys latency, not rescues. The escalate rung
-  # below still skips refusals; the refusal escalations downstream own that
-  # path.
+  # — so the raw re-ask is exactly the rescue. And CONFIRMATION-SEEKING numeric
+  # assertions (Citations.refusal_premises/1): pen round 6 (2026-07-14) refused
+  # "you need 20 road segments for Longest Road, yes?" 3/4 runs though the
+  # rulebook states 5 — the false number reads to the answer model as a state the
+  # rules never describe. Open numeric questions stay out of the refusal path:
+  # "what if two players tie?" refusals are routine, and firing a retry on every
+  # numeric refusal buys latency, not rescues. The escalate rung below still
+  # skips refusals, so a rescue that refuses again costs exactly one call.
   defp maybe_retry_ignored_premise(llm_result, system_prompt, ctx, chunks) do
     missing =
       if refused_answer?(llm_result),
-        do:
-          RuleMaven.Games.Citations.ignored_fractions(
-            to_string(ctx.raw_question),
-            to_string(llm_result[:answer])
-          ),
+        do: unrefusable_premises(ctx.raw_question),
         else:
           RuleMaven.Games.Citations.ignored_premises(
             to_string(ctx.raw_question),
@@ -1035,10 +1034,30 @@ defmodule RuleMaven.LLM do
   # answer is kept ONLY if it actually engages every stated number and isn't
   # a refusal — otherwise the cheaper retry stands. Cost shows up in the
   # dashboard under the escalate model's rates.
+  # Premises a refusal can never be the right reply to: a stated proportion or a
+  # confirmation-seeking count. The rule they assert either matches the rulebook
+  # or contradicts it, and both outcomes are answerable — so "the rulebook does
+  # not cover this question" is always wrong here.
+  defp unrefusable_premises(raw_question) do
+    raw = to_string(raw_question)
+
+    Enum.uniq(
+      RuleMaven.Games.Citations.ignored_fractions(raw, "") ++
+        RuleMaven.Games.Citations.refusal_premises(raw)
+    )
+  end
+
   defp maybe_escalate_ignored_premise(retried, warned_system_prompt, ctx, chunks) do
     still =
       if refused_answer?(retried),
-        do: [],
+        do:
+          # A retry that refuses AGAIN on an unrefusable premise is the double
+          # miss this rung exists for — the refusal skip used to slam the door
+          # here, so "do I discard a third or a quarter?" refused 3/3 (pen round
+          # 6, 2026-07-14) with the escalate model never consulted. The keep-check
+          # below still throws out an escalated refusal, so the worst case is one
+          # extra call and the same refusal the user would have gotten anyway.
+          unrefusable_premises(ctx.raw_question),
         else:
           RuleMaven.Games.Citations.ignored_premises(
             to_string(ctx.raw_question),
