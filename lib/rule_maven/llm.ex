@@ -1859,10 +1859,16 @@ defmodule RuleMaven.LLM do
   end
 
   # Existing canonical questions this game already has a pooled/community
-  # answer for — passed to the normalize LLM as a rewrite hint (see rule 8 of
-  # `normalize_question_system`) so a fresh paraphrase converges on the SAME
-  # wording instead of drifting to a phrasing that misses the pool match.
-  # Nearest-first to the asked question when its embedding is available.
+  # answer for — passed to the normalize LLM as a rewrite hint (see rules 9b, 10
+  # and 10b of `normalize_question_system`) so a fresh paraphrase converges on
+  # the SAME wording instead of drifting to a phrasing that misses the pool
+  # match. Nearest-first to the asked question when its embedding is available.
+  #
+  # The list is a loaded gun: the NEAREST canonical questions are by construction
+  # the ones most easily confused with the asked one, so the header that invites
+  # reuse has to carry the strict standard with it. It lives in the prompt
+  # registry (`normalize_canonical_hint`) rather than being built here — every
+  # prompt is editable, and this one is load-bearing enough to be worth tuning.
   defp canonical_questions_block(game_id, hint_embedding) do
     case RuleMaven.Games.list_canonical_questions(game_id, near: hint_embedding) do
       [] ->
@@ -1871,7 +1877,7 @@ defmodule RuleMaven.LLM do
       questions ->
         bullets = Enum.map_join(questions, "\n", &"- #{&1}")
 
-        "\nAlready-answered questions for this game (reuse verbatim if this question means the same thing):\n#{bullets}\n"
+        RuleMaven.Prompts.render("normalize_canonical_hint", %{bullets: bullets})
     end
   end
 

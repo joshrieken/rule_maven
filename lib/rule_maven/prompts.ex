@@ -139,7 +139,9 @@ defmodule RuleMaven.Prompts do
      Only "who did what" colour (player names, table talk, what someone's friend claims) may be dropped.
   8. If the input asks TWO OR MORE distinct rules questions, keep both in one canonical question joined by "and" — never silently drop the second one.
   9. Preserve the meaning exactly — do not answer, narrow, or broaden it. Rewriting a question into a broader one that the specific case merely falls under IS narrowing the answer, and is forbidden: "Can a Guide action move a Citizen through a Teleportation Circle?" must NOT become "Can a Citizen move through a Teleportation Circle?", and "Can 3 wool be traded for 1 brick with a 2:1 ore harbor?" must NOT become "Can 3 wool be traded for 1 brick?".
-  10. If an "already-answered questions" list is given and one of its entries would be answered by the EXACT SAME rule as this player's question, output that entry VERBATIM instead of writing a new rewrite — even if your own phrasing would otherwise differ. Same rule means: a single correct answer resolves both. Two questions about the same game element but different rules do NOT match — e.g. "What is the maximum hand size?" (a storage cap) is a DIFFERENT rule from "How many cards force a discard?" (a trigger threshold), even though both are about cards in hand. An entry does NOT match if matching it would cost a load-bearing detail from rule 7 — "How many cards are discarded with 9 in hand?" is not the entry "What happens when a player has 7 cards and a 7 is rolled?". When in doubt, write your own rewrite rather than force-fit an entry.
+  9b. PRESERVE THE KIND OF QUESTION ASKED. An open question ("how", "what", "when", "which", "why") asks for a PROCEDURE or a VALUE; a yes/no question asks whether one specific thing is permitted. They are different questions with different answers, and one must NEVER be rewritten into the other. "How is the robber moved?" asks for the procedure and must NOT become "Is the robber moved after discarding?" — that is a yes/no question about ordering, and answering it leaves the asker never told how the robber moves. Likewise "What do I do with the robber?" must not become "Can the robber be placed on the desert?". If the closest already-answered entry is a yes/no question and the player asked an open one (or the reverse), the entry does NOT match — write your own rewrite.
+  10. If an "already-answered questions" list is given and one of its entries would be answered by the EXACT SAME rule as this player's question, output that entry VERBATIM instead of writing a new rewrite — even if your own phrasing would otherwise differ. Same rule means: a single correct answer resolves both. Two questions about the same game element but different rules do NOT match — e.g. "What is the maximum hand size?" (a storage cap) is a DIFFERENT rule from "How many cards force a discard?" (a trigger threshold), even though both are about cards in hand. An entry does NOT match if matching it would cost a load-bearing detail from rule 7 — "How many cards are discarded with 9 in hand?" is not the entry "What happens when a player has 7 cards and a 7 is rolled?", or the kind of question asked (rule 9b). When in doubt, write your own rewrite rather than force-fit an entry.
+  10b. VERBATIM MEANS VERBATIM, and it OUTRANKS rules 3, 4 and 6. When you reuse an entry, copy it character for character — every article, every word, its exact punctuation. Do NOT shorten it, strip its articles, or compress it toward the word budget: those rules govern rewrites you WRITE, never an entry you COPY. Producing "How many cards must discarded on 7?" from the entry "How many cards must be discarded on a 7?" is a corruption, not a reuse — it is not even grammatical. If an entry is worth reusing, it is already canonical; if it seems to need editing, it was the wrong entry and you should write your own rewrite instead.
   11. If the input is not interpretable as a question or topic about the game (random characters, gibberish, test strings), output the input UNCHANGED — do not invent a question around it.
   12. Write the canonical question in English, ALWAYS — even if the player's question is in another language. Never output another language.
 
@@ -166,6 +168,24 @@ defmodule RuleMaven.Prompts do
   KEEP every quantity, named component or action, player count, game mode, and board state the question hinges on — those decide the answer, and a rewrite that drops them produces a question nobody asked. Keep both halves of a two-part question. Keep who owns or does what as impersonal counts ("one player with two settlements", not "two settlements"), and keep any rule the asker asserts as a stated premise so it can be confirmed or corrected. This includes FRACTIONS and PROPORTIONS the asker states ("a third", "half", "a quarter", "two-thirds") and any rate or ratio — preserve them verbatim; they are premises to confirm or correct, so "Do I discard a third of my cards?" must stay a question about "a third", never be flattened to "How many cards are discarded?".
 
   {{question}}
+  """
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Header above the canonical-question hints. This is the line the model reads
+  # immediately before the list, and it used to say only "reuse verbatim if this
+  # question means the same thing" — a far looser standard than rules 9b/10/10b
+  # of the system primer, sitting much closer to the list. The nearest canonical
+  # questions are, by construction, the ones most easily confused with the asked
+  # one, so a loose invitation to reuse them is an invitation to answer a
+  # question nobody asked: "If I roll a seven, how does the robber get moved?"
+  # came back as "Is robber moved after discarding on 7?" — a different question,
+  # whose "Yes" answer was then served and pooled. Restate the strict standard
+  # here, where it is actually being applied.
+  # ──────────────────────────────────────────────────────────────────────────
+  @normalize_canonical_hint """
+
+  Already-answered questions for this game. Reuse an entry ONLY when a single correct answer would resolve BOTH it and the player's question — the exact same rule, not merely the same topic, component or game element. A broader, narrower, or different-kind question is NOT a match: if the player asked an open question ("how", "what", "when") and the entry is a yes/no question, or the reverse, it does not match. When an entry does match, copy it CHARACTER FOR CHARACTER — never shorten it or strip its articles. When none matches, ignore this list entirely and write your own rewrite; forcing a fit answers a question the player did not ask.
+  {{bullets}}
   """
 
   # ──────────────────────────────────────────────────────────────────────────
@@ -1306,6 +1326,15 @@ defmodule RuleMaven.Prompts do
         "Rewrites a raw question into a standalone canonical form before the pool lookup, so paraphrases share an embedding and hit the cache.",
       vars: ~w(game_name game_kind context_block question),
       default: @normalize_question
+    },
+    %{
+      key: "normalize_canonical_hint",
+      group: "Q&A",
+      label: "Question normalize — canonical hint header",
+      description:
+        "Header above the already-answered questions handed to the normalizer. This line sits directly above the list and is what the model actually reads when deciding to reuse an entry — a loose wording here quietly overrides the strict reuse rules in the system primer.",
+      vars: ~w(bullets),
+      default: @normalize_canonical_hint
     },
     %{
       key: "pool_tiebreaker_system",
