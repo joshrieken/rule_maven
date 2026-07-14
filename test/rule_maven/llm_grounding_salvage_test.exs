@@ -48,6 +48,9 @@ defmodule RuleMaven.LLMGroundingSalvageTest do
     on_exit(fn -> Application.delete_env(:rule_maven, :embed_mock) end)
   end
 
+  defp message_text(content) when is_binary(content), do: content
+  defp message_text(parts) when is_list(parts), do: Enum.map_join(parts, "", & &1.text)
+
   # Answer-model calls carry response_format; critics and normalize go through
   # chat/3 without it. Distinguish critics by their system prompt.
   defp mock_llm(ask_fun, critic_fun) do
@@ -61,8 +64,12 @@ defmodule RuleMaven.LLMGroundingSalvageTest do
           Process.put(:ask_calls, n)
           ask_fun.(n)
 
+        # A message's content is a plain string, or — once a prompt-cache
+        # breakpoint is marked on it — a list of `%{type: "text", text: ...}`
+        # parts. The critic's system prompt carries the cached rulebook, so it
+        # arrives in the list shape.
         Enum.any?(body.messages, fn m ->
-          m.role == "system" and m.content =~ "adversarial fact-checker"
+          m.role == "system" and message_text(m.content) =~ "adversarial fact-checker"
         end) ->
           n = Process.get(:critic_calls) + 1
           Process.put(:critic_calls, n)

@@ -135,9 +135,7 @@ defmodule RuleMaven.LLMPromptCacheTest do
       bodies()
       |> Enum.filter(fn b ->
         Enum.any?(b.messages, fn m ->
-          m.role == "user" and
-            (is_list(m.content) or is_binary(m.content)) and
-            String.contains?(message_text(m.content), "RULEBOOK EXCERPTS:")
+          String.contains?(message_text(m.content), "RULEBOOK EXCERPTS:")
         end)
       end)
     end
@@ -146,9 +144,7 @@ defmodule RuleMaven.LLMPromptCacheTest do
     defp message_text(parts) when is_list(parts), do: Enum.map_join(parts, "", & &1.text)
 
     defp answer_then_critic(body) do
-      user = Enum.find(body.messages, &(&1.role == "user"))
-
-      if user && String.contains?(message_text(user.content), "RULEBOOK EXCERPTS:") do
+      if Enum.any?(body.messages, &String.contains?(message_text(&1.content), "RULEBOOK EXCERPTS:")) do
         # `raw: true` — the critic reads raw_response, not the ask-shaped answer.
         {:ok, %{answer: "", raw_response: "VERDICT: grounded", finish_reason: "stop"}}
       else
@@ -175,13 +171,18 @@ defmodule RuleMaven.LLMPromptCacheTest do
 
       prefixes =
         Enum.map(critics, fn body ->
-          [prefix | rest] = Enum.find(body.messages, &(&1.role == "user")).content
+          # Excerpts ride the SYSTEM message: Gemini caches only its
+          # systemInstruction, so excerpts marked in a user turn cache nothing.
+          [prefix] = Enum.find(body.messages, &(&1.role == "system")).content
+          user = Enum.find(body.messages, &(&1.role == "user"))
+
+          assert prefix.cache_control == %{type: "ephemeral"}
 
           # The answer and its quotes change every call and must stay out of the
           # cached half, or the prefix never matches twice.
-          assert prefix.cache_control == %{type: "ephemeral"}
-          assert Enum.all?(rest, &(not Map.has_key?(&1, :cache_control)))
           refute prefix.text =~ "ANSWER:"
+          assert message_text(user.content) =~ "ANSWER:"
+          assert is_binary(user.content)
 
           prefix.text
         end)
@@ -210,7 +211,7 @@ defmodule RuleMaven.LLMPromptCacheTest do
       # critic call, carrying every chunk, and no second confirming call.
       assert [critic] = critic_bodies()
 
-      text = message_text(Enum.find(critic.messages, &(&1.role == "user")).content)
+      text = message_text(Enum.find(critic.messages, &(&1.role == "system")).content)
       assert text =~ "draws 5 cards"
       assert text =~ "discard half your hand"
     end

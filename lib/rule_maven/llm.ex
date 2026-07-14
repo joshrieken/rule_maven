@@ -2014,17 +2014,24 @@ defmodule RuleMaven.LLM do
         do: "",
         else: "RULEBOOK EXCERPTS:\n\n" <> sources_text <> "\n\n---\n\n"
 
-    user =
-      excerpts_block <>
-        "CITED QUOTE(S):\n\n" <> quoted_text <> "\n\n---\n\nANSWER:\n\n" <> (answer || "")
+    judgement = "CITED QUOTE(S):\n\n" <> quoted_text <> "\n\n---\n\nANSWER:\n\n" <> (answer || "")
+    template = RuleMaven.Prompts.template("grounding_critic")
+    cacheable? = opts[:cacheable_sources] && excerpts_block != ""
+
+    # Gemini caches only its systemInstruction — excerpts marked in a USER
+    # message are not cached at all (measured: 0% over 3 calls at 12.7k tokens
+    # each). So a cacheable corpus rides the SYSTEM message, the same shape the
+    # answer prompt already proves at 99.7%: instructions, then the rulebook,
+    # breakpoint at the end. Both halves are stable, so the whole system message
+    # is the cached prefix and only the quotes and the answer vary per call.
+    {system, user} =
+      if cacheable?,
+        do: {template <> "\n\n" <> excerpts_block, judgement},
+        else: {template, excerpts_block <> judgement}
 
     case chat(user, "grounding_critic",
-           system: RuleMaven.Prompts.template("grounding_critic"),
-           # The excerpts block leads the prompt and — when the caller says the
-           # sources are the whole corpus in document order — is byte-identical
-           # for every question on this game, so it is a cache breakpoint. The
-           # quotes and the answer, which change every call, sit after it.
-           cache_block: if(opts[:cacheable_sources] && excerpts_block != "", do: excerpts_block),
+           system: system,
+           cache_system: cacheable?,
            # `raw: true` — without it a JSON-wrapped critic reply decodes to ""
            # (no "answer" key), which parse_grounding_verdict defaults to
            # :grounded, silently failing the whole critic open. Ceiling, not
@@ -2275,7 +2282,16 @@ defmodule RuleMaven.LLM do
 
     messages =
       if system = opts[:system] do
-        [%{role: "system", content: system}, %{role: "user", content: user_content}]
+        # `:cache_system` marks the ENTIRE system message as the breakpoint —
+        # for a caller whose whole system prompt is stable (rulebook and all)
+        # and whose per-call text lives in the user turn. Gemini only caches its
+        # systemInstruction, so this is the only shape that caches there.
+        system_content =
+          if opts[:cache_system],
+            do: [%{type: "text", text: system, cache_control: cache_control(model_name)}],
+            else: system
+
+        [%{role: "system", content: system_content}, %{role: "user", content: user_content}]
       else
         [%{role: "user", content: user_content}]
       end

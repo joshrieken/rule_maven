@@ -63,6 +63,41 @@ defmodule RuleMaven.LLMGroundingNarrowingTest do
     on_exit(fn -> Application.delete_env(:rule_maven, :embed_mock) end)
   end
 
+  # The same five chunks, padded until the corpus busts the small-corpus char
+  # budget. That is what puts a game on the top-k retrieval path, where the
+  # prompt prefix varies per question and so cannot be cached — the only path
+  # where narrowing still applies.
+  defp seed_big_chunks(game) do
+    doc = published_doc(game)
+    padding = String.duplicate("Filler prose about tokens and tracks. ", 400)
+
+    for i <- 0..4 do
+      content =
+        if i == 0,
+          do: "[Page 8]\n" <> @grounded_quote <> "\n" <> padding,
+          else: "[Page #{10 + i}]\nFILLER-#{i} unrelated setup rules about tokens.\n" <> padding
+
+      Repo.insert!(%Chunk{
+        document_id: doc.id,
+        chunk_index: i,
+        content: content,
+        page_number: if(i == 0, do: 8, else: 10 + i),
+        embedding: Pgvector.new(List.duplicate(0.0, 768) |> List.replace_at(i, 1.0))
+      })
+    end
+
+    refute Games.small_corpus?([game.id])
+  end
+
+  # A message's content is a plain string, or — once a prompt-cache breakpoint
+  # is marked on it — a list of `%{type: "text", text: ...}` parts. The critic's
+  # rulebook rides the SYSTEM message when it is cacheable and the USER message
+  # when it is not, so bodies are counted across every message.
+  defp message_text(content) when is_binary(content), do: content
+  defp message_text(parts) when is_list(parts), do: Enum.map_join(parts, "", & &1.text)
+
+  defp body_text(body), do: Enum.map_join(body.messages, "\n", &message_text(&1.content))
+
   defp mock_llm(ask_fun, critic_fun) do
     Process.put(:ask_calls, 0)
     Process.put(:critic_calls, 0)
@@ -75,13 +110,10 @@ defmodule RuleMaven.LLMGroundingNarrowingTest do
           Process.put(:ask_calls, n)
           ask_fun.(n)
 
-        Enum.any?(body.messages, fn m ->
-          m.role == "system" and m.content =~ "adversarial fact-checker"
-        end) ->
+        body_text(body) =~ "adversarial fact-checker" ->
           n = Process.get(:critic_calls) + 1
           Process.put(:critic_calls, n)
-          user = Enum.find(body.messages, &(&1.role == "user"))
-          Process.put(:critic_bodies, Process.get(:critic_bodies) ++ [user.content])
+          Process.put(:critic_bodies, Process.get(:critic_bodies) ++ [body_text(body)])
           critic_fun.(n)
 
         true ->
@@ -109,10 +141,17 @@ defmodule RuleMaven.LLMGroundingNarrowingTest do
     Regex.scan(~r/FILLER-\d/, text) |> length()
   end
 
-  test "grounded verdict on the narrowed context runs one critic call on a subset" do
+  # Narrowing bought one thing only: a critic call the size of the answer call
+  # was too expensive to run on every suspicious answer. A cacheable corpus makes
+  # the full-context call cheap, so it runs full-context on the FIRST pass — and
+  # the full-context critic was always the sole authority for a destructive
+  # verdict, so this is the accurate path, not merely the affordable one.
+  test "a cacheable corpus judges the full context in one call — no narrowing, no confirm pass" do
     {:ok, game} = Games.create_game(%{name: "Narrow #{System.unique_integer([:positive])}"})
     seed_chunks(game)
     mock_embed()
+
+    assert Games.small_corpus?([game.id])
 
     mock_llm(
       fn _n -> answer_result() end,
@@ -126,14 +165,34 @@ defmodule RuleMaven.LLMGroundingNarrowingTest do
 
     [body] = Process.get(:critic_bodies)
     assert body =~ @grounded_quote
-    # Narrowed to the matched chunk + neighbors — strictly fewer than the
-    # 4 filler chunks retrieval returned.
-    assert filler_count(body) < 4
+    assert filler_count(body) == 4
   end
 
-  test "a narrowed hallucinated verdict is confirmed against the full chunk set" do
+  test "a cacheable corpus needs no confirm pass to act on a hallucinated verdict" do
     {:ok, game} = Games.create_game(%{name: "Narrow #{System.unique_integer([:positive])}"})
     seed_chunks(game)
+    mock_embed()
+
+    mock_llm(
+      fn _n -> answer_result() end,
+      # The single critic call already saw everything, so its verdict is final —
+      # it goes straight to the corrective answer retry with no second opinion.
+      fn _n -> {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: Perk cards cannot be played"}} end
+    )
+
+    {:ok, _result} = LLM.ask(game, @question)
+
+    # The verdict goes straight to the corrective answer retry — and that retry's
+    # answer is critiqued in its turn, which is the second call here. What must
+    # never happen is a NARROWED call: every critic on a cacheable corpus sees
+    # the whole corpus, so no verdict needs confirming against a fuller set.
+    assert Process.get(:ask_calls) > 1
+    assert Enum.all?(Process.get(:critic_bodies), &(filler_count(&1) == 4))
+  end
+
+  test "a corpus too large to cache still narrows, then confirms against the full set" do
+    {:ok, game} = Games.create_game(%{name: "Narrow #{System.unique_integer([:positive])}"})
+    seed_big_chunks(game)
     mock_embed()
 
     mock_llm(
