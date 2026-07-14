@@ -127,10 +127,17 @@ defmodule RuleMaven.Workers.AskWorkerPersonaDirectTest do
 
     canonical = "The d20 picks the first player."
 
+    # A message's content is a plain string, or — once a prompt-cache breakpoint
+    # is marked on it — a list of `%{type: "text", text: ...}` parts.
+    message_text = fn
+      content when is_binary(content) -> content
+      parts when is_list(parts) -> Enum.map_join(parts, " ", & &1.text)
+    end
+
     Application.put_env(:rule_maven, :llm_mock, fn body ->
       restyle? =
         Enum.any?(body.messages, fn m ->
-          String.contains?(m.content, "courtly woodland herald")
+          String.contains?(message_text.(m.content), "courtly woodland herald")
         end)
 
       # The worker itself must never issue the restyle call anymore.

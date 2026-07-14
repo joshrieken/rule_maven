@@ -38,7 +38,10 @@ defmodule RuleMaven.LLMStalledStreamRetryTest do
     assert_received {:mock_called, retried}
     # A nonce system message was appended, so the messages array is distinct.
     assert length(retried.messages) == length(body.messages) + 1
-    assert List.last(retried.messages).role == "system"
+    # The nonce rides a USER turn: OpenRouter folds system messages into Gemini's
+    # single systemInstruction, which cached content treats as immutable, so a
+    # system-role nonce would evict the cached rulebook prefix it shares.
+    assert List.last(retried.messages).role == "user"
   end
 
   test "does not retry a stall that already retried (no loop)" do

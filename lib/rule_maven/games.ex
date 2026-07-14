@@ -4327,15 +4327,29 @@ defmodule RuleMaven.Games do
   @small_corpus_char_budget 60_000
 
   defp maybe_expand_to_small_corpus(limit, game_ids, opts) do
-    if Keyword.get(opts, :small_corpus_boost, false) do
-      {count, chars} = corpus_size(game_ids)
-
-      if count <= @small_corpus_max_chunks and chars <= @small_corpus_char_budget,
-        do: max(limit, count),
-        else: limit
+    if Keyword.get(opts, :small_corpus_boost, false) and small_corpus?(game_ids) do
+      {count, _chars} = corpus_size(game_ids)
+      max(limit, count)
     else
       limit
     end
+  end
+
+  @doc """
+  Whether this game set's whole corpus fits the small-corpus budget — i.e.
+  whether `retrieve_chunks_for_games/3` (with `small_corpus_boost: true`) is
+  returning EVERY eligible chunk rather than a top-k slice.
+
+  The answer pipeline needs this to know whether its rulebook block is stable:
+  the whole corpus is the same text on every ask for the game, so the prompt
+  prefix is byte-identical and can be cached; a top-k slice changes with the
+  question, so a cache breakpoint there would miss every time and still bill the
+  cache-write premium. See `LLM.cacheable_system/2`.
+  """
+  def small_corpus?(game_ids) when is_list(game_ids) do
+    {count, chars} = corpus_size(game_ids)
+
+    count <= @small_corpus_max_chunks and chars <= @small_corpus_char_budget
   end
 
   # Chunk count + total content chars for a game set, read through

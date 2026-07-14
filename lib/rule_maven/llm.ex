@@ -427,7 +427,13 @@ defmodule RuleMaven.LLM do
 
     broadcast_ask_stage(game.id, :searching)
     chunks = RuleMaven.Games.retrieve_chunks_for_games(game_ids, question, retrieval_opts)
-    context = build_context_block(chunks, game.id)
+
+    # Whole-corpus retrieval hands back the same chunks for every question about
+    # this game, so ordering them by document instead of by relevance makes the
+    # rulebook block byte-identical across asks — the precondition for caching it.
+    stable? = RuleMaven.Games.small_corpus?(game_ids)
+    context = build_context_block(chunks, game.id, stable: stable?)
+    cache_block = if stable?, do: context
 
     system_prompt =
       build_system_prompt(game.name, game.category, context, recent_context, voice, game)
@@ -447,10 +453,14 @@ defmodule RuleMaven.LLM do
       model_name: model_name,
       game_id: game.id,
       user_id: user_id,
-      fresh: fresh
+      fresh: fresh,
+      # Carried so every retry/escalate rung re-marks the SAME breakpoint — a
+      # rung that forgot it would silently pay full freight for the rulebook.
+      stable_corpus: stable?,
+      cache_block: cache_block
     }
 
-    case request_answer(system_prompt, question, model_name, game.id, user_id, fresh) do
+    case request_answer(system_prompt, question, model_name, game.id, user_id, fresh, cache_block) do
       {:ok, llm_result} ->
         broadcast_ask_stage(game.id, :checking)
         llm_result = maybe_reground(llm_result, system_prompt, ctx, chunks)
@@ -549,7 +559,12 @@ defmodule RuleMaven.LLM do
              Keyword.put(retrieval_opts, :limit, @escalated_retrieval_limit)
            ),
          false <- MapSet.new(escalated, & &1[:id]) == MapSet.new(chunks, & &1[:id]) do
-      context = build_context_block(escalated, game.id)
+      # Reachable only on a LARGE corpus: the guard above requires the widened
+      # retrieval to return a different chunk set, and a small corpus already
+      # sent every chunk. So the block is a top-k slice, `stable_corpus` is
+      # false, and there is nothing cacheable to mark.
+      context = build_context_block(escalated, game.id, stable: ctx.stable_corpus)
+      cache_block = if ctx.stable_corpus, do: context
 
       system_prompt =
         build_system_prompt(game.name, game.category, context, recent_context, voice, game)
@@ -560,7 +575,8 @@ defmodule RuleMaven.LLM do
              ctx.model_name,
              ctx.game_id,
              ctx.user_id,
-             ctx.fresh
+             ctx.fresh,
+             cache_block
            ) do
         {:ok, retried} ->
           retried = maybe_reground(retried, system_prompt, ctx, escalated)
@@ -595,10 +611,16 @@ defmodule RuleMaven.LLM do
   # leak through. One escalation only.
   defp maybe_escalate_refusal_reasoning(llm_result, chunks, game, recent_context, voice, ctx) do
     with true <- refused_answer?(llm_result),
-         {:combinable, rule_quotes} <- combinable_question?(ctx.question, chunks, game) do
+         {:combinable, rule_quotes} <-
+           combinable_question?(ctx.question, chunks, game,
+             stable_corpus: Map.get(ctx, :stable_corpus, false)
+           ) do
       escalate_model = model(:escalate)
-      context = build_context_block(chunks, game.id)
+      context = build_context_block(chunks, game.id, stable: ctx.stable_corpus)
+      cache_block = if ctx.stable_corpus, do: context
 
+      # The combine nudge appends AFTER the rulebook, so it rides in the uncached
+      # tail and leaves the breakpoint intact.
       system_prompt =
         build_system_prompt(game.name, game.category, context, recent_context, voice, game) <>
           RuleMaven.Prompts.render("combine_nudge", %{rules_hint: rules_hint(rule_quotes)})
@@ -611,7 +633,8 @@ defmodule RuleMaven.LLM do
              escalate_model,
              ctx.game_id,
              ctx.user_id,
-             true
+             true,
+             cache_block
            ) do
         {:ok, retried} ->
           retried = maybe_reground(retried, system_prompt, esc_ctx, chunks)
@@ -636,13 +659,19 @@ defmodule RuleMaven.LLM do
   # said YES on bait like "what is the maximum Terror Level?" and burned a
   # Sonnet call per false positive.) Verified quotes flow into the recheck as
   # hints via {{rules_hint}}.
-  defp combinable_question?(question, chunks, game) do
-    context = build_context_block(chunks, game.id)
-    prompt = "QUESTION:\n#{question}\n\nRULEBOOK TEXT:\n#{context}"
+  defp combinable_question?(question, chunks, game, cache_opts) do
+    stable? = Keyword.get(cache_opts, :stable_corpus, false)
+    context = build_context_block(chunks, game.id, stable: stable?)
+
+    # Rulebook FIRST, question last: the rulebook is the only stable half, and a
+    # cache breakpoint only pays on a prefix. Ordered question-first, this
+    # classifier re-bought ~10k tokens of rulebook on every refusal (0% cached).
+    prompt = "RULEBOOK TEXT:\n#{context}\n\nQUESTION:\n#{question}"
 
     case chat(prompt, "combinable_refusal_check",
            system: RuleMaven.Prompts.template("combinable_refusal_check_system"),
            model: model(:cheap),
+           cache_block: if(stable?, do: "RULEBOOK TEXT:\n" <> context),
            # Ceiling, not spend: a reasoning cheap model thinks before emitting
            # the small JSON verdict, and a tight cap starves it into null content.
            max_tokens: 4000,
@@ -679,9 +708,9 @@ defmodule RuleMaven.LLM do
   # Single answer-model call, extracted so `maybe_reground/3`'s retry can
   # re-issue it with a modified system prompt without duplicating the body
   # shape.
-  defp request_answer(system_prompt, question, model_name, game_id, user_id, fresh) do
+  defp request_answer(system_prompt, question, model_name, game_id, user_id, fresh, cache_block) do
     messages = [
-      %{role: "system", content: system_prompt},
+      cacheable_system(system_prompt, cache_block),
       %{role: "user", content: question}
     ]
 
@@ -717,13 +746,69 @@ defmodule RuleMaven.LLM do
     |> maybe_retry_bad_answer(body, game_id, opts)
   end
 
-  # Appends a unique-nonce system message so the messages array is distinct —
-  # forcing the LLM proxy past every cache tier (it keys on messages only).
+  # The rulebook block is the same text on every ask for a game (whole-corpus
+  # retrieval, stable-ordered — see `build_context_block/3`), and it is ~14k of
+  # the ~15k prompt. Marking an explicit cache breakpoint at the end of it means
+  # every later call for that game re-reads it instead of re-paying for it:
+  # OpenRouter bills a cached read at 0.25x on Gemini and 0.1x on Anthropic, and
+  # the escalate model is Anthropic.
+  #
+  # The breakpoint sits at the END of the rulebook, so everything the per-turn
+  # code appends AFTER it — the voice style, the recent-conversation block, and
+  # every corrective `system_prompt <> warning` the retry rungs add — lands in
+  # the uncached tail and cannot disturb the cached prefix.
+  #
+  # `cache_block` is nil whenever the prefix is NOT provably stable (a top-k
+  # slice on a large corpus reshuffles per question): a breakpoint there would
+  # miss every time and still bill the cache-write premium, so we send a plain
+  # string and take the implicit-cache lottery instead. Same fallback if the
+  # block can't be located in the rendered prompt at all — a prod Prompts
+  # override is free to reorder the template, and a wrong breakpoint is worse
+  # than none.
+  defp cacheable_system(system_prompt, cache_block),
+    do: %{role: "system", content: cacheable_content(system_prompt, cache_block)}
+
+  # Splits `text` right after `cache_block` and marks the leading half as an
+  # explicit cache breakpoint. Everything after the block — per-turn context,
+  # corrective warnings, the question itself — stays uncached and free to change.
+  defp cacheable_content(text, nil), do: text
+
+  # An empty corpus trivially satisfies the small-corpus test, so the block can
+  # come through as "" — which is not a valid :binary.match pattern, and would
+  # have nothing to cache anyway.
+  defp cacheable_content(text, ""), do: text
+
+  defp cacheable_content(text, cache_block) do
+    case :binary.match(text, cache_block) do
+      {start, len} ->
+        cut = start + len
+        prefix = binary_part(text, 0, cut)
+        tail = binary_part(text, cut, byte_size(text) - cut)
+
+        [%{type: "text", text: prefix, cache_control: %{type: "ephemeral"}}] ++
+          if tail == "", do: [], else: [%{type: "text", text: tail}]
+
+      :nomatch ->
+        text
+    end
+  end
+
+  # Appends a unique nonce so the messages array is distinct — forcing the LLM
+  # proxy past its RESPONSE cache (it keys on messages only), which is what an
+  # explicit regenerate needs.
+  #
+  # It rides in a trailing USER message, never a system one. OpenRouter folds
+  # every system message into Gemini's single `systemInstruction`, and cached
+  # Gemini content treats that instruction as immutable — so a nonce appended
+  # there mutated the very prefix we cache and knocked the PROMPT cache out on
+  # exactly the calls that need it most (measured: retry/escalate asks came back
+  # 0% cached while their base call hit 95-100%). Busting the response cache must
+  # not cost us the prompt cache; the user turn is uncached either way.
   defp append_cache_bust_nonce(messages) do
     nonce = "#{System.system_time(:millisecond)}-#{System.unique_integer([:positive])}"
 
     messages ++
-      [%{role: "system", content: RuleMaven.Prompts.render("regenerate_nonce", %{nonce: nonce})}]
+      [%{role: "user", content: RuleMaven.Prompts.render("regenerate_nonce", %{nonce: nonce})}]
   end
 
   # A runaway answer stream (visible answer text looping past @answer_content_cap)
@@ -924,7 +1009,11 @@ defmodule RuleMaven.LLM do
            ctx.user_id,
            # Bypass the proxy's response cache — the messages differ, but be
            # explicit: a cached replay of the contradicting answer defeats this.
-           true
+           true,
+           # The RESPONSE cache is what we're busting; the PROMPT cache is what
+           # pays for this retry. The nonce rides in a trailing message and the
+           # warning appends after the rulebook, so the breakpoint still holds.
+           Map.get(ctx, :cache_block)
          ) do
       {:ok, retried} ->
         retried_quotes = citation_quotes(retried[:citations])
@@ -1013,7 +1102,8 @@ defmodule RuleMaven.LLM do
              ctx.user_id,
              # Bypass the proxy's response cache — a cached replay of the
              # premise-ignoring answer defeats this.
-             true
+             true,
+             Map.get(ctx, :cache_block)
            ) do
         {:ok, retried} ->
           retried = maybe_reground(retried, system_prompt, ctx, chunks)
@@ -1077,7 +1167,10 @@ defmodule RuleMaven.LLM do
              escalate_model,
              ctx.game_id,
              ctx.user_id,
-             true
+             true,
+             # Anthropic bills a cached read at 0.1x, so the breakpoint matters
+             # most on exactly this rung — the priciest call in the ladder.
+             Map.get(ctx, :cache_block)
            ) do
         {:ok, esc} ->
           esc = maybe_reground(esc, warned_system_prompt, esc_ctx, chunks)
@@ -1186,7 +1279,8 @@ defmodule RuleMaven.LLM do
            ctx.model_name,
            ctx.game_id,
            ctx.user_id,
-           Map.get(ctx, :fresh, false)
+           Map.get(ctx, :fresh, false),
+           Map.get(ctx, :cache_block)
          ) do
       {:ok, retried} ->
         retried_answer = String.trim(to_string(retried[:answer]))
@@ -1340,7 +1434,8 @@ defmodule RuleMaven.LLM do
            ctx.model_name,
            ctx.game_id,
            ctx.user_id,
-           Map.get(ctx, :fresh, false)
+           Map.get(ctx, :fresh, false),
+           Map.get(ctx, :cache_block)
          ) do
       {:ok, retried_result} ->
         quotes = citation_quotes(retried_result[:citations])
@@ -1412,14 +1507,34 @@ defmodule RuleMaven.LLM do
   defp citation_quotes(_citations), do: []
 
   @doc """
-  Groups retrieval chunks into per-source blocks for the answer prompt. Chunks
-  stay in relevance order within a group; groups are ordered by kind authority
-  then base-before-expansion, so the most authoritative material leads.
+  Groups retrieval chunks into per-source blocks for the answer prompt. Groups
+  are ordered by kind authority then base-before-expansion, so the most
+  authoritative material leads.
+
+  Chunk order WITHIN a group depends on `:stable`:
+
+    * default — relevance order, as retrieval ranked them. Correct for a top-k
+      slice, where "which chunks" and "in what order" both carry signal.
+
+    * `stable: true` — document order (by id, which is insertion order). Used
+      when retrieval returned the WHOLE corpus, where relevance order is pure
+      presentation: every chunk is present either way, so the only thing the
+      question-dependent ordering achieves is reshuffling a block that would
+      otherwise be byte-identical on every ask for that game — which defeats
+      prompt caching outright. A stable block is a stable prefix, and a stable
+      prefix is a cache hit (see `cacheable_system/2`).
   """
-  def build_context_block(chunks, base_game_id) do
+  def build_context_block(chunks, base_game_id, opts \\ []) do
+    stable? = Keyword.get(opts, :stable, false)
+
     chunks
     |> Enum.group_by(&{&1.game_id, &1.document_id})
-    |> Enum.map(fn {_key, [first | _] = group} -> {first, group} end)
+    |> Enum.map(fn {_key, [first | _] = group} ->
+      # The no-chunks retrieval fallback synthesizes one pseudo-chunk per document
+      # straight from `full_text`, with no `:id` — it is already one-per-group and
+      # so already deterministically ordered. Default to 0 rather than crash.
+      {first, if(stable?, do: Enum.sort_by(group, &Map.get(&1, :id, 0)), else: group)}
+    end)
     |> Enum.sort_by(fn {first, _} ->
       {RuleMaven.Games.Document.authority(first.kind),
        if(first.game_id == base_game_id, do: 0, else: 1)}
@@ -2082,11 +2197,17 @@ defmodule RuleMaven.LLM do
   Options: :max_tokens (default 2048), :system (system prompt string)
   """
   def chat(prompt, context, opts \\ []) do
+    # `:cache_block` marks a stable leading slice of `prompt` (the rulebook) as an
+    # explicit cache breakpoint — see `cacheable_content/2`. The block must be a
+    # PREFIX of the prompt for this to pay, so any caller passing it puts the
+    # rulebook first and the per-question text last.
+    user_content = cacheable_content(prompt, opts[:cache_block])
+
     messages =
       if system = opts[:system] do
-        [%{role: "system", content: system}, %{role: "user", content: prompt}]
+        [%{role: "system", content: system}, %{role: "user", content: user_content}]
       else
-        [%{role: "user", content: prompt}]
+        [%{role: "user", content: user_content}]
       end
 
     body =

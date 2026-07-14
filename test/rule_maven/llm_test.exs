@@ -476,7 +476,7 @@ defmodule RuleMaven.LLMTest do
         collect_llm_bodies()
         |> Enum.flat_map(fn body ->
           Enum.filter(body.messages, fn m ->
-            m.role == "system" and m.content =~ "regeneration"
+            is_binary(m.content) and m.content =~ "regeneration"
           end)
         end)
 
@@ -484,6 +484,12 @@ defmodule RuleMaven.LLMTest do
       # and the two asks must NOT share the same nonce text — identical text
       # would itself be cached and replayed.
       assert length(nonce_messages) == 2
+      # The nonce rides a USER turn, never a system one: OpenRouter folds system
+      # messages into Gemini's single systemInstruction, and cached Gemini content
+      # treats that instruction as immutable — a nonce there mutates the cached
+      # prefix and knocks the PROMPT cache out on the retry/escalate calls that
+      # need it most (measured 0% cached, vs 95-100% on their base call).
+      assert Enum.all?(nonce_messages, &(&1.role == "user"))
       assert length(Enum.uniq_by(nonce_messages, & &1.content)) == 2
     end
 

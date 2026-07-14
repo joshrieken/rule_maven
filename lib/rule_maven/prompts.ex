@@ -1219,13 +1219,13 @@ defmodule RuleMaven.Prompts do
   # Appended as a system message when the asker explicitly regenerates an
   # answer. The unique nonce makes the messages array differ from the prior
   # ask, so a response cache keyed on messages (the LLM proxy's is) can't
-  # replay the old answer. See RuleMaven.LLM.request_answer/6.
+  # replay the old answer. See RuleMaven.LLM.request_answer/7.
   @regenerate_nonce "(The asker requested a fresh regeneration of this answer. Regeneration id: {{nonce}}.)"
 
   # Appended as a user message when the model's reply decoded to a blank
   # answer (e.g. a JSON object missing the "answer" key). Restates the schema
   # and, by altering the messages array, forces a fresh completion past the
-  # message-keyed proxy response cache. See RuleMaven.LLM.request_answer/6.
+  # message-keyed proxy response cache. See RuleMaven.LLM.request_answer/7.
   @blank_answer_retry "(Your previous reply was not the required JSON object — it had no \"answer\" field. Respond again with ONLY the required JSON object, including the \"answer\" field.)"
 
   # Appended as a user message when the "answer" field came back as
