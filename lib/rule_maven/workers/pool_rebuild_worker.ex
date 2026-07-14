@@ -196,8 +196,21 @@ defmodule RuleMaven.Workers.PoolRebuildWorker do
   # rebuild then failed to recognise its OWN output as live and re-asked all 47
   # questions on the next rulebook edit — the exact waste this worker exists to
   # remove. Caught by re-running a rebuild and asserting it queues nothing.
-  defp already_live?(game_id, %{question_embedding: emb, expansion_ids: exp}) do
-    RuleMaven.Games.pooled_equivalent_exists?(game_id, emb, exp)
+  # ...and by an embedding that has been checked for the tokens it cannot see. A
+  # stale "Can a player trade AFTER rolling?" sits 0.93 from the pooled "Can a
+  # player trade BEFORE rolling?" — inside the pool's own threshold — so a bare
+  # distance test declares it already answered and drops it from this rebuild and
+  # from every rebuild after, leaving a question permanently unanswerable from the
+  # pool. Near enough to SERVE and asks the SAME THING are different questions.
+  defp already_live?(game_id, %{question_embedding: emb, expansion_ids: exp} = row) do
+    text = row.cleaned_question
+
+    game_id
+    |> RuleMaven.Games.pooled_equivalents(emb, exp)
+    |> Enum.any?(fn live ->
+      live_text = live.canonical_question || live.cleaned_question || live.question
+      RuleMaven.LLM.QuestionFacets.compatible?(text, live_text)
+    end)
   end
 
   defp reask(%{cleaned_question: text, expansion_ids: exp}, game_id) do

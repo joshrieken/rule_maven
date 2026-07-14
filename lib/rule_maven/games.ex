@@ -3721,19 +3721,40 @@ defmodule RuleMaven.Games do
   The question being asked is semantic — "do we already hold an answer to this?" —
   so it is answered with the same embedding threshold the pool lookup itself uses.
   """
-  def pooled_equivalent_exists?(_game_id, nil, _expansion_ids), do: false
+  def pooled_equivalent_exists?(game_id, embedding, expansion_ids),
+    do: pooled_equivalents(game_id, embedding, expansion_ids) != []
 
-  def pooled_equivalent_exists?(game_id, embedding, expansion_ids) do
+  @doc """
+  The live pooled rows within the pool's own distance threshold of `embedding`.
+
+  Returned as rows rather than a boolean because "near enough to serve" is not the
+  same question as "asks the same thing": at 0.93 similarity, a stale "Can a player
+  trade AFTER rolling?" sits inside this threshold of the pooled "Can a player
+  trade BEFORE rolling?". A caller that only asked `exists?` would conclude the
+  question was already answered and drop it — permanently, from every future
+  rebuild. The caller filters these through `RuleMaven.LLM.QuestionFacets`.
+  """
+  def pooled_equivalents(game_id, embedding, expansion_ids)
+  def pooled_equivalents(_game_id, nil, _expansion_ids), do: []
+
+  def pooled_equivalents(game_id, embedding, expansion_ids) do
     exp = Enum.sort(expansion_ids || [])
 
-    Repo.exists?(
+    Repo.all(
       from(q in QuestionLog,
         where: q.game_id == ^game_id,
         where: q.pooled == true and q.stale == false,
         where: q.expansion_ids == ^exp,
         where: not is_nil(q.question_embedding),
         where:
-          fragment("? <=> ? < ?", q.question_embedding, ^embedding, ^pool_distance_threshold())
+          fragment("? <=> ? < ?", q.question_embedding, ^embedding, ^pool_distance_threshold()),
+        select: %{
+          id: q.id,
+          question: q.question,
+          cleaned_question: q.cleaned_question,
+          canonical_question: q.canonical_question
+        },
+        limit: 5
       )
     )
   end

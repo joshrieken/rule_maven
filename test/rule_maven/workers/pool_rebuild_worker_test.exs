@@ -231,6 +231,33 @@ defmodule RuleMaven.Workers.PoolRebuildWorkerTest do
       assert ask_jobs() == []
     end
 
+    # The other half of the test above. Matching on the embedding is right, but the
+    # embedding cannot see the token that decides the answer: "can a player trade
+    # AFTER rolling" sits 0.93 from "can a player trade BEFORE rolling", inside the
+    # pool's own threshold. Skipping on distance alone would drop the stale
+    # question from THIS rebuild and from every rebuild after it.
+    test "a stale question whose pooled near-neighbour asks the OPPOSITE is still rebuilt" do
+      game = game_with_doc()
+
+      staled_row(game, %{
+        cleaned_question: "can a player trade after rolling",
+        question_embedding: vec(1)
+      })
+
+      # Same embedding seed: to the matcher these are the same question.
+      staled_row(game, %{
+        stale: false,
+        pooled: true,
+        cleaned_question: "can a player trade before rolling",
+        question_embedding: vec(1)
+      })
+
+      assert :ok = run_worker(game)
+
+      assert [job] = ask_jobs()
+      assert job.args["question"] == "can a player trade after rolling"
+    end
+
     test "a rebuild is idempotent — re-running it queues nothing" do
       game = game_with_doc()
       staled_row(game, %{cleaned_question: "q one", question_embedding: vec(1)})
