@@ -351,6 +351,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       ratios_agree?(question, candidate) and
       bounds_agree?(q, c) and
       compass_agree?(q, c) and
+      ordinals_agree?(q, c) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, q, c))
   end
 
@@ -383,6 +384,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       MapSet.subset?(ratios(rewrite), ratios(raw)) and
       MapSet.subset?(bound_preds(w), bound_preds(r)) and
       MapSet.subset?(compass_dirs(w), compass_dirs(r)) and
+      MapSet.subset?(ordinals(w), ordinals(r)) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, r, w))
   end
 
@@ -400,6 +402,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       not numbers_agree?(q, c) -> :number
       not ratios_agree?(question, candidate) -> :ratio
       not compass_agree?(q, c) -> :compass
+      not ordinals_agree?(q, c) -> :ordinal
       true ->
         Enum.find(Map.keys(@axes), &(not axis_agrees?(&1, q, c))) ||
           if(not bounds_agree?(q, c), do: :bound)
@@ -619,6 +622,53 @@ defmodule RuleMaven.LLM.QuestionFacets do
 
   defp numbers(tokens) do
     for t <- tokens, n = to_number(t), into: MapSet.new(), do: n
+  end
+
+  # Ordinals name a POSITION, and the number guard never sees them: "fourth" is
+  # not a cardinal and `Integer.parse("2nd")` is nil, so "the 2nd player" and
+  # "the 3rd player" (or "the fourth space" vs "the fifth") slipped through as a
+  # pool hit while flipping which player/space the rule is about. Compared as a
+  # set like numbers — both word forms (first..twelfth) and digit-suffix forms
+  # (1st, 23rd) fold to the same integer, so "first player" still matches "1st
+  # player". `first`/`last` stay on the `order` axis; this only splits ordinals
+  # that differ in value.
+  @ordinal_words %{
+    "first" => 1,
+    "second" => 2,
+    "third" => 3,
+    "fourth" => 4,
+    "fifth" => 5,
+    "sixth" => 6,
+    "seventh" => 7,
+    "eighth" => 8,
+    "ninth" => 9,
+    "tenth" => 10,
+    "eleventh" => 11,
+    "twelfth" => 12
+  }
+
+  defp ordinals(tokens) do
+    for t <- tokens, n = to_ordinal(t), into: MapSet.new(), do: n
+  end
+
+  defp to_ordinal(token) do
+    case Map.fetch(@ordinal_words, token) do
+      {:ok, n} ->
+        n
+
+      :error ->
+        case Regex.run(~r/^(\d+)(?:st|nd|rd|th)$/, token) do
+          [_, digits] -> String.to_integer(digits)
+          _ -> nil
+        end
+    end
+  end
+
+  defp ordinals_agree?(q, c) do
+    oq = ordinals(q)
+    oc = ordinals(c)
+
+    Enum.empty?(oq) or Enum.empty?(oc) or MapSet.equal?(oq, oc)
   end
 
   defp to_number(token) do

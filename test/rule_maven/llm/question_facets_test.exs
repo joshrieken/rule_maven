@@ -529,6 +529,23 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
              )
     end
 
+    test "ordinals name a position and the number guard misses them" do
+      # Word ordinals.
+      refute Facets.compatible?("Do I move to the fourth space?", "Do I move to the fifth space?")
+
+      assert Facets.conflict("Do I move to the fourth space?", "Do I move to the fifth space?") ==
+               :ordinal
+
+      # Digit-suffix ordinals — "2nd" is not a cardinal number.
+      refute Facets.compatible?("Does the 1st player act?", "Does the 2nd player act?")
+
+      # Word and digit forms of the SAME ordinal fold together.
+      assert Facets.compatible?("Does the first player act?", "Does the 1st player act?")
+
+      # first/last is still the order axis, not the ordinal set.
+      assert Facets.conflict("Does the first player act?", "Does the last player act?") == :order
+    end
+
     test "most/least stay on the comparative axis, not the superlative one" do
       # `most`/`least` are the at-most/at-least BOUND ("at least seven" = seven or
       # more), a different sense than the highest/lowest superlative. They must not
