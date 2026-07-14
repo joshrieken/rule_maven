@@ -220,6 +220,34 @@ defmodule RuleMaven.LLM.QuestionFacets do
     deck_position: [
       ~w(top topmost),
       ~w(bottom bottommost)
+    ],
+    # "does the effect INCREASE my hand size" vs "DECREASE" — magnitude change,
+    # 0.94 on the embedding, one token flipping the answer. Distinct from
+    # `value_direction` (gain/lose = have vs not-have): this is up vs down of a
+    # count. `reduce` sits on the DECREASE side (it only ever means decrease);
+    # `raise`/`lower` are left off — "raise" is a poker bet and "lower" a
+    # neutral adjective, both too polysemous to gate.
+    magnitude: [
+      ~w(increase increases increased increasing),
+      ~w(decrease decreases decreased decreasing reduce reduces reduced reducing)
+    ],
+    # "are the cards sorted in ASCENDING order" vs "DESCENDING" — sort direction,
+    # 0.98 on the embedding and near-zero paraphrase collision: you only write
+    # ascending/descending when the direction IS the question. Kept separate from
+    # `order` (first/last turn order) — different sense, and one token cannot sit
+    # on two axes.
+    sort_order: [
+      ~w(ascending),
+      ~w(descending)
+    ],
+    # "does the token move FORWARD on the track" vs "BACKWARD" — linear movement
+    # direction, 0.95 on the embedding, the whole answer in one token. Kept to the
+    # distinctive pair; `left`/`right` are deliberately NOT an axis because
+    # "right" is polysemous (correct, legal, a player's rights, "right away") and
+    # gating it would false-fire and erode the pool hit rate.
+    movement: [
+      ~w(forward forwards),
+      ~w(backward backwards)
     ]
   }
 

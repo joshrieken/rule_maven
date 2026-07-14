@@ -377,6 +377,65 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
              )
     end
 
+    test "ascending/descending — sort direction, 0.98" do
+      refute Facets.compatible?(
+               "Are the cards sorted in ascending order?",
+               "Are the cards sorted in descending order?"
+             )
+
+      assert Facets.conflict(
+               "Are the cards sorted in ascending order?",
+               "Are the cards sorted in descending order?"
+             ) == :sort_order
+
+      # Naming neither pole survives — the generic "how are they sorted" still matches.
+      assert Facets.compatible?(
+               "Are the cards sorted in ascending order?",
+               "How are the cards sorted?"
+             )
+    end
+
+    test "increase/decrease — magnitude change, 0.94, reduce is on the decrease side" do
+      refute Facets.compatible?(
+               "Does the effect increase my hand size?",
+               "Does the effect decrease my hand size?"
+             )
+
+      assert Facets.conflict(
+               "Does the effect increase my hand size?",
+               "Does the effect reduce my hand size?"
+             ) == :magnitude
+
+      # `reduce` is a synonym of `decrease`, not an opposition to it.
+      assert Facets.compatible?(
+               "Does the effect decrease my hand size?",
+               "Does the effect reduce my hand size?"
+             )
+
+      # A neutral "change" names neither pole and still matches.
+      assert Facets.compatible?(
+               "Does the effect increase my hand size?",
+               "Does the effect change my hand size?"
+             )
+    end
+
+    test "forward/backward — movement direction, 0.95" do
+      refute Facets.compatible?(
+               "Does the token move forward on the track?",
+               "Does the token move backward on the track?"
+             )
+
+      assert Facets.conflict(
+               "Does the token move forward on the track?",
+               "Does the token move backward on the track?"
+             ) == :movement
+
+      assert Facets.compatible?(
+               "Does the token move forward on the track?",
+               "Does the token move on the track?"
+             )
+    end
+
     test "most/least stay on the comparative axis, not the superlative one" do
       # `most`/`least` are the at-most/at-least BOUND ("at least seven" = seven or
       # more), a different sense than the highest/lowest superlative. They must not
