@@ -489,6 +489,46 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
              ) == :tier
     end
 
+    test "compass directions are mutually exclusive, not two-sided" do
+      refute Facets.compatible?("Does the piece move north?", "Does the piece move south?")
+      refute Facets.compatible?("Does the piece move east?", "Does the piece move west?")
+
+      # The whole point of the set treatment: north also flips against east, which
+      # no opposite-pair axis can express.
+      refute Facets.compatible?("Does the piece move north?", "Does the piece move east?")
+
+      assert Facets.conflict("Does the piece move north?", "Does the piece move east?") ==
+               :compass
+
+      # Naming no direction still matches.
+      assert Facets.compatible?("Does the piece move north?", "Does the piece move?")
+    end
+
+    test "upper/lower — vertical board position, 0.95" do
+      refute Facets.compatible?(
+               "Is the token on the upper track?",
+               "Is the token on the lower track?"
+             )
+
+      assert Facets.conflict(
+               "Is the token on the upper track?",
+               "Is the token on the lower track?"
+             ) == :vertical_position
+    end
+
+    test "leftmost/rightmost — the -most forms are unambiguous, so gated, 0.95" do
+      refute Facets.compatible?("Do I take the leftmost card?", "Do I take the rightmost card?")
+
+      assert Facets.conflict("Do I take the leftmost card?", "Do I take the rightmost card?") ==
+               :horizontal_extreme
+
+      # Bare left/right stays UNGATED — "right" is polysemous.
+      assert Facets.compatible?(
+               "Does play pass to the left?",
+               "Is it right to pass play along?"
+             )
+    end
+
     test "most/least stay on the comparative axis, not the superlative one" do
       # `most`/`least` are the at-most/at-least BOUND ("at least seven" = seven or
       # more), a different sense than the highest/lowest superlative. They must not

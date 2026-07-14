@@ -270,8 +270,37 @@ defmodule RuleMaven.LLM.QuestionFacets do
     tier: [
       ~w(major),
       ~w(minor)
+    ],
+    # "on the UPPER track" vs "the LOWER track" — vertical board position, 0.95.
+    # Kept off the magnitude/comparative axes: those own increase/decrease and
+    # below/under; upper/lower here is a place, not a quantity.
+    vertical_position: [
+      ~w(upper uppermost),
+      ~w(lower lowermost)
+    ],
+    # "take the LEFTMOST card" vs "the RIGHTMOST card" — 0.95. Unlike bare
+    # left/right, the -most forms are unambiguous (no "correct"/"rights" sense),
+    # so they are safe to gate. `middle` is left out — too polysemous.
+    horizontal_extreme: [
+      ~w(leftmost),
+      ~w(rightmost)
     ]
   }
+
+  # Cardinal compass directions are MUTUALLY exclusive, not two-sided: "move
+  # north" flips the answer against south AND east AND west, which a left/right
+  # antonym axis cannot express. So they are compared as a set, like numbers —
+  # if both questions name a direction and the sets differ, they disagree.
+  # Measured ~0.95 across every pair, well above the 0.92 pool floor.
+  @compass ~w(north south east west northeast northwest southeast southwest)
+
+  defp compass_dirs(toks), do: MapSet.new(Enum.filter(toks, &(&1 in @compass)))
+
+  defp compass_agree?(q, c) do
+    dq = compass_dirs(q)
+    dc = compass_dirs(c)
+    Enum.empty?(dq) or Enum.empty?(dc) or MapSet.equal?(dq, dc)
+  end
 
   @words %{
     "zero" => 0,
@@ -321,6 +350,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       numbers_agree?(q, c) and
       ratios_agree?(question, candidate) and
       bounds_agree?(q, c) and
+      compass_agree?(q, c) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, q, c))
   end
 
@@ -352,6 +382,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       MapSet.subset?(unit_numbers(w), unit_numbers(r)) and
       MapSet.subset?(ratios(rewrite), ratios(raw)) and
       MapSet.subset?(bound_preds(w), bound_preds(r)) and
+      MapSet.subset?(compass_dirs(w), compass_dirs(r)) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, r, w))
   end
 
@@ -368,6 +399,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       not Polarity.compatible?(question, candidate) -> :negation
       not numbers_agree?(q, c) -> :number
       not ratios_agree?(question, candidate) -> :ratio
+      not compass_agree?(q, c) -> :compass
       true ->
         Enum.find(Map.keys(@axes), &(not axis_agrees?(&1, q, c))) ||
           if(not bounds_agree?(q, c), do: :bound)
