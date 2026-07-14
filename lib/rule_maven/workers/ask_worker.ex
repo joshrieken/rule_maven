@@ -43,21 +43,27 @@ defmodule RuleMaven.Workers.AskWorker do
       # Oban retry. Then reraise, so Oban records the exception and discards the
       # job rather than silently swallowing a bug.
       if attempt >= max_attempts do
-        finalize_crashed_ask(args, e)
+        finalize_stranded(args, "crashed: #{Exception.message(e)}")
       end
 
       reraise e, __STACKTRACE__
   end
 
-  # Puts the row into the same terminal shape the `{:error, reason}` branch
-  # produces, so a crashed ask is indistinguishable from a failed one to the UI.
-  defp finalize_crashed_ask(args, exception) do
+  @doc """
+  Puts a stranded row into the same terminal shape the `{:error, reason}` branch
+  produces, so a crashed ask is indistinguishable from a failed one to the UI.
+
+  Public because the `rescue` above cannot be the only caller. It runs on a
+  RAISE; a process that is KILLED (node restart, OOM, a linked task's abnormal
+  exit) never unwinds through it at all, so the job discards with the row still
+  on "Thinking...", non-terminal forever. `StaleAskReaper` sweeps up exactly
+  those and calls this.
+  """
+  def finalize_stranded(args, reason) do
     question_log_id = args["question_log_id"]
     game_id = args["game_id"]
 
-    Logger.error(
-      "AskWorker crashed for question #{inspect(question_log_id)}: #{Exception.message(exception)}"
-    )
+    Logger.error("AskWorker stranded question #{inspect(question_log_id)}: #{reason}")
 
     # Only a row still STUCK on "Thinking..." may be overwritten. A last-attempt
     # crash can fire AFTER `log_question_update` has already written the real
@@ -90,9 +96,12 @@ defmodule RuleMaven.Workers.AskWorker do
     # restyle for the same question runs under the same `{"question", id}`, and an
     # unscoped close would flip that healthy run to "failed".
     Jobs.fail_running_runs({"question", question_log_id}, "Worker crashed.", kind: "ask")
+    :ok
   rescue
     # Never let the cleanup itself mask the original exception.
-    e -> Logger.error("AskWorker crash finalizer failed: #{inspect(e)}")
+    e ->
+      Logger.error("AskWorker crash finalizer failed: #{inspect(e)}")
+      :error
   end
 
   defp do_perform(%Oban.Job{id: oban_id, args: args}) do

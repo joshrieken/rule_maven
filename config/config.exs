@@ -57,6 +57,11 @@ config :rule_maven, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"*/15 * * * *", RuleMaven.Workers.DirectPromotionWorker},
+       # Every 10 min: finalize asks stranded on "Thinking..." by a KILLED worker.
+       # AskWorker's own `rescue` only fires on a raise, so a node restart or OOM
+       # leaves the row non-terminal forever — an unclearable spinner that also
+       # eats one of the user's concurrency slots. Backstop, not a hot path.
+       {"*/10 * * * *", RuleMaven.Workers.StaleAskReaper},
        # Daily: prune job-log events past the 6-month window + reconcile stale runs.
        {"0 4 * * *", RuleMaven.Workers.JobLogPruneWorker},
        # Daily: strip multi-KB trace `detail` from llm_logs older than 30 days
