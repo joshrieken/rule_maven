@@ -1356,8 +1356,34 @@ defmodule RuleMaven.Games do
     # drop it whole.
     RuleMaven.CorpusCache.invalidate_all()
 
+    # Everything above EMPTIES the pool. Nothing used to refill it: the original
+    # design assumed stale rows would "re-pool on the next ask against the new
+    # text", which in practice means the pool is rebuilt one full-price user ask
+    # at a time, and only for questions somebody happens to ask again. Measured,
+    # it simply never refilled — 68 rows staled by a cleanup pass, none of which
+    # ever came back, and a 4.8% pool hit rate. A pool hit is the only free
+    # answer in this system.
+    #
+    # Re-ask the previously-servable questions against the new text instead. The
+    # worker is debounced (a page-by-page cleanup invalidates once per page) and
+    # no-ops when there is nothing pooled to rebuild, which is the case for every
+    # game still being ingested.
+    RuleMaven.Workers.PoolRebuildWorker.enqueue(game_id)
+
     demoted + staled + flagged
   end
+
+  @doc """
+  True when the game has at least one published document — i.e. there is text to
+  ground an answer in. A game mid-ingest has none.
+  """
+  def has_published_document?(game_id) when is_integer(game_id) do
+    Repo.exists?(
+      from(d in Document, where: d.game_id == ^game_id and d.status == "published")
+    )
+  end
+
+  def has_published_document?(_game_id), do: false
 
   @doc """
   Clears the review flag on an answer, making it pool-eligible again. Also
