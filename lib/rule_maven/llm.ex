@@ -232,6 +232,9 @@ defmodule RuleMaven.LLM do
   @max_tiebreaker_calls 6
   @tiebreaker_timeout_ms 8_000
 
+  defp max_tiebreaker_calls,
+    do: RuleMaven.Settings.int("ask_max_tiebreaker_calls", @max_tiebreaker_calls)
+
   defp find_pool_hit(
          _game,
          nil,
@@ -283,9 +286,10 @@ defmodule RuleMaven.LLM do
         # equivalent wins": without it the winner would be whichever provider
         # call happened to return first, which is not a property of the match.
         budget = call_budget_handle()
+        tiebreaker_cap = max_tiebreaker_calls()
 
         ambiguous
-        |> Enum.take(@max_tiebreaker_calls)
+        |> Enum.take(tiebreaker_cap)
         |> Task.async_stream(
           fn {row, _sim} ->
             # Spawned tasks start unbudgeted, and an unbudgeted LLM call is one
@@ -295,7 +299,7 @@ defmodule RuleMaven.LLM do
             {row, paraphrase_equivalent?(row, match_text, game, user_id, active_group_id)}
           end,
           ordered: true,
-          max_concurrency: @max_tiebreaker_calls,
+          max_concurrency: tiebreaker_cap,
           timeout: @tiebreaker_timeout_ms,
           # A tiebreaker that times out or crashes is a MISS, never a hit — the
           # same direction paraphrase_equivalent?/5 already fails in. Exiting
@@ -596,7 +600,11 @@ defmodule RuleMaven.LLM do
            RuleMaven.Games.retrieve_chunks_for_games(
              game_ids,
              ctx.question,
-             Keyword.put(retrieval_opts, :limit, @escalated_retrieval_limit)
+             Keyword.put(
+               retrieval_opts,
+               :limit,
+               RuleMaven.Settings.int("escalated_retrieval_limit", @escalated_retrieval_limit)
+             )
            ),
          false <- MapSet.new(escalated, & &1[:id]) == MapSet.new(chunks, & &1[:id]) do
       # Reachable only on a LARGE corpus: the guard above requires the widened
@@ -2617,7 +2625,8 @@ defmodule RuleMaven.LLM do
   no budget, so callers that never arm one (categories, suggestions) are
   unaffected.
   """
-  def start_call_budget(limit \\ @max_llm_calls_per_ask) do
+  def start_call_budget(limit \\ nil) do
+    limit = limit || RuleMaven.Settings.int("ask_max_llm_calls", @max_llm_calls_per_ask)
     ref = :atomics.new(2, signed: true)
     :atomics.put(ref, @slot_remaining, limit)
     Process.put(@call_budget_key, ref)

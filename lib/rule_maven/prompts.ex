@@ -719,6 +719,14 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
+  @setup_verify_system "You are a strict board-game rulebook fact-checker. Pass only setup items that are fully and accurately supported; reject anything misleading, garbled, or unconfirmed."
+
+  # Vars: game_name. Asks the LLM for a known official rulebook PDF URL; the
+  # caller regex-extracts the first URL and treats "UNKNOWN" as no result.
+  @rulebook_url_search """
+  Official PDF rulebook URL for "{{game_name}}"? Return only URL. No guess — UNKNOWN if unsure.
+  """
+
   # Vars: game_name, rulebook, items
   @setup_verify """
   You are a strict fact-checker for a board-game SETUP checklist for "{{game_name}}". Check each numbered item (components to gather and setup steps) against the rulebook text.
@@ -1542,6 +1550,22 @@ defmodule RuleMaven.Prompts do
         "Drops setup components/steps that aren't fully/accurately supported by the rulebook.",
       vars: ~w(game_name rulebook items),
       default: @setup_verify
+    },
+    %{
+      key: "setup_verify_system",
+      group: "Content generation",
+      label: "Setup checklist fact-check — system",
+      description: "System primer paired with the Setup checklist fact-check prompt.",
+      vars: [],
+      default: @setup_verify_system
+    },
+    %{
+      key: "rulebook_url_search",
+      group: "Content generation",
+      label: "Rulebook URL search",
+      description: "Asks the LLM for a known official rulebook PDF URL; UNKNOWN means no result.",
+      vars: ["game_name"],
+      default: @rulebook_url_search
     },
     %{
       key: "categories",

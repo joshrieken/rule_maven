@@ -1378,9 +1378,7 @@ defmodule RuleMaven.Games do
   ground an answer in. A game mid-ingest has none.
   """
   def has_published_document?(game_id) when is_integer(game_id) do
-    Repo.exists?(
-      from(d in Document, where: d.game_id == ^game_id and d.status == "published")
-    )
+    Repo.exists?(from(d in Document, where: d.game_id == ^game_id and d.status == "published"))
   end
 
   def has_published_document?(_game_id), do: false
@@ -3000,7 +2998,12 @@ defmodule RuleMaven.Games do
   """
   def find_pool_candidates(game_id, question_embedding, opts \\ []) do
     threshold = Keyword.get(opts, :threshold, pool_distance_threshold())
-    limit = Keyword.get(opts, :limit, @default_pool_candidates)
+
+    limit =
+      Keyword.get_lazy(opts, :limit, fn ->
+        RuleMaven.Settings.int("pool_candidates", @default_pool_candidates)
+      end)
+
     expansion_ids = opts |> Keyword.get(:expansion_ids, []) |> Enum.sort()
     active_group_id = Keyword.get(opts, :active_group_id)
     vec = Pgvector.new(question_embedding)

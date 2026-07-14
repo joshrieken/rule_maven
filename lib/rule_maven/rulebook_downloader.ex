@@ -61,9 +61,7 @@ defmodule RuleMaven.RulebookDownloader do
   def find_url_via_llm(game) do
     require Logger
 
-    prompt = """
-    Official PDF rulebook URL for "#{game.name}"? Return only URL. No guess — UNKNOWN if unsure.
-    """
+    prompt = RuleMaven.Prompts.render("rulebook_url_search", %{game_name: game.name})
 
     case RuleMaven.LLM.chat(prompt, "rulebook url search") do
       {:ok, text} ->

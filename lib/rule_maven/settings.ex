@@ -32,6 +32,24 @@ defmodule RuleMaven.Settings do
   end
 
   @doc """
+  Positive-integer setting with a code default. Absent, non-numeric, zero, or
+  negative values all fall back to the default, so a mistyped admin edit can
+  never zero out a call budget or retrieval limit on a hot path.
+  """
+  def int(key, default) do
+    case get(key) do
+      nil ->
+        default
+
+      value ->
+        case Integer.parse(String.trim(value)) do
+          {n, ""} when n > 0 -> n
+          _ -> default
+        end
+    end
+  end
+
+  @doc """
   Writes a setting value by key. Upserts via `ON CONFLICT` so concurrent
   writers can't race a get-then-insert/update round trip into a unique
   constraint violation — the last writer to reach Postgres wins.
