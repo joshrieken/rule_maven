@@ -352,6 +352,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       bounds_agree?(q, c) and
       compass_agree?(q, c) and
       ordinals_agree?(q, c) and
+      frequencies_agree?(q, c) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, q, c))
   end
 
@@ -385,6 +386,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       MapSet.subset?(bound_preds(w), bound_preds(r)) and
       MapSet.subset?(compass_dirs(w), compass_dirs(r)) and
       MapSet.subset?(ordinals(w), ordinals(r)) and
+      MapSet.subset?(frequencies(w), frequencies(r)) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, r, w))
   end
 
@@ -403,6 +405,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       not ratios_agree?(question, candidate) -> :ratio
       not compass_agree?(q, c) -> :compass
       not ordinals_agree?(q, c) -> :ordinal
+      not frequencies_agree?(q, c) -> :frequency
       true ->
         Enum.find(Map.keys(@axes), &(not axis_agrees?(&1, q, c))) ||
           if(not bounds_agree?(q, c), do: :bound)
@@ -669,6 +672,41 @@ defmodule RuleMaven.LLM.QuestionFacets do
     oc = ordinals(c)
 
     Enum.empty?(oq) or Enum.empty?(oc) or MapSet.equal?(oq, oc)
+  end
+
+  # How MANY times an action happens — a separate count from quantity. "Attack
+  # twice" vs "attack three times" flips the answer but reads as a pool hit: the
+  # number guard never sees "twice", and "three" alone matches nothing on the
+  # other side. This is kept OFF the numbers set on purpose: "attack twice" and
+  # "attack two targets" both mention 2 but mean different things, so folding
+  # them together would wrongly equate a frequency with a quantity.
+  #
+  # `once` is deliberately excluded — it doubles as the conjunction "when" ("once
+  # you build, ..."), and gating it would break pool hits on unrelated questions.
+  @freq_words %{"twice" => 2, "thrice" => 3}
+
+  defp frequencies(tokens) do
+    toks_t = List.to_tuple(tokens)
+    n = tuple_size(toks_t)
+
+    tokens
+    |> Enum.with_index()
+    |> Enum.reduce(MapSet.new(), fn {t, i}, acc ->
+      next = if i + 1 < n, do: elem(toks_t, i + 1), else: nil
+
+      cond do
+        Map.has_key?(@freq_words, t) -> MapSet.put(acc, @freq_words[t])
+        next == "times" && to_number(t) -> MapSet.put(acc, to_number(t))
+        true -> acc
+      end
+    end)
+  end
+
+  defp frequencies_agree?(q, c) do
+    fq = frequencies(q)
+    fc = frequencies(c)
+
+    Enum.empty?(fq) or Enum.empty?(fc) or MapSet.equal?(fq, fc)
   end
 
   defp to_number(token) do

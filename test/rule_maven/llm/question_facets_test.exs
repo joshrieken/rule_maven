@@ -546,6 +546,22 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
       assert Facets.conflict("Does the first player act?", "Does the last player act?") == :order
     end
 
+    test "frequency (how many times) is its own count, separate from quantity" do
+      refute Facets.compatible?("Can I attack twice this turn?", "Can I attack three times this turn?")
+
+      assert Facets.conflict("Can I attack twice this turn?", "Can I attack three times this turn?") ==
+               :frequency
+
+      refute Facets.compatible?("Do I roll twice?", "Do I roll thrice?")
+
+      # A frequency must NOT be equated with a quantity: "attack twice" (two
+      # attacks) is not "attack two targets" (one attack, two targets).
+      assert Facets.compatible?("Do I attack twice?", "Do I attack two targets?")
+
+      # `once` is left ungated — it doubles as "when" ("once you build, ...").
+      assert Facets.compatible?("Do I draw once?", "Do I draw twice?")
+    end
+
     test "most/least stay on the comparative axis, not the superlative one" do
       # `most`/`least` are the at-most/at-least BOUND ("at least seven" = seven or
       # more), a different sense than the highest/lowest superlative. They must not
