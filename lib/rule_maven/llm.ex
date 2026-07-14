@@ -573,6 +573,14 @@ defmodule RuleMaven.LLM do
       String.trim(to_string(llm_result[:answer])) == @refusal_answer
   end
 
+  @doc """
+  Whether an answer string is the canonical refusal. Public for `mix
+  rule_maven.eval`, which must grade refusals rather than infer them: answering
+  an uncovered question and refusing a covered one are the two failures that
+  matter most, and a cheaper model gives up the first one first.
+  """
+  def refusal_answer?(answer), do: String.trim(to_string(answer)) == @refusal_answer
+
   defp maybe_escalate_refusal(
          llm_result,
          chunks,
@@ -695,15 +703,24 @@ defmodule RuleMaven.LLM do
     stable? = Keyword.get(cache_opts, :stable_corpus, false)
     context = build_context_block(chunks, game.id, stable: stable?)
 
-    # Rulebook FIRST, question last: the rulebook is the only stable half, and a
-    # cache breakpoint only pays on a prefix. Ordered question-first, this
-    # classifier re-bought ~10k tokens of rulebook on every refusal (0% cached).
-    prompt = "RULEBOOK TEXT:\n#{context}\n\nQUESTION:\n#{question}"
+    # The rulebook rides the SYSTEM message, not the user turn. Marking it as a
+    # breakpoint inside the user message cached NOTHING — Gemini caches only its
+    # systemInstruction — so this classifier went on re-buying ~10k tokens of
+    # rulebook on every refusal at 0% cached (measured $0.00375 a call, the second
+    # largest line in the eval). Same shape as the answer prompt and the critic:
+    # stable instructions, then the stable rulebook, breakpoint at the end of the
+    # system message, and only the question varies per call.
+    system = RuleMaven.Prompts.template("combinable_refusal_check_system")
+
+    {system, prompt} =
+      if stable?,
+        do: {system <> "\n\nRULEBOOK TEXT:\n" <> context, "QUESTION:\n#{question}"},
+        else: {system, "RULEBOOK TEXT:\n#{context}\n\nQUESTION:\n#{question}"}
 
     case chat(prompt, "combinable_refusal_check",
-           system: RuleMaven.Prompts.template("combinable_refusal_check_system"),
+           system: system,
+           cache_system: stable?,
            model: model(:cheap),
-           cache_block: if(stable?, do: "RULEBOOK TEXT:\n" <> context),
            # Ceiling, not spend: a reasoning cheap model thinks before emitting
            # the small JSON verdict, and a tight cap starves it into null content.
            max_tokens: 4000,
@@ -2071,7 +2088,7 @@ defmodule RuleMaven.LLM do
            # alone and emit empty content — same failure, same direction.
            raw: true,
            max_tokens: 2000,
-           model: opts[:model] || model(:cheap),
+           model: opts[:model] || model(:critic),
            operation: "grounding_critic",
            game_id: opts[:game_id],
            user_id: opts[:user_id]
@@ -3842,14 +3859,54 @@ defmodule RuleMaven.LLM do
   """
   def model(purpose \\ :default)
 
-  def model(:cleanup) do
+  # `mix rule_maven.eval` grades a candidate model on the same probes as the
+  # incumbent. It overrides through application env rather than by writing the
+  # `llm_*_model_*` settings, because those settings are global: an eval run that
+  # edited them would silently re-route every concurrent request in the app to
+  # the model under test.
+  def model(purpose) when purpose in [:cheap, :critic, :default] do
+    key =
+      case purpose do
+        :cheap -> :eval_cheap_model
+        :critic -> :eval_critic_model
+        :default -> :eval_answer_model
+      end
+
+    case Application.get_env(:rule_maven, key) do
+      m when is_binary(m) and m != "" -> m
+      _ -> resolve_model(purpose)
+    end
+  end
+
+  def model(purpose), do: resolve_model(purpose)
+
+  # The grounding critic gets its own model purpose, separate from :cheap, because
+  # the two cheap jobs fail in opposite directions and cannot share a model.
+  #
+  # The critic reads a cached rulebook and returns one word. Graded against known
+  # hallucinations (`mix rule_maven.eval_critic`), flash-lite matched flash
+  # exactly — 0 misses, 0 false alarms, 21/21 over three runs — at half the price.
+  #
+  # `combinable_refusal_check` must NOT follow it down. A false "yes" there does
+  # not merely cost accuracy, it BUYS a call to the escalate model, so a cheaper
+  # classifier can spend more than it saves — which is what a flash-lite classifier
+  # did before (see combinable_question?/4), and what the answer eval caught again:
+  # escalates went from 0/28 to 4/42 asks with the cheap model swapped wholesale.
+  defp resolve_model(:critic) do
+    case RuleMaven.Settings.get("llm_critic_model_#{provider()}") do
+      m when is_binary(m) and m != "" -> m
+      _ -> model(:cheap)
+    end
+  end
+
+  defp resolve_model(:cleanup) do
     case RuleMaven.Settings.get("llm_cleanup_model_#{provider()}") do
       m when is_binary(m) and m != "" -> m
       _ -> model(:default)
     end
   end
 
-  def model(:cheap) do
+  defp resolve_model(:cheap) do
     case RuleMaven.Settings.get("llm_cheap_model_#{provider()}") do
       m when is_binary(m) and m != "" -> m
       _ -> model(:cleanup)
@@ -3861,14 +3918,14 @@ defmodule RuleMaven.LLM do
   # the multi-hop case the default model routinely under-answers. Falls back to
   # the default model when unset, so an unconfigured install still gets the
   # combining-nudge retry, just without a model upgrade.
-  def model(:escalate) do
+  defp resolve_model(:escalate) do
     case RuleMaven.Settings.get("llm_escalate_model_#{provider()}") do
       m when is_binary(m) and m != "" -> m
       _ -> model(:default)
     end
   end
 
-  def model(_default) do
+  defp resolve_model(_default) do
     provider_name = provider()
     provider_conf = @providers[provider_name]
 

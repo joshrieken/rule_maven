@@ -217,6 +217,59 @@ defmodule RuleMaven.LLMPromptCacheTest do
     end
   end
 
+  # Every rulebook-bearing call must put the rulebook in the SYSTEM message. This
+  # is the one rule that is invisible when broken: the answer is identical, the
+  # request looks marked, and it silently bills full price. Both the critic and
+  # this classifier shipped "cached" for a while and cached nothing.
+  test "every prompt carrying the rulebook marks it in the system message", %{game: game} do
+    capture_bodies(fn body ->
+      text = Enum.map_join(body.messages, "\n", &message_text(&1.content))
+
+      cond do
+        # The refusal classifier — reached by refusing, which is what an
+        # uncovered question does.
+        text =~ "combinable" or text =~ "COMBIN" ->
+          {:ok, %{answer: ~s({"combinable": false, "rules": []}), finish_reason: "stop"}}
+
+        body[:response_format] ->
+          {:ok,
+           %{
+             answer: "The rulebook does not cover this question.",
+             verdict: "silent",
+             citations: [],
+             followups: []
+           }}
+
+        true ->
+          {:ok, %{answer: "", raw_response: "VERDICT: grounded", finish_reason: "stop"}}
+      end
+    end)
+
+    {:ok, _} = LLM.ask(game, "What is the maximum hand size?", [], [])
+
+    rulebook_bodies =
+      bodies()
+      |> Enum.filter(fn b ->
+        Enum.map_join(b.messages, "\n", &message_text(&1.content)) =~ "discard half your hand"
+      end)
+
+    assert rulebook_bodies != []
+
+    for body <- rulebook_bodies do
+      system = Enum.find(body.messages, &(&1.role == "system"))
+      user = Enum.find(body.messages, &(&1.role == "user"))
+
+      assert system, "a prompt carrying the rulebook has no system message to cache it in"
+
+      assert message_text(system.content) =~ "discard half your hand",
+             "the rulebook is not in the system message — Gemini caches only its " <>
+               "systemInstruction, so this prompt pays full price however it is marked"
+
+      refute message_text(user.content) =~ "discard half your hand",
+             "the rulebook is duplicated into the user turn — paid for twice"
+    end
+  end
+
   describe "cache TTL" do
     test "the cheap model takes the default TTL", %{game: game} do
       capture_bodies(fn _ ->

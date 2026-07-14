@@ -88,7 +88,13 @@ defmodule RuleMaven.LLMRefusalEscalationTest do
     # small-corpus budget, so the boost stands down and the first retrieval is
     # capped at the default top-10 — the answer chunk (ranked 13th) is missed.
     # The escalated pass (limit 25) picks up all 13.
-    filler = String.duplicate("wombat filler ", 450)
+    #
+    # Sized FROM the budget, not to a magic number: this test seeds a corpus that
+    # must be too big to send whole, and when the budget was raised the old fixed
+    # filler quietly fell under it — the boost then covered everything, there was
+    # nothing left to escalate, and the test failed for a reason that had nothing
+    # to do with escalation.
+    filler = String.duplicate("wombat filler ", div(Games.corpus_char_budget(), 12 * 14) + 200)
 
     for i <- 1..12 do
       put_chunk(doc, i, "[Page #{i}]\nnoise #{i} #{filler}", sparse_vec([{0, 0.9}, {i, 0.436}]))
@@ -100,6 +106,10 @@ defmodule RuleMaven.LLMRefusalEscalationTest do
       "[Page 13]\nHeroes may move into or out of a location with a monster.",
       sparse_vec([{50, 1.0}])
     )
+
+    # The whole test rests on this: if the corpus fits the budget, retrieval sends
+    # everything, nothing is missed, and there is no refusal to escalate.
+    refute Games.small_corpus?([game.id])
 
     mock_embed(query_vec)
 
@@ -139,7 +149,7 @@ defmodule RuleMaven.LLMRefusalEscalationTest do
   test "a second refusal after escalation keeps the refusal" do
     {:ok, game} = Games.create_game(%{name: "EscStill #{System.unique_integer([:positive])}"})
     doc = published_doc(game)
-    filler = String.duplicate("wombat filler ", 450)
+    filler = String.duplicate("wombat filler ", div(Games.corpus_char_budget(), 12 * 14) + 200)
 
     for i <- 1..12 do
       put_chunk(doc, i, "[Page #{i}]\nnoise #{i} #{filler}", sparse_vec([{0, 0.9}, {i, 0.436}]))
