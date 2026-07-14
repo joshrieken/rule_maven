@@ -1314,6 +1314,16 @@ button.qa-overlay__reask:disabled {
   from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: none; }
 }
+/* Transform-free entrance for boxes that must not move: a `position: sticky`
+   element that is also translated is drawn OFF its pinned position (it rides
+   ~10px above the scrollport's top edge for the length of the animation, and
+   a transform on it would also turn it into the containing block for any
+   fixed descendant). Those elements fade with this; the slide lives on their
+   inner content instead. */
+@keyframes qa-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 /* Expansion sublist reveal in the game list (each child cascades slightly). */
 @keyframes exp-reveal {
   from { opacity: 0; transform: translateY(-6px); }
@@ -3436,11 +3446,26 @@ textarea {
 }
 
 /* Entrance animations, mirroring the Q&A screen: sub-bar and head drop in,
-   the page body rises. One-shot; disabled under prefers-reduced-motion. */
+   the page body rises. One-shot; disabled under prefers-reduced-motion.
+
+   Both the bar and the head are `position: sticky`, so neither box may be
+   translated: `qa-drop-in` starts at translateY(-10px), which drags the
+   *pinned* box up out of the scrollport (Show's bar can afford it — it lives
+   in the fixed .chat-layout and never sticks). The sticky boxes therefore
+   only fade, and the drop-in slide is applied to their inner content, which
+   is free to move. Keep it that way: putting a transform back on .game-bar
+   or .community-head re-breaks the sticky pin (and makes the box a
+   containing block for fixed descendants). */
 .game-bar.community-bar {
+  animation: qa-fade-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.game-bar.community-bar > .game-header-row {
   animation: qa-drop-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .community-head {
+  animation: qa-fade-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
+}
+.community-head > * {
   animation: qa-drop-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
 }
 .community-page {
@@ -3448,7 +3473,9 @@ textarea {
 }
 @media (prefers-reduced-motion: reduce) {
   .game-bar.community-bar,
+  .game-bar.community-bar > .game-header-row,
   .community-head,
+  .community-head > *,
   .community-page {
     animation: none !important;
   }
