@@ -267,6 +267,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
 
     Polarity.compatible?(raw, rewrite) and
       MapSet.subset?(numbers(w), numbers(r)) and
+      MapSet.subset?(unit_numbers(w), unit_numbers(r)) and
       MapSet.subset?(ratios(rewrite), ratios(raw)) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, r, w))
   end
@@ -314,18 +315,91 @@ defmodule RuleMaven.LLM.QuestionFacets do
   # premises named in a different order ("roll a 7 with 8 cards" vs "8 cards, roll
   # a 7") must still match, so position cannot be load-bearing for loose numbers.
   #
-  # That set comparison is blind to ONE thing: a ratio's direction. "trade at 2:1"
-  # and "trade at 1:2" carry the same digits, so as sets they agree, but they are
-  # opposite trades (0.97 apart on the embedding). A colon-ratio is the one place
-  # the order of two numbers IS the rule, so it is checked separately by
+  # That set comparison is blind to TWO things. The first is a ratio's direction:
+  # "trade at 2:1" and "trade at 1:2" carry the same digits, so as sets they agree,
+  # but they are opposite trades (0.97 apart on the embedding). A colon-ratio is the
+  # one place the order of two numbers IS the rule, so it is checked separately by
   # `ratios_agree?/2`. The prose form ("give 3 and get 1") is left ungated on
   # purpose — parsing give/get order robustly would over-block more paraphrases
   # than the rare reversed-ratio flip is worth.
+  #
+  # The second is a number's UNIT. "Do I discard on a 7 with 8 cards?" and "Do I
+  # discard on an 8 with 7 cards?" both carry the digit set {7,8}, so as sets they
+  # agree — but the first is the discard rule (8 cards, over the limit) and the
+  # second is not (7 cards, under it), and they sit 0.99 apart on the embedding.
+  # The set threw away which number was the HAND SIZE and which was the DIE ROLL.
+  # `unit_numbers_agree?/2` recovers exactly that binding and nothing else: it pairs
+  # each number with an immediately-following unit noun from a small whitelist
+  # ("8 cards" -> {8,card}) and requires those pairs to match. The whitelist is why
+  # this does not reintroduce the ordering fragility the set form was chosen to
+  # avoid — "roll a 7 with 8 cards" and "8 cards, roll a 7" both bind only {8,card}
+  # (the 7 is followed by "with"/nothing, not a unit, so it stays a loose number),
+  # while the role-swapped "roll an 8 with 7 cards" binds {7,card} and is caught.
+  # A number with no unit after it falls back to the loose-set comparison unchanged.
   defp numbers_agree?(q, c) do
     nq = numbers(q)
     nc = numbers(c)
 
-    Enum.empty?(nq) or Enum.empty?(nc) or MapSet.equal?(nq, nc)
+    (Enum.empty?(nq) or Enum.empty?(nc) or MapSet.equal?(nq, nc)) and
+      unit_numbers_agree?(q, c)
+  end
+
+  # Number-unit pairs must line up when BOTH sides carry them — empty-safe on either
+  # side exactly like the loose-set and ratio comparisons, so a question that binds
+  # no number to a unit is not held to disagree about one.
+  defp unit_numbers_agree?(q, c) do
+    uq = unit_numbers(q)
+    uc = unit_numbers(c)
+
+    Enum.empty?(uq) or Enum.empty?(uc) or MapSet.equal?(uq, uc)
+  end
+
+  # The nouns whose count IS the rule, each plural mapped to a single canonical
+  # form so "7 card" and "7 cards" (and "die"/"dice", "city"/"cities") bind the
+  # same. A number is bound to a unit only when the noun sits immediately after it
+  # ("8 cards" -> {8,card}). Kept to units that actually decide a board-game answer
+  # — a longer list only risks binding a number to an ordinary word and
+  # manufacturing a disagreement.
+  @unit_canon %{
+    "card" => "card",
+    "cards" => "card",
+    "point" => "point",
+    "points" => "point",
+    "resource" => "resource",
+    "resources" => "resource",
+    "die" => "die",
+    "dice" => "die",
+    "player" => "player",
+    "players" => "player",
+    "settlement" => "settlement",
+    "settlements" => "settlement",
+    "city" => "city",
+    "cities" => "city",
+    "road" => "road",
+    "roads" => "road",
+    "knight" => "knight",
+    "knights" => "knight",
+    "hex" => "hex",
+    "hexes" => "hex",
+    "tile" => "tile",
+    "tiles" => "tile",
+    "turn" => "turn",
+    "turns" => "turn",
+    "space" => "space",
+    "spaces" => "space",
+    "token" => "token",
+    "tokens" => "token"
+  }
+
+  defp unit_numbers(tokens) do
+    tokens
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.reduce(MapSet.new(), fn [a, b], acc ->
+      n = to_number(a)
+      unit = Map.get(@unit_canon, b)
+
+      if n && unit, do: MapSet.put(acc, "#{n}:#{unit}"), else: acc
+    end)
   end
 
   # A colon-ratio is compared on the RAW text — `tokens/1` splits on the colon and

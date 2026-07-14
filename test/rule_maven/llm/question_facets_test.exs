@@ -113,6 +113,44 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
       refute Facets.compatible?("Can a player roll only two dice?", "Can a player roll only one die?")
     end
 
+    test "number-unit swap — same digits, opposite roles, 0.99" do
+      # {7,8} on both sides, so the digit SET passes. The unit binding is what
+      # separates them: 8-cards (discard) vs 7-cards (do not).
+      refute Facets.compatible?(
+               "Do I discard on a 7 with 8 cards?",
+               "Do I discard on an 8 with 7 cards?"
+             )
+
+      assert Facets.conflict(
+               "Do I discard on a 7 with 8 cards?",
+               "Do I discard on an 8 with 7 cards?"
+             ) == :number
+
+      # The legitimate reorder must STILL match: only "8 cards" binds a unit on
+      # each side (the 7 is followed by "with"/nothing), so both carry {8,card}.
+      assert Facets.compatible?(
+               "Do I discard when I roll a 7 with 8 cards?",
+               "With 8 cards, do I discard when I roll a 7?"
+             )
+
+      # Singular/plural of the same unit-number is not a disagreement.
+      assert Facets.compatible?(
+               "Do I keep 1 card?",
+               "Do I keep 1 cards?"
+             )
+
+      # A rewrite may DROP a unit-number premise but never swap its unit.
+      assert Facets.preserved_in_rewrite?(
+               "If I roll a 7 with 8 cards, how many do I discard?",
+               "How many cards are discarded on a 7?"
+             )
+
+      refute Facets.preserved_in_rewrite?(
+               "How many do I discard with 8 cards?",
+               "How many do I discard with 7 cards?"
+             )
+    end
+
     test "same/different — a single-token antonym that stays 0.97 on the embedding" do
       # Live: "Can the robber be placed on the same hex?" is a real pooled row,
       # so "...a different hex?" false-hit it and served the opposite.
