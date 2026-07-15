@@ -644,10 +644,10 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                   type="button"
                   phx-click="force_publish"
                   phx-value-id={q.id}
-                  title="Manually clear the publish gate for this row, bypassing the automated screen."
+                  title="Mark this row as having passed the safety screen, without waiting for (or overriding) the automated screen. Makes it listable at the unverified tier."
                   class="btn-xs"
                   style="background:#d4a017;border-color:#d4a017;color:#fff"
-                >Force publish</button>
+                >Mark screened</button>
                 <button
                   :if={q.promoted}
                   type="button"
