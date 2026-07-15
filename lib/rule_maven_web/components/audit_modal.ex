@@ -583,6 +583,7 @@ defmodule RuleMavenWeb.AuditModal do
   # reach is a mix of visibility, pooled+browsable and crew origin.
   defp audience_label(%QuestionLog{} = q) do
     cond do
+      q.visibility == "community" and q.verified -> "Everyone · admin-verified"
       q.visibility == "community" -> "Everyone · community-verified"
       q.pooled and q.browsable -> "Everyone · public FAQ"
       not is_nil(q.group_id) or QuestionLog.crew_origin?(q) -> "Crew only"
