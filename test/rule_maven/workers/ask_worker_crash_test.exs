@@ -50,7 +50,7 @@ defmodule RuleMaven.Workers.AskWorkerCrashTest do
         user_id: u.id,
         question: "How many dice?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     run =
@@ -93,7 +93,7 @@ defmodule RuleMaven.Workers.AskWorkerCrashTest do
         user_id: u.id,
         question: raw,
         answer: "Thinking...",
-        visibility: "private",
+        promoted: false,
         group_id: nil,
         browsable: false
       })
@@ -138,7 +138,7 @@ defmodule RuleMaven.Workers.AskWorkerCrashTest do
         user_id: u.id,
         question: "How many dice?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     assert_raise Ecto.NoResultsError, fn ->
@@ -162,7 +162,7 @@ defmodule RuleMaven.Workers.AskWorkerCrashTest do
         user_id: u.id,
         question: "How many dice?",
         answer: "You roll two dice.",
-        visibility: "private"
+        promoted: false
       })
 
     assert_raise Ecto.NoResultsError, fn ->

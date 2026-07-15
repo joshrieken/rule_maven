@@ -58,7 +58,7 @@ defmodule RuleMavenWeb.GameLive.AdminThreadWindowTest do
         user_id: user.id,
         question: "What happens when the longest road tie needs breaking?",
         answer: "Longest Road stays with whoever already has it on a tie.",
-        visibility: "community"
+        promoted: true
       })
 
     RuleMaven.Repo.update_all(
@@ -73,7 +73,7 @@ defmodule RuleMavenWeb.GameLive.AdminThreadWindowTest do
           user_id: user.id,
           question: "Filler question number #{n}?",
           answer: "Filler answer #{n}.",
-          visibility: "community"
+          promoted: true
         })
     end
 
@@ -136,7 +136,7 @@ defmodule RuleMavenWeb.GameLive.AdminThreadWindowTest do
         user_id: owner.id,
         question: "Owner's private question, never shared",
         answer: "answer",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, other)

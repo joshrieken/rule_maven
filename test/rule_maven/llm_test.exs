@@ -317,7 +317,7 @@ defmodule RuleMaven.LLMTest do
           user_id: user.id,
           question: "How many dice do I roll?",
           answer: "You roll 3 six-sided dice.",
-          visibility: "community"
+          promoted: true
         })
 
       # Update with a fake embedding for similarity match
@@ -347,7 +347,7 @@ defmodule RuleMaven.LLMTest do
         user_id: user.id,
         question: "Pool question",
         answer: "Pool answer",
-        visibility: "community"
+        promoted: true
       })
 
       # Promotion to community always sets `pooled` too — mirror that here,
@@ -395,7 +395,7 @@ defmodule RuleMaven.LLMTest do
           cited_passage: "see p.7",
           cited_page: 7,
           cited_source: "FAQ",
-          visibility: "private",
+          promoted: false,
           pooled: true
         })
 
@@ -439,7 +439,7 @@ defmodule RuleMaven.LLMTest do
         user_id: user.id,
         question: "Cached q",
         answer: "Cached answer",
-        visibility: "community"
+        promoted: true
       })
 
       Repo.update_all(
@@ -564,7 +564,7 @@ defmodule RuleMaven.LLMTest do
           user_id: user.id,
           question: "How many dice do I roll?",
           answer: "You roll 3 dice.",
-          visibility: "private"
+          promoted: false
         })
 
       Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, Enum.to_list(1..768)} end)
@@ -600,7 +600,7 @@ defmodule RuleMaven.LLMTest do
         user_id: author.id,
         question: "How many dice do I roll?",
         answer: "Author's private answer.",
-        visibility: "private"
+        promoted: false
       })
 
       Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, Enum.to_list(1..768)} end)
@@ -631,7 +631,7 @@ defmodule RuleMaven.LLMTest do
         user_id: user.id,
         question: "How many dice do I roll?",
         answer: "Cached own answer.",
-        visibility: "private"
+        promoted: false
       })
 
       Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, Enum.to_list(1..768)} end)
@@ -747,7 +747,7 @@ defmodule RuleMaven.LLMTest do
           user_id: author.id,
           question: "How many dice do I roll?",
           answer: "Roll 3 dice.",
-          visibility: "community"
+          promoted: true
         })
 
       # Promotion to community always sets `pooled` too — mirror that here,
@@ -784,7 +784,7 @@ defmodule RuleMaven.LLMTest do
           question: "How many dice do I roll?",
           answer: "Roll 3 dice (mine).",
           cleaned_question: "how many dice do i roll?",
-          visibility: "private"
+          promoted: false
         })
 
       {:ok, mine} = LLM.ask(game, "How many dice do I roll?", [], [], user_id: asker.id)
@@ -815,7 +815,7 @@ defmodule RuleMaven.LLMTest do
           question: "How many dice do I roll?",
           answer: "Roll 3 dice (mine, pooled).",
           cleaned_question: "how many dice do i roll?",
-          visibility: "community"
+          promoted: true
         })
 
       Repo.update_all(from(r in QuestionLog, where: r.id == ^own.id),
@@ -1014,7 +1014,7 @@ defmodule RuleMaven.LLMTest do
         question: "how many players can I do?",
         cleaned_question: "What is the maximum number of players?",
         answer: "5",
-        visibility: "private",
+        promoted: false,
         pooled: true,
         browsable: true
       })
@@ -1213,7 +1213,7 @@ defmodule RuleMaven.LLMTest do
           user_id: author.id,
           question: "What is the d20 used for?",
           answer: "It resolves any check requiring a d20 roll.",
-          visibility: "community",
+          promoted: true,
           citation_valid: true,
           browsable: true
         })
@@ -1332,7 +1332,7 @@ defmodule RuleMaven.LLMTest do
           game_id: game.id,
           question: question,
           answer: "Answer to #{question}",
-          visibility: "community",
+          promoted: true,
           citation_valid: true,
           browsable: true
         })
@@ -1435,7 +1435,7 @@ defmodule RuleMaven.LLMTest do
           user_id: asker.id,
           question: "Own prior question",
           answer: "Own prior answer.",
-          visibility: "private"
+          promoted: false
         })
 
       # A different user's community-pooled answer, same embedding (so both
@@ -1445,7 +1445,7 @@ defmodule RuleMaven.LLMTest do
         user_id: other.id,
         question: "Other user's question",
         answer: "Other user's answer.",
-        visibility: "community"
+        promoted: true
       })
 
       Repo.update_all(

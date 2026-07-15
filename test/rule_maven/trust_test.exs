@@ -120,14 +120,14 @@ defmodule RuleMaven.TrustTest do
         log(game, author, %{
           cited_passage: nil,
           cited_page: nil,
-          visibility: "private",
+          promoted: false,
           browsable: true
         })
 
       {:ok, v} = Games.toggle_verified(q)
 
       assert v.verified
-      assert v.visibility == "community"
+      assert v.promoted
       assert v.pooled
       assert Repo.reload!(v).trust_score >= 100.0
     end
@@ -141,7 +141,7 @@ defmodule RuleMaven.TrustTest do
       {:ok, u} = Games.toggle_verified(v)
 
       refute u.verified
-      assert u.visibility == "private"
+      assert not u.promoted
       # No citation → not pool-eligible once the verify override is gone.
       refute u.pooled
     end
@@ -157,7 +157,7 @@ defmodule RuleMaven.TrustTest do
       # leaves the community tier and sheds the verified trust_score floor.
       reloaded_a = Repo.reload!(a)
       refute reloaded_a.verified
-      refute reloaded_a.visibility == "community"
+      refute reloaded_a.promoted
       assert reloaded_a.trust_score < 100.0
       assert Repo.reload!(b).verified
     end
@@ -267,7 +267,7 @@ defmodule RuleMaven.TrustTest do
       game = game_fixture()
       author = user_fixture("a")
 
-      community = log(game, author, %{visibility: "community", pooled: true})
+      community = log(game, author, %{promoted: true, pooled: true})
       verified = log(game, author, %{verified: true, pooled: true})
       provisional = log(game, author, %{cited_passage: "p.1", pooled: true, trust_score: 0.0})
 
@@ -327,7 +327,7 @@ defmodule RuleMaven.TrustTest do
       author: author,
       voter: voter
     } do
-      q = log(game, author, %{cited_passage: nil, cited_page: nil, visibility: "private"})
+      q = log(game, author, %{cited_passage: nil, cited_page: nil, promoted: false})
       assert {:error, :not_votable} = Games.set_community_vote(q.id, voter.id, "up")
     end
 
@@ -435,7 +435,7 @@ defmodule RuleMaven.TrustTest do
         log(game, author, %{
           question: "private wording",
           cited_passage: "p.1",
-          visibility: "private",
+          promoted: false,
           pooled: true
         })
 
@@ -458,7 +458,7 @@ defmodule RuleMaven.TrustTest do
         log(game, author, %{
           question: "provisional",
           cited_passage: "p.1",
-          visibility: "private",
+          promoted: false,
           pooled: true,
           trust_score: 0.0
         })
@@ -475,7 +475,7 @@ defmodule RuleMaven.TrustTest do
         log(game, author, %{
           question: "trusted",
           answer: "Trusted answer.",
-          visibility: "community",
+          promoted: true,
           pooled: true
         })
 
@@ -518,8 +518,8 @@ defmodule RuleMaven.TrustTest do
       # This is the regression: trust-first SQL ordering across the wide 0.80
       # band returned the trusted row at 0.81, burned a tiebreaker call on it,
       # and never saw the 0.98 match.
-      near = pooled_row(game, author, "near", %{sim: 0.98, attrs: %{visibility: "private"}})
-      _far = pooled_row(game, author, "far", %{sim: 0.81, attrs: %{visibility: "community"}})
+      near = pooled_row(game, author, "near", %{sim: 0.98, attrs: %{promoted: false}})
+      _far = pooled_row(game, author, "far", %{sim: 0.81, attrs: %{promoted: true}})
 
       candidates =
         Games.find_pool_candidates(game.id, query,
@@ -541,10 +541,10 @@ defmodule RuleMaven.TrustTest do
 
     test "trust still breaks ties among rows that all clear the direct-hit floor",
          %{game: game, author: author, query: query} do
-      _prov = pooled_row(game, author, "prov", %{sim: 0.99, attrs: %{visibility: "private"}})
+      _prov = pooled_row(game, author, "prov", %{sim: 0.99, attrs: %{promoted: false}})
 
       trusted =
-        pooled_row(game, author, "trusted", %{sim: 0.95, attrs: %{visibility: "community"}})
+        pooled_row(game, author, "trusted", %{sim: 0.95, attrs: %{promoted: true}})
 
       candidates = Games.find_pool_candidates(game.id, query)
       assert {row, :trusted} = Games.best_by_trust(candidates)
@@ -553,7 +553,7 @@ defmodule RuleMaven.TrustTest do
 
     test "stale rows are excluded even if still flagged pooled",
          %{game: game, author: author, query: query} do
-      row = pooled_row(game, author, "staled", %{sim: 0.99, attrs: %{visibility: "community"}})
+      row = pooled_row(game, author, "staled", %{sim: 0.99, attrs: %{promoted: true}})
 
       Repo.update_all(
         from(q in RuleMaven.Games.QuestionLog, where: q.id == ^row.id),
@@ -565,7 +565,7 @@ defmodule RuleMaven.TrustTest do
 
     test "respects the candidate limit", %{game: game, author: author, query: query} do
       for i <- 1..4 do
-        pooled_row(game, author, "q#{i}", %{sim: 0.99, attrs: %{visibility: "private"}})
+        pooled_row(game, author, "q#{i}", %{sim: 0.99, attrs: %{promoted: false}})
       end
 
       assert length(Games.find_pool_candidates(game.id, query, limit: 2)) == 2

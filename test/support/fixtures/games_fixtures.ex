@@ -81,7 +81,7 @@ defmodule RuleMaven.GamesFixtures do
             user_id: user.id,
             question: "Test question #{n}?",
             answer: "Test answer #{n}.",
-            visibility: "private"
+            promoted: false
           })
 
         # `inserted_at` isn't cast by the changeset (Ecto stamps it on

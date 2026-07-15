@@ -39,7 +39,7 @@ defmodule RuleMaven.GroupPrivacyTest do
             question: "SECRETWORDING can Dave's smuggler cheat here?",
             cleaned_question: "Can a smuggler cheat?",
             answer: "No.",
-            visibility: "private",
+            promoted: false,
             citation_valid: true,
             pooled: true,
             browsable: false

@@ -48,7 +48,7 @@ defmodule RuleMavenWeb.GameLiveNormalizationDisclosureTest do
         question: "how many cards do i draw",
         cleaned_question: "How many cards does a player draw per turn?",
         answer: "You draw two cards.",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, user)
@@ -89,7 +89,7 @@ defmodule RuleMavenWeb.GameLiveNormalizationDisclosureTest do
         question: "How are walls placed?",
         cleaned_question: "How are walls placed?",
         answer: "Walls go between two spaces.",
-        visibility: "private"
+        promoted: false
       })
 
     # A second answered row so its id is present in the user's threads — the
@@ -100,7 +100,7 @@ defmodule RuleMavenWeb.GameLiveNormalizationDisclosureTest do
         user_id: user.id,
         question: "Unrelated placeholder question?",
         answer: "Placeholder.",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, user)
@@ -141,7 +141,7 @@ defmodule RuleMavenWeb.GameLiveNormalizationDisclosureTest do
         question: "How many cards does a player draw?",
         cleaned_question: "how many cards does a player draw?",
         answer: "You draw two cards.",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, user)

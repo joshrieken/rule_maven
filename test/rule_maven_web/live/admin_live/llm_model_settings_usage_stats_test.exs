@@ -78,7 +78,7 @@ defmodule RuleMavenWeb.AdminLive.LlmModelSettingsUsageStatsTest do
             question: "Q #{provider} #{System.unique_integer([:positive])}?",
             answer: "A.",
             llm_provider: provider,
-            visibility: "private"
+            promoted: false
           })
       end
 

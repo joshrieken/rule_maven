@@ -46,7 +46,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
         answer: "Score like so.",
         cited_passage: "p.3",
         citation_valid: true,
-        visibility: "private",
+        promoted: false,
         pooled: true,
         browsable: true
       })
@@ -74,7 +74,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
 
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
 
-    assert Repo.get(QuestionLog, row.id).visibility == "community"
+    assert Repo.get(QuestionLog, row.id).promoted
     assert Repo.get(User, author.id).reputation > 0
   end
 
@@ -91,7 +91,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
 
     assert Repo.get(QuestionLog, row.id).trust_score >= 3.0
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
-    assert Repo.get(QuestionLog, row.id).visibility == "private"
+    refute Repo.get(QuestionLog, row.id).promoted
   end
 
   test "unconfirmed voters do not count toward quorum",
@@ -103,7 +103,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
     Games.set_community_vote(row.id, user_fixture("u2").id, "up")
 
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
-    assert Repo.get(QuestionLog, row.id).visibility == "private"
+    refute Repo.get(QuestionLog, row.id).promoted
   end
 
   test "leaves a below-floor row private", %{game: game, author: author} do
@@ -111,7 +111,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
     Games.set_community_vote(row.id, confirmed_user("v1").id, "up")
 
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
-    assert Repo.get(QuestionLog, row.id).visibility == "private"
+    refute Repo.get(QuestionLog, row.id).promoted
   end
 
   test "never promotes an unbrowsable row, even above the floor with full quorum",
@@ -139,7 +139,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
     )
 
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
-    assert Repo.get(QuestionLog, row.id).visibility == "private"
+    refute Repo.get(QuestionLog, row.id).promoted
   end
 
   test "never promotes a row staled by a rulebook change, even above the floor",
@@ -154,7 +154,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
     Repo.update_all(from(r in QuestionLog, where: r.id == ^row.id), set: [stale: true])
 
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
-    assert Repo.get(QuestionLog, row.id).visibility == "private"
+    refute Repo.get(QuestionLog, row.id).promoted
   end
 
   test "does not cluster facet-incompatible rows that share an embedding",
@@ -183,7 +183,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
 
     # Both earned promotion on their own votes; neither is swallowed by the other.
-    assert Repo.get(QuestionLog, before_row.id).visibility == "community"
-    assert Repo.get(QuestionLog, after_row.id).visibility == "community"
+    assert Repo.get(QuestionLog, before_row.id).promoted
+    assert Repo.get(QuestionLog, after_row.id).promoted
   end
 end

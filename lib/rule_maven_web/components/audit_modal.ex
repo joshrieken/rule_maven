@@ -114,7 +114,7 @@ defmodule RuleMavenWeb.AuditModal do
       user_id: m["user_id"],
       group_id: m["group_id"],
       browsable: m["browsable"] || false,
-      visibility: m["visibility"] || "private",
+      promoted: m["promoted"] || false,
       question_normalized: m["question_normalized"] || false,
       verdict: m["verdict"],
       llm_model: m["llm_model"],
@@ -233,7 +233,7 @@ defmodule RuleMavenWeb.AuditModal do
           {fact("Asked", fmt_dt(@row.inserted_at))}
           {fact("Row id", "##{@row.id}")}
           {fact("Audience", audience_label(@row))}
-          {fact("Visibility", @row.visibility)}
+          {fact("Promoted", yn(@row.promoted))}
           {fact("Served", if(cache_hit?(@row), do: "pool (cache hit)", else: "fresh generation"))}
           {fact("Pool source", if(@row.pooled, do: "yes (may serve the cache)", else: "no"))}
           {fact("Normalized", yn(@row.question_normalized))}

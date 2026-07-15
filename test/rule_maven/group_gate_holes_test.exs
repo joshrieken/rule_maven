@@ -46,7 +46,7 @@ defmodule RuleMaven.GroupGateHolesTest do
             question: "SECRETWORDING can Dave's smuggler cheat here?",
             cleaned_question: "Can a smuggler cheat?",
             answer: "No.",
-            visibility: "private",
+            promoted: false,
             citation_valid: true,
             pooled: true,
             browsable: false,
@@ -96,7 +96,7 @@ defmodule RuleMaven.GroupGateHolesTest do
           question: "How far do smugglers move?",
           cleaned_question: "How far does a smuggler move?",
           answer: "Two spaces.",
-          visibility: "community",
+          promoted: true,
           pooled: true,
           browsable: true
         })
@@ -114,7 +114,7 @@ defmodule RuleMaven.GroupGateHolesTest do
           group_id: ctx.grp.id,
           question: "raw wording",
           answer: "Thinking...",
-          visibility: "private"
+          promoted: false
         })
 
       refute q.browsable
@@ -140,7 +140,7 @@ defmodule RuleMaven.GroupGateHolesTest do
           user_id: ctx.member.id,
           question: "ordinary question",
           answer: "Thinking...",
-          visibility: "private"
+          promoted: false
         })
 
       refute q.browsable
@@ -165,35 +165,35 @@ defmodule RuleMaven.GroupGateHolesTest do
       q = group_question!(ctx.game, ctx.member, ctx.grp)
 
       assert {:error, :not_publishable} = Games.toggle_verified(q)
-      assert Repo.get(QuestionLog, q.id).visibility == "private"
+      refute Repo.get(QuestionLog, q.id).promoted
     end
 
     test "verifying a cleared group row works", ctx do
       q = group_question!(ctx.game, ctx.member, ctx.grp, %{browsable: true})
 
       assert {:ok, _} = Games.toggle_verified(q)
-      assert Repo.get(QuestionLog, q.id).visibility == "community"
+      assert Repo.get(QuestionLog, q.id).promoted
     end
 
     test "promoting an uncleared group row to community is refused", ctx do
       q = group_question!(ctx.game, ctx.member, ctx.grp)
 
       assert {:error, :not_publishable} = Games.update_question_visibility(q, "community")
-      assert Repo.get(QuestionLog, q.id).visibility == "private"
+      refute Repo.get(QuestionLog, q.id).promoted
     end
 
     test "set_question_visibility/2 refuses an uncleared group row too", ctx do
       q = group_question!(ctx.game, ctx.member, ctx.grp)
 
       assert {:error, :not_publishable} = Games.set_question_visibility(q.id, "community")
-      assert Repo.get(QuestionLog, q.id).visibility == "private"
+      refute Repo.get(QuestionLog, q.id).promoted
     end
 
     test "demoting an uncleared group row to private is still allowed", ctx do
       q = group_question!(ctx.game, ctx.member, ctx.grp)
 
       Games.set_question_visibility(q.id, "private")
-      assert Repo.get(QuestionLog, q.id).visibility == "private"
+      refute Repo.get(QuestionLog, q.id).promoted
     end
   end
 
@@ -479,7 +479,7 @@ defmodule RuleMaven.GroupGateHolesTest do
       q =
         group_question!(ctx.game, ctx.member, ctx.grp, %{
           browsable: true,
-          visibility: "community"
+          promoted: true
         })
 
       {:ok, :deleted} = Groups.delete_group(ctx.member, ctx.grp)

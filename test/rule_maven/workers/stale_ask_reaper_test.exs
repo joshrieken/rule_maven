@@ -46,7 +46,7 @@ defmodule RuleMaven.Workers.StaleAskReaperTest do
       user_id: user_fixture().id,
       question: "How do I win this game?",
       answer: "Thinking...",
-      visibility: "private",
+      promoted: false,
       expansion_ids: [],
       inserted_at: inserted,
       updated_at: inserted

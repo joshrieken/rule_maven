@@ -28,7 +28,7 @@ defmodule RuleMaven.Workers.AskWorkerDedupTest do
         question: "How many dice do I roll?",
         answer: "Roll 3 dice.",
         cleaned_question: "how many dice do i roll?",
-        visibility: "private"
+        promoted: false
       })
 
     # The provisional row the LiveView pre-logged for the re-ask.
@@ -38,7 +38,7 @@ defmodule RuleMaven.Workers.AskWorkerDedupTest do
         user_id: u.id,
         question: "How many dice do I roll?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, Enum.to_list(1..768)} end)
@@ -75,7 +75,7 @@ defmodule RuleMaven.Workers.AskWorkerDedupTest do
         user_id: u.id,
         question: "how does a turn go?",
         answer: "Roll 3 dice, then move.",
-        visibility: "private"
+        promoted: false
       })
 
     {:ok, prov} =
@@ -84,7 +84,7 @@ defmodule RuleMaven.Workers.AskWorkerDedupTest do
         user_id: u.id,
         question: "explain the turn sequence",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     # No cache hit (distinct question, no embeddings) → the LLM "answers"; mock it
@@ -124,7 +124,7 @@ defmodule RuleMaven.Workers.AskWorkerDedupTest do
         question: "How many dice do I roll?",
         answer: "Roll 3 dice.",
         cleaned_question: "how many dice do i roll?",
-        visibility: "private"
+        promoted: false
       })
 
     {:ok, prov} =
@@ -133,7 +133,7 @@ defmodule RuleMaven.Workers.AskWorkerDedupTest do
         user_id: u.id,
         question: "How many dice do I roll?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     Application.put_env(:rule_maven, :embed_mock, fn _ -> {:ok, Enum.to_list(1..768)} end)

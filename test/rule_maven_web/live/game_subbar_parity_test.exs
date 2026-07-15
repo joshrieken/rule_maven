@@ -81,7 +81,7 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
         game_id: game.id,
         question: "How does X work?",
         answer: "Like Y.",
-        visibility: "community"
+        promoted: true
       })
 
     for path <- [
@@ -111,7 +111,7 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
         game_id: game.id,
         question: "How does X work?",
         answer: "Like Y.",
-        visibility: "community"
+        promoted: true
       })
 
     # Parse structurally with LazyHTML (the HTML engine LiveViewTest already

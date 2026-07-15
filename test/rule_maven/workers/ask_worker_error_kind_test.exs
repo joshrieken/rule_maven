@@ -32,7 +32,7 @@ defmodule RuleMaven.Workers.AskWorkerErrorKindTest do
             user_id: u.id,
             question: "How many dice do I roll?",
             answer: "Thinking...",
-            visibility: "private"
+            promoted: false
           },
           attrs
         )

@@ -39,7 +39,7 @@ defmodule RuleMavenWeb.GameLive.GroupPanelTest do
         user_id: user.id,
         question: "how many cards do we start with",
         answer: "seven cards each",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -71,7 +71,7 @@ defmodule RuleMavenWeb.GameLive.GroupPanelTest do
         user_id: user.id,
         question: "fresh group q",
         answer: "the answer",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -97,7 +97,7 @@ defmodule RuleMavenWeb.GameLive.GroupPanelTest do
         user_id: user.id,
         question: "other group question",
         answer: "other group answer",
-        visibility: "private",
+        promoted: false,
         group_id: other_grp.id
       })
 
@@ -118,7 +118,7 @@ defmodule RuleMavenWeb.GameLive.GroupPanelTest do
         user_id: user.id,
         question: "own conversation question",
         answer: "Thinking...",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -174,7 +174,7 @@ defmodule RuleMavenWeb.GameLive.GroupPanelTest do
         user_id: user.id,
         question: "belongs to other group",
         answer: "answer a",
-        visibility: "private",
+        promoted: false,
         group_id: other_grp.id
       })
 
@@ -184,7 +184,7 @@ defmodule RuleMavenWeb.GameLive.GroupPanelTest do
         user_id: user.id,
         question: "belongs to other game",
         answer: "answer b",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -194,7 +194,7 @@ defmodule RuleMavenWeb.GameLive.GroupPanelTest do
         user_id: user.id,
         question: "belongs right here",
         answer: "answer c",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 

@@ -31,7 +31,7 @@ defmodule RuleMaven.Workers.AskWorkerGroupBroadcastTest do
         user_id: owner.id,
         question: "q",
         answer: "a",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -57,7 +57,7 @@ defmodule RuleMaven.Workers.AskWorkerGroupBroadcastTest do
         user_id: user.id,
         question: "q",
         answer: "a",
-        visibility: "private"
+        promoted: false
       })
 
     Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")

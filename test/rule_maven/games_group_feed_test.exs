@@ -41,7 +41,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: owner.id,
         question: "group question",
         answer: "group answer",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -51,7 +51,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: other.id,
         question: "solo question",
         answer: "solo answer",
-        visibility: "private"
+        promoted: false
       })
 
     feed = Games.recent_questions(game, 20, group_id: grp.id)
@@ -75,7 +75,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: owner.id,
         question: "in this group",
         answer: "a",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -85,7 +85,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: other_owner.id,
         question: "in the other group",
         answer: "a",
-        visibility: "private",
+        promoted: false,
         group_id: other_grp.id
       })
 
@@ -106,7 +106,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: owner.id,
         question: "on game A",
         answer: "a",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -116,7 +116,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: owner.id,
         question: "on game B",
         answer: "a",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -134,7 +134,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: owner.id,
         question: "clean question",
         answer: "a",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -144,7 +144,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: owner.id,
         question: "refused question",
         answer: "⚠️ refused",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id,
         refused: true
       })
@@ -155,7 +155,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: owner.id,
         question: "blocked question",
         answer: "⚠️ blocked",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id,
         blocked: true
       })
@@ -175,7 +175,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: owner.id,
         question: "attribution question",
         answer: "a",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -196,7 +196,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: owner.id,
         question: "my own question",
         answer: "a",
-        visibility: "private"
+        promoted: false
       })
 
     {:ok, community} =
@@ -205,7 +205,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: other.id,
         question: "community question",
         answer: "a",
-        visibility: "community"
+        promoted: true
       })
 
     {:ok, unrelated} =
@@ -214,7 +214,7 @@ defmodule RuleMaven.GamesGroupFeedTest do
         user_id: other.id,
         question: "someone else's private question",
         answer: "a",
-        visibility: "private"
+        promoted: false
       })
 
     feed = Games.recent_questions(game, 20, user_id: owner.id)

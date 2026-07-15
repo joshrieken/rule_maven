@@ -80,7 +80,7 @@ defmodule RuleMaven.LLMUserAttributionTest do
           user_id: u.id,
           question: "How many dice?",
           answer: "You roll 3 dice.",
-          visibility: "private"
+          promoted: false
         })
 
       {:ok, _content} = Voices.restyle(ql.id, "pirate", ql.answer, game, user_id: u.id)

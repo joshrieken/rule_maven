@@ -147,7 +147,7 @@ defmodule RuleMaven.QuestionFlagsTest do
   defp make_verified(q) do
     {:ok, _} =
       q
-      |> Ecto.Changeset.change(verified: true, visibility: "community")
+      |> Ecto.Changeset.change(verified: true, promoted: true)
       |> RuleMaven.Repo.update()
   end
 

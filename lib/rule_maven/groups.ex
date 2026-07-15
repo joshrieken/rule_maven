@@ -355,7 +355,7 @@ defmodule RuleMaven.Groups do
   # publish check had already cleared stays listed on the community browse,
   # unless this closes them.
   #
-  # Rows already promoted to `visibility: "community"` are left alone: those
+  # Rows already promoted to `promoted: true` are left alone: those
   # passed a community vote and belong to the commons, not to the crew.
   # `retracted_at` is the DURABLE record of the withdrawal. Clearing `pooled` and
   # `browsable` states what the row looks like NOW; it says nothing about intent,
@@ -366,7 +366,7 @@ defmodule RuleMaven.Groups do
   defp retract_contributions(%Group{id: group_id}) do
     from(q in RuleMaven.Games.QuestionLog,
       where: q.group_id == ^group_id,
-      where: q.visibility != "community"
+      where: not q.promoted
     )
     |> Repo.update_all(set: [pooled: false, browsable: false, retracted_at: DateTime.utc_now()])
   end

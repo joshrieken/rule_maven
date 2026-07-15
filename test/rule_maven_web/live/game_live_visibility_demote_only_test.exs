@@ -46,7 +46,7 @@ defmodule RuleMavenWeb.GameLiveVisibilityDemoteOnlyTest do
             user_id: user.id,
             question: "How does scoring work?",
             answer: "Count the points.",
-            visibility: "private"
+            promoted: false
           },
           attrs
         )
@@ -58,33 +58,33 @@ defmodule RuleMavenWeb.GameLiveVisibilityDemoteOnlyTest do
   test "toggle demotes a community row to private", %{conn: conn} do
     admin = create_admin("vd_admin")
     game = published_game_fixture(%{name: "Demote Game"})
-    q = log(game, admin, %{visibility: "community", pooled: true})
+    q = log(game, admin, %{promoted: true, pooled: true})
 
     conn = login(conn, admin)
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
 
     render_click(view, "toggle_question_visibility", %{"id" => to_string(q.id)})
 
-    assert Repo.reload!(q).visibility == "private"
+    refute Repo.reload!(q).promoted
   end
 
   test "toggle never promotes a private row (forged event is a no-op)", %{conn: conn} do
     admin = create_admin("vd_admin2")
     game = published_game_fixture(%{name: "No Promote Game"})
-    q = log(game, admin, %{visibility: "private"})
+    q = log(game, admin, %{promoted: false})
 
     conn = login(conn, admin)
     {:ok, view, _html} = live(conn, ~p"/games/#{RuleMaven.Hashid.encode(game.id)}")
 
     render_click(view, "toggle_question_visibility", %{"id" => to_string(q.id)})
 
-    assert Repo.reload!(q).visibility == "private"
+    refute Repo.reload!(q).promoted
   end
 
   test "visibility button renders only for community rows", %{conn: conn} do
     admin = create_admin("vd_admin3")
     game = published_game_fixture(%{name: "Button Render Game"})
-    q1 = log(game, admin, %{visibility: "private"})
+    q1 = log(game, admin, %{promoted: false})
 
     conn = login(conn, admin)
 
@@ -98,7 +98,7 @@ defmodule RuleMavenWeb.GameLiveVisibilityDemoteOnlyTest do
     refute html =~ ~s(phx-click="toggle_question_visibility")
 
     game2 = published_game_fixture(%{name: "Button Render Game 2", bgg_id: 43})
-    q2 = log(game2, admin, %{visibility: "community", pooled: true})
+    q2 = log(game2, admin, %{promoted: true, pooled: true})
 
     {:ok, view2, _} =
       live(
@@ -110,6 +110,6 @@ defmodule RuleMavenWeb.GameLiveVisibilityDemoteOnlyTest do
 
     assert html2 =~ ~s(phx-click="toggle_question_visibility")
     assert html2 =~ "Remove from community"
-    assert Repo.reload!(q2).visibility == "community"
+    assert Repo.reload!(q2).promoted
   end
 end

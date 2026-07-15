@@ -169,7 +169,7 @@ defmodule RuleMaven.Workers.PoolRebuildWorker do
         # Community rows are curated. `invalidate_pool/1` sends them to a moderator
         # via `needs_review`; silently re-asking one would overwrite a human
         # decision with a machine's.
-        where: q.visibility == "private",
+        where: not q.promoted,
         # `skip_normalize` ("Ask exactly this") rows have no `cleaned_question`,
         # never publish and never pool — there is nothing to rebuild.
         where: not is_nil(q.cleaned_question) and q.cleaned_question != "",
@@ -223,7 +223,7 @@ defmodule RuleMaven.Workers.PoolRebuildWorker do
            question: text,
            answer: "Thinking...",
            user_id: nil,
-           visibility: "private",
+           promoted: false,
            expansion_ids: exp
          }) do
       {:ok, ql} ->

@@ -55,7 +55,7 @@ defmodule RuleMavenWeb.GameLiveVoiceRestyleTest do
         user_id: user.id,
         question: "How many cards do I draw?",
         answer: "Draw two cards.",
-        visibility: "private"
+        promoted: false
       })
 
     %{user: user, game: game, ql: ql}

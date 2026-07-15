@@ -79,7 +79,7 @@ defmodule RuleMavenWeb.GameLive.QaNoShiftTest do
         question: "does the kight beat the archer even in a really long-winded question?",
         cleaned_question: "Does the knight beat the archer even in a really long-winded question?",
         answer: "Yes.",
-        visibility: "private"
+        promoted: false
       })
 
     {:ok, view, _html} =

@@ -236,7 +236,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
               target_type: "question",
               target_id: q.id,
               target_label: admin_question_text(q),
-              metadata: %{from: q.visibility, to: vis}
+              metadata: %{from: if(q.promoted, do: "community", else: "private"), to: vis}
             )
 
             {:noreply, reload(socket)}
@@ -624,7 +624,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                 style="font-size:0.65rem;font-weight:600;padding:0.1rem 0.4rem;border-radius:0.25rem;background:var(--bg-subtle);border:1px solid var(--border-subtle);color:var(--text-secondary)"
                 title="Cache-eligible; trust score drives ranking/promotion"
               >
-                {if q.visibility == "community" or q.verified, do: "✓ trusted", else: "◌ provisional"} &middot; {:erlang.float_to_binary(
+                {if q.promoted or q.verified, do: "✓ trusted", else: "◌ provisional"} &middot; {:erlang.float_to_binary(
                   q.trust_score || 0.0,
                   decimals: 1
                 )}
@@ -659,8 +659,8 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                   name="visibility"
                   style="border:1px solid var(--border);border-radius:0.25rem;padding:0.1rem 0.25rem;font-size:0.7rem;background:var(--bg);color:var(--text)"
                 >
-                  <option value="private" selected={q.visibility == "private"}>Private</option>
-                  <option value="community" selected={q.visibility == "community"}>Community</option>
+                  <option value="private" selected={not q.promoted}>Private</option>
+                  <option value="community" selected={q.promoted}>Community</option>
                 </select>
                 <%= if @confirm_delete_id == q.id do %>
                   <span style="font-size:0.7rem;color:var(--red);font-weight:600">Delete?</span>

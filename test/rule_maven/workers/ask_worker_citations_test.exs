@@ -216,7 +216,7 @@ defmodule RuleMaven.Workers.AskWorkerCitationsTest do
         ],
         citation_valid: true,
         pooled: true,
-        visibility: "private"
+        promoted: false
       })
 
     Repo.update_all(

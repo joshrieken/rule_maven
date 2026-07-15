@@ -117,7 +117,7 @@ defmodule RuleMaven.Workers.SettleVotesWorkerTest do
         answer: "A.",
         user_id: author.id,
         pooled: true,
-        visibility: "community"
+        promoted: true
       })
 
     assert Games.demote_user_answers(author.id) == 1
@@ -140,7 +140,7 @@ defmodule RuleMaven.Workers.SettleVotesWorkerTest do
         user_id: author.id,
         pooled: true,
         browsable: true,
-        visibility: "private"
+        promoted: false
       })
 
     Games.set_question_visibility(q.id, "community")
@@ -162,7 +162,7 @@ defmodule RuleMaven.Workers.SettleVotesWorkerTest do
         answer: "A.",
         user_id: author.id,
         pooled: true,
-        visibility: "community"
+        promoted: true
       })
 
     Games.set_question_visibility(q.id, "private")

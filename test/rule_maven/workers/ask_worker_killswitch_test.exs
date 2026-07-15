@@ -37,7 +37,7 @@ defmodule RuleMaven.Workers.AskWorkerKillSwitchTest do
         user_id: u.id,
         question: "How many dice do I roll?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")

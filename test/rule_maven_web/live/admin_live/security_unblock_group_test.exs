@@ -70,7 +70,7 @@ defmodule RuleMavenWeb.AdminLive.SecurityUnblockGroupTest do
         question: "SECRETWORDING is Dave cheating?",
         cleaned_question: "Is a player cheating?",
         answer: "Blocked.",
-        visibility: "private",
+        promoted: false,
         blocked: true,
         browsable: false
       })

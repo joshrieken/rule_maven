@@ -42,7 +42,7 @@ defmodule RuleMaven.GamesExpansionCacheTest do
             game_id: game.id,
             question: "how many cards do I draw?",
             answer: "Draw two cards.",
-            visibility: "community",
+            promoted: true,
             expansion_ids: expansion_ids
           },
           extra

@@ -57,7 +57,7 @@ defmodule RuleMaven.ModerationTest do
       log(game, bad, %{blocked: true})
       log(game, bad, %{refused: true})
       log(game, bad, %{citation_valid: false})
-      log(game, good, %{citation_valid: true, visibility: "community", pooled: true})
+      log(game, good, %{citation_valid: true, promoted: true, pooled: true})
 
       signals = Moderation.user_signals()
       by_name = Map.new(signals, &{&1.username, &1})
@@ -142,8 +142,8 @@ defmodule RuleMaven.ModerationTest do
 
       # Two private answers — no reports, no community promotion. An ordinary
       # user just asking questions.
-      log(game, asker, %{visibility: "private", citation_valid: true})
-      log(game, asker, %{visibility: "private", citation_valid: true})
+      log(game, asker, %{promoted: false, citation_valid: true})
+      log(game, asker, %{promoted: false, citation_valid: true})
 
       before_stats = Enum.find(Moderation.user_signals(), &(&1.username == "ordinary_asker"))
       assert before_stats.needs_review == 0
@@ -165,15 +165,15 @@ defmodule RuleMaven.ModerationTest do
       game = game_fixture()
       author = user_fixture("offender")
 
-      a = log(game, author, %{visibility: "community", pooled: true, citation_valid: true})
+      a = log(game, author, %{promoted: true, pooled: true, citation_valid: true})
       b = log(game, author, %{verified: true, pooled: true})
 
       assert Games.demote_user_answers(author.id) == 2
 
       a = Repo.reload(a)
       b = Repo.reload(b)
-      assert a.visibility == "private" and a.pooled == false
-      assert b.visibility == "private" and b.pooled == false and b.verified == false
+      assert not a.promoted and a.pooled == false
+      assert not b.promoted and b.pooled == false and b.verified == false
     end
   end
 end

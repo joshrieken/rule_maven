@@ -39,7 +39,7 @@ defmodule RuleMaven.GamesGroupCacheTest do
         user_id: owner.id,
         question: "group q",
         answer: "42",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id,
         citation_valid: true
       })
@@ -102,7 +102,7 @@ defmodule RuleMaven.GamesGroupCacheTest do
         user_id: owner.id,
         question: "stale group q",
         answer: "stale answer",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id,
         citation_valid: true,
         stale: true
@@ -131,7 +131,7 @@ defmodule RuleMaven.GamesGroupCacheTest do
         user_id: owner.id,
         question: "needs review group q",
         answer: "unreviewed answer",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id,
         citation_valid: true,
         needs_review: true
@@ -160,7 +160,7 @@ defmodule RuleMaven.GamesGroupCacheTest do
         user_id: owner.id,
         question: "expansion group q",
         answer: "expansion answer",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id,
         citation_valid: true,
         expansion_ids: [7]
@@ -194,7 +194,7 @@ defmodule RuleMaven.GamesGroupCacheTest do
         user_id: owner.id,
         question: "community q",
         answer: "community answer",
-        visibility: "community",
+        promoted: true,
         citation_valid: true
       })
 

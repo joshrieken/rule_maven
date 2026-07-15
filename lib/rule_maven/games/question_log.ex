@@ -16,7 +16,10 @@ defmodule RuleMaven.Games.QuestionLog do
     field :question_embedding, Pgvector.Ecto.Vector
     field :source_chunk_ids, {:array, :integer}
     field :feedback, :string
-    field :visibility, :string, default: "private"
+    # Community-promotion tier flag (was the `visibility` "private"/"community"
+    # string — a name that implied access but only meant "promoted"). Access is
+    # `audience`; this is one of its inputs.
+    field :promoted, :boolean, default: false
     field :refused, :boolean, default: false
     field :blocked, :boolean, default: false
     field :verdict, :string
@@ -181,7 +184,7 @@ defmodule RuleMaven.Games.QuestionLog do
   """
   def audience(%{} = q) do
     cond do
-      q.visibility == "community" or (bool(q.pooled) and bool(q.browsable)) -> :public
+      bool(q.promoted) or (bool(q.pooled) and bool(q.browsable)) -> :public
       not is_nil(Map.get(q, :group_id)) -> :crew
       true -> :private
     end
@@ -194,7 +197,7 @@ defmodule RuleMaven.Games.QuestionLog do
   def tier(%{} = q) do
     cond do
       bool(q.verified) -> :admin
-      q.visibility == "community" -> :community
+      bool(q.promoted) -> :community
       bool(q.pooled) and bool(q.browsable) -> :unverified
       true -> nil
     end
@@ -249,7 +252,7 @@ defmodule RuleMaven.Games.QuestionLog do
       :source_chunk_ids,
       :feedback,
       :document_id,
-      :visibility,
+      :promoted,
       :parent_question_id,
       :refused,
       :blocked,
@@ -275,7 +278,6 @@ defmodule RuleMaven.Games.QuestionLog do
       :group_id
     ])
     |> validate_required([:question, :answer, :game_id])
-    |> validate_inclusion(:visibility, ~w(private community))
     |> validate_length(:question, max: 5_000)
     |> validate_length(:answer, max: 20_000)
     |> validate_length(:cited_passage, max: 20_000)

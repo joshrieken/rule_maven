@@ -50,7 +50,7 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
         cited_passage: "In case of a tie, re-roll all dice.",
         cited_page: 2,
         cited_source: "Official FAQ",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, user)
@@ -78,7 +78,7 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
         answer: "You roll 3 dice.",
         cited_passage: "Each player rolls three dice per turn.",
         cited_page: 5,
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, user)
@@ -123,7 +123,7 @@ defmodule RuleMavenWeb.GameLiveCitationSourceTest do
             "source" => "Core rules"
           }
         ],
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, user)

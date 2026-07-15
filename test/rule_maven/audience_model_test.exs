@@ -39,8 +39,8 @@ defmodule RuleMaven.AudienceModelTest do
       cases = [
         {%{}, "private", nil},
         {%{group_id: nil, browsable: true, pooled: true}, "public", "unverified"},
-        {%{visibility: "community"}, "public", "community"},
-        {%{visibility: "community", verified: true}, "public", "admin"},
+        {%{promoted: true}, "public", "community"},
+        {%{promoted: true, verified: true}, "public", "admin"},
         # pooled without a passed screen is NOT public
         {%{pooled: true, browsable: false}, "private", nil}
       ]
@@ -56,8 +56,8 @@ defmodule RuleMaven.AudienceModelTest do
       for attrs <- [
             %{},
             %{browsable: true, pooled: true},
-            %{visibility: "community"},
-            %{visibility: "community", verified: true}
+            %{promoted: true},
+            %{promoted: true, verified: true}
           ] do
         row = row!(ctx.game, ctx.owner, attrs)
         assert row.audience == to_string(QuestionLog.audience(row))
@@ -71,7 +71,7 @@ defmodule RuleMaven.AudienceModelTest do
 
       {1, _} =
         Repo.update_all(from(q in QuestionLog, where: q.id == ^row.id),
-          set: [visibility: "community"]
+          set: [promoted: true]
         )
 
       reloaded = Repo.reload!(row)
@@ -94,7 +94,7 @@ defmodule RuleMaven.AudienceModelTest do
     end
 
     test "public row (community): everyone", ctx do
-      q = row!(ctx.game, ctx.owner, %{visibility: "community"})
+      q = row!(ctx.game, ctx.owner, %{promoted: true})
       assert Games.reachable_by?(q, ctx.stranger.id)
     end
 

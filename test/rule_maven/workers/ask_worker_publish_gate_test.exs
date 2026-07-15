@@ -115,7 +115,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: owner.id,
         question: "How do I start?",
         answer: "Thinking...",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -145,7 +145,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: u.id,
         question: "How do I start?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     assert :ok =
@@ -173,7 +173,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: u.id,
         question: "How do I start, Dave?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     assert :ok =
@@ -221,7 +221,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: u.id,
         question: "How do I start?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     assert :ok =
@@ -253,7 +253,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: owner.id,
         question: "How do I start, Dave?",
         answer: "Thinking...",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -290,7 +290,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: owner.id,
         question: "How do I start?",
         answer: "Thinking...",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -344,7 +344,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: owner.id,
         question: "How do I start?",
         answer: "Thinking...",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -383,7 +383,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: u.id,
         question: "How do I start?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     assert :ok =
@@ -420,7 +420,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: owner.id,
         question: "How do I start?",
         answer: "Thinking...",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -520,7 +520,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: owner.id,
         question: "How do I start?",
         answer: "Thinking...",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -563,7 +563,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: owner.id,
         question: "How do I start?",
         answer: "Thinking...",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
@@ -614,7 +614,7 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
         user_id: owner.id,
         question: "Dave says my rogue can sneak past because he is prone, Sam says no",
         answer: "Thinking...",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 

@@ -54,7 +54,7 @@ defmodule RuleMavenWeb.Feature.SubBarVisual do
           game_id: game.id,
           question: "How does rule #{i} work?",
           answer: "Like this, for reason number #{i}, at length so the row has some height.",
-          visibility: "community"
+          promoted: true
         })
     end
 

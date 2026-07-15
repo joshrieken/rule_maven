@@ -367,7 +367,7 @@ defmodule RuleMaven.GroupsManageTest do
           group_id: g.id,
           question: "How do I start?",
           answer: "Roll the die.",
-          visibility: "private"
+          promoted: false
         })
 
       assert {:ok, _} = RuleMaven.Users.delete_user(o)

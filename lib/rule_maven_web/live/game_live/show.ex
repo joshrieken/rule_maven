@@ -889,7 +889,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp shown_followups(%{user_id: uid, followups: f}, uid) when not is_nil(uid), do: f || []
 
   defp shown_followups(%{browsable: true, followups: f}, _uid), do: f || []
-  defp shown_followups(%{visibility: "community", followups: f}, _uid), do: f || []
+  defp shown_followups(%{promoted: true, followups: f}, _uid), do: f || []
   defp shown_followups(_q, _current_user_id), do: []
 
   # The model's full JSON envelope — verdict, citation quotes, followups, AND a
@@ -1010,7 +1010,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         pool_hit: g.primary.llm_provider == "pool",
         pool_provisional: g.primary.llm_model == "cached-unverified",
         pool_source_id: g.primary.pool_source_id,
-        visibility: g.primary.visibility,
+        promoted: g.primary.promoted,
         refused: g.primary.refused,
         feedback: g.primary.feedback,
         favorited: g.primary.favorited,
@@ -1586,11 +1586,11 @@ defmodule RuleMavenWeb.GameLive.Show do
     # Strip --- sequences so user input can't inject parser delimiters into LLM output
     question = question |> String.replace("---", "") |> String.trim()
 
-    # Never trust the client's visibility: "community" rows are pool-eligible
+    # Never trust the client's promoted: true rows are pool-eligible
     # and pool_tier treats them as trusted, so a tampered payload would inject
     # an unvetted answer into every other user's cache. New asks are always
     # private; only curation/promotion can make a row community.
-    visibility = "private"
+    promoted = false
 
     cond do
       Games.taken_down?(socket.assigns.game) ->
@@ -1696,7 +1696,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                        question: question,
                        answer: "Thinking...",
                        user_id: socket.assigns.current_user.id,
-                       visibility: visibility,
+                       promoted: promoted,
                        group_id: group_id,
                        expansion_ids: Enum.sort(expansion_ids)
                      }) do
@@ -2231,7 +2231,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       nil ->
         {:noreply, socket}
 
-      %{visibility: vis} when vis != "community" ->
+      %{promoted: false} ->
         {:noreply, socket}
 
       q ->
@@ -2391,7 +2391,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         # marker saying so.
         protect_existing? =
           old_q &&
-            (Games.has_votes?(old_q.id) or old_q.visibility == "community" or
+            (Games.has_votes?(old_q.id) or old_q.promoted or
                (QuestionLog.crew_origin?(old_q) and
                   old_q.user_id != socket.assigns.current_user.id))
 
@@ -2404,11 +2404,11 @@ defmodule RuleMavenWeb.GameLive.Show do
           Games.delete_question(old_q)
         end
 
-        visibility =
+        promoted =
           cond do
-            protect_existing? -> "private"
-            old_q -> old_q.visibility
-            true -> "private"
+            protect_existing? -> false
+            old_q -> old_q.promoted
+            true -> false
           end
 
         now_dt = DateTime.utc_now()
@@ -2490,7 +2490,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                question: question,
                answer: "Thinking...",
                user_id: socket.assigns.current_user.id,
-               visibility: visibility,
+               promoted: promoted,
                group_id: group_id,
                expansion_ids: Enum.sort(expansion_ids),
                error_retries: carried_retries
@@ -2826,7 +2826,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 |> Map.put(:pool_hit, ql.llm_provider == "pool")
                 |> Map.put(:pool_provisional, ql.llm_model == "cached-unverified")
                 |> Map.put(:pool_source_id, ql.pool_source_id)
-                |> Map.put(:visibility, ql.visibility)
+                |> Map.put(:promoted, ql.promoted)
                 |> Map.put(:error_kind, ql.error_kind)
                 |> Map.put(:error_retries, ql.error_retries)
               end
@@ -4690,7 +4690,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                         <button
                           :if={
                             @is_admin && !msg[:history] && !msg[:pool_hit] &&
-                              msg[:visibility] == "community"
+                              msg[:promoted]
                           }
                           type="button"
                           phx-click="toggle_question_visibility"

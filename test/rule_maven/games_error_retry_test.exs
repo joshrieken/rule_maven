@@ -27,7 +27,7 @@ defmodule RuleMaven.GamesErrorRetryTest do
             user_id: user.id,
             question: "How many dice do I roll?",
             answer: "⚠️ Something went wrong. Please retry.",
-            visibility: "private"
+            promoted: false
           },
           attrs
         )

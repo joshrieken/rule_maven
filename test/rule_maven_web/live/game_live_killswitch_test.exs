@@ -38,7 +38,7 @@ defmodule RuleMavenWeb.GameLiveKillSwitchTest do
         user_id: user.id,
         question: "How many dice do I roll?",
         answer: "You roll 3 dice.",
-        visibility: "private"
+        promoted: false
       })
 
     {user, game, ql}

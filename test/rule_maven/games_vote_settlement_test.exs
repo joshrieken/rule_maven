@@ -19,7 +19,7 @@ defmodule RuleMaven.GamesVoteSettlementTest do
         user_id: author.id,
         question: "how many cards",
         answer: "Draw two.",
-        visibility: "community"
+        promoted: true
       })
 
     Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id), set: [pooled: true])

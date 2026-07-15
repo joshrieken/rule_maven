@@ -212,7 +212,7 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
         user_id: user.id,
         question: "How many dice do I roll?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, user)
@@ -364,7 +364,7 @@ defmodule RuleMavenWeb.GameLiveStreamingTest do
         user_id: user.id,
         question: "How many dice do I roll?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, user)

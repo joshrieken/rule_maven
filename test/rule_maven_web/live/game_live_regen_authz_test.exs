@@ -51,7 +51,7 @@ defmodule RuleMavenWeb.GameLiveRegenAuthzTest do
         user_id: author.id,
         question: "How do I score?",
         answer: "Count the points.",
-        visibility: "community",
+        promoted: true,
         pooled: true,
         browsable: true
       })
@@ -86,7 +86,7 @@ defmodule RuleMavenWeb.GameLiveRegenAuthzTest do
         user_id: author.id,
         question: "How do I score?",
         answer: "Count the points.",
-        visibility: "community",
+        promoted: true,
         pooled: true
       })
 
@@ -117,7 +117,7 @@ defmodule RuleMavenWeb.GameLiveRegenAuthzTest do
         game_id: other_game.id,
         question: "Foreign question?",
         answer: "Foreign answer.",
-        visibility: "community",
+        promoted: true,
         pooled: true
       })
 

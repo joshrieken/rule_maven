@@ -15,7 +15,7 @@ defmodule RuleMaven.FaqTest do
           game_id: game.id,
           question: "Q1",
           answer: "A1",
-          visibility: "community"
+          promoted: true
         })
 
       {:ok, _} =
@@ -23,7 +23,7 @@ defmodule RuleMaven.FaqTest do
           game_id: game.id,
           question: "Q2",
           answer: "A2",
-          visibility: "private"
+          promoted: false
         })
 
       {:ok, _} =
@@ -31,7 +31,7 @@ defmodule RuleMaven.FaqTest do
           game_id: game.id,
           question: "Q3",
           answer: "A3",
-          visibility: "community",
+          promoted: true,
           refused: true
         })
 
@@ -44,7 +44,7 @@ defmodule RuleMaven.FaqTest do
           game_id: game.id,
           question: "Pooled Q",
           answer: "A",
-          visibility: "private",
+          promoted: false,
           pooled: true,
           browsable: true
         })
@@ -55,7 +55,7 @@ defmodule RuleMaven.FaqTest do
           game_id: game.id,
           question: "Blocked Q",
           answer: "A",
-          visibility: "private",
+          promoted: false,
           pooled: true,
           blocked: true
         })
@@ -65,7 +65,7 @@ defmodule RuleMaven.FaqTest do
           game_id: game.id,
           question: "Downvoted Q",
           answer: "A",
-          visibility: "private",
+          promoted: false,
           pooled: true,
           trust_score: -2.0
         })
@@ -79,7 +79,7 @@ defmodule RuleMaven.FaqTest do
           game_id: game.id,
           question: "Q",
           answer: "A",
-          visibility: "community"
+          promoted: true
         })
 
       assert %{community: n} = Faq.stats()

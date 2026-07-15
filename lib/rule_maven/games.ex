@@ -1301,7 +1301,7 @@ defmodule RuleMaven.Games do
           select: {
             filter(count(q.id), q.pooled == true),
             filter(count(q.id), q.stale == false),
-            filter(count(q.id), q.visibility == "community" and q.needs_review == false)
+            filter(count(q.id), q.promoted and q.needs_review == false)
           }
         )
       ) || {0, 0, 0}
@@ -1324,15 +1324,15 @@ defmodule RuleMaven.Games do
         where: ^scope,
         where:
           q.pooled == true or q.stale == false or
-            (q.visibility == "community" and q.needs_review == false),
+            (q.promoted and q.needs_review == false),
         update: [
           set: [
             pooled: false,
             stale: true,
             needs_review:
               fragment(
-                "CASE WHEN ? = 'community' THEN true ELSE ? END",
-                q.visibility,
+                "CASE WHEN ? THEN true ELSE ? END",
+                q.promoted,
                 q.needs_review
               )
           ]
@@ -1437,7 +1437,7 @@ defmodule RuleMaven.Games do
   """
   def needs_review_count do
     Repo.aggregate(
-      from(q in QuestionLog, where: q.needs_review == true and q.visibility == "community"),
+      from(q in QuestionLog, where: q.needs_review == true and q.promoted),
       :count
     )
   end
@@ -2336,7 +2336,7 @@ defmodule RuleMaven.Games do
     if q.verified, do: do_unverify(q), else: do_verify(q)
   end
 
-  # Promotion to `visibility: "community"` is the other way a question's TEXT
+  # Promotion to `promoted: true` is the other way a question's TEXT
   # becomes publicly listed: every browse surface reads
   # `browsable or visibility == "community"`, and those surfaces render
   # `display_question/1`, whose last fallback is the raw `question` column.
@@ -2364,7 +2364,7 @@ defmodule RuleMaven.Games do
     # no embedding yet.
     unverify_duplicates(q)
 
-    attrs = %{verified: true, visibility: "community", pooled: true}
+    attrs = %{verified: true, promoted: true, pooled: true}
 
     with {:ok, updated} <- Repo.update(QuestionLog.changeset(q, attrs)) do
       RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :confirmed)
@@ -2404,7 +2404,7 @@ defmodule RuleMaven.Games do
   # verified trust_score floor (100), so it stayed in the trusted tier. Mirror
   # do_unverify so the old answer actually steps down and is re-scored.
   defp demote_verified_duplicate(%QuestionLog{} = dup) do
-    attrs = %{verified: false, visibility: "private", pooled: dup.citation_valid}
+    attrs = %{verified: false, promoted: false, pooled: dup.citation_valid}
 
     with {:ok, updated} <- Repo.update(QuestionLog.changeset(dup, attrs)) do
       finalize_verify_toggle(updated)
@@ -2424,14 +2424,14 @@ defmodule RuleMaven.Games do
         from q in QuestionLog,
           where:
             q.user_id == ^user_id and
-              (q.visibility != "private" or q.pooled == true or q.verified == true)
+              (q.promoted or q.pooled == true or q.verified == true)
       )
 
     Enum.each(rows, fn q ->
       {:ok, updated} =
         q
         |> QuestionLog.changeset(%{
-          visibility: "private",
+          promoted: false,
           pooled: false,
           verified: false,
           needs_review: false
@@ -2455,7 +2455,7 @@ defmodule RuleMaven.Games do
   defp do_unverify(%QuestionLog{} = q) do
     attrs = %{
       verified: false,
-      visibility: "private",
+      promoted: false,
       # Stay pooled only if the citation is grounded (not merely present).
       pooled: q.citation_valid
     }
@@ -2509,9 +2509,12 @@ defmodule RuleMaven.Games do
     do: do_update_question_visibility(q, visibility)
 
   defp do_update_question_visibility(%QuestionLog{} = q, visibility) do
-    # Promoting to community makes the row cache-eligible.
-    old_visibility = q.visibility
-    attrs = %{visibility: visibility, pooled: visibility == "community" or q.pooled}
+    # Promoting to community makes the row cache-eligible. `visibility` is the
+    # admin action's vocabulary ("community"/"private"); it maps to the boolean
+    # `promoted` column.
+    old_promoted = q.promoted
+    promoted = visibility == "community"
+    attrs = %{promoted: promoted, pooled: promoted or q.pooled}
 
     with {:ok, updated} <- q |> QuestionLog.changeset(attrs) |> Repo.update() do
       # Keep trust_score consistent with the new tier (community floors it), and
@@ -2524,10 +2527,10 @@ defmodule RuleMaven.Games do
       # promotion to community confirms the upvotes; demotion to private
       # rejects them (mirrors the automatic promotion/demotion paths above).
       cond do
-        old_visibility != "community" and visibility == "community" ->
+        not old_promoted and promoted ->
           RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :confirmed)
 
-        old_visibility == "community" and visibility == "private" ->
+        old_promoted and not promoted ->
           RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :rejected)
 
         true ->
@@ -2590,25 +2593,25 @@ defmodule RuleMaven.Games do
 
   def set_question_visibility(id, visibility) when is_integer(id) do
     row = Repo.get(QuestionLog, id)
-    old_visibility = row && row.visibility
+    old_promoted = row && row.promoted
 
     cond do
       is_nil(row) ->
         :ok
 
       # Same gate as update_question_visibility/2: an unscreened crew row must
-      # not reach community visibility, which is what makes its text listable.
+      # not reach community promotion, which is what makes its text listable.
       visibility == "community" and not publishable?(row) ->
         {:error, :not_publishable}
 
       true ->
-        do_set_question_visibility(id, visibility, old_visibility)
+        do_set_question_visibility(id, visibility == "community", old_promoted)
     end
   end
 
-  defp do_set_question_visibility(id, visibility, old_visibility) do
-    set = [visibility: visibility]
-    set = if visibility == "community", do: Keyword.put(set, :pooled, true), else: set
+  defp do_set_question_visibility(id, promoted, old_promoted) do
+    set = [promoted: promoted]
+    set = if promoted, do: Keyword.put(set, :pooled, true), else: set
     Repo.update_all(from(q in QuestionLog, where: q.id == ^id), set: set)
 
     if q = Repo.get(QuestionLog, id) do
@@ -2618,10 +2621,10 @@ defmodule RuleMaven.Games do
       # Same terminal-event logic as update_question_visibility/2 — a manual
       # admin change to/from community is itself a confirm/reject signal.
       cond do
-        old_visibility != "community" and visibility == "community" ->
+        not old_promoted and promoted ->
           RuleMaven.Workers.SettleVotesWorker.enqueue(q.id, :confirmed)
 
-        old_visibility == "community" and visibility == "private" ->
+        old_promoted and not promoted ->
           RuleMaven.Workers.SettleVotesWorker.enqueue(q.id, :rejected)
 
         true ->
@@ -2710,7 +2713,7 @@ defmodule RuleMaven.Games do
     Repo.all(
       from q in QuestionLog,
         where:
-          q.game_id == ^game.id and q.visibility == "community" and q.refused == false and
+          q.game_id == ^game.id and q.promoted and q.refused == false and
             q.needs_review == false,
         order_by: [desc: q.inserted_at],
         limit: ^limit,
@@ -2735,7 +2738,7 @@ defmodule RuleMaven.Games do
       from q in QuestionLog,
         where:
           q.game_id == ^game.id and q.pooled == true and q.browsable == true and
-            q.visibility != "community" and
+            not q.promoted and
             q.refused == false and q.needs_review == false and q.blocked == false and
             q.stale == false and is_nil(q.error_kind) and is_nil(q.pool_source_id) and
             q.trust_score > -1.0,
@@ -2794,7 +2797,7 @@ defmodule RuleMaven.Games do
           asked_at: q.inserted_at,
           group_id: q.group_id,
           browsable: q.browsable,
-          visibility: q.visibility,
+          promoted: q.promoted,
           question_normalized: q.question_normalized,
           verdict: q.verdict,
           llm_model: q.llm_model,
@@ -2901,7 +2904,7 @@ defmodule RuleMaven.Games do
 
           from q in base,
             where:
-              q.user_id == ^user_id or q.visibility == "community" or
+              q.user_id == ^user_id or q.promoted or
                 (q.pooled == true and q.refused == false and q.blocked == false and
                    q.browsable == true and q.id in subquery(upvoted))
         else
@@ -3050,7 +3053,7 @@ defmodule RuleMaven.Games do
     query =
       from q in QuestionLog,
         where: q.game_id == ^game.id,
-        where: q.visibility == "community",
+        where: q.promoted,
         where: q.refused == false,
         order_by: [desc: q.inserted_at],
         limit: 50,
@@ -3147,7 +3150,7 @@ defmodule RuleMaven.Games do
     pool_filter =
       dynamic(
         [q],
-        q.pooled == true or (q.visibility == "community" and q.citation_valid == true)
+        q.pooled == true or (q.promoted and q.citation_valid == true)
       )
 
     pool_rows = pool_candidate_rows(game_id, expansion_ids, vec, threshold, limit, pool_filter)
@@ -3271,7 +3274,7 @@ defmodule RuleMaven.Games do
     # remainder.
     needing_quorum =
       for {row, _sim} <- candidates,
-          row.visibility != "community" and row.verified != true and
+          not row.promoted and row.verified != true and
             (row.trust_score || 0.0) >= floor,
           do: row
 
@@ -3294,7 +3297,7 @@ defmodule RuleMaven.Games do
   # path, so the two must never disagree.
   defp pool_tier_with_quorum(%QuestionLog{} = q, floor, eligible_voters, quorum) do
     cond do
-      q.visibility == "community" or q.verified -> :trusted
+      q.promoted or q.verified -> :trusted
       (q.trust_score || 0.0) >= floor and eligible_voters >= quorum -> :trusted
       true -> :provisional
     end
@@ -3321,7 +3324,7 @@ defmodule RuleMaven.Games do
     base =
       from(q in QuestionLog,
         where: q.game_id == ^game_id,
-        where: q.pooled == true or q.visibility == "community",
+        where: q.pooled == true or q.promoted,
         # `browsable`, not just `pooled`: this hint block is rendered into the
         # normalize prompt of EVERY asker, and rule 8 tells the model to reuse a
         # matching entry VERBATIM. A group row is pooled by design (its answer
@@ -3604,7 +3607,7 @@ defmodule RuleMaven.Games do
 
     cond do
       # Admin-curated tiers are unconditionally trusted.
-      q.visibility == "community" or q.verified ->
+      q.promoted or q.verified ->
         :trusted
 
       # Earning trust by votes also requires a quorum of distinct, eligible
@@ -3740,7 +3743,7 @@ defmodule RuleMaven.Games do
   defp maybe_demote_mismatched(%QuestionLog{} = q, reporters) do
     if reporters >= pool_mismatch_limit() do
       cond do
-        q.visibility == "community" and not q.needs_review ->
+        q.promoted and not q.needs_review ->
           Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
             set: [needs_review: true]
           )
@@ -3761,7 +3764,7 @@ defmodule RuleMaven.Games do
         # pool-hit asks are quota-exempt, so three throwaway accounts could flag a
         # stranger's PRIVATE row, inflate the author's abuse score, and put their
         # private question text in front of a moderator with a delete button on it.
-        q.visibility != "community" and (q.pooled or not is_nil(q.group_id)) ->
+        not q.promoted and (q.pooled or not is_nil(q.group_id)) ->
           Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
             set: [pooled: false, stale: true]
           )
@@ -5237,7 +5240,7 @@ defmodule RuleMaven.Games do
         order_by: [desc: q.inserted_at]
 
     query =
-      if community_only, do: from(q in query, where: q.visibility == "community"), else: query
+      if community_only, do: from(q in query, where: q.promoted), else: query
 
     Repo.all(query)
   end
@@ -5491,7 +5494,7 @@ defmodule RuleMaven.Games do
       %QuestionLog{} = q ->
         # `pooled and browsable`, matching votable?/1: a pooled-but-unbrowsable
         # group row surfaces to nobody, so it must not be favoritable by id either.
-        if q.visibility == "community" or (q.pooled and q.browsable) do
+        if q.promoted or (q.pooled and q.browsable) do
           do_toggle_answer_favorite(user_id, question_log_id)
         else
           {:error, :not_favoritable}

@@ -35,7 +35,7 @@ defmodule RuleMaven.CommunityBrowseTest do
 
     test "includes pooled, private, healthy rows", %{game: game} do
       q =
-        log(game, %{pooled: true, browsable: true, visibility: "private", question: "Eligible?"})
+        log(game, %{pooled: true, browsable: true, promoted: false, question: "Eligible?"})
 
       ids = game |> Games.unverified_pool_questions() |> Enum.map(& &1.id)
       assert q.id in ids
@@ -46,7 +46,7 @@ defmodule RuleMaven.CommunityBrowseTest do
 
       ineligible = [
         %{pooled: false, question: "not pooled"},
-        %{pooled: true, visibility: "community", question: "already community"},
+        %{pooled: true, promoted: true, question: "already community"},
         %{pooled: true, refused: true, question: "refused"},
         %{pooled: true, needs_review: true, question: "under review"},
         %{pooled: true, blocked: true, question: "blocked"},
@@ -91,7 +91,7 @@ defmodule RuleMaven.CommunityBrowseTest do
           user_id: asker.id,
           pooled: true,
           browsable: true,
-          visibility: "private",
+          promoted: false,
           question: "Do walls block movement?"
         })
 
@@ -106,7 +106,7 @@ defmodule RuleMaven.CommunityBrowseTest do
 
     test "removing the upvote removes it from my list again",
          %{game: game, asker: asker, viewer: viewer} do
-      q = log(game, %{user_id: asker.id, pooled: true, visibility: "private"})
+      q = log(game, %{user_id: asker.id, pooled: true, promoted: false})
 
       Games.set_community_vote(q.id, viewer.id, "up")
       # Same vote again toggles it off.

@@ -93,7 +93,7 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
     test "demotes auto-pooled rows, stales every row, flags only community rows for review" do
       game = game()
       auto = pooled_q(game, %{pooled: true})
-      community = pooled_q(game, %{pooled: true, visibility: "community"})
+      community = pooled_q(game, %{pooled: true, promoted: true})
 
       # 2 demoted (both pooled) + 2 staled (private + community) + 1 flagged
       # (community only — needs_review is a moderation signal and must not
@@ -106,14 +106,14 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
       # NOT `needs_review` — that would inflate the asker's moderation risk
       # score on every rulebook edit.
       auto = Repo.get!(QuestionLog, auto.id)
-      assert auto.visibility == "private"
+      assert not auto.promoted
       assert auto.stale
       refute auto.needs_review
 
       # Community answer is preserved but staled AND flagged so it stops
       # serving until a moderator re-approves it.
       community = Repo.get!(QuestionLog, community.id)
-      assert community.visibility == "community"
+      assert community.promoted
       assert community.stale
       assert community.needs_review
 
@@ -136,7 +136,7 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
       # rulebook, then staled + flagged by the edit that changed it.
       community =
         pooled_q(game, %{
-          visibility: "community",
+          promoted: true,
           answer: "Old answer citing p.4.",
           citation_valid: true,
           pooled: false,
@@ -182,7 +182,7 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
           question: "How many cards do I draw?",
           answer: "Draw 2 cards.",
           cleaned_question: "how many cards do i draw",
-          visibility: "private"
+          promoted: false
         })
 
       Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
@@ -221,7 +221,7 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
       # since the visibility-only pool branch now carries the citation gate.
       Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
         set: [
-          visibility: "community",
+          promoted: true,
           pooled: true,
           question_embedding: Pgvector.new(embedding)
         ]
@@ -244,7 +244,7 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
 
       Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
         set: [
-          visibility: "community",
+          promoted: true,
           pooled: true,
           blocked: true,
           question_embedding: Pgvector.new(embedding)
@@ -265,7 +265,7 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
 
       Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
         set: [
-          visibility: "community",
+          promoted: true,
           pooled: true,
           question_embedding: Pgvector.new(embedding)
         ]
@@ -293,7 +293,7 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
           question: "how many cards",
           cleaned_question: "how many cards",
           answer: "⚠️ The AI returned an empty response. Please retry.",
-          visibility: "private"
+          promoted: false
         })
 
       Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
@@ -330,7 +330,7 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
           question: "how many dice",
           cleaned_question: "how many dice",
           answer: "⚠️ Something went wrong. Please retry.",
-          visibility: "private"
+          promoted: false
         })
 
       Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),

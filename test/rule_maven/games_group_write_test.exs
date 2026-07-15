@@ -29,12 +29,12 @@ defmodule RuleMaven.GamesGroupWriteTest do
         user_id: user.id,
         question: "How many cards?",
         answer: "Thinking...",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id
       })
 
     assert q.group_id == grp.id
-    assert q.visibility == "private"
+    assert not q.promoted
   end
 
   test "log_question with no group defaults group_id to nil" do
@@ -47,7 +47,7 @@ defmodule RuleMaven.GamesGroupWriteTest do
         user_id: user.id,
         question: "How many cards?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     assert q.group_id == nil

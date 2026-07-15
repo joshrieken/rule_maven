@@ -36,7 +36,7 @@ defmodule RuleMaven.GamesQuotaRefundTest do
         user_id: u.id,
         question: "how many dice",
         answer: "Three.",
-        visibility: "private"
+        promoted: false
       })
 
     ask_call(u, game, ql.id)
@@ -59,7 +59,7 @@ defmodule RuleMaven.GamesQuotaRefundTest do
         user_id: u.id,
         question: "q",
         answer: "a",
-        visibility: "private"
+        promoted: false
       })
 
     # Escalation + ungrounded retry both re-issue the "ask" operation.
@@ -81,7 +81,7 @@ defmodule RuleMaven.GamesQuotaRefundTest do
         user_id: u.id,
         question: "q",
         answer: "a",
-        visibility: "private"
+        promoted: false
       })
 
     assert Games.recent_question_count(u.id, since()) == 0
@@ -97,7 +97,7 @@ defmodule RuleMaven.GamesQuotaRefundTest do
         user_id: u.id,
         question: "q",
         answer: "⚠️ Something went wrong. Please retry.",
-        visibility: "private"
+        promoted: false
       })
 
     Repo.update_all(from(q in QuestionLog, where: q.id == ^ql.id), set: [error_kind: "unknown"])

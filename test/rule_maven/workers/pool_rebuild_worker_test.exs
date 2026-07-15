@@ -76,7 +76,7 @@ defmodule RuleMaven.Workers.PoolRebuildWorkerTest do
       stale: true,
       refused: false,
       blocked: false,
-      visibility: "private",
+      promoted: false,
       expansion_ids: []
     }
 
@@ -161,7 +161,7 @@ defmodule RuleMaven.Workers.PoolRebuildWorkerTest do
 
     test "a community row — a moderator re-approves those, not this worker" do
       game = game_with_doc()
-      staled_row(game, %{visibility: "community"})
+      staled_row(game, %{promoted: true})
 
       assert :ok = run_worker(game)
       assert ask_jobs() == []

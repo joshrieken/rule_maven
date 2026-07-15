@@ -53,7 +53,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
 
     verified =
       log(game, %{
-        visibility: "community",
+        promoted: true,
         verified: true,
         browsable: true,
         question: "Verified question about scoring?",
@@ -62,7 +62,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
 
     community =
       log(game, %{
-        visibility: "community",
+        promoted: true,
         browsable: true,
         question: "Community question about setup?",
         answer: "Setup community."
@@ -73,7 +73,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
         user_id: asker.id,
         pooled: true,
         browsable: true,
-        visibility: "private",
+        promoted: false,
         question: "Unverified question about movement?",
         answer: "Move unverified."
       })
@@ -132,7 +132,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
         user_id: asker.id,
         pooled: true,
         browsable: true,
-        visibility: "private",
+        promoted: false,
         question: "Only pooled question here?",
         answer: "Pooled answer."
       })
@@ -163,7 +163,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       log(game, %{
         user_id: asker.id,
         pooled: true,
-        visibility: "private",
+        promoted: false,
         question: "Community question about setup?",
         answer: "Duplicate of promoted copy."
       })
@@ -229,7 +229,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
          %{conn: conn, game: game, viewer: viewer} do
       cited =
         log(game, %{
-          visibility: "community",
+          promoted: true,
           verified: true,
           question: "Cited question about placement?",
           answer: "In reverse order.",
@@ -290,7 +290,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       other_game = published_game_fixture(%{name: "Other Game", bgg_id: 43})
 
       foreign =
-        log(other_game, %{pooled: true, visibility: "private", question: "Foreign question?"})
+        log(other_game, %{pooled: true, promoted: false, question: "Foreign question?"})
 
       conn = login(conn, viewer)
       {:ok, view, _html} = live(conn, ~p"/games/#{game}/community")
@@ -321,7 +321,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
           group_id: group.id,
           pooled: true,
           browsable: true,
-          visibility: "private",
+          promoted: false,
           question: "wait can Dave really do that lol",
           cleaned_question: "May a player retract a committed move?",
           # A crew row can only BE browsable if the publish gate cleared it, and the
@@ -356,7 +356,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
           group_id: group.id,
           pooled: true,
           browsable: true,
-          visibility: "private",
+          promoted: false,
           question: "wait can Steve really do that lol",
           answer: "No, that move is not legal."
         })

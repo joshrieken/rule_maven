@@ -46,7 +46,7 @@ defmodule RuleMavenWeb.GameLiveErrorRetryTest do
             user_id: user.id,
             question: "How many dice do I roll?",
             answer: "⚠️ The AI returned an unexpected response format. Please retry.",
-            visibility: "private"
+            promoted: false
           },
           attrs
         )

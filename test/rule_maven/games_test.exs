@@ -329,16 +329,16 @@ defmodule RuleMaven.GamesTest do
       user1: user1,
       user2: user2
     } do
-      _q1 = log_question!(game.id, user1.id, "Community Q", "Community A", nil, "community")
-      _q2 = log_question!(game.id, user2.id, "Another Q", "Another A", nil, "community")
+      _q1 = log_question!(game.id, user1.id, "Community Q", "Community A", nil, true)
+      _q2 = log_question!(game.id, user2.id, "Another Q", "Another A", nil, true)
 
       community = Games.community_questions(game)
       assert length(community) == 2
     end
 
     test "community_questions/2 excludes non-FAQ questions", %{game: game, user1: user1} do
-      _q1 = log_question!(game.id, user1.id, "Public Q", "Public A", nil, "community")
-      log_question!(game.id, user1.id, "Private Q", "Private A", nil, "private")
+      _q1 = log_question!(game.id, user1.id, "Public Q", "Public A", nil, true)
+      log_question!(game.id, user1.id, "Private Q", "Private A", nil, false)
 
       community = Games.community_questions(game)
       assert length(community) == 1
@@ -350,8 +350,8 @@ defmodule RuleMaven.GamesTest do
       user1: user1,
       user2: user2
     } do
-      _q1 = log_question!(game.id, user1.id, "User1 Q", "A1", nil, "community")
-      _q2 = log_question!(game.id, user2.id, "User2 Q", "A2", nil, "community")
+      _q1 = log_question!(game.id, user1.id, "User1 Q", "A1", nil, true)
+      _q2 = log_question!(game.id, user2.id, "User2 Q", "A2", nil, true)
 
       # Exclude user1 — should only see user2's question
       community = Games.community_questions(game, user1.id)
@@ -360,8 +360,8 @@ defmodule RuleMaven.GamesTest do
     end
 
     test "community_questions/2 returns all community questions", %{game: game, user1: user1} do
-      _q1 = log_question!(game.id, user1.id, "First Q", "A1", nil, "community")
-      _q2 = log_question!(game.id, user1.id, "Second Q", "A2", nil, "community")
+      _q1 = log_question!(game.id, user1.id, "First Q", "A1", nil, true)
+      _q2 = log_question!(game.id, user1.id, "Second Q", "A2", nil, true)
 
       community = Games.community_questions(game)
       assert length(community) == 2
@@ -376,7 +376,7 @@ defmodule RuleMaven.GamesTest do
           answer: "Should be private"
         })
 
-      assert q.visibility == "private"
+      assert not q.promoted
     end
 
     test "log_question/1 respects explicit visibility", %{game: game, user1: user1} do
@@ -386,10 +386,10 @@ defmodule RuleMaven.GamesTest do
           user_id: user1.id,
           question: "Explicit community",
           answer: "Visible",
-          visibility: "community"
+          promoted: true
         })
 
-      assert q.visibility == "community"
+      assert q.promoted
     end
   end
 
@@ -399,7 +399,7 @@ defmodule RuleMaven.GamesTest do
          question,
          answer,
          parent_id \\ nil,
-         visibility \\ "community"
+         promoted \\ true
        ) do
     {:ok, q} =
       Games.log_question(%{
@@ -408,7 +408,7 @@ defmodule RuleMaven.GamesTest do
         question: question,
         answer: answer,
         parent_question_id: parent_id,
-        visibility: visibility
+        promoted: promoted
       })
 
     q
@@ -539,7 +539,7 @@ defmodule RuleMaven.GamesTest do
           question: "How many CARDS do I draw?",
           answer: "Draw 2 cards.",
           cleaned_question: "how many cards do i draw",
-          visibility: "private"
+          promoted: false
         })
 
       assert {%{id: id}, _tier} =
@@ -555,7 +555,7 @@ defmodule RuleMaven.GamesTest do
           user_id: user.id,
           question: "How many cards do I draw?",
           answer: "Draw 2 cards.",
-          visibility: "private"
+          promoted: false
         })
 
       assert {%{id: id}, _} =
@@ -583,7 +583,7 @@ defmodule RuleMaven.GamesTest do
         question: "How many cards do I draw?",
         answer: "Draw 2 cards.",
         cleaned_question: "how many cards do i draw",
-        visibility: "community"
+        promoted: true
       })
 
       assert Games.find_user_duplicate(game.id, user.id, "how many cards do i draw", "x") == nil
@@ -603,7 +603,7 @@ defmodule RuleMaven.GamesTest do
               question: "Q",
               answer: "A",
               cleaned_question: "skip me",
-              visibility: "private"
+              promoted: false
             },
             attrs
           )
@@ -635,7 +635,7 @@ defmodule RuleMaven.GamesTest do
           user_id: user.id,
           question: "how does a turn go?",
           answer: "Roll 3 dice, then move.",
-          visibility: "private"
+          promoted: false
         })
 
       %{game: game, user: user, prior: prior}
@@ -700,7 +700,7 @@ defmodule RuleMaven.GamesTest do
           user_id: user.id,
           question: "stored q",
           answer: "stored answer",
-          visibility: "private"
+          promoted: false
         })
 
       Repo.update_all(
@@ -758,7 +758,7 @@ defmodule RuleMaven.GamesTest do
           user_id: user.id,
           question: "further q",
           answer: "further answer",
-          visibility: "private"
+          promoted: false
         })
 
       # cos = 0.99 to the query axis: a real match, but further than the stored row.
@@ -806,7 +806,7 @@ defmodule RuleMaven.GamesTest do
           question: "how many players can I do?",
           cleaned_question: "What is the maximum number of players?",
           answer: "5",
-          visibility: "private",
+          promoted: false,
           pooled: true,
           browsable: true
         })
@@ -818,7 +818,7 @@ defmodule RuleMaven.GamesTest do
       game: game,
       user: user
     } do
-      base = %{game_id: game.id, user_id: user.id, answer: "A", visibility: "private"}
+      base = %{game_id: game.id, user_id: user.id, answer: "A", promoted: false}
 
       Games.log_question(
         Map.merge(base, %{
@@ -853,7 +853,7 @@ defmodule RuleMaven.GamesTest do
           question: "q",
           cleaned_question: "Community Canonical Q",
           answer: "A",
-          visibility: "community",
+          promoted: true,
           pooled: false,
           browsable: true
         })
@@ -870,7 +870,7 @@ defmodule RuleMaven.GamesTest do
         question: "q",
         cleaned_question: "Other Game Q",
         answer: "A",
-        visibility: "private",
+        promoted: false,
         pooled: true
       })
 
@@ -891,7 +891,7 @@ defmodule RuleMaven.GamesTest do
             question: text,
             cleaned_question: text,
             answer: "A",
-            visibility: "private",
+            promoted: false,
             pooled: true,
             browsable: true
           })
@@ -1051,7 +1051,7 @@ defmodule RuleMaven.GamesTest do
           question: "popular q",
           answer: "a",
           user_id: author.id,
-          visibility: "private",
+          promoted: false,
           pooled: true
         })
 
@@ -1074,7 +1074,7 @@ defmodule RuleMaven.GamesTest do
           question: "own q",
           answer: "a",
           user_id: author.id,
-          visibility: "private",
+          promoted: false,
           pooled: true
         })
 
@@ -1097,7 +1097,7 @@ defmodule RuleMaven.GamesTest do
           question: "magnet q",
           answer: "a",
           user_id: author.id,
-          visibility: "private",
+          promoted: false,
           pooled: true
         })
 
@@ -1121,7 +1121,7 @@ defmodule RuleMaven.GamesTest do
           question: "curated q",
           answer: "a",
           user_id: author.id,
-          visibility: "community",
+          promoted: true,
           pooled: true
         })
 
@@ -1147,7 +1147,7 @@ defmodule RuleMaven.GamesTest do
           question: "one strike",
           answer: "a",
           user_id: author.id,
-          visibility: "private",
+          promoted: false,
           pooled: true
         })
 

@@ -422,7 +422,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
               <div style="display:flex;gap:0.5rem;align-items:baseline;justify-content:space-between">
                 <span style="font-weight:600;font-size:0.85rem">{QuestionLog.listed_question(q)}</span>
                 <span style={pill("var(--text-muted)")}>
-                  {q.game && q.game.name} · {q.visibility}
+                  {q.game && q.game.name} · {q.tier || "private"}
                 </span>
               </div>
               <p style="font-size:0.78rem;color:var(--text-muted);margin:0.3rem 0">

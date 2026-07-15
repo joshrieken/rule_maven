@@ -99,7 +99,7 @@ defmodule RuleMaven.Moderation do
             needs_review: sum(fragment("CASE WHEN ? THEN 1 ELSE 0 END", q.needs_review)),
             citation_invalid:
               sum(fragment("CASE WHEN NOT ? THEN 1 ELSE 0 END", q.citation_valid)),
-            community: sum(fragment("CASE WHEN ? = 'community' THEN 1 ELSE 0 END", q.visibility))
+            community: sum(fragment("CASE WHEN ? THEN 1 ELSE 0 END", q.promoted))
           }
         }
     )

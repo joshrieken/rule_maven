@@ -55,7 +55,7 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
             question: @raw,
             cleaned_question: "Can a smuggler be caught?",
             answer: "Yes, on a failed roll.",
-            visibility: "private",
+            promoted: false,
             citation_valid: true,
             pooled: true,
             browsable: false,

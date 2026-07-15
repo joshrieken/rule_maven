@@ -32,7 +32,7 @@ defmodule RuleMavenWeb.CommunityAdminAuditTest do
         user_id: admin.id,
         question: "How do I score?",
         answer: "Count your points.",
-        visibility: "community",
+        promoted: true,
         verified: true
       })
 

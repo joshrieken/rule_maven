@@ -32,7 +32,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
         # are flipped only by PublishCheckWorker's own publish check.
         where:
           q.pooled == true and q.browsable == true and q.refused == false and
-            q.visibility != "community",
+            not q.promoted,
         # A row staled by a rulebook change may cite text that has since moved;
         # never promote it into the shared pool until it is re-grounded.
         where: q.stale == false,
@@ -134,7 +134,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
     # The `browsable` filter is re-asserted HERE, not just in the candidate read.
     # `retract_contributions/1` (delete_group/2, sole-owner account deletion) can commit
     # between the two, and a bare update would then land the row in
-    # `visibility: "community"` with `browsable: false` — a state every other gate
+    # `promoted: true` with `browsable: false` — a state every other gate
     # exists to prevent, and one the community browse surfaces (which list on
     # visibility alone) would happily publish.
     {promoted, _} =
@@ -142,9 +142,9 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
         from(q in QuestionLog,
           where: q.id == ^best.id,
           where: q.browsable == true,
-          where: q.visibility != "community"
+          where: not q.promoted
         ),
-        set: [visibility: "community", pooled: true]
+        set: [promoted: true, pooled: true]
       )
 
     # The rewards must hang off what the UPDATE actually did, not off the earlier

@@ -46,7 +46,7 @@ defmodule RuleMaven.Workers.AskWorkerIdempotencyTest do
         user_id: u.id,
         question: "How many dice do I roll?",
         answer: "Roll 3 dice.",
-        visibility: "private"
+        promoted: false
       })
 
     Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game:#{game.id}")
@@ -73,7 +73,7 @@ defmodule RuleMaven.Workers.AskWorkerIdempotencyTest do
         user_id: u.id,
         question: "How many dice?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     # The guard must NOT short-circuit here — it falls through to the real
@@ -94,7 +94,7 @@ defmodule RuleMaven.Workers.AskWorkerIdempotencyTest do
         user_id: u.id,
         question: "How many dice do I roll?",
         answer: "Thinking...",
-        visibility: "private"
+        promoted: false
       })
 
     {:ok, game} = Games.take_down_game(game, "DMCA", "rightsholder")

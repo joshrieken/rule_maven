@@ -123,7 +123,7 @@ defmodule RuleMaven.Games.Trust do
 
     promotions =
       Repo.aggregate(
-        from(q in QuestionLog, where: q.user_id == ^user_id and q.visibility == "community"),
+        from(q in QuestionLog, where: q.user_id == ^user_id and q.promoted),
         :count
       )
 

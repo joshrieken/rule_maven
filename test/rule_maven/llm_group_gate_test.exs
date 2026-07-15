@@ -52,7 +52,7 @@ defmodule RuleMaven.LLMGroupGateTest do
         user_id: owner.id,
         question: "How many actions per turn in the group?",
         answer: "GROUP-PRIVATE-ANSWER: three actions.",
-        visibility: "private",
+        promoted: false,
         group_id: grp.id,
         citation_valid: true
       })

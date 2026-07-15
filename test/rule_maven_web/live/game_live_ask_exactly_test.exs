@@ -49,7 +49,7 @@ defmodule RuleMavenWeb.GameLiveAskExactlyTest do
         game_id: game.id,
         question: "Can I trade resources on another player's turn?",
         answer: "No — trades happen only on your own turn.",
-        visibility: "community",
+        promoted: true,
         pooled: true
       })
 
@@ -62,7 +62,7 @@ defmodule RuleMavenWeb.GameLiveAskExactlyTest do
         llm_provider: "pool",
         llm_model: "cached",
         pool_source_id: source.id,
-        visibility: "private"
+        promoted: false
       })
 
     {source, copy}
@@ -139,7 +139,7 @@ defmodule RuleMavenWeb.GameLiveAskExactlyTest do
         answer: "You draw two cards.",
         llm_provider: "openrouter",
         llm_model: "some-model",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, user)
@@ -208,7 +208,7 @@ defmodule RuleMavenWeb.GameLiveAskExactlyTest do
         answer: "Draw three cards.",
         llm_provider: "openrouter",
         llm_model: "some-model",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, user)

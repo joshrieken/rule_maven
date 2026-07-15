@@ -34,7 +34,7 @@ defmodule RuleMavenWeb.GameLiveAdminAllQuestionsTest do
         user_id: other.id,
         question: "How do I score?",
         answer: "Count the points.",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, admin)
@@ -55,7 +55,7 @@ defmodule RuleMavenWeb.GameLiveAdminAllQuestionsTest do
         user_id: other.id,
         question: "Secret other question",
         answer: "Secret answer.",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, viewer)
@@ -75,7 +75,7 @@ defmodule RuleMavenWeb.GameLiveAdminAllQuestionsTest do
         user_id: other.id,
         question: "Totally unrelated text",
         answer: "Some answer.",
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, admin)
@@ -99,7 +99,7 @@ defmodule RuleMavenWeb.GameLiveAdminAllQuestionsTest do
         question: "Not in the rulebook",
         answer: "Not covered.",
         refused: true,
-        visibility: "private"
+        promoted: false
       })
 
     conn = login(conn, admin)
