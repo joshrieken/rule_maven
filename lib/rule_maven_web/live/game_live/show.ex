@@ -3801,7 +3801,21 @@ defmodule RuleMavenWeb.GameLive.Show do
               class="qa-question__text"
               phx-click="qa_show_question"
               title="Show full question"
-            >{@qa_active_question}<span :if={normalized?} class="qa-question__edited">edited</span></button>
+            >{@qa_active_question}</button>
+            <%!-- The "edited" pill sits OUTSIDE the 2-line-clamped text button:
+                  inside it, a long question pushes the pill past the clamp and
+                  overflow:hidden eats it — invisible for exactly the verbose
+                  questions most likely to be rewritten. As a flex sibling it is
+                  always shown, and adds no height (the row is sized by the
+                  fixed-height text button). --%>
+            <button
+              :if={normalized?}
+              type="button"
+              class="qa-question__edited"
+              phx-click="qa_show_question"
+              title="We rewrote your question — tap to compare with what you typed"
+              aria-label="Question was edited — tap to compare with what you typed"
+            >edited</button>
             <span class="qa-question__count">{@qa_active_index + 1} / {@qa_total}</span>
             <button
               type="button"

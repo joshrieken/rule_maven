@@ -68,6 +68,38 @@ defmodule RuleMavenWeb.GameLive.QaNoShiftTest do
     refute has_element?(view, ".qa-overlay")
   end
 
+  test "the 'edited' badge renders OUTSIDE the clamped question text (so a long question can't clip it)",
+       %{conn: conn, game: game, user: user} do
+    # A rewritten question: what the user typed differs from the cleaned form
+    # the UI displays back. `normalized?` fires, so the affordance must show.
+    {:ok, ql} =
+      RuleMaven.Games.log_question(%{
+        game_id: game.id,
+        user_id: user.id,
+        question: "does the kight beat the archer even in a really long-winded question?",
+        cleaned_question: "Does the knight beat the archer even in a really long-winded question?",
+        answer: "Yes.",
+        visibility: "private"
+      })
+
+    {:ok, view, _html} =
+      conn
+      |> login(user)
+      |> live(~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(ql.id)}")
+
+    # The pill is a direct child of the bar, NOT nested in the 2-line-clamped,
+    # overflow:hidden text button (where a long question would hide it).
+    assert has_element?(view, ".qa-question > button.qa-question__edited")
+    refute has_element?(view, ".qa-question__text .qa-question__edited")
+
+    # Tapping the pill opens the compare overlay showing both forms.
+    view |> element("button.qa-question__edited") |> render_click()
+    sheet = view |> element(".qa-overlay__sheet") |> render()
+    assert sheet =~ "We searched"
+    assert sheet =~ "You asked"
+    assert sheet =~ "kight"
+  end
+
   test "pager and answer-pane share one vertical column wrapper",
        %{conn: conn, game: game, user: user, thread_ids: thread_ids} do
     {:ok, view, _html} = conn |> login(user) |> visit_newest(game, thread_ids)

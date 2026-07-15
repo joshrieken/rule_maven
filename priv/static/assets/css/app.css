@@ -1217,18 +1217,32 @@ button.qa-question__pager:disabled {
   font-size: 0.78rem;
   white-space: nowrap;
 }
-/* Small gold pill: signals "the question was rewritten — tap to compare". */
-.qa-question__edited {
-  margin-left: 0.45rem;
-  font-weight: 600;
+/* Small gold pill signalling "the question was rewritten — tap to compare".
+   A flex sibling of the clamped question text (not nested in it), so it stays
+   visible on long questions. Filled surface so it reads as an affordance, not
+   a passive tag; flex:0 0 auto keeps it from shrinking or wrapping. */
+button.qa-question__edited {
+  flex: 0 0 auto;
+  align-self: center;
+  margin: 0 0 0 0.45rem;
+  font-weight: 700;
   font-size: 0.68rem;
   font-style: normal;
+  line-height: 1;
   color: var(--accent-ink, var(--accent));
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   border: 1px solid currentColor;
   border-radius: 999px;
-  padding: 0.05rem 0.4rem;
-  vertical-align: 0.12em;
+  padding: 0.15rem 0.45rem;
   white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+}
+button.qa-question__edited:hover,
+button.qa-question__edited:focus-visible {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  transform: none;
+  box-shadow: none;
 }
 /* "Ask exactly this" now lives on the full-question sheet (opened by tapping
    the pinned question), styled as a solid gold pill on the sheet surface. */
