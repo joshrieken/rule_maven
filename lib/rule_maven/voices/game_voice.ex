@@ -32,6 +32,9 @@ defmodule RuleMaven.Voices.GameVoice do
     # smuggled instructions) — gates the single-call persona path where the
     # style is interpolated into the rulebook-access ask prompt.
     field :vetted, :boolean, default: false
+    # Per-game mastery level that unlocks this persona. 0 = always available
+    # (the default for every generated voice). See RuleMaven.Progress.
+    field :unlock_level, :integer, default: 0
     belongs_to :game, RuleMaven.Games.Game
 
     timestamps(type: :utc_datetime)
@@ -51,7 +54,8 @@ defmodule RuleMaven.Voices.GameVoice do
       :popularity_rank,
       :source,
       :position,
-      :vetted
+      :vetted,
+      :unlock_level
     ])
     |> validate_required([:game_id, :slug, :label, :emoji, :style])
     |> unique_constraint([:game_id, :slug])
