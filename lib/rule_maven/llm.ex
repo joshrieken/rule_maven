@@ -136,7 +136,7 @@ defmodule RuleMaven.LLM do
         |> RuleMaven.Games.find_user_similar_candidates(user_id, question_embedding,
           expansion_ids: expansion_ids
         )
-        |> Enum.reject(&answer_flipping?(question, &1))
+        |> Enum.reject(&answer_flipping?(question, match_text, &1))
         |> List.first()
         |> then(&(&1 && {&1, RuleMaven.Games.pool_tier(&1)}))
 
@@ -285,7 +285,7 @@ defmodule RuleMaven.LLM do
         threshold: RuleMaven.Games.pool_tiebreaker_distance_threshold(),
         active_group_id: active_group_id
       )
-      |> reject_answer_flipping_candidates(question)
+      |> reject_answer_flipping_candidates(question, match_text)
 
     floor = RuleMaven.Games.pool_similarity_floor()
     {direct, ambiguous} = Enum.split_with(candidates, fn {_row, sim} -> sim >= floor end)
@@ -354,19 +354,29 @@ defmodule RuleMaven.LLM do
   #
   # A dropped candidate is not an error: the ask proceeds to the LLM and buys a
   # correct answer at full price (~$0.005). That is the cheap direction.
-  defp reject_answer_flipping_candidates(candidates, question) do
-    Enum.reject(candidates, fn {row, _sim} -> answer_flipping?(question, row) end)
+  defp reject_answer_flipping_candidates(candidates, question, match_text) do
+    Enum.reject(candidates, fn {row, _sim} -> answer_flipping?(question, match_text, row) end)
   end
 
   # True when serving this row's answer would answer a DIFFERENT question than the
   # one asked. Shared by the cross-user pool and the same-user semantic cache —
   # both match on embedding distance alone, so both are blind the same way.
-  defp answer_flipping?(question, row) do
+  defp answer_flipping?(question, match_text, row) do
     require Logger
 
     candidate_text = row.canonical_question || row.cleaned_question || row.question
 
-    case RuleMaven.LLM.QuestionFacets.conflict(question, candidate_text) do
+    # The guard runs on BOTH the raw asker text and the context-expanded
+    # match_text, firing if either conflicts. Neither subsumes the other:
+    # the raw fragment is where a negation lives that normalization erased
+    # (`match_text` is the cleaned/expanded form), while a follow-up fragment
+    # ("what about then?") carries no facet at all until context expansion
+    # folds it back in. Both directions fail SAFE — an extra rejection is one
+    # full-price ask, a missed flip serves a confidently-wrong rule.
+    facets = RuleMaven.LLM.QuestionFacets
+
+    case facets.conflict(question, candidate_text) ||
+           facets.conflict(match_text, candidate_text) do
       nil ->
         false
 
@@ -2026,6 +2036,9 @@ defmodule RuleMaven.LLM do
 
   @doc false
   def __affirmative__(text), do: affirmative?(text)
+
+  @doc false
+  def __answer_flipping__(question, match_text, row), do: answer_flipping?(question, match_text, row)
 
   defp unglue_interrogative(text) do
     String.replace(text, @glued_re, "\\1 ")
