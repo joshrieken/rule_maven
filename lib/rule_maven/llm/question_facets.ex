@@ -1150,6 +1150,9 @@ defmodule RuleMaven.LLM.QuestionFacets do
     end)
   end
 
+  # A fraction word at position 0 has no preceding token, so `prev` is nil.
+  defp to_number(nil), do: nil
+
   defp to_number(token) do
     case Map.fetch(@words, token) do
       {:ok, n} ->
