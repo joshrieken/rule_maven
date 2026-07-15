@@ -150,6 +150,7 @@ defmodule RuleMaven.LLM do
         serve_from_cache(
           user_exact,
           question_embedding,
+          question,
           cleaned,
           game.id,
           user_id,
@@ -161,6 +162,7 @@ defmodule RuleMaven.LLM do
         serve_from_cache(
           user_semantic,
           question_embedding,
+          question,
           cleaned,
           game.id,
           user_id,
@@ -190,6 +192,7 @@ defmodule RuleMaven.LLM do
         serve_from_cache(
           pool_hit,
           question_embedding,
+          question,
           cleaned,
           game.id,
           user_id,
@@ -480,6 +483,7 @@ defmodule RuleMaven.LLM do
   defp serve_from_cache(
          {row, tier},
          question_embedding,
+         question,
          cleaned,
          game_id,
          user_id,
@@ -488,9 +492,15 @@ defmodule RuleMaven.LLM do
        ) do
     RuleMaven.LLM.Savings.record_cache_hit("ask", game_id, user_id)
 
+    # Backstop for rows cached before the 2026-07-14 lead-strip fix: strip any
+    # inverted Yes/No lead against the RAW asker question (idempotent — no-op on
+    # already-stripped answers or non-negative questions).
+    served_answer =
+      RuleMaven.LLM.Polarity.strip_inverted_lead(row.canonical_answer || row.answer, question)
+
     {:ok,
      %{
-       answer: row.canonical_answer || row.answer,
+       answer: served_answer,
        cited_passage: row.cited_passage,
        cited_page: row.cited_page,
        cited_source: row.cited_source,
@@ -2056,6 +2066,10 @@ defmodule RuleMaven.LLM do
 
   @doc false
   def __drop_lead__(result, question), do: drop_lead_on_negative_question(result, question)
+
+  @doc false
+  def __serve_from_cache__(row_tuple, question),
+    do: serve_from_cache(row_tuple, nil, question, nil, nil, nil, false, false)
 
   defp unglue_interrogative(text) do
     String.replace(text, @glued_re, "\\1 ")
