@@ -5322,12 +5322,21 @@ defmodule RuleMaven.Games do
   act on prose they were never shown.
   """
   def reachable_by?(%QuestionLog{} = q, user_id) do
-    cond do
-      q.visibility == "community" -> true
-      q.pooled and q.browsable -> true
-      not is_nil(q.user_id) and q.user_id == user_id -> true
-      not is_nil(q.group_id) -> RuleMaven.Groups.member_of_group_id?(user_id, q.group_id)
-      true -> false
+    # Reads the single DB-generated `audience` column. Falls back to the Elixir
+    # mirror for a row rebuilt off-DB (deleted-version snapshot) whose generated
+    # column was never populated.
+    owner? = not is_nil(q.user_id) and q.user_id == user_id
+
+    case q.audience || to_string(QuestionLog.audience(q)) do
+      "public" ->
+        true
+
+      "crew" ->
+        owner? or
+          (not is_nil(q.group_id) and RuleMaven.Groups.member_of_group_id?(user_id, q.group_id))
+
+      _ ->
+        owner?
     end
   end
 

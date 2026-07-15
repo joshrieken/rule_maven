@@ -77,6 +77,14 @@ defmodule RuleMaven.Games.QuestionLog do
     # [] = base game only. All cache tiers match on set equality so an answer
     # never crosses expansion configurations.
     field :expansion_ids, {:array, :integer}, default: []
+    # DB-GENERATED, read-only. `audience` (:private/:crew/:public) is the single
+    # source Games.reachable_by?/2 reads for "who may see the answer"; `tier`
+    # (unverified/community/admin) is the FAQ badge. Postgres recomputes both
+    # from {visibility, pooled, browsable, verified, group_id} on every write,
+    # so they never desync. Never cast/write them — see audience/1 + tier/1 for
+    # the Elixir mirror of the SQL expression.
+    field :audience, :string, read_after_writes: true
+    field :tier, :string, read_after_writes: true
     belongs_to :game, RuleMaven.Games.Game
     belongs_to :user, RuleMaven.Users.User
     belongs_to :document, RuleMaven.Games.Document
@@ -159,6 +167,41 @@ defmodule RuleMaven.Games.QuestionLog do
   def crew_origin?(%{group_id: gid}) when not is_nil(gid), do: true
   def crew_origin?(%{retracted_at: at}) when not is_nil(at), do: true
   def crew_origin?(_q), do: false
+
+  @doc """
+  Elixir mirror of the DB-generated `audience` column — who may see the ANSWER,
+  independent of any viewer. Kept in exact lockstep with the SQL expression in
+  `20260716000000_add_generated_audience_tier`; a test asserts stored == this
+  for every row. Use the stored `q.audience` for live rows (indexed, SQL-usable);
+  this function is for rows rebuilt off-DB (e.g. deleted-version snapshots).
+
+    * `:public`  — visibility "community" OR (pooled AND screened/browsable)
+    * `:crew`    — otherwise, while a group_id remains
+    * `:private` — otherwise (owner only)
+  """
+  def audience(%{} = q) do
+    cond do
+      q.visibility == "community" or (bool(q.pooled) and bool(q.browsable)) -> :public
+      not is_nil(Map.get(q, :group_id)) -> :crew
+      true -> :private
+    end
+  end
+
+  @doc """
+  Elixir mirror of the DB-generated `tier` column — the FAQ verification badge,
+  meaningful only when `audience/1` is `:public`. `nil` when not public.
+  """
+  def tier(%{} = q) do
+    cond do
+      bool(q.verified) -> :admin
+      q.visibility == "community" -> :community
+      bool(q.pooled) and bool(q.browsable) -> :unverified
+      true -> nil
+    end
+  end
+
+  defp bool(true), do: true
+  defp bool(_), do: false
 
   @doc """
   Answer text safe to render on an admin/list surface — the companion to

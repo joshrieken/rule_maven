@@ -582,12 +582,16 @@ defmodule RuleMavenWeb.AuditModal do
   # `visibility` alone is misleading — it's a promotion tier, not access; real
   # reach is a mix of visibility, pooled+browsable and crew origin.
   defp audience_label(%QuestionLog{} = q) do
-    cond do
-      q.visibility == "community" and q.verified -> "Everyone · admin-verified FAQ"
-      q.visibility == "community" -> "Everyone · community-verified FAQ"
-      q.pooled and q.browsable -> "Everyone · unverified FAQ"
-      not is_nil(q.group_id) or QuestionLog.crew_origin?(q) -> "Crew only"
-      true -> "Asker only"
+    case QuestionLog.audience(q) do
+      :public ->
+        case QuestionLog.tier(q) do
+          :admin -> "Everyone · admin-verified FAQ"
+          :community -> "Everyone · community-verified FAQ"
+          _ -> "Everyone · unverified FAQ"
+        end
+
+      :crew -> "Crew only"
+      :private -> "Asker only"
     end
   end
 
