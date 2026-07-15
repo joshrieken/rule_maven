@@ -1,7 +1,8 @@
 defmodule RuleMavenWeb.GameLiveLlmTraceTest do
   @moduledoc """
-  Admin-only "LLM trace" panel in the Q&A view: per-question llm_logs calls
-  with model, tokens, cost and duration (see LLM.calls_for_question/1).
+  Admin-only "🔍 Audit trail" modal in the Q&A view (AdminAuditTrailComponent):
+  the recorded LLM calls (op, model, tokens, cost, duration — via
+  LLM.calls_for_question/1) plus facts, cost and pool lineage.
   """
 
   use RuleMavenWeb.ConnCase, async: true
@@ -56,28 +57,32 @@ defmodule RuleMavenWeb.GameLiveLlmTraceTest do
     })
   end
 
-  test "admin can open the LLM trace and see the recorded calls", %{conn: conn} do
+  defp open_qa(conn, game, ql) do
+    live(
+      conn,
+      ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
+    )
+  end
+
+  test "admin can open the audit trail and see the recorded calls", %{conn: conn} do
     admin = create_user("trace_admin", %{role: "admin"})
     game = published_game_fixture(%{name: "Trace Game"})
     ql = answered_question(game, admin)
     trace_row(ql.id)
 
     conn = login(conn, admin)
+    {:ok, view, html} = open_qa(conn, game, ql)
 
-    {:ok, view, html} =
-      live(
-        conn,
-        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
-      )
+    assert html =~ "Audit trail"
 
-    assert html =~ "LLM trace"
+    html = view |> element("button[phx-click=open_audit]") |> render_click()
 
-    html = render_click(view, "toggle_llm_trace", %{"id" => to_string(ql.id)})
-
+    assert html =~ "Question audit trail"
     assert html =~ "grounding_critic"
     assert html =~ "google/gemini-2.5-flash"
     assert html =~ "1.2s"
-    assert html =~ "1 call"
+    assert html =~ "1 LLM call"
+    assert html =~ "Pool lineage"
   end
 
   test "empty trace shows the no-calls message", %{conn: conn} do
@@ -86,35 +91,44 @@ defmodule RuleMavenWeb.GameLiveLlmTraceTest do
     ql = answered_question(game, admin)
 
     conn = login(conn, admin)
+    {:ok, view, _html} = open_qa(conn, game, ql)
 
-    {:ok, view, _html} =
-      live(
-        conn,
-        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
-      )
-
-    html = render_click(view, "toggle_llm_trace", %{"id" => to_string(ql.id)})
+    html = view |> element("button[phx-click=open_audit]") |> render_click()
 
     assert html =~ "No LLM calls recorded"
   end
 
-  test "non-admin sees no LLM trace button and the event is a no-op", %{conn: conn} do
+  test "audit trail shows pool lineage on the source row", %{conn: conn} do
+    admin = create_user("trace_admin3", %{role: "admin"})
+    game = published_game_fixture(%{name: "Trace Game Pool"})
+
+    source = answered_question(game, admin)
+
+    # A later ask served FROM the source via the pool.
+    child = answered_question(game, admin)
+
+    child
+    |> Ecto.Changeset.change(pooled: true, pool_source_id: source.id)
+    |> Repo.update!()
+
+    conn = login(conn, admin)
+    {:ok, view, _html} = open_qa(conn, game, source)
+
+    html = view |> element("button[phx-click=open_audit]") |> render_click()
+
+    assert html =~ "Served 1 later ask"
+  end
+
+  test "non-admin sees no audit trail affordance", %{conn: conn} do
     viewer = create_user("trace_viewer")
     game = published_game_fixture(%{name: "Trace Game 3"})
     ql = answered_question(game, viewer)
     trace_row(ql.id)
 
     conn = login(conn, viewer)
+    {:ok, _view, html} = open_qa(conn, game, ql)
 
-    {:ok, view, html} =
-      live(
-        conn,
-        ~p"/games/#{RuleMaven.Hashid.encode(game.id)}?t=#{RuleMaven.Hashid.encode(ql.id)}"
-      )
-
-    refute html =~ "LLM trace"
-
-    html = render_click(view, "toggle_llm_trace", %{"id" => to_string(ql.id)})
+    refute html =~ "Audit trail"
     refute html =~ "grounding_critic"
   end
 end

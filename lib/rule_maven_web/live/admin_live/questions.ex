@@ -45,7 +45,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
     socket =
       case params["status"] do
         s
-        when s in ["needs_review", "answered", "pending", "refused", "error", "publish_pending"] ->
+        when s in ["needs_review", "answered", "pending", "refused", "error", "publish_pending", "pooled"] ->
           socket |> assign(filter_status: s) |> reload()
 
         _ ->
@@ -535,6 +535,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
             <option value="answered" selected={@filter_status == "answered"}>Answered</option>
             <option value="pending" selected={@filter_status == "pending"}>Pending</option>
             <option value="refused" selected={@filter_status == "refused"}>Refused</option>
+            <option value="pooled" selected={@filter_status == "pooled"}>Pooled (cache hit)</option>
             <option value="error" selected={@filter_status == "error"}>Error</option>
             <option value="needs_review" selected={@filter_status == "needs_review"}>
               Needs review (stale)
@@ -728,6 +729,15 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                     </p>
                   </div>
                 <% end %>
+
+                <div style="margin-top:0.6rem">
+                  <.live_component
+                    module={RuleMavenWeb.AdminAuditTrailComponent}
+                    id={"audit-#{q.id}"}
+                    question_log_id={q.id}
+                    current_user={@current_user}
+                  />
+                </div>
 
                 <%!-- Curated FAQ text editor (replaces the old Threads merge) --%>
                 <%= if @editing_canonical_id == q.id do %>

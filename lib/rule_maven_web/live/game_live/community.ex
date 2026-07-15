@@ -504,6 +504,7 @@ defmodule RuleMavenWeb.GameLive.Community do
               asker_confirmed={@asker_confirmed}
               expanded={@expanded}
               current_user_id={@current_user.id}
+              current_user={@current_user}
             />
           <% end %>
           <p :if={results == []} style="font-size:0.75rem;color:var(--text-muted)">
@@ -606,6 +607,7 @@ defmodule RuleMavenWeb.GameLive.Community do
                   asker_confirmed={@asker_confirmed}
                   expanded={@expanded}
                   current_user_id={@current_user.id}
+                  current_user={@current_user}
                 />
               <% end %>
               <p :if={filtered == []} style="font-size:0.75rem;color:var(--text-muted)">
@@ -639,6 +641,7 @@ defmodule RuleMavenWeb.GameLive.Community do
                         asker_confirmed={@asker_confirmed}
                         expanded={@expanded}
                         current_user_id={@current_user.id}
+                        current_user={@current_user}
                       />
                     <% end %>
                   </div>
@@ -667,6 +670,7 @@ defmodule RuleMavenWeb.GameLive.Community do
                       asker_confirmed={@asker_confirmed}
                       expanded={@expanded}
                       current_user_id={@current_user.id}
+                      current_user={@current_user}
                     />
                   <% end %>
                 </div>
@@ -928,6 +932,14 @@ defmodule RuleMavenWeb.GameLive.Community do
                   class="card-menu__item"
                   title="Pull into the moderation queue"
                 >⏸ Pull for review</button>
+                <div class="card-menu__item" style="padding:0">
+                  <.live_component
+                    module={RuleMavenWeb.AdminAuditTrailComponent}
+                    id={"audit-community-#{@q.id}"}
+                    question_log_id={@q.id}
+                    current_user={@current_user}
+                  />
+                </div>
               <% else %>
                 <%= if MapSet.member?(@flagged_ids, @q.id) do %>
                   <button

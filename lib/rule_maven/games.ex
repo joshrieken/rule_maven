@@ -2928,6 +2928,9 @@ defmodule RuleMaven.Games do
         "needs_review" ->
           from(q in query, where: q.needs_review == true)
 
+        "pooled" ->
+          from(q in query, where: q.pooled == true)
+
         "publish_pending" ->
           from(q in query,
             where:
@@ -2968,6 +2971,33 @@ defmodule RuleMaven.Games do
       Repo.delete_all(from q in QuestionLog, where: q.game_id == ^game.id)
 
     {count, nil}
+  end
+
+  @doc """
+  For a pooled question, the source row whose answer it was served from
+  (`pool_source_id`). `nil` when the row was not pooled or the source is gone.
+  """
+  def pool_source(%QuestionLog{pool_source_id: nil}), do: nil
+  def pool_source(%QuestionLog{pool_source_id: id}), do: Repo.get(QuestionLog, id)
+  def pool_source(_), do: nil
+
+  @doc """
+  Source-side lineage: the later questions that were answered *from* this row
+  via the pool. Returns `%{count:, rows: [...]}` (rows capped, most recent first).
+  """
+  def pool_children(question_log_id, limit \\ 25) when is_integer(question_log_id) do
+    base = from q in QuestionLog, where: q.pool_source_id == ^question_log_id
+
+    rows =
+      Repo.all(
+        from q in base,
+          order_by: [desc: q.inserted_at],
+          limit: ^limit,
+          preload: [:user],
+          select: struct(q, ^@question_list_fields)
+      )
+
+    %{count: Repo.aggregate(base, :count, :id), rows: rows}
   end
 
   @doc """

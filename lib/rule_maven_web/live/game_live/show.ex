@@ -80,10 +80,6 @@ defmodule RuleMavenWeb.GameLive.Show do
        # and the lazily-fetched audit entries per thread id.
        history_open: MapSet.new(),
        question_history: %{},
-       # Admin-only "LLM trace" panel: per-question llm_logs calls (op, model,
-       # tokens, cost, duration) — same lazy toggle mechanics as history.
-       llm_trace_open: MapSet.new(),
-       llm_traces: %{},
        asks_disabled: false,
        included_expansions: %{},
        expansions_seeded: false,
@@ -2111,33 +2107,6 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
-  # Admin-only LLM trace: lazily fetches the llm_logs calls recorded for this
-  # question the first time its panel is opened, then just toggles. A fresh
-  # fetch happens once per LiveView mount — good enough, since the trace only
-  # grows while the answer is still being produced.
-  @impl true
-  def handle_event("toggle_llm_trace", %{"id" => id_str}, socket) do
-    {id, _} = Integer.parse(id_str)
-
-    # Scoped: the trace carries prompts and per-call cost. Admin alone isn't the
-    # gate — the row must belong to the game whose page this is.
-    if socket.assigns.is_admin and Games.get_game_question(socket.assigns.game, id) do
-      open = socket.assigns.llm_trace_open
-
-      if MapSet.member?(open, id) do
-        {:noreply, assign(socket, llm_trace_open: MapSet.delete(open, id))}
-      else
-        traces =
-          Map.put_new_lazy(socket.assigns.llm_traces, id, fn ->
-            RuleMaven.LLM.calls_for_question(id)
-          end)
-
-        {:noreply, assign(socket, llm_trace_open: MapSet.put(open, id), llm_traces: traces)}
-      end
-    else
-      {:noreply, socket}
-    end
-  end
 
   @impl true
   def handle_event("retry_question", %{"id" => id_str}, socket) do
@@ -4673,6 +4642,13 @@ defmodule RuleMavenWeb.GameLive.Show do
                     class="flex items-center gap-1 mt-0.5"
                     style="flex-wrap:wrap;min-width:0;padding-left:0.25rem"
                   >
+                    <.live_component
+                      :if={msg[:id] && !msg[:pending] && msg.content != "Thinking..."}
+                      module={RuleMavenWeb.AdminAuditTrailComponent}
+                      id={"audit-qa-#{msg.id}"}
+                      question_log_id={msg.id}
+                      current_user={@current_user}
+                    />
                     <%= if msg.content == "Thinking..." do %>
                       <button
                         type="button"
@@ -4838,18 +4814,9 @@ defmodule RuleMavenWeb.GameLive.Show do
                       phx-value-question={q_text_hist}
                       style="margin:0;color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer;text-align:left"
                     >{if MapSet.member?(@history_open, msg.id), do: "▾", else: "▸"} History</button>
-                    <!-- Admin-only: LLM trace (every llm_logs call recorded for
-                       this question — see LLM.calls_for_question/1) -->
-                    <button
-                      :if={
-                        @is_admin && msg.role == :assistant && !msg[:history] &&
-                          msg.content != "Thinking..."
-                      }
-                      type="button"
-                      phx-click="toggle_llm_trace"
-                      phx-value-id={msg.id}
-                      style="margin:0;color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer;text-align:left"
-                    >{if MapSet.member?(@llm_trace_open, msg.id), do: "▾", else: "▸"} LLM trace</button>
+                    <!-- The full LLM-call trace, cost, pool lineage and community
+                       signals now live in the admin "🔍 Audit trail" modal on the
+                       action row above (AdminAuditTrailComponent). -->
                   </div>
                   <%= if @is_admin && msg.role == :assistant && !msg[:history] && msg.content != "Thinking..." do %>
                     <div
@@ -4877,87 +4844,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                               {if entry.metadata["needs_review"], do: " · pulled for review"}
                               {if entry.metadata["verified"], do: " · verified"}
                             </div>
-                          </div>
-                        <% end %>
-                      <% end %>
-                    </div>
-                    <div
-                      :if={MapSet.member?(@llm_trace_open, msg.id)}
-                      style="margin-top:0.25rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-subtle);display:flex;flex-direction:column;gap:0.3rem"
-                    >
-                      <% trace = Map.get(@llm_traces, msg.id, %{calls: [], totals: nil}) %>
-                      <%= if trace.calls == [] do %>
-                        <span style="font-size:0.65rem;color:var(--text-muted)">
-                          No LLM calls recorded — served from cache, or asked before call tracing existed.
-                        </span>
-                      <% else %>
-                        <div style="font-size:0.65rem;font-weight:600;color:var(--text-secondary)">
-                          {trace.totals.count} call{if trace.totals.count != 1, do: "s"} &middot; {format_trace_cost(
-                            trace.totals.cost
-                          )} &middot; {format_trace_duration(trace.totals.duration_ms)} &middot; {trace.totals.tokens} tokens
-                        </div>
-                        <%= for call <- trace.calls do %>
-                          <div style="font-size:0.65rem;color:var(--text-muted);border-top:1px solid var(--border);padding-top:0.25rem;display:flex;flex-wrap:wrap;gap:0.15rem 0.45rem;align-items:baseline">
-                            <span style="font-variant-numeric:tabular-nums">{Calendar.strftime(
-                              call.inserted_at,
-                              "%H:%M:%S"
-                            )}</span>
-                            <span style="font-weight:600;color:var(--text-secondary)">{call.operation}</span>
-                            <span style="overflow-wrap:anywhere">{call.model}</span>
-                            <span :if={call.total_tokens}>
-                              {call.prompt_tokens || 0}→{call.completion_tokens || 0} tok
-                            </span>
-                            <span>{format_trace_cost(call.cost)}</span>
-                            <span>{format_trace_duration(call.duration_ms)}</span>
-                            <span style={"color:#{if call.success, do: "var(--success, #16a34a)", else: "var(--danger, #dc2626)"}"}>
-                              {if call.success, do: "✓", else: "✗"}
-                            </span>
-                            <span
-                              :if={call.detail["cached_tokens"]}
-                              title="provider-cached prompt tokens"
-                            >
-                              ⚡{call.detail["cached_tokens"]} cached
-                            </span>
-                            <span :if={call.detail["reasoning_effort"]}>
-                              🧠 {call.detail["reasoning_effort"]}
-                            </span>
-                            <span
-                              :if={call.detail["finish_reason"] not in [nil, "stop", "end_turn"]}
-                              style="color:var(--warning, #d97706)"
-                              title="model stopped before a natural end"
-                            >
-                              ⚠ {call.detail["finish_reason"]}
-                            </span>
-                            <span
-                              :if={call.detail["truncation_retry"]}
-                              style="color:var(--warning, #d97706)"
-                              title="retry of a truncated call with a doubled token cap"
-                            >
-                              ↻ retry
-                            </span>
-                            <span
-                              :if={!call.success && call.error_message}
-                              title={call.error_message}
-                              style="flex-basis:100%;overflow-wrap:anywhere;opacity:0.8"
-                            >
-                              {String.slice(call.error_message, 0, 200)}
-                            </span>
-                            <details
-                              :if={call.detail["input"] || call.detail["output"]}
-                              style="flex-basis:100%;margin:0"
-                            >
-                              <summary style="cursor:pointer;opacity:0.8;font-size:0.62rem">
-                                in/out
-                              </summary>
-                              <div :if={call.detail["input"]} style="margin-top:0.25rem">
-                                <div style="font-weight:600;color:var(--text-secondary)">→ in</div>
-                                <pre style="margin:0.1rem 0 0;padding:0.3rem 0.45rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.3rem;white-space:pre-wrap;word-break:break-word;font-size:0.62rem;max-height:12rem;overflow-y:auto">{call.detail["input"]}</pre>
-                              </div>
-                              <div :if={call.detail["output"]} style="margin-top:0.25rem">
-                                <div style="font-weight:600;color:var(--text-secondary)">← out</div>
-                                <pre style="margin:0.1rem 0 0;padding:0.3rem 0.45rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:0.3rem;white-space:pre-wrap;word-break:break-word;font-size:0.62rem;max-height:12rem;overflow-y:auto">{call.detail["output"]}</pre>
-                              </div>
-                            </details>
                           </div>
                         <% end %>
                       <% end %>
@@ -5468,19 +5354,6 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     question
   end
-
-  # LLM-trace panel formatting. Costs are fractions of a cent per call, so four
-  # decimal places; sub-cent totals still render as non-zero.
-  defp format_trace_cost(cost) when is_number(cost),
-    do: "$#{:erlang.float_to_binary(cost * 1.0, decimals: 4)}"
-
-  defp format_trace_cost(_), do: "$—"
-
-  defp format_trace_duration(ms) when is_integer(ms) and ms >= 1000,
-    do: "#{Float.round(ms / 1000, 1)}s"
-
-  defp format_trace_duration(ms) when is_integer(ms), do: "#{ms}ms"
-  defp format_trace_duration(_), do: "—"
 
   defp strip_markdown(text) do
     text
