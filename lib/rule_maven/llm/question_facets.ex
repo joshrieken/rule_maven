@@ -352,10 +352,53 @@ defmodule RuleMaven.LLM.QuestionFacets do
   )
   |> MapSet.new()
 
+  # Function words carry no entity identity, so grammatical differences
+  # (do/does, a/the) must not count as bag differences or eat a typo-pair slot.
+  # None of @role_markers appear here.
+  @role_ignore ~w(
+    a an the do does did is are was were be been being to of on in at for it
+    this that these those as with my your our their his her its i you he she we they them
+  )
+  |> MapSet.new()
+
   # True when the two token lists are NOT a role reversal (i.e. safe to treat as
   # the same question on this axis). Empty-safe: any pair without the fingerprint.
+  # Marker checked on EITHER side so a typo'd marker on one side still triggers
+  # via the other's clean spelling.
   defp role_order_agrees?(q, c) do
-    not (q != c and Enum.sort(q) == Enum.sort(c) and Enum.any?(q, &MapSet.member?(@role_markers, &1)))
+    qf = Enum.reject(q, &MapSet.member?(@role_ignore, &1))
+    cf = Enum.reject(c, &MapSet.member?(@role_ignore, &1))
+
+    not (qf != cf and same_word_bag?(qf, cf) and
+           Enum.any?(qf ++ cf, &MapSet.member?(@role_markers, &1)))
+  end
+
+  # Same content up to a couple of single-token typos. A strict identical-bag
+  # test is defeated by one misspelled entity ("kight" for "knight"), which in a
+  # long question keeps the embedding >= 0.92 (measured 0.95) and would reach
+  # free-serve. We instead cancel the shared multiset and require the leftover
+  # tokens to pair 1:1 within Jaro 0.85 — typos/plurals pair (0.87-0.95),
+  # genuinely different entities do not (knight/wizard 0.44, red/blue 0.0). Capped
+  # at two unmatched tokens per side so a real reword can't masquerade as a typo.
+  @role_typo_jaro 0.85
+  defp same_word_bag?(q, c) do
+    sq = Enum.sort(q)
+    sc = Enum.sort(c)
+
+    cond do
+      sq == sc -> true
+      true -> typo_pairable?(sq -- sc, sc -- sq)
+    end
+  end
+
+  defp typo_pairable?(da, db) when length(da) != length(db) or length(da) > 2, do: false
+  defp typo_pairable?([], []), do: true
+
+  defp typo_pairable?([h | t], db) do
+    case Enum.find(db, &(String.jaro_distance(h, &1) >= @role_typo_jaro)) do
+      nil -> false
+      match -> typo_pairable?(t, List.delete(db, match))
+    end
   end
 
   defp compass_agree?(q, c) do

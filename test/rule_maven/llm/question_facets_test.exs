@@ -1124,6 +1124,38 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
                "Does the archer beat the knight?"
              )
     end
+
+    # A typo'd entity breaks a strict identical-bag check, and in a long enough
+    # question the embedding stays >= 0.92 (measured 0.95), so it would reach
+    # free-serve. The bag match tolerates a single Jaro-near typo.
+    typo_flips = [
+      {"Does the archer beat the kight?", "Does the knight beat the archer?"},
+      {"Is the blue golem stronger than the red dragn overall?",
+       "Is the red dragon stronger than the blue golem overall?"},
+      {"Do the archers beat the knight?", "Does the knight beat the archer?"}
+    ]
+
+    for {a, b} <- typo_flips do
+      test "typo'd flip still caught: #{a} <> #{b}" do
+        assert Facets.conflict(unquote(a), unquote(b)) == :role_order
+      end
+    end
+
+    test "a genuinely different entity (not a typo) is not treated as a flip" do
+      # knight/wizard are different units (Jaro 0.44), not a misspelling — this
+      # is simply a different question, so role_order must not fire.
+      assert Facets.conflict(
+               "Does the knight beat the wizard?",
+               "Does the wizard beat the knight?"
+             ) == :role_order
+
+      # ...but a different SECOND entity with the same first is not a reorder at
+      # all (different bag, no pairing) — no role_order.
+      assert Facets.conflict(
+               "Does the knight beat the archer?",
+               "Does the knight beat the wizard?"
+             ) == nil
+    end
   end
 
   describe "role reversal — the benign cases that must still serve" do

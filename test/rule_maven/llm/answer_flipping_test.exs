@@ -31,6 +31,17 @@ defmodule RuleMaven.LLM.AnswerFlippingTest do
     assert LLM.__answer_flipping__(raw, expanded, row(candidate))
   end
 
+  test "a subject/object role reversal is rejected on the serve path" do
+    # Identical bag, order flips the answer — the guard must reject (fall through
+    # to a full-price ask), never serve. This holds whether the near-identical
+    # entities are a typo or two genuinely similar unit names: rejecting is the
+    # fail-safe direction in both cases.
+    raw = "Does the archer beat the knight?"
+    candidate = "Does the knight beat the archer?"
+
+    assert LLM.__answer_flipping__(raw, raw, row(candidate))
+  end
+
   test "compatible follow-up is served (no false rejection)" do
     raw = "and after that?"
     expanded = "Can a player trade after rolling the dice?"
