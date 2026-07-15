@@ -956,5 +956,141 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
                "Can a player trade 1 for 2 at a harbor?"
              )
     end
+
+    test "unicode dashes and slashes collapse like hyphens — round 25, measured 0.94-0.97" do
+      # en-dash spellings dodged the ASCII-hyphen collapse; "counter–clockwise"
+      # was read as counter + CLOCKWISE, the opposite pole.
+      assert Facets.conflict("Are cards kept face–up?", "Are cards kept face down?") ==
+               :visibility
+
+      assert Facets.conflict("Does play go counter–clockwise?", "Does play go clockwise?") ==
+               :direction
+
+      assert Facets.conflict("Is it kept face/down?", "Is it kept face up?") == :visibility
+    end
+
+    test "round up vs round down — rounding direction axis, 0.95-0.98" do
+      refute Facets.compatible?(
+               "Do I round up when discarding half?",
+               "Do I round down when discarding half?"
+             )
+
+      assert Facets.conflict("Do I round up on a half?", "Do I round down on a half?") ==
+               :rounding
+
+      # Bare up/down stay ungated — "up to seven" must survive.
+      assert Facets.compatible?(
+               "Do I discard with up to seven cards?",
+               "Do I discard with up to seven cards in hand?"
+             )
+    end
+
+    test "the -er comparative degree axis: higher/lower, longer/shorter — 0.92+" do
+      assert Facets.conflict("Is the higher roll the winner?", "Is the lower roll the winner?") ==
+               :degree
+
+      assert Facets.conflict("Does the longer route score?", "Does the shorter route score?") ==
+               :degree
+
+      # One-sided mention is not a dispute.
+      assert Facets.compatible?(
+               "Is the higher roll the winner?",
+               "Which roll wins the ties?"
+             )
+    end
+
+    test "roman numerals fold into numbers beside a period noun — Age II vs III" do
+      assert Facets.conflict("Do I draw in Age II?", "Do I draw in Age III?") == :number
+
+      # Roman and digit forms of the SAME value agree.
+      assert Facets.compatible?("Do I draw in Age III?", "Is a card drawn in age 3?")
+
+      # Bare downcased "I" is a pronoun, never a numeral.
+      assert Facets.compatible?("Can I build twice?", "Can a player build twice?")
+    end
+
+    test "dice notation — 2d6 vs 1d6 and d6 vs d8, own empty-safe set" do
+      assert Facets.conflict("Do I roll 2d6 for movement?", "Do I roll 1d6 for movement?") ==
+               :dice
+
+      assert Facets.conflict("Do I roll a d6?", "Do I roll a d8?") == :dice
+
+      # Notation vs prose stays compatible — prose binds nothing here.
+      assert Facets.compatible?("Do I roll a d6?", "Do I roll a six-sided die?")
+    end
+
+    test "fraction words — discard half vs a third, 0.953" do
+      assert Facets.conflict(
+               "Do I discard half my cards on a seven?",
+               "Do I discard a third of my cards on a seven?"
+             ) == :fraction
+
+      # "the third player" is an ordinal, not a fraction — no amount word before it.
+      assert Facets.compatible?(
+               "Does the third player draw two cards?",
+               "Does the third player get two cards?"
+             )
+    end
+
+    test "multiplier words and Nx notation — double vs triple, 2x vs 3x" do
+      assert Facets.conflict(
+               "Does the city double production?",
+               "Does the city triple production?"
+             ) == :multiplier
+
+      assert Facets.conflict("Does the card score 2x?", "Does the card score 3x?") == :number
+
+      # "rolling doubles" binds 2 harmlessly against a question with no multiplier.
+      assert Facets.compatible?(
+               "Do I roll again on doubles?",
+               "Do I get another roll after doubles?"
+             )
+    end
+
+    test "single-letter identifiers after an id noun — row B vs row C" do
+      assert Facets.conflict("Does row B score double?", "Does row C score double?") ==
+               :letter_id
+
+      # The article in "a row" never binds; letter-first order never binds.
+      assert Facets.compatible?("Does a row score double?", "Does row B score double?")
+    end
+
+    test "turn ownership collocation — on MY turn vs on ANOTHER PLAYER'S turn, 0.956" do
+      assert Facets.conflict(
+               "Can I play a development card on my turn?",
+               "Can I play a development card on another player's turn?"
+             ) == :turn_ownership
+
+      # Pole words outside the turn window stay neutral.
+      assert Facets.compatible?(
+               "Can I trade with other players on my turn?",
+               "Can I trade on my turn?"
+             )
+    end
+
+    test "spelled numbers past fifty and the hundred fold" do
+      assert Facets.conflict("Do I win at sixty points?", "Do I win at seventy points?") ==
+               :number
+
+      # "one hundred" folds to a single 100 — must agree with digit form.
+      assert Facets.compatible?("Do I win at one hundred points?", "Do I win at 100 points?")
+    end
+
+    test "timer units bind to their number — 30 seconds vs 30 minutes, 0.974" do
+      assert Facets.conflict(
+               "Is the sand timer 30 seconds?",
+               "Is the sand timer 30 minutes?"
+             ) == :number
+    end
+
+    test "a rewrite may drop a bound number but not strip its unit binding — role swap" do
+      raw = "If I roll a 7 and I have 8 cards, how many do I discard?"
+
+      # Dropping the premise number entirely stays legal.
+      assert Facets.preserved_in_rewrite?(raw, "How many cards must be discarded on a 7?")
+
+      # Keeping the 8 while moving it from hand size to die roll is the swap.
+      refute Facets.preserved_in_rewrite?(raw, "How many cards are discarded on an 8?")
+    end
   end
 end

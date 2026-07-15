@@ -213,6 +213,23 @@ defmodule RuleMaven.LLM.QuestionFacets do
       ~w(highest greatest largest biggest),
       ~w(lowest smallest)
     ],
+    # "is the HIGHER roll the winner" vs "the LOWER roll" — the -er comparative
+    # family, measured over the floor across higher/lower, larger/smaller,
+    # stronger/weaker, faster/slower, longer/shorter. Two-sided firing keeps the
+    # polysemous members safe: "lower the drawbridge" or "no longer" on one side
+    # fires nothing unless the other question names the opposite pole. `raise`
+    # stays off (poker bet); `greater` stays on `comparative`.
+    degree: [
+      ~w(higher larger bigger stronger faster longer taller heavier wider),
+      ~w(lower smaller weaker slower shorter lighter narrower)
+    ],
+    # "do I round up" vs "round down" — rounding direction on half-values,
+    # 0.95-0.98 measured. The tokens exist only via the tokenizer's phrase
+    # collapse (round/rounded/rounding + up/down), so bare up/down stay ungated.
+    rounding: [
+      ~w(roundup),
+      ~w(rounddown)
+    ],
     # "draw from the TOP of the deck" vs "the BOTTOM of the deck" — deck-position
     # manipulation is the same hidden-vs-public class as `visibility` (face
     # up/down) and stays 0.96 on the embedding, one token deciding the whole
@@ -344,7 +361,14 @@ defmodule RuleMaven.LLM.QuestionFacets do
     "twenty" => 20,
     "thirty" => 30,
     "forty" => 40,
-    "fifty" => 50
+    "fifty" => 50,
+    "sixty" => 60,
+    "seventy" => 70,
+    "eighty" => 80,
+    "ninety" => 90,
+    # "a hundred"/"one hundred" fold to this single token in tokens/1; an
+    # unfolded "one hundred" would carry {1, 100} and false-gate a digit "100".
+    "hundred" => 100
   }
 
   @doc """
@@ -372,6 +396,11 @@ defmodule RuleMaven.LLM.QuestionFacets do
       compass_agree?(q, c) and
       ordinals_agree?(q, c) and
       frequencies_agree?(q, c) and
+      dice_agree?(q, c) and
+      fractions_agree?(q, c) and
+      multipliers_agree?(q, c) and
+      letter_ids_agree?(q, c) and
+      turn_ownership_agrees?(q, c) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, q, c))
   end
 
@@ -401,12 +430,18 @@ defmodule RuleMaven.LLM.QuestionFacets do
     Polarity.compatible?(raw, rewrite) and
       MapSet.subset?(numbers(w), numbers(r)) and
       MapSet.subset?(unit_numbers(w), unit_numbers(r)) and
+      numbers_keep_bindings?(r, w) and
       MapSet.subset?(ratios(rewrite), ratios(raw)) and
       MapSet.subset?(trade_pairs(w), trade_pairs(r)) and
       MapSet.subset?(bound_preds(w), bound_preds(r)) and
       MapSet.subset?(compass_dirs(w), compass_dirs(r)) and
       MapSet.subset?(ordinals(w), ordinals(r)) and
       MapSet.subset?(frequencies(w), frequencies(r)) and
+      MapSet.subset?(dice(w), dice(r)) and
+      MapSet.subset?(fractions(w), fractions(r)) and
+      MapSet.subset?(multipliers(w), multipliers(r)) and
+      MapSet.subset?(letter_ids(w), letter_ids(r)) and
+      turn_ownership_agrees?(r, w) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, r, w))
   end
 
@@ -424,6 +459,11 @@ defmodule RuleMaven.LLM.QuestionFacets do
       not numbers_agree?(q, c) -> :number
       not ratios_agree?(question, candidate) -> :ratio
       not trade_pairs_agree?(q, c) -> :trade_pair
+      not dice_agree?(q, c) -> :dice
+      not fractions_agree?(q, c) -> :fraction
+      not multipliers_agree?(q, c) -> :multiplier
+      not letter_ids_agree?(q, c) -> :letter_id
+      not turn_ownership_agrees?(q, c) -> :turn_ownership
       not compass_agree?(q, c) -> :compass
       not ordinals_agree?(q, c) -> :ordinal
       not frequencies_agree?(q, c) -> :frequency
@@ -652,7 +692,16 @@ defmodule RuleMaven.LLM.QuestionFacets do
     "cube" => "cube",
     "cubes" => "cube",
     "meeple" => "meeple",
-    "meeples" => "meeple"
+    "meeples" => "meeple",
+    # Timer units — "a 30 SECOND timer" vs "30 MINUTE timer" measured 0.974,
+    # nothing else sees the unit. Bare singular "second" is deliberately absent:
+    # it is also the ordinal ("the second player"), and @ordinal_words owns it.
+    # The singular-attributive miss ("a 30 second timer") is accepted.
+    "seconds" => "second",
+    "minute" => "minute",
+    "minutes" => "minute",
+    "hour" => "hour",
+    "hours" => "hour"
   }
 
   defp unit_numbers(tokens) do
@@ -685,7 +734,53 @@ defmodule RuleMaven.LLM.QuestionFacets do
   end
 
   defp numbers(tokens) do
-    for t <- tokens, n = to_number(t), into: MapSet.new(), do: n
+    base = for t <- tokens, n = to_number(t), into: MapSet.new(), do: n
+    MapSet.union(base, roman_numbers(tokens))
+  end
+
+  # Roman numerals name a value the digit scan cannot see: "Age II" vs "Age III"
+  # (7 Wonders) flips which age's rule is answered while nothing else differs.
+  # Folded into NUMBERS, not ordinals, so "Age III" also agrees with "Age 3".
+  # The unambiguous tokens (ii, iii, iv, vi...) are not English words and bind
+  # anywhere; `i`, `v` and `x` are ("I", versus-`v`, times-`x`) and bind only
+  # beside a period noun — "part i" counts, a bare downcased "I" never does.
+  @roman %{
+    "i" => 1,
+    "ii" => 2,
+    "iii" => 3,
+    "iv" => 4,
+    "v" => 5,
+    "vi" => 6,
+    "vii" => 7,
+    "viii" => 8,
+    "ix" => 9,
+    "x" => 10
+  }
+  @roman_ambiguous ~w(i v x)
+  @period_nouns ~w(age ages phase phases era eras act acts stage stages round rounds
+                   level levels tier tiers chapter chapters part parts scenario scenarios
+                   war wars episode episodes book books)
+
+  defp roman_numbers(tokens) do
+    toks_t = List.to_tuple(tokens)
+    n = tuple_size(toks_t)
+
+    tokens
+    |> Enum.with_index()
+    |> Enum.reduce(MapSet.new(), fn {t, i}, acc ->
+      case Map.fetch(@roman, t) do
+        :error ->
+          acc
+
+        {:ok, v} ->
+          cond do
+            t not in @roman_ambiguous -> MapSet.put(acc, v)
+            i > 0 and elem(toks_t, i - 1) in @period_nouns -> MapSet.put(acc, v)
+            i + 1 < n and elem(toks_t, i + 1) in @period_nouns -> MapSet.put(acc, v)
+            true -> acc
+          end
+      end
+    end)
   end
 
   # Ordinals name a POSITION, and the number guard never sees them: "fourth" is
@@ -807,6 +902,181 @@ defmodule RuleMaven.LLM.QuestionFacets do
     Enum.empty?(tq) or Enum.empty?(tc) or MapSet.equal?(tq, tc)
   end
 
+  # Dice notation — "2d6" vs "1d6" flips how many dice, "d6" vs "d8" flips which
+  # die, and the digit scan sees none of it because "2d6" survives tokenization
+  # as one alphanumeric token. Kept as {count, sides} pairs in their own
+  # empty-safe set so "a d6" still matches "a six-sided die" (which binds
+  # nothing here).
+  defp dice(tokens) do
+    Enum.reduce(tokens, MapSet.new(), fn t, acc ->
+      case Regex.run(~r/^(\d*)d(\d+)$/, t) do
+        [_, "", sides] -> MapSet.put(acc, {1, String.to_integer(sides)})
+        [_, count, sides] -> MapSet.put(acc, {String.to_integer(count), String.to_integer(sides)})
+        _ -> acc
+      end
+    end)
+  end
+
+  defp dice_agree?(q, c) do
+    dq = dice(q)
+    dc = dice(c)
+
+    Enum.empty?(dq) or Enum.empty?(dc) or MapSet.equal?(dq, dc)
+  end
+
+  # Fraction words — "discard HALF my cards" vs "discard A THIRD" measured 0.953
+  # on the Catan discard rule, and no fraction word is a number the digit scan
+  # can see. `half` binds unconditionally; `third`/`quarter` double as ordinals
+  # ("the third player") and bind only behind an amount word ("a third", "two
+  # thirds", "1 quarter"). The leading amount is kept so "one third" and "two
+  # thirds" differ.
+  @fraction_words %{
+    "half" => :half,
+    "halves" => :half,
+    "third" => :third,
+    "thirds" => :third,
+    "quarter" => :quarter,
+    "quarters" => :quarter
+  }
+  @fraction_unconditional ~w(half halves)
+  @fraction_amounts ~w(a an)
+
+  defp fractions(tokens) do
+    toks_t = List.to_tuple(tokens)
+
+    tokens
+    |> Enum.with_index()
+    |> Enum.reduce(MapSet.new(), fn {t, i}, acc ->
+      case Map.fetch(@fraction_words, t) do
+        :error ->
+          acc
+
+        {:ok, frac} ->
+          prev = if i > 0, do: elem(toks_t, i - 1)
+
+          cond do
+            t in @fraction_unconditional -> MapSet.put(acc, {to_number(prev) || 1, frac})
+            prev in @fraction_amounts -> MapSet.put(acc, {1, frac})
+            to_number(prev) -> MapSet.put(acc, {to_number(prev), frac})
+            true -> acc
+          end
+      end
+    end)
+  end
+
+  defp fractions_agree?(q, c) do
+    fq = fractions(q)
+    fc = fractions(c)
+
+    Enum.empty?(fq) or Enum.empty?(fc) or MapSet.equal?(fq, fc)
+  end
+
+  # "does the city DOUBLE production" vs "TRIPLE" — a multiplier is neither a
+  # frequency ("twice per turn") nor a count ("2 cards"), so it gets its own
+  # empty-safe set. "rolling doubles" binds 2 harmlessly: a conflict needs the
+  # other question to bind a DIFFERENT multiplier.
+  @multiplier_words %{
+    "double" => 2,
+    "doubled" => 2,
+    "doubles" => 2,
+    "triple" => 3,
+    "tripled" => 3,
+    "triples" => 3,
+    "quadruple" => 4,
+    "quadrupled" => 4
+  }
+
+  defp multipliers(tokens) do
+    for t <- tokens, m = Map.get(@multiplier_words, t), into: MapSet.new(), do: m
+  end
+
+  defp multipliers_agree?(q, c) do
+    mq = multipliers(q)
+    mc = multipliers(c)
+
+    Enum.empty?(mq) or Enum.empty?(mc) or MapSet.equal?(mq, mc)
+  end
+
+  # Single-letter identifiers — "does ROW B score double" vs "ROW C". The letter
+  # binds only immediately AFTER one of these nouns, so the article in "a row"
+  # or "does a side" never binds (letter-first order is not bound at all). `i`
+  # is excluded: "the row I chose" is a pronoun, not a label.
+  @id_nouns ~w(row rows column columns side sides track tracks deck decks board boards
+               level levels tier tiers variant variants version versions type types
+               stack stacks pile piles section sections zone zones)
+  @id_letters ~w(a b c d e f g h)
+
+  defp letter_ids(tokens) do
+    tokens
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.reduce(MapSet.new(), fn
+      [noun, letter], acc when noun != letter ->
+        if noun in @id_nouns and letter in @id_letters,
+          do: MapSet.put(acc, "#{String.trim_trailing(noun, "s")}:#{letter}"),
+          else: acc
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp letter_ids_agree?(q, c) do
+    lq = letter_ids(q)
+    lc = letter_ids(c)
+
+    Enum.empty?(lq) or Enum.empty?(lc) or MapSet.equal?(lq, lc)
+  end
+
+  # Turn ownership — "can I play it on MY turn" vs "on ANOTHER PLAYER'S turn"
+  # measured 0.956; the bare pronouns are far too common to gate, so the pole
+  # binds only within the two tokens before turn/turns (the collocation window
+  # covers "my turn" and "another player's turn" both). "their"/"your" stay
+  # neutral: they are how askers reference the generic acting player. Two-sided
+  # like an axis: silence on either side is not evidence.
+  @turn_own ~w(my our own)
+  @turn_other ~w(another opponent opponents other others)
+
+  defp turn_ownership(tokens) do
+    toks_t = List.to_tuple(tokens)
+
+    tokens
+    |> Enum.with_index()
+    |> Enum.reduce({false, false}, fn
+      {t, i}, {own, other} when t in ["turn", "turns"] ->
+        window = for j <- max(i - 2, 0)..(i - 1)//1, j >= 0, do: elem(toks_t, j)
+        {own or Enum.any?(window, &(&1 in @turn_own)),
+         other or Enum.any?(window, &(&1 in @turn_other))}
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp turn_ownership_agrees?(q, c) do
+    case {turn_ownership(q), turn_ownership(c)} do
+      {{true, false}, {false, true}} -> false
+      {{false, true}, {true, false}} -> false
+      _ -> true
+    end
+  end
+
+  # A number the raw question binds to a unit must not come back UNBOUND (or
+  # bound elsewhere — the existing unit subset rule catches that) in a rewrite
+  # that still carries it: "roll a 7 with 8 cards" rewritten to "discarded on an
+  # 8" keeps the 8 while swapping its ROLE from hand size to die roll. Dropping
+  # the number entirely stays legal (premise trimming).
+  defp numbers_keep_bindings?(r, w) do
+    raw_units = unit_numbers(r)
+    rewrite_units = unit_numbers(w)
+
+    bound_in_raw =
+      MapSet.new(raw_units, fn s -> s |> String.split(":") |> hd() |> String.to_integer() end)
+
+    Enum.all?(numbers(w), fn n ->
+      n not in bound_in_raw or Enum.any?(rewrite_units, &String.starts_with?(&1, "#{n}:"))
+    end)
+  end
+
   defp to_number(token) do
     case Map.fetch(@words, token) do
       {:ok, n} ->
@@ -836,15 +1106,36 @@ defmodule RuleMaven.LLM.QuestionFacets do
   # exactly at the pool floor — and neither bare word can sit on the axis
   # ("have" and "to" are everywhere). The phrase is obligation-only in
   # questions, so the collapse is safe where the words are not.
+  # "round up" vs "round down" is a rounding-direction flip (0.95-0.98 measured)
+  # collapsed the same way as "face up": the phrase becomes one token on the
+  # `rounding` axis while bare up/down stay ungated. Verb forms fold too
+  # ("rounded up", "rounding down").
+  #
+  # Every dash codepoint normalizes to "-" FIRST (\p{Pd}: en-dash, em-dash, the
+  # figure dashes an autocorrecting keyboard produces) and the joiner classes
+  # accept "/" — "face–up" (en-dash) and "face/down" both measured over the
+  # floor while dodging a hyphen-only collapse.
+  #
+  # "2x"/"x3" multiplier notation drops its x so the digit reaches the number
+  # guard: "does the card score 2x" vs "3x" carried no number at all before.
+  # "a hundred"/"one hundred" fold to the single token "hundred" (= 100 in
+  # @words) — without the fold, "one hundred" would tokenize to {1, 100} and
+  # false-gate against a digit "100"'s {100}.
   defp tokens(text) do
     text
     |> to_string()
     |> String.downcase()
     |> String.replace(~r/['’]/u, "")
-    |> String.replace(~r/\bface[\s-]+up\b/u, "faceup")
-    |> String.replace(~r/\bface[\s-]+down\b/u, "facedown")
-    |> String.replace(~r/\b(?:counter|anti)[\s-]+clockwise\b/u, "counterclockwise")
+    |> String.replace(~r/\p{Pd}/u, "-")
+    |> String.replace(~r/\bface[\s\/-]+up\b/u, "faceup")
+    |> String.replace(~r/\bface[\s\/-]+down\b/u, "facedown")
+    |> String.replace(~r/\b(?:counter|anti)[\s\/-]+clockwise\b/u, "counterclockwise")
     |> String.replace(~r/\b(?:have|has|had)\s+to\b/u, "hasto")
+    |> String.replace(~r/\bround(?:ed|ing|s)?[\s-]+up\b/u, "roundup")
+    |> String.replace(~r/\bround(?:ed|ing|s)?[\s-]+down\b/u, "rounddown")
+    |> String.replace(~r/\b(\d+)\s*x\b/u, "\\1")
+    |> String.replace(~r/\bx\s*(\d+)\b/u, "\\1")
+    |> String.replace(~r/\b(?:a|one)\s+hundred\b/u, "hundred")
     |> String.split(~r/[^a-z0-9]+/u, trim: true)
   end
 end

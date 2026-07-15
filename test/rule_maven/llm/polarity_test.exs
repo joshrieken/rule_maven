@@ -124,5 +124,55 @@ defmodule RuleMaven.LLM.PolarityTest do
       assert Polarity.strip_inverted_lead(answer, "Is trading prohibited before rolling?") ==
                answer
     end
+
+    test "a bare 'No'/'Yes' opening a SENTENCE is not a lead — stripping it flips the body" do
+      # The old all-optional regex matched the "No " of "No trading..." and
+      # stripped a correct body into its opposite.
+      neg = "Isn't trading allowed before rolling?"
+
+      for answer <- [
+            "No trading is allowed before rolling.",
+            "Nothing happens on a six.",
+            "None of the players discard.",
+            "Note that trading is banned.",
+            "Yes you can trade."
+          ] do
+        assert Polarity.strip_inverted_lead(answer, neg) == answer
+      end
+    end
+
+    test "bolded verdicts strip with punctuation inside the bold, synonyms included" do
+      neg = "Isn't trading allowed?"
+
+      assert Polarity.strip_inverted_lead("**No!** Never.", neg) == "Never."
+      assert Polarity.strip_inverted_lead("**Yes.** Trading is allowed.", neg) == "Trading is allowed."
+      assert Polarity.strip_inverted_lead("**Correct** — that is banned.", neg) == "That is banned."
+    end
+
+    test "negation words round 25: mustnt/nobody/nothing/neither/noone/neednt/aint" do
+      for q <- [
+            "Mustn't players discard half on a seven?",
+            "Does nobody get resources when a seven is rolled?",
+            "Do I get nothing from a hex the robber occupies?",
+            "Can neither player build during the opponent's turn?",
+            "Needn't I discard on a seven?",
+            "Ain't I allowed to trade?"
+          ] do
+        assert Polarity.negative?(q), q
+      end
+    end
+
+    test "negative-polarity PHRASES with no negative token: against the rules / out of bounds / off-limits / cheating" do
+      for q <- [
+            "Is moving twice against the rules?",
+            "Is building out of bounds there?",
+            "Is that spot off-limits for settlements?",
+            "Is it cheating to look at the deck?"
+          ] do
+        assert Polarity.negative?(q), q
+      end
+
+      refute Polarity.negative?("Can I lean my card against the board?")
+    end
   end
 end

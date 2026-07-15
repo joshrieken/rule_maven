@@ -31,12 +31,27 @@ defmodule RuleMaven.LLM.Polarity do
   # run on the RAW question and not on the normalized text: by then the evidence
   # is gone.
   @negations ~w(
-    not no never none cannot cant dont doesnt didnt isnt arent wasnt werent
-    wont shouldnt couldnt wouldnt havent hasnt hadnt nor without
-    forbidden prohibited banned illegal disallowed disallow barred
+    not no never none nobody nothing neither noone
+    cannot cant dont doesnt didnt isnt arent wasnt werent
+    wont shouldnt couldnt wouldnt havent hasnt hadnt mustnt neednt shant aint
+    nor without
+    forbidden prohibited banned illegal disallowed disallow barred outlawed
     prevented unable forbid forbids prohibit prohibits
+    cheating cheat cheats
     invalid invalidate invalidates invalidated
   )
+
+  # Negative polarity carried by a PHRASE none of whose words is negative alone:
+  # "is moving twice against the rules?" has the same inverted-serve failure as
+  # "is moving twice forbidden?" but no token the list above can catch. Collapsed
+  # to a listed token before splitting, the same way the facet tokenizer folds
+  # "face up". "off limits" accepts a hyphen because the tokenizer's split would
+  # otherwise never see the two words adjacent.
+  @negation_phrases [
+    ~r/\bagainst\s+the\s+rules?\b/u,
+    ~r/\bout\s+of\s+bounds\b/u,
+    ~r/\boff[\s-]+limits\b/u
+  ]
 
   @doc """
   True when both questions carry the same polarity, i.e. a pooled answer for one
@@ -47,8 +62,17 @@ defmodule RuleMaven.LLM.Polarity do
   """
   def compatible?(a, b), do: negative?(a) == negative?(b)
 
-  # A leading verdict word, bolded or not: "**Yes** — ", "**No**, ", "No, ".
-  @lead ~r/\A\s*\**(yes|no)\**\s*[,.:;—–-]*\s*/i
+  # A leading verdict word: "**Yes** — ", "**No**, ", "**No!**", "No, ".
+  #
+  # Two constraints keep the strip from CREATING the inversion it exists to
+  # prevent: the \b stops "No" matching inside "None"/"Nothing"/"Note", and an
+  # UNBOLDED lead requires an explicit separator — the old all-optional form
+  # matched the bare "No " of "No trading is allowed before rolling." and
+  # stripped it into "Trading is allowed before rolling.", a perfect flip of a
+  # correct body. A bolded verdict is sufficient evidence by itself (with any
+  # punctuation inside the bold), and bolded verdict SYNONYMS strip too —
+  # "**Correct** — ..." confirms a negative premise just as hard as "**Yes**".
+  @lead ~r/\A\s*(?:\*\*\s*(?:yes|no|correct|incorrect|true|false)\b[\s,.:;!?]*\*\*|(?:yes|no)\b\s*[,.:;!?—–-])[\s,.:;!?—–-]*/i
 
   @doc """
   Drops the leading **Yes**/**No** from an answer to a NEGATIVELY-phrased question.
@@ -95,11 +119,16 @@ defmodule RuleMaven.LLM.Polarity do
     text
     |> to_string()
     |> String.downcase()
+    |> collapse_negation_phrases()
     # Drop apostrophes so "can't"/"cant"/"can’t" all collapse to one token, then
     # split on anything that is not a letter. Doing this with a single regex over
     # the raw text would let "cannot" hide inside a longer word.
     |> String.replace(~r/['’]/u, "")
     |> String.split(~r/[^a-z]+/u, trim: true)
     |> Enum.any?(&(&1 in @negations))
+  end
+
+  defp collapse_negation_phrases(text) do
+    Enum.reduce(@negation_phrases, text, &String.replace(&2, &1, " forbidden "))
   end
 end
