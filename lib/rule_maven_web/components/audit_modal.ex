@@ -149,7 +149,8 @@ defmodule RuleMavenWeb.AuditModal do
           {fact("Asked", fmt_dt(@row.inserted_at))}
           {fact("Row id", "##{@row.id}")}
           {fact("Visibility", @row.visibility)}
-          {fact("Served", if(@row.pooled, do: "pool (cache hit)", else: "fresh generation"))}
+          {fact("Served", if(cache_hit?(@row), do: "pool (cache hit)", else: "fresh generation"))}
+          {fact("Pool source", if(@row.pooled, do: "yes (may serve the cache)", else: "no"))}
           {fact("Normalized", yn(@row.question_normalized))}
           {fact("Verdict", @row.verdict || "—")}
           {fact("Model", @row.llm_model || "—")}
@@ -174,7 +175,7 @@ defmodule RuleMavenWeb.AuditModal do
       {section_head("Process — #{@count} LLM call(s)")}
       <%= if @count == 0 do %>
         <div style="font-size:0.78rem;color:var(--text-muted);background:var(--bg-subtle);border:1px dashed var(--border);border-radius:0.4rem;padding:0.6rem 0.75rem">
-          <%= if @row.pooled do %>
+          <%= if cache_hit?(@row) do %>
             Served from the pool — no generation ran for this ask. See lineage below.
           <% else %>
             No LLM calls recorded — served from cache, or asked before call tracing existed.
@@ -230,7 +231,11 @@ defmodule RuleMavenWeb.AuditModal do
       {section_head("Retrieved context — #{length(@chunks)} chunk(s)")}
       <%= if @chunks == [] do %>
         <div style="font-size:0.74rem;color:var(--text-muted)">
-          No source chunks recorded for this row.
+          <%= if cache_hit?(@row) do %>
+            Cache hit — retrieval didn't run. The grounding lives on the matched source's own trail (see lineage).
+          <% else %>
+            No source chunks recorded for this row.
+          <% end %>
         </div>
       <% else %>
         <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.4rem">
@@ -282,8 +287,8 @@ defmodule RuleMavenWeb.AuditModal do
         <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-muted)">
           <span>Wall time</span><span>{fmt_dur(@totals.duration_ms)}</span>
         </div>
-        <div :if={@row.pooled} style="margin-top:0.3rem;font-size:0.72rem;color:var(--accent-ink,var(--accent));font-weight:600">
-          Cache hit — this ask cost {fmt_usd(0.0)} to answer.
+        <div :if={cache_hit?(@row)} style="margin-top:0.3rem;font-size:0.72rem;color:var(--accent-ink,var(--accent));font-weight:600">
+          Cache hit — the answer was copied from the pool; the {fmt_usd(@totals.cost)} above is just the lookup (embed + normalize), no generation.
         </div>
       </div>
     </section>
@@ -301,8 +306,8 @@ defmodule RuleMavenWeb.AuditModal do
             <div style="word-break:break-word">{qtext(@source)}</div>
           </div>
         <% else %>
-          <div :if={@row.pooled} style="color:var(--text-muted)">
-            Pooled, but the source row is no longer present.
+          <div :if={cache_hit?(@row)} style="color:var(--text-muted)">
+            Served from the pool, but the source row (##{@row.pool_source_id}) is no longer present.
           </div>
         <% end %>
 
@@ -391,6 +396,11 @@ defmodule RuleMavenWeb.AuditModal do
       do: QuestionLog.listed_question(q),
       else: QuestionLog.display_question(q)
   end
+
+  # Was this answer SERVED from the pool? `pool_source_id` is set only when a
+  # cache serve copied another row's answer — distinct from `pooled`, which
+  # marks a row as a pool SOURCE (its answer may serve others).
+  defp cache_hit?(%QuestionLog{pool_source_id: id}), do: not is_nil(id)
 
   defp yn(true), do: "yes"
   defp yn(_), do: "no"
