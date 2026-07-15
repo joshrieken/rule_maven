@@ -202,7 +202,7 @@ defmodule RuleMavenWeb.AuditModal do
               <details :if={c.detail["input"] || c.detail["output"]} style="margin-top:0.25rem">
                 <summary style="cursor:pointer;opacity:0.8;font-size:0.64rem;color:var(--text-muted)">in / out</summary>
                 <div :if={c.detail["input"]} style="margin-top:0.2rem">
-                  <div style="font-size:0.62rem;font-weight:600;color:var(--text-secondary)">→ in</div>
+                  <div style="font-size:0.62rem;font-weight:600;color:var(--text-secondary)">→ in <span style="font-weight:400;color:var(--text-muted)">(user message only — the system prompt/rulebook is billed in the token count but not stored)</span></div>
                   <div style="font-size:0.64rem;color:var(--text-muted);white-space:pre-wrap;max-height:8rem;overflow:auto;overflow-wrap:anywhere;font-family:var(--font-mono,monospace)">{String.slice(to_string(c.detail["input"]), 0, 1200)}</div>
                 </div>
                 <div :if={c.detail["output"]} style="margin-top:0.3rem">
