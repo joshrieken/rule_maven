@@ -99,7 +99,7 @@ defmodule RuleMavenWeb.AuditModal do
       phx-click="close_audit"
       phx-window-keydown="close_audit"
       phx-key="Escape"
-      style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:70;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:1rem;box-sizing:border-box"
+      style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:210;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:1rem;box-sizing:border-box"
     >
       <div
         phx-click-away="close_audit"
