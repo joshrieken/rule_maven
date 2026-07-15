@@ -2778,13 +2778,39 @@ defmodule RuleMaven.Games do
           cleaned_question: q.cleaned_question,
           canonical_question: q.canonical_question,
           answer: q.answer,
+          canonical_answer: q.canonical_answer,
           pooled: q.pooled,
           needs_review: q.needs_review,
           verified: q.verified,
           trust_score: q.trust_score,
           upvotes: up || 0,
           downvotes: down || 0,
-          via: if(actor, do: "manual", else: "system")
+          via: if(actor, do: "manual", else: "system"),
+          # Full field snapshot (everything the admin audit-trail modal renders
+          # for a live row EXCEPT the embedding) so a deleted prior version shows
+          # the same stats. The row is hard-deleted below, so these must be
+          # captured here; the LLM-call trace + cost survive on their own by
+          # question_log_id (llm_logs has no cascade) and are re-fetched by id.
+          asked_at: q.inserted_at,
+          group_id: q.group_id,
+          browsable: q.browsable,
+          visibility: q.visibility,
+          question_normalized: q.question_normalized,
+          verdict: q.verdict,
+          llm_model: q.llm_model,
+          llm_provider: q.llm_provider,
+          refused: q.refused,
+          blocked: q.blocked,
+          stale: q.stale,
+          error_kind: q.error_kind,
+          mismatch_count: q.mismatch_count,
+          favorited: q.favorited,
+          pool_source_id: q.pool_source_id,
+          source_chunk_ids: q.source_chunk_ids,
+          cited_source: q.cited_source,
+          cited_page: q.cited_page,
+          citations: q.citations,
+          retracted_at: q.retracted_at
         },
         extra_metadata
       )

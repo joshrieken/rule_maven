@@ -55,7 +55,7 @@ defmodule RuleMavenWeb.AuditModal do
         children: Games.pool_children(id),
         embedding: row.question_embedding && Pgvector.to_list(row.question_embedding),
         chunks: Games.chunks_by_ids(row.source_chunk_ids || []),
-        history: history_versions(row, current_user)
+        history: history_bundles(row, current_user)
       }
     else
       _ -> nil
@@ -63,21 +63,91 @@ defmodule RuleMavenWeb.AuditModal do
   end
 
   # Prior (deleted regenerate/report) versions of this Q&A, chained through the
-  # row's text variants — see Audit.question_history/2. Each entry snapshots the
-  # ANSWER (metadata["answer"]); a crew answer restates the private question, so
-  # it is withheld from an admin who could not see the live answer — the same
-  # `user_id == self OR browsable` boundary the answer bubble draws. Fail closed.
-  defp history_versions(%QuestionLog{} = row, current_user) do
+  # row's text variants — see Audit.question_history/2. Each version is assembled
+  # into the SAME bundle shape as the live row so it renders the same stat
+  # sections. A crew answer restates the private question, so history is withheld
+  # from an admin who could not see the live answer — the same `user_id == self
+  # OR browsable` boundary the answer bubble draws. Fail closed.
+  defp history_bundles(%QuestionLog{} = row, current_user) do
     if row.user_id == current_user.id or row.browsable do
       Audit.question_history(row.game_id, [
         row.question,
         row.cleaned_question,
         row.canonical_question
       ])
+      |> Enum.map(&version_bundle/1)
     else
       []
     end
   end
+
+  # Reassemble a deleted version's stats. The `questions_log` row is gone, so its
+  # scalar/array fields come from the delete snapshot (metadata); the LLM-call
+  # trace, cost, chunks and pool lineage are re-fetched live by the version's id
+  # (llm_logs, doc_chunks and pool rows are not cascade-deleted with the answer).
+  defp version_bundle(entry) do
+    row = reconstruct_row(entry)
+
+    %{
+      entry: entry,
+      row: row,
+      trace: LLM.calls_for_question(entry.target_id),
+      source: Games.pool_source(row),
+      children: Games.pool_children(entry.target_id),
+      chunks: Games.chunks_by_ids(row.source_chunk_ids || [])
+    }
+  end
+
+  # Build a %QuestionLog{} from a delete snapshot. Old, thin snapshots predate the
+  # full field capture — their missing keys fall back to the schema defaults, and
+  # the sections already render "—"/"no" for nil/false.
+  defp reconstruct_row(%{target_id: id, metadata: m}) do
+    struct(QuestionLog, %{
+      id: id,
+      inserted_at: parse_dt(m["asked_at"]),
+      question: m["question"],
+      cleaned_question: m["cleaned_question"],
+      canonical_question: m["canonical_question"],
+      canonical_answer: m["canonical_answer"],
+      answer: m["answer"],
+      game_id: m["game_id"],
+      user_id: m["user_id"],
+      group_id: m["group_id"],
+      browsable: m["browsable"] || false,
+      visibility: m["visibility"] || "private",
+      question_normalized: m["question_normalized"] || false,
+      verdict: m["verdict"],
+      llm_model: m["llm_model"],
+      llm_provider: m["llm_provider"],
+      refused: m["refused"] || false,
+      blocked: m["blocked"] || false,
+      needs_review: m["needs_review"] || false,
+      stale: m["stale"] || false,
+      error_kind: m["error_kind"],
+      verified: m["verified"] || false,
+      favorited: m["favorited"] || false,
+      pooled: m["pooled"] || false,
+      pool_source_id: m["pool_source_id"],
+      source_chunk_ids: m["source_chunk_ids"] || [],
+      citations: m["citations"] || [],
+      cited_source: m["cited_source"],
+      cited_page: m["cited_page"],
+      trust_score: (m["trust_score"] || 0.0) / 1.0,
+      mismatch_count: m["mismatch_count"] || 0,
+      retracted_at: parse_dt(m["retracted_at"])
+    })
+  end
+
+  defp parse_dt(nil), do: nil
+
+  defp parse_dt(s) when is_binary(s) do
+    case NaiveDateTime.from_iso8601(s) do
+      {:ok, dt} -> dt
+      _ -> with {:ok, dt, _} <- DateTime.from_iso8601(s), do: dt, else: (_ -> nil)
+    end
+  end
+
+  defp parse_dt(dt), do: dt
 
   defp to_int(i) when is_integer(i), do: i
   defp to_int(s) when is_binary(s) do
@@ -141,13 +211,7 @@ defmodule RuleMavenWeb.AuditModal do
         </div>
 
         <div style="flex:1 1 auto;min-height:0;overflow-y:auto;padding:0.85rem 1rem;display:flex;flex-direction:column;gap:1rem">
-          {facts(assigns)}
-          {process(assigns)}
-          {context(assigns)}
-          {embedding(assigns)}
-          {cost(assigns)}
-          {lineage(assigns)}
-          {signals(assigns)}
+          {sections(assigns)}
           {version_history(assigns)}
         </div>
       </div>
@@ -366,30 +430,71 @@ defmodule RuleMavenWeb.AuditModal do
   # Prior versions of this Q&A (regenerated/reported answers that were replaced).
   # Rendered only when there is history — a live row with no prior versions omits
   # the section entirely rather than showing an empty "No prior versions" note.
+  # The full stat stack for one version — reused for the live row and, minus the
+  # embedding (its section self-hides on nil), for every prior version.
+  defp sections(assigns) do
+    ~H"""
+    {facts(assigns)}
+    {process(assigns)}
+    {context(assigns)}
+    {embedding(assigns)}
+    {cost(assigns)}
+    {lineage(assigns)}
+    {signals(assigns)}
+    """
+  end
+
+  # Prior versions, each a collapsed panel that expands to the same stat sections
+  # as the live row (no embedding — it isn't snapshotted). Rendered only when
+  # there is history; a live row with no prior versions omits the section.
   defp version_history(assigns) do
     ~H"""
     <section :if={@history != []}>
       {section_head("Version history — #{length(@history)} prior version(s)")}
-      <div style="display:flex;flex-direction:column;gap:0.4rem">
-        <%= for entry <- @history do %>
-          <div style="font-size:0.7rem;color:var(--text-muted);border:1px solid var(--border);border-radius:0.4rem;padding:0.4rem 0.55rem;background:var(--bg-subtle)">
-            <div style="font-weight:600;color:var(--text-secondary)">
-              {fmt_dt(entry.inserted_at)} &middot; {entry.actor_username || "system"} &middot; {entry.metadata[
-                "via"
-              ] || "system"}
-            </div>
-            <div style="margin-top:0.15rem;white-space:pre-wrap;word-break:break-word;color:var(--text)">
-              {entry.metadata["answer"]}
-            </div>
-            <div style="margin-top:0.15rem;opacity:0.8">
-              👍 {entry.metadata["upvotes"] || 0} &middot; 👎 {entry.metadata["downvotes"] || 0}{history_flags(
-                entry.metadata
-              )}
-            </div>
-          </div>
+      <div style="display:flex;flex-direction:column;gap:0.5rem">
+        <%= for bundle <- @history do %>
+          {version_panel(bundle)}
         <% end %>
       </div>
     </section>
+    """
+  end
+
+  defp version_panel(bundle) do
+    # A bare assigns map for the reused section components. `__changed__: nil`
+    # marks it untracked (full render every time) — the section fns call
+    # assign/3, which requires the change-tracking key to be present.
+    assigns = %{
+      __changed__: nil,
+      entry: bundle.entry,
+      row: bundle.row,
+      trace: bundle.trace,
+      source: bundle.source,
+      children: bundle.children,
+      chunks: bundle.chunks,
+      embedding: nil
+    }
+
+    ~H"""
+    <details style="border:1px solid var(--border);border-radius:0.5rem;background:var(--bg-subtle)">
+      <summary style="cursor:pointer;padding:0.5rem 0.6rem;font-size:0.72rem;color:var(--text-secondary);font-weight:600">
+        {fmt_dt(@entry.inserted_at)} &middot; {@entry.actor_username || "system"} &middot; {@entry.metadata[
+          "via"
+        ] || "system"}
+        <span style="opacity:0.85;font-weight:400">&middot; 👍 {@entry.metadata["upvotes"] || 0} 👎 {@entry.metadata[
+            "downvotes"
+          ] || 0}{history_flags(@entry.metadata)}</span>
+      </summary>
+      <div style="padding:0.6rem;display:flex;flex-direction:column;gap:1rem;border-top:1px solid var(--border)">
+        <section>
+          {section_head("Answer")}
+          <div style="font-size:0.78rem;color:var(--text);white-space:pre-wrap;word-break:break-word">
+            {@row.answer}
+          </div>
+        </section>
+        {sections(assigns)}
+      </div>
+    </details>
     """
   end
 

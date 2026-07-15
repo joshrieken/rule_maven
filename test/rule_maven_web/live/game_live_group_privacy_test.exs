@@ -261,7 +261,9 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
       group_row!(ctx.game, ctx.member, ctx.group, %{
         cleaned_question: "How many cards?",
         answer: "Six, HISTORYSHOWN, was the old ruling.",
-        browsable: true
+        browsable: true,
+        verdict: "legal",
+        llm_model: "HISTORYMODEL-9"
       })
 
     {:ok, _} = RuleMaven.Games.delete_question(prior, ctx.member)
@@ -277,7 +279,9 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
 
     html = render_click(view, "open_audit", %{"id" => to_string(live_row.id)})
 
-    assert html =~ "HISTORYSHOWN", "the audit-trail version history dropped a prior version"
+    assert html =~ "HISTORYSHOWN", "the audit-trail version history dropped a prior version's answer"
+    # The full field snapshot round-trips into the version's own stat sections.
+    assert html =~ "HISTORYMODEL-9", "the version panel dropped a snapshotted stat (model)"
   end
 
   test "the asker still sees their own crew ANSWER in the bubble", ctx do
