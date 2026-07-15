@@ -4105,6 +4105,16 @@ body:has([data-phx-main].phx-connected)::after {
   padding-top: 0.5rem;
 }
 
+/* Game name + search bar animate in on entry, matching the Q&A header/input
+   cascade (.chat-header qa-drop-in, .chat-input qa-rise-in) so the sidebar
+   head arrives on the same beat as everything else. */
+.sidebar-head > a {
+  animation: qa-drop-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
+}
+.sidebar-head #thread-search {
+  animation: qa-rise-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.22s both;
+}
+
 /* The drawer is a flex column, so once the thread list is taller than the
    drawer every child is a shrinkable flex item: they compress below their
    own text height and the questions overlap. Scrolling, not squeezing, is
