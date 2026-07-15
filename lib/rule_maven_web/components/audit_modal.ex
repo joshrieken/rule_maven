@@ -95,8 +95,10 @@ defmodule RuleMavenWeb.AuditModal do
       |> assign(:children, assigns.audit.children)
 
     ~H"""
+    <%!-- Backdrop. No phx-click here: it would fire on every click that bubbles
+          up from inside the card (e.g. a <details> summary), closing the modal.
+          The card's phx-click-away handles genuine outside clicks. --%>
     <div
-      phx-click="close_audit"
       phx-window-keydown="close_audit"
       phx-key="Escape"
       style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:210;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:1rem;box-sizing:border-box"

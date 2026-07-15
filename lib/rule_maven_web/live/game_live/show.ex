@@ -5058,11 +5058,6 @@ defmodule RuleMavenWeb.GameLive.Show do
       <%!-- Report-reason modal: pick why the answer is being reported. --%>
       <ReportModal.report_modal :if={@report_target} />
 
-      <%!-- Admin audit-trail modal. Rendered here, OUTSIDE .chat-layout, so its
-            position:fixed resolves against the viewport instead of that fixed
-            ancestor's box. --%>
-      <RuleMavenWeb.AuditModal.audit_modal :if={@audit} audit={@audit} />
-
       <%!-- Suggested-questions modal. Backdrop closes via phx-click-away on the
             panel; picking a question asks it and closes (ask_suggestion). --%>
       <div
@@ -5234,6 +5229,12 @@ defmodule RuleMavenWeb.GameLive.Show do
           slid under the header and lost its title bar. The dock is rendered
           in-flow inside the chat column instead (dock: false here). --%>
     <ToolPanel.tool_panel {Map.put(assigns, :dock, false)} />
+
+    <%!-- Admin audit-trail modal. MUST be outside .chat-layout: that element is
+          position:fixed;z-index:10, a stacking context, so a fixed modal nested
+          inside it can never paint above the site header (z:100) no matter its
+          own z-index — same reason the persona modal and tool panel live here. --%>
+    <RuleMavenWeb.AuditModal.audit_modal :if={@audit} audit={@audit} />
 
     <%!-- Persona picker modal (shared by the composer default picker and each
           answer's switcher). Outside .chat-layout for the same stacking-context
