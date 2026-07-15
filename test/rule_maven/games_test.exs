@@ -29,6 +29,23 @@ defmodule RuleMaven.GamesTest do
     test "pool_tiebreaker_distance_threshold/0 corresponds to 0.80 similarity" do
       assert_in_delta Games.pool_tiebreaker_distance_threshold(), 1.0 - 0.80, 0.0001
     end
+
+    test "pool_similarity_floor/0 clamps a below-band admin value to 0.85" do
+      # A value under 0.85 would push the distance ceiling past the tiebreaker
+      # band, silently disabling the LLM check and serving on raw distance.
+      RuleMaven.Settings.put("pool_similarity_threshold", "0.5")
+      assert Games.pool_similarity_floor() == 0.85
+    end
+
+    test "pool_similarity_floor/0 clamps an above-1 admin value to 0.99" do
+      RuleMaven.Settings.put("pool_similarity_threshold", "1.5")
+      assert Games.pool_similarity_floor() == 0.99
+    end
+
+    test "user_dup floor clamps a below-band admin value to 0.92" do
+      RuleMaven.Settings.put("user_dup_similarity_threshold", "0.10")
+      assert Games.__user_dup_similarity_floor__() == 0.92
+    end
   end
 
   describe "games" do

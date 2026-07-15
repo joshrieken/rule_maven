@@ -1390,7 +1390,44 @@ defmodule RuleMaven.Games do
   same-user cache tiers either.
   """
   def clear_needs_review(%QuestionLog{} = q) do
-    q |> QuestionLog.changeset(%{needs_review: false, stale: false}) |> Repo.update()
+    # A moderator can vouch that the ANSWER still reads correctly, but not that
+    # its stored citations still point at the right rulebook text — the edit
+    # that staled this row may have moved every page offset, and `citation_valid`
+    # was computed against the OLD text. The community serve disjunct trusts
+    # `citation_valid` alone (see pool_filter), so simply un-flagging would
+    # re-serve the row cross-user on citations that predate the change.
+    #
+    # Fail closed: reset the answer and re-ask in place (reusing this row id) so
+    # it re-grounds against the CURRENT rulebook. Until the re-ask finishes the
+    # row is un-pooled, citation-untrusted, and shows "Thinking...", so it serves
+    # from no tier. The re-ask restores it automatically if still groundable.
+    result =
+      q
+      |> QuestionLog.changeset(%{
+        needs_review: false,
+        stale: false,
+        pooled: false,
+        citation_valid: false,
+        answer: "Thinking..."
+      })
+      |> Repo.update()
+
+    with {:ok, updated} <- result do
+      %{
+        game_id: updated.game_id,
+        question_log_id: updated.id,
+        question: updated.question,
+        expansion_ids: updated.expansion_ids || [],
+        recent_context: [],
+        user_id: updated.user_id,
+        group_id: updated.group_id,
+        voice: nil
+      }
+      |> RuleMaven.Workers.AskWorker.new()
+      |> Oban.insert()
+    end
+
+    result
   end
 
   @doc """
@@ -3695,8 +3732,19 @@ defmodule RuleMaven.Games do
             )
       end
 
-    1.0 - sim
+    # Clamp the admin value into the band the guards assume. Below 0.85 the
+    # distance ceiling swallows the tiebreaker band (which bottoms at 0.80),
+    # silently serving on raw distance with no LLM check; above 0.99 pooling
+    # stops matching anything. Off-band values are operator mistakes, not intent.
+    1.0 - clamp_similarity(sim, 0.85, 0.99)
   end
+
+  defp clamp_similarity(sim, lo, hi) when is_number(sim) do
+    sim |> max(lo) |> min(hi)
+  end
+
+  @doc false
+  def __user_dup_similarity_floor__, do: 1.0 - user_dup_distance_threshold()
 
   @doc """
   The current direct-hit pool similarity floor (admin-configurable via the
@@ -3784,7 +3832,10 @@ defmodule RuleMaven.Games do
           end
       end
 
-    1.0 - sim
+    # Same-user dedup has no tiebreaker behind it, so its floor must stay at or
+    # above the pool's 0.92 direct-hit floor — a lower value would dedup two
+    # genuinely different questions into one served answer.
+    1.0 - clamp_similarity(sim, 0.92, 0.99)
   end
 
   # Shared base for admin question listings — single source for ordering.
