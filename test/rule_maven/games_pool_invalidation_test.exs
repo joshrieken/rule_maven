@@ -1,9 +1,21 @@
 defmodule RuleMaven.GamesPoolInvalidationTest do
-  use RuleMaven.DataCase, async: true
+  # Not async: clear_needs_review/1 enqueues a re-ask via Oban.insert/1, which
+  # needs a named, configured instance the Oban.Testing facade provides.
+  use RuleMaven.DataCase, async: false
+  use Oban.Testing, repo: RuleMaven.Repo
 
   import Ecto.Query
   alias RuleMaven.{Games, Repo}
   alias RuleMaven.Games.QuestionLog
+
+  # Oban isn't supervised in test; the re-ask enqueue needs a named instance.
+  setup do
+    start_supervised!(
+      {Oban, repo: RuleMaven.Repo, name: Oban, testing: :disabled, queues: false, plugins: false}
+    )
+
+    :ok
+  end
 
   defp game, do: elem(Games.create_game(%{name: "Pool #{System.unique_integer([:positive])}"}), 1)
 
@@ -115,6 +127,41 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
 
       # ...and drains once re-approved.
       assert Games.needs_review_count() == 0
+    end
+
+    test "clear_needs_review re-asks instead of trusting citations from the old rulebook" do
+      game = game()
+
+      # A community row whose citations were validated against the PREVIOUS
+      # rulebook, then staled + flagged by the edit that changed it.
+      community =
+        pooled_q(game, %{
+          visibility: "community",
+          answer: "Old answer citing p.4.",
+          citation_valid: true,
+          pooled: false,
+          stale: true,
+          needs_review: true
+        })
+
+      {:ok, _} = Games.clear_needs_review(community)
+
+      reloaded = Repo.get!(QuestionLog, community.id)
+
+      # Flag cleared, but the answer is NOT re-served on the old citations:
+      # it is reset and re-grounded against the current rulebook.
+      refute reloaded.needs_review
+      refute reloaded.citation_valid
+      refute reloaded.pooled
+      assert reloaded.answer == "Thinking..."
+
+      # A re-ask for THIS row is enqueued (in place — reuses the row id).
+      job =
+        Repo.all(Oban.Job)
+        |> Enum.find(&(&1.args["question_log_id"] == community.id))
+
+      assert job, "expected an AskWorker re-ask enqueued for the re-approved row"
+      assert job.worker == "RuleMaven.Workers.AskWorker"
     end
 
     test "user-tier lookups exclude a private answer marked stale by a rulebook change" do
