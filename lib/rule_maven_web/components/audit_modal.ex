@@ -36,7 +36,7 @@ defmodule RuleMavenWeb.AuditModal do
   """
   use Phoenix.Component
 
-  alias RuleMaven.{Games, LLM, Users}
+  alias RuleMaven.{Audit, Games, LLM, Users}
   alias RuleMaven.Games.QuestionLog
 
   @doc """
@@ -54,10 +54,28 @@ defmodule RuleMavenWeb.AuditModal do
         source: Games.pool_source(row),
         children: Games.pool_children(id),
         embedding: row.question_embedding && Pgvector.to_list(row.question_embedding),
-        chunks: Games.chunks_by_ids(row.source_chunk_ids || [])
+        chunks: Games.chunks_by_ids(row.source_chunk_ids || []),
+        history: history_versions(row, current_user)
       }
     else
       _ -> nil
+    end
+  end
+
+  # Prior (deleted regenerate/report) versions of this Q&A, chained through the
+  # row's text variants — see Audit.question_history/2. Each entry snapshots the
+  # ANSWER (metadata["answer"]); a crew answer restates the private question, so
+  # it is withheld from an admin who could not see the live answer — the same
+  # `user_id == self OR browsable` boundary the answer bubble draws. Fail closed.
+  defp history_versions(%QuestionLog{} = row, current_user) do
+    if row.user_id == current_user.id or row.browsable do
+      Audit.question_history(row.game_id, [
+        row.question,
+        row.cleaned_question,
+        row.canonical_question
+      ])
+    else
+      []
     end
   end
 
@@ -97,6 +115,7 @@ defmodule RuleMavenWeb.AuditModal do
       |> assign(:children, assigns.audit.children)
       |> assign(:embedding, assigns.audit[:embedding])
       |> assign(:chunks, assigns.audit[:chunks] || [])
+      |> assign(:history, assigns.audit[:history] || [])
 
     ~H"""
     <%!-- Backdrop. No phx-click here: it would fire on every click that bubbles
@@ -129,6 +148,7 @@ defmodule RuleMavenWeb.AuditModal do
           {cost(assigns)}
           {lineage(assigns)}
           {signals(assigns)}
+          {version_history(assigns)}
         </div>
       </div>
     </div>
@@ -341,6 +361,47 @@ defmodule RuleMavenWeb.AuditModal do
       </div>
     </section>
     """
+  end
+
+  # Prior versions of this Q&A (regenerated/reported answers that were replaced).
+  # Rendered only when there is history — a live row with no prior versions omits
+  # the section entirely rather than showing an empty "No prior versions" note.
+  defp version_history(assigns) do
+    ~H"""
+    <section :if={@history != []}>
+      {section_head("Version history — #{length(@history)} prior version(s)")}
+      <div style="display:flex;flex-direction:column;gap:0.4rem">
+        <%= for entry <- @history do %>
+          <div style="font-size:0.7rem;color:var(--text-muted);border:1px solid var(--border);border-radius:0.4rem;padding:0.4rem 0.55rem;background:var(--bg-subtle)">
+            <div style="font-weight:600;color:var(--text-secondary)">
+              {fmt_dt(entry.inserted_at)} &middot; {entry.actor_username || "system"} &middot; {entry.metadata[
+                "via"
+              ] || "system"}
+            </div>
+            <div style="margin-top:0.15rem;white-space:pre-wrap;word-break:break-word;color:var(--text)">
+              {entry.metadata["answer"]}
+            </div>
+            <div style="margin-top:0.15rem;opacity:0.8">
+              👍 {entry.metadata["upvotes"] || 0} &middot; 👎 {entry.metadata["downvotes"] || 0}{history_flags(
+                entry.metadata
+              )}
+            </div>
+          </div>
+        <% end %>
+      </div>
+    </section>
+    """
+  end
+
+  # Trailing " · flag" suffixes for a history entry's vote line.
+  defp history_flags(metadata) do
+    [
+      {metadata["pooled"], " · pooled"},
+      {metadata["needs_review"], " · pulled for review"},
+      {metadata["verified"], " · verified"}
+    ]
+    |> Enum.filter(fn {on, _} -> on end)
+    |> Enum.map_join("", fn {_, label} -> label end)
   end
 
   # ---- render helpers --------------------------------------------------------

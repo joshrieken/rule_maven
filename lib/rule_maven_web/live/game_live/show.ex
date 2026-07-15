@@ -76,11 +76,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        flagged_ids: MapSet.new(),
        # Report-reason modal: nil, or %{id: local_answer_id, flag_target: source_id}
        report_target: nil,
-       # Admin-only "version history" panel: which threads have it expanded,
-       # and the lazily-fetched audit entries per thread id.
-       history_open: MapSet.new(),
-       question_history: %{},
        # Admin audit-trail modal: nil, or the assembled trail for one question.
+       # (Version history + raw response now live inside this modal too.)
        audit: nil,
        asks_disabled: false,
        included_expansions: %{},
@@ -2073,51 +2070,6 @@ defmodule RuleMavenWeb.GameLive.Show do
      )
      |> assign_qa_nav()}
   end
-
-  # Admin-only version history: lazily fetches prior deleted versions of this
-  # Q&A (chained through question-text variants — see Audit.question_history/2)
-  # the first time a thread's history panel is opened, then just toggles.
-  # Seeds the lookup with every text variant of the live row (raw + cleaned +
-  # canonical), not just the displayed text: regenerated rows drift phrasing,
-  # and any one of the variants may be the link back to a prior version.
-  @impl true
-  def handle_event("toggle_question_history", %{"id" => id_str, "question" => question}, socket) do
-    {id, _} = Integer.parse(id_str)
-
-    if socket.assigns.is_admin do
-      open = socket.assigns.history_open
-
-      if MapSet.member?(open, id) do
-        {:noreply, assign(socket, history_open: MapSet.delete(open, id))}
-      else
-        history =
-          Map.put_new_lazy(socket.assigns.question_history, id, fn ->
-            # Every prior version in this panel is a snapshot of the row's ANSWER
-            # (audit `metadata["answer"]`, rendered raw below). A crew answer
-            # restates the private question, so the panel is withheld from anyone
-            # who cannot see the live answer — the same `answer_visible?` gate the
-            # bubble one line above uses. Fail closed when the live row is gone.
-            case find_question_log(socket.assigns.game, id) do
-              nil ->
-                []
-
-              ql ->
-                if answer_visible?(ql, socket.assigns.current_user.id) do
-                  seeds = [question, ql.question, ql.cleaned_question, ql.canonical_question]
-                  RuleMaven.Audit.question_history(socket.assigns.game.id, seeds)
-                else
-                  []
-                end
-            end
-          end)
-
-        {:noreply, assign(socket, history_open: MapSet.put(open, id), question_history: history)}
-      end
-    else
-      {:noreply, socket}
-    end
-  end
-
 
   @impl true
   def handle_event("retry_question", %{"id" => id_str}, socket) do
@@ -4795,69 +4747,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                         <% end %>
                       <% end %>
                     <% end %>
-                    <!-- Admin debug: raw LLM response -->
-                    <details
-                      :if={
-                        RuleMaven.Users.can?(@current_user, :admin) && msg.role == :assistant &&
-                          msg[:raw_response] && msg.content != "Thinking..."
-                      }
-                      style="margin:0;font-size:0.6rem;color:var(--text-muted);opacity:0.6"
-                    >
-                      <summary style="cursor:pointer">raw</summary>
-                      <pre style="white-space:pre-wrap;word-break:break-word;margin-top:0.15rem;padding:0.25rem 0.5rem;background:var(--bg-subtle);border-radius:0.25rem;max-height:12rem;overflow-y:auto"><%= msg[:raw_response] %></pre>
-                    </details>
-                    <!-- Admin-only: version history (prior deleted regenerate/report
-                       versions of this Q&A — see Audit.question_history/2) -->
-                    <% q_text_hist =
-                      if @is_admin && msg.role == :assistant && !msg[:history] &&
-                           msg.content != "Thinking...",
-                         do: find_question_for_answer(@conversation, msg) %>
-                    <button
-                      :if={
-                        @is_admin && msg.role == :assistant && !msg[:history] &&
-                          msg.content != "Thinking..."
-                      }
-                      type="button"
-                      phx-click="toggle_question_history"
-                      phx-value-id={msg.id}
-                      phx-value-question={q_text_hist}
-                      style="margin:0;color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer;text-align:left"
-                    >{if MapSet.member?(@history_open, msg.id), do: "▾", else: "▸"} History</button>
-                    <!-- The full LLM-call trace, cost, pool lineage and community
-                       signals now live in the admin "🔍 Audit trail" modal on the
-                       action row above (AdminAuditTrailComponent). -->
+                    <!-- Admin debug — raw LLM response, version history, call
+                       trace, cost, pool lineage and community signals all live in
+                       the "🔍 Audit trail" modal on the action row above. -->
                   </div>
-                  <%= if @is_admin && msg.role == :assistant && !msg[:history] && msg.content != "Thinking..." do %>
-                    <div
-                      :if={MapSet.member?(@history_open, msg.id)}
-                      style="margin-top:0.25rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:0.4rem;background:var(--bg-subtle);display:flex;flex-direction:column;gap:0.4rem"
-                    >
-                      <% history = Map.get(@question_history, msg.id, []) %>
-                      <%= if history == [] do %>
-                        <span style="font-size:0.65rem;color:var(--text-muted)">No prior versions.</span>
-                      <% else %>
-                        <%= for entry <- history do %>
-                          <div style="font-size:0.65rem;color:var(--text-muted);border-bottom:1px solid var(--border);padding-bottom:0.35rem">
-                            <div style="font-weight:600;color:var(--text-secondary)">
-                              {entry.inserted_at |> Calendar.strftime("%Y-%m-%d %H:%M UTC")} &middot; {entry.actor_username ||
-                                "system"} &middot; {entry.metadata["via"] || "system"}
-                            </div>
-                            <div style="margin-top:0.15rem;white-space:pre-wrap;word-break:break-word">
-                              {entry.metadata["answer"]}
-                            </div>
-                            <div style="margin-top:0.15rem;opacity:0.8">
-                              👍 {entry.metadata["upvotes"] || 0} &middot; 👎 {entry.metadata[
-                                "downvotes"
-                              ] || 0}
-                              {if entry.metadata["pooled"], do: " · pooled"}
-                              {if entry.metadata["needs_review"], do: " · pulled for review"}
-                              {if entry.metadata["verified"], do: " · verified"}
-                            </div>
-                          </div>
-                        <% end %>
-                      <% end %>
-                    </div>
-                  <% end %>
                 </div>
               </div>
             <% end %>

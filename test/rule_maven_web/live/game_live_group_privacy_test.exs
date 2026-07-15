@@ -212,10 +212,11 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
     assert html =~ "(answer withheld)"
   end
 
-  test "an admin's version-history panel does NOT reveal a withheld crew answer", ctx do
-    # The inline admin "History" panel prints prior versions' `metadata["answer"]`
+  test "the audit-trail modal's version history does NOT reveal a withheld crew answer", ctx do
+    # The modal's "Version history" section prints prior versions' `metadata["answer"]`
     # (the raw snapshot delete_question writes). A crew answer restates the private
-    # question, so the panel must withhold it for a row the admin can't see live.
+    # question, so it must be withheld for a row the admin can't see live (not their
+    # own, not browsable) — the same `user_id == self OR browsable` gate the bubble uses.
     live_row =
       group_row!(ctx.game, ctx.member, ctx.group, %{
         cleaned_question: "Can a smuggler cheat?",
@@ -241,13 +242,42 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
         ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(live_row.id)}"
       )
 
-    html =
-      render_click(view, "toggle_question_history", %{
-        "id" => to_string(live_row.id),
-        "question" => "Can a smuggler cheat?"
+    html = render_click(view, "open_audit", %{"id" => to_string(live_row.id)})
+
+    refute html =~ "HISTORYSECRET", "the audit-trail version history leaked a withheld crew answer"
+  end
+
+  test "the audit-trail modal's version history shows prior versions for a visible row", ctx do
+    # A browsable crew row's answer is public, so the modal may surface its prior
+    # versions — the flip side of the withholding gate above.
+    live_row =
+      group_row!(ctx.game, ctx.member, ctx.group, %{
+        cleaned_question: "How many cards?",
+        answer: "Seven.",
+        browsable: true
       })
 
-    refute html =~ "HISTORYSECRET", "the version-history panel leaked a withheld crew answer"
+    prior =
+      group_row!(ctx.game, ctx.member, ctx.group, %{
+        cleaned_question: "How many cards?",
+        answer: "Six, HISTORYSHOWN, was the old ruling.",
+        browsable: true
+      })
+
+    {:ok, _} = RuleMaven.Games.delete_question(prior, ctx.member)
+
+    admin = user!("hist_show_admin", %{role: "admin"})
+    conn = login(build_conn(), admin)
+
+    {:ok, view, _html} =
+      live(
+        conn,
+        ~p"/games/#{RuleMaven.Hashid.encode(ctx.game.id)}?t=#{RuleMaven.Hashid.encode(live_row.id)}"
+      )
+
+    html = render_click(view, "open_audit", %{"id" => to_string(live_row.id)})
+
+    assert html =~ "HISTORYSHOWN", "the audit-trail version history dropped a prior version"
   end
 
   test "the asker still sees their own crew ANSWER in the bubble", ctx do
