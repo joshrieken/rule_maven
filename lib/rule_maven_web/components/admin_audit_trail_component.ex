@@ -86,14 +86,14 @@ defmodule RuleMavenWeb.AdminAuditTrailComponent do
             phx-target={@myself}
             phx-window-keydown="close_audit"
             phx-key="Escape"
-            style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:70;background:rgba(0,0,0,0.5);display:flex;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto"
+            style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:70;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:1rem;box-sizing:border-box"
           >
             <div
               phx-click-away="close_audit"
               phx-target={@myself}
-              style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:40rem;width:100%;margin:1.5rem 0;box-shadow:0 10px 40px rgba(0,0,0,0.35);text-align:left"
+              style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:40rem;width:100%;max-height:calc(100dvh - 2rem);display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,0.35);text-align:left"
             >
-              <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-surface);border-radius:0.75rem 0.75rem 0 0;z-index:1">
+              <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border);background:var(--bg-surface);border-radius:0.75rem 0.75rem 0 0">
                 <div style="font-size:0.95rem;font-weight:700;color:var(--text)">🔍 Question audit trail</div>
                 <button
                   type="button"
@@ -105,7 +105,7 @@ defmodule RuleMavenWeb.AdminAuditTrailComponent do
               </div>
 
               <%= if @row do %>
-                <div style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:1rem">
+                <div style="flex:1 1 auto;min-height:0;overflow-y:auto;padding:0.85rem 1rem;display:flex;flex-direction:column;gap:1rem">
                   {facts(assigns)}
                   {process(assigns)}
                   {cost(assigns)}
