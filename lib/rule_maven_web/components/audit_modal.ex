@@ -52,7 +52,9 @@ defmodule RuleMavenWeb.AuditModal do
         row: row,
         trace: LLM.calls_for_question(id),
         source: Games.pool_source(row),
-        children: Games.pool_children(id)
+        children: Games.pool_children(id),
+        embedding: row.question_embedding && Pgvector.to_list(row.question_embedding),
+        chunks: Games.chunks_by_ids(row.source_chunk_ids || [])
       }
     else
       _ -> nil
@@ -93,6 +95,8 @@ defmodule RuleMavenWeb.AuditModal do
       |> assign(:trace, assigns.audit.trace)
       |> assign(:source, assigns.audit.source)
       |> assign(:children, assigns.audit.children)
+      |> assign(:embedding, assigns.audit[:embedding])
+      |> assign(:chunks, assigns.audit[:chunks] || [])
 
     ~H"""
     <%!-- Backdrop. No phx-click here: it would fire on every click that bubbles
@@ -120,6 +124,8 @@ defmodule RuleMavenWeb.AuditModal do
         <div style="flex:1 1 auto;min-height:0;overflow-y:auto;padding:0.85rem 1rem;display:flex;flex-direction:column;gap:1rem">
           {facts(assigns)}
           {process(assigns)}
+          {context(assigns)}
+          {embedding(assigns)}
           {cost(assigns)}
           {lineage(assigns)}
           {signals(assigns)}
@@ -214,6 +220,47 @@ defmodule RuleMavenWeb.AuditModal do
           <% end %>
         </ol>
       <% end %>
+    </section>
+    """
+  end
+
+  defp context(assigns) do
+    ~H"""
+    <section>
+      {section_head("Retrieved context — #{length(@chunks)} chunk(s)")}
+      <%= if @chunks == [] do %>
+        <div style="font-size:0.74rem;color:var(--text-muted)">
+          No source chunks recorded for this row.
+        </div>
+      <% else %>
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.4rem">
+          The exact rulebook passages fed to the model (the full rulebook is in the admin extracted-text view).
+        </div>
+        <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0.4rem">
+          <%= for c <- @chunks do %>
+            <li style="border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.6rem;background:var(--bg-subtle)">
+              <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-muted);font-weight:700;margin-bottom:0.2rem">
+                {c.section_label || "Chunk ##{c.chunk_index}"}<%= if c.page_number do %> · p.{c.page_number}<% end %>
+              </div>
+              <div style="font-size:0.72rem;color:var(--text);white-space:pre-wrap;max-height:8rem;overflow:auto;overflow-wrap:anywhere">{c.content}</div>
+            </li>
+          <% end %>
+        </ol>
+      <% end %>
+    </section>
+    """
+  end
+
+  defp embedding(assigns) do
+    ~H"""
+    <section :if={@embedding}>
+      {section_head("Question embedding — #{length(@embedding)}-dim")}
+      <details>
+        <summary style="cursor:pointer;font-size:0.72rem;color:var(--text-muted)">
+          Show vector ({length(@embedding)} floats)
+        </summary>
+        <div style="margin-top:0.3rem;font-size:0.64rem;color:var(--text-muted);white-space:pre-wrap;max-height:10rem;overflow:auto;overflow-wrap:anywhere;font-family:var(--font-mono,monospace)">[{Enum.map_join(@embedding, ", ", &Float.round(&1 * 1.0, 5))}]</div>
+      </details>
     </section>
     """
   end

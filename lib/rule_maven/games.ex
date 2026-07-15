@@ -2974,6 +2974,22 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
+  Load chunks by id, preserving the order of `ids` (the retrieval order recorded
+  on a question's `source_chunk_ids`). Read-only; used by the admin audit trail
+  to show the exact rulebook passages a question was grounded in.
+  """
+  def chunks_by_ids([]), do: []
+
+  def chunks_by_ids(ids) when is_list(ids) do
+    by_id =
+      from(c in Chunk, where: c.id in ^ids)
+      |> Repo.all()
+      |> Map.new(&{&1.id, &1})
+
+    Enum.flat_map(ids, fn id -> List.wrap(by_id[id]) end)
+  end
+
+  @doc """
   For a pooled question, the source row whose answer it was served from
   (`pool_source_id`). `nil` when the row was not pooled or the source is gone.
   """
