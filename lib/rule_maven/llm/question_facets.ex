@@ -331,6 +331,33 @@ defmodule RuleMaven.LLM.QuestionFacets do
 
   defp compass_dirs(toks), do: MapSet.new(Enum.filter(toks, &(&1 in @compass)))
 
+  # Subject/object role reversal — the one class token-SET facets can't see:
+  # "does A beat B?" vs "does B beat A?" has an IDENTICAL token bag but the
+  # order flips the answer, and the embedding stays ~0.94-0.97 (measured), well
+  # above the 0.92 pool floor. We fire only when ALL three hold: (1) identical
+  # token multiset, (2) different order, (3) an ASYMMETRIC relation marker is
+  # present. That triple is the danger's fingerprint and nothing else's —
+  # benign paraphrases differ in word choice (bag differs, cond 1 fails) and
+  # SYMMETRIC relations (adjacent to / next to / trades with) carry no marker
+  # (cond 3 fails), so both serve untouched. A -> B rel word swap around one of
+  # these markers all but always flips the verdict; fails SAFE (a false fire is
+  # one full-price ask). Deliberately NOT collapsed into @axes: this is a
+  # cross-question relation, not a per-question axis.
+  @role_markers ~w(
+    beat beats beaten defeat defeats defeated stronger strong weaker weak
+    higher lower above below outrank outranks outranked ranked
+    pay pays paid owe owes owed precede precedes follow follows
+    before after attack attacks attacked block blocks blocked trump trumps
+    against versus vs wins loses win lose protect protects protected
+  )
+  |> MapSet.new()
+
+  # True when the two token lists are NOT a role reversal (i.e. safe to treat as
+  # the same question on this axis). Empty-safe: any pair without the fingerprint.
+  defp role_order_agrees?(q, c) do
+    not (q != c and Enum.sort(q) == Enum.sort(c) and Enum.any?(q, &MapSet.member?(@role_markers, &1)))
+  end
+
   defp compass_agree?(q, c) do
     dq = compass_dirs(q)
     dc = compass_dirs(c)
@@ -401,6 +428,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       multipliers_agree?(q, c) and
       letter_ids_agree?(q, c) and
       turn_ownership_agrees?(q, c) and
+      role_order_agrees?(q, c) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, q, c))
   end
 
@@ -442,6 +470,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       MapSet.subset?(multipliers(w), multipliers(r)) and
       MapSet.subset?(letter_ids(w), letter_ids(r)) and
       turn_ownership_agrees?(r, w) and
+      role_order_agrees?(r, w) and
       Enum.all?(Map.keys(@axes), &axis_agrees?(&1, r, w))
   end
 
@@ -464,6 +493,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       not multipliers_agree?(q, c) -> :multiplier
       not letter_ids_agree?(q, c) -> :letter_id
       not turn_ownership_agrees?(q, c) -> :turn_ownership
+      not role_order_agrees?(q, c) -> :role_order
       not compass_agree?(q, c) -> :compass
       not ordinals_agree?(q, c) -> :ordinal
       not frequencies_agree?(q, c) -> :frequency

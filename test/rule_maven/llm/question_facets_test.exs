@@ -1093,4 +1093,60 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
       refute Facets.preserved_in_rewrite?(raw, "How many cards are discarded on an 8?")
     end
   end
+
+  describe "subject/object role reversal — identical token bag, order flips the answer" do
+    # This class has an IDENTICAL token multiset (set facets are blind) and the
+    # embedding measures 0.94-0.97 (above the 0.92 pool floor, no tiebreaker),
+    # so only this deterministic order-check stands between it and a served flip.
+    flips = [
+      {"Does the knight beat the archer?", "Does the archer beat the knight?"},
+      {"Is fire strong against water?", "Is water strong against fire?"},
+      {"Can the attacker move before the defender?",
+       "Can the defender move before the attacker?"},
+      {"Does red pay blue?", "Does blue pay red?"},
+      {"Is the king ranked higher than the queen?", "Is the queen ranked higher than the king?"},
+      {"Does the wizard block the rogue?", "Does the rogue block the wizard?"},
+      {"Is armor protected against fire?", "Is fire protected against armor?"}
+    ]
+
+    for {a, b} <- flips do
+      test "flips: #{a} <> #{b}" do
+        refute Facets.compatible?(unquote(a), unquote(b))
+        assert Facets.conflict(unquote(a), unquote(b)) == :role_order
+        # Direction-symmetric: the guard fires whichever way the pair arrives.
+        assert Facets.conflict(unquote(b), unquote(a)) == :role_order
+      end
+    end
+
+    test "a normalizer rewrite that transposes the entities is not preserved" do
+      refute Facets.preserved_in_rewrite?(
+               "Does the knight beat the archer?",
+               "Does the archer beat the knight?"
+             )
+    end
+  end
+
+  describe "role reversal — the benign cases that must still serve" do
+    # Over-blocking bills every paraphrase at full price, so each of these must
+    # stay compatible. The gate needs identical-bag AND an asymmetric marker;
+    # these fail one condition or the other.
+    benign = [
+      # symmetric relations carry no marker — reordering them is harmless
+      {"Is the knight adjacent to the archer?", "Is the archer adjacent to the knight?"},
+      {"Can the knight trade with the archer?", "Can the archer trade with the knight?"},
+      {"Is the knight next to the archer?", "Is the archer next to the knight?"},
+      # sequence-of-actions reorder around "then" (deliberately not a marker)
+      {"Do I draw then gain a coin?", "Do I gain a coin then draw?"},
+      # different word bag — a real paraphrase, not a reorder
+      {"Does the knight beat the archer?", "Does the knight defeat the archer?"},
+      {"How many cards do I draw?", "How many cards does my opponent draw?"}
+    ]
+
+    for {a, b} <- benign do
+      test "serves: #{a} <> #{b}" do
+        assert Facets.compatible?(unquote(a), unquote(b))
+        assert Facets.conflict(unquote(a), unquote(b)) == nil
+      end
+    end
+  end
 end
