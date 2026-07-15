@@ -141,4 +141,49 @@ defmodule RuleMaven.Workers.DirectPromotionWorkerTest do
     assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
     assert Repo.get(QuestionLog, row.id).visibility == "private"
   end
+
+  test "never promotes a row staled by a rulebook change, even above the floor",
+       %{game: game, author: author} do
+    row = pooled_row(game, author, Enum.to_list(1..768))
+    Games.set_community_vote(row.id, confirmed_user("v1").id, "up")
+    Games.set_community_vote(row.id, confirmed_user("v2").id, "up")
+    assert Repo.get(QuestionLog, row.id).trust_score >= 3.0
+
+    # A rulebook edit staled this answer; its citations may no longer hold, so
+    # it must not be promoted into the shared pool until re-grounded.
+    Repo.update_all(from(r in QuestionLog, where: r.id == ^row.id), set: [stale: true])
+
+    assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
+    assert Repo.get(QuestionLog, row.id).visibility == "private"
+  end
+
+  test "does not cluster facet-incompatible rows that share an embedding",
+       %{game: game, author: author} do
+    # Two promote-eligible rows with an IDENTICAL embedding but opposite-verdict
+    # questions (before vs after). Clustering would merge them and let one
+    # representative stand in for both — inheriting cluster trust across a facet
+    # flip and suppressing the other's independent promotion.
+    before_row = pooled_row(game, author, Enum.to_list(1..768))
+    after_row = pooled_row(game, user_fixture("author2"), Enum.to_list(1..768))
+
+    Repo.update_all(from(r in QuestionLog, where: r.id == ^before_row.id),
+      set: [question: "Can a player trade before rolling?"]
+    )
+
+    Repo.update_all(from(r in QuestionLog, where: r.id == ^after_row.id),
+      set: [question: "Can a player trade after rolling?"]
+    )
+
+    for row <- [before_row, after_row] do
+      Games.set_community_vote(row.id, confirmed_user("v1_#{row.id}").id, "up")
+      Games.set_community_vote(row.id, confirmed_user("v2_#{row.id}").id, "up")
+      assert Repo.get(QuestionLog, row.id).trust_score >= 3.0
+    end
+
+    assert :ok == DirectPromotionWorker.perform(%Oban.Job{args: %{}})
+
+    # Both earned promotion on their own votes; neither is swallowed by the other.
+    assert Repo.get(QuestionLog, before_row.id).visibility == "community"
+    assert Repo.get(QuestionLog, after_row.id).visibility == "community"
+  end
 end

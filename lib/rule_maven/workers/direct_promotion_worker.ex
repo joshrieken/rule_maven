@@ -33,6 +33,9 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
         where:
           q.pooled == true and q.browsable == true and q.refused == false and
             q.visibility != "community",
+        # A row staled by a rulebook change may cite text that has since moved;
+        # never promote it into the shared pool until it is re-grounded.
+        where: q.stale == false,
         where: not is_nil(q.question_embedding),
         # Deterministic seeding for the greedy clustering below: highest-trust
         # rows seed clusters first, ties broken by id. The same ordering also
@@ -47,6 +50,9 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
           embedding: q.question_embedding,
           trust_score: q.trust_score,
           has_canonical: not is_nil(q.canonical_answer),
+          # Effective question text — used to keep facet-incompatible rows out of
+          # the same cluster (see cluster_by_similarity/1).
+          text: fragment("coalesce(?, ?)", q.canonical_question, q.question),
           inserted_at: q.inserted_at
         }
     )
@@ -96,7 +102,12 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
         idx =
           Enum.find(0..(count - 1)//1, fn i ->
             Enum.any?(clusters[i], fn m ->
-              cosine_distance(vec, m.embedding) <= threshold
+              # Near embeddings alone don't merge: a one-token flip (before/after,
+              # may/must) barely moves the vector, so also require the questions
+              # be facet-compatible. Otherwise a flipped row inherits the
+              # cluster's trust and one representative promotes for both verdicts.
+              cosine_distance(vec, m.embedding) <= threshold and
+                RuleMaven.LLM.QuestionFacets.compatible?(row.text, m.text)
             end)
           end)
 
