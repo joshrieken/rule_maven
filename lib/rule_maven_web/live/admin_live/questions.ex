@@ -28,6 +28,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
          search: "",
          confirm_delete_id: nil,
          expanded_id: nil,
+         audit: nil,
          editing_canonical_id: nil,
          canon_q: "",
          canon_a: ""
@@ -83,6 +84,12 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   end
 
   @impl true
+  def handle_event("open_audit", %{"id" => id}, socket),
+    do: {:noreply, assign(socket, audit: RuleMavenWeb.AuditModal.fetch(id, socket.assigns.current_user))}
+
+  def handle_event("close_audit", _params, socket),
+    do: {:noreply, assign(socket, audit: nil)}
+
   def handle_event("filter_status", params, socket) do
     status = if params["status"] == "", do: nil, else: params["status"]
     {:noreply, socket |> assign(filter_status: status) |> reload()}
@@ -395,6 +402,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   def render(assigns) do
     ~H"""
     <div style="max-width:72rem;margin:0 auto;padding:1.25rem 1.5rem">
+      <RuleMavenWeb.AuditModal.audit_modal :if={@audit} audit={@audit} />
       <.link navigate={~p"/admin"} class="back-link">&larr; Back to admin</.link>
 
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;margin:0.25rem 0 1rem">
@@ -731,11 +739,9 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                 <% end %>
 
                 <div style="margin-top:0.6rem">
-                  <.live_component
-                    module={RuleMavenWeb.AdminAuditTrailComponent}
-                    id={"audit-#{q.id}"}
-                    question_log_id={q.id}
+                  <RuleMavenWeb.AuditModal.audit_trigger
                     current_user={@current_user}
+                    question_log_id={q.id}
                   />
                 </div>
 

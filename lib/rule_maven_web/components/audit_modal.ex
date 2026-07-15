@@ -1,127 +1,129 @@
-defmodule RuleMavenWeb.AdminAuditTrailComponent do
+defmodule RuleMavenWeb.AuditModal do
   @moduledoc """
-  Admin-only "audit trail" affordance for a single question.
+  Admin-only per-question "audit trail": a small trigger button plus a
+  page-level modal that tells the whole story of one question — facts and
+  decision flags, the LLM-call process timeline, cost rollup, pool lineage
+  (matched source + the later asks it served via cache), and community signals.
 
-  Drop it beside any rendered question — the admin/questions expand, the Q&A
-  answer pane, community rows — with:
+  Rendered as a PAGE-LEVEL modal (like ReportModal / the persona picker), NOT
+  inline in a list row, for two reasons:
 
-      <.live_component
-        module={RuleMavenWeb.AdminAuditTrailComponent}
-        id={"audit-\#{q.id}"}
-        question_log_id={q.id}
-        current_user={@current_user}
-      />
+    * A stateful component can't repeat: a question tagged with two categories
+      renders its card twice, which would collide on a live_component id.
+    * On the Q&A page the modal must sit OUTSIDE the `position:fixed`
+      `.chat-layout`, or that fixed ancestor becomes its containing block and
+      clips it under the game header.
 
-  Renders NOTHING for a non-admin. For an admin it renders a small trigger; on
-  click it re-checks admin standing, lazily loads the full row plus its LLM-call
-  trace, cost rollup and pool lineage, and tells the whole story in one modal.
+  Host wiring (each host already carries `@current_user`):
+
+      # trigger, beside a rendered question (admin-only, renders nothing else):
+      <AuditModal.audit_trigger current_user={@current_user} question_log_id={q.id} />
+
+      # once, at the LiveView render root (outside any fixed panel):
+      <AuditModal.audit_modal :if={@audit} audit={@audit} />
+
+      # open/close, in the host's handle_event:
+      def handle_event("open_audit", %{"id" => id}, socket),
+        do: {:noreply, assign(socket, audit: AuditModal.fetch(id, socket.assigns.current_user))}
+      def handle_event("close_audit", _p, socket),
+        do: {:noreply, assign(socket, audit: nil)}
 
   Privacy: the LLM-call trace comes from `LLM.calls_for_question/1`, which scrubs
-  a crew row's raw input/output previews (a decision admins are held to as well);
-  every question text rendered here uses the crew-safe `QuestionLog.listed_question/1`.
-
-  Self-contained: authz, data fetch and open/close state all live here, so no
-  host LiveView needs a handle_event or an assign. Every host already carries
-  `@current_user`.
+  a crew row's raw input/output (a bar admins are held to as well). Question text
+  is shown raw for a solo row (admins already read it on /admin/questions) and
+  withheld to the crew-safe text for a crew row — the same boundary the trace
+  scrub draws (see `qtext/1`).
   """
-  use RuleMavenWeb, :live_component
+  use Phoenix.Component
 
   alias RuleMaven.{Games, LLM, Users}
   alias RuleMaven.Games.QuestionLog
 
-  @impl true
-  def mount(socket) do
-    {:ok, assign(socket, open: false, row: nil, trace: nil, source: nil, children: nil)}
-  end
-
-  @impl true
-  def update(assigns, socket) do
-    {:ok, socket |> assign(assigns) |> assign_new(:open, fn -> false end)}
-  end
-
-  @impl true
-  def handle_event("open_audit", _params, socket) do
-    if Users.can?(socket.assigns.current_user, :admin) do
-      id = socket.assigns.question_log_id
-
-      case Games.get_question_log(id) do
-        %QuestionLog{} = row ->
-          {:noreply,
-           assign(socket,
-             open: true,
-             row: row,
-             trace: LLM.calls_for_question(id),
-             source: Games.pool_source(row),
-             children: Games.pool_children(id)
-           )}
-
-        _ ->
-          {:noreply, assign(socket, open: true, row: nil)}
-      end
+  @doc """
+  Assemble everything the modal renders for `question_log_id`, or `nil` when the
+  caller isn't an admin or the row is gone. Re-checks admin standing so a
+  demoted admin's stale socket can't open it.
+  """
+  def fetch(question_log_id, current_user) do
+    with true <- Users.can?(current_user, :admin),
+         id when is_integer(id) <- to_int(question_log_id),
+         %QuestionLog{} = row <- Games.get_question_log(id) do
+      %{
+        row: row,
+        trace: LLM.calls_for_question(id),
+        source: Games.pool_source(row),
+        children: Games.pool_children(id)
+      }
     else
-      {:noreply, assign(socket, open: false)}
+      _ -> nil
     end
   end
 
-  def handle_event("close_audit", _params, socket) do
-    {:noreply, assign(socket, open: false)}
+  defp to_int(i) when is_integer(i), do: i
+  defp to_int(s) when is_binary(s) do
+    case Integer.parse(s) do
+      {i, _} -> i
+      _ -> nil
+    end
+  end
+  defp to_int(_), do: nil
+
+  attr :current_user, :map, required: true
+  attr :question_log_id, :any, required: true
+
+  def audit_trigger(assigns) do
+    ~H"""
+    <button
+      :if={Users.can?(@current_user, :admin)}
+      type="button"
+      phx-click="open_audit"
+      phx-value-id={@question_log_id}
+      title="Admin: full audit trail"
+      style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.15rem 0.5rem;font-size:0.68rem;font-weight:600;color:var(--text-muted);cursor:pointer"
+    >🔍 Audit trail</button>
+    """
   end
 
-  @impl true
-  def render(assigns) do
+  attr :audit, :map, required: true
+
+  def audit_modal(assigns) do
+    assigns =
+      assigns
+      |> assign(:row, assigns.audit.row)
+      |> assign(:trace, assigns.audit.trace)
+      |> assign(:source, assigns.audit.source)
+      |> assign(:children, assigns.audit.children)
+
     ~H"""
-    <span>
-      <%= if Users.can?(@current_user, :admin) do %>
-        <button
-          type="button"
-          phx-click="open_audit"
-          phx-target={@myself}
-          title="Admin: full audit trail"
-          style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.15rem 0.5rem;font-size:0.68rem;font-weight:600;color:var(--text-muted);cursor:pointer"
-        >🔍 Audit trail</button>
-
-        <%= if @open do %>
-          <div
+    <div
+      phx-click="close_audit"
+      phx-window-keydown="close_audit"
+      phx-key="Escape"
+      style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:70;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:1rem;box-sizing:border-box"
+    >
+      <div
+        phx-click-away="close_audit"
+        style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:40rem;width:100%;max-height:calc(100% - 2rem);display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,0.35);text-align:left"
+      >
+        <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border);background:var(--bg-surface);border-radius:0.75rem 0.75rem 0 0">
+          <div style="font-size:0.95rem;font-weight:700;color:var(--text)">🔍 Question audit trail</div>
+          <button
+            type="button"
             phx-click="close_audit"
-            phx-target={@myself}
-            phx-window-keydown="close_audit"
-            phx-key="Escape"
-            style="position:fixed;top:0;left:0;right:0;bottom:var(--jobpanel-h, 0px);z-index:70;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:1rem;box-sizing:border-box"
-          >
-            <div
-              phx-click-away="close_audit"
-              phx-target={@myself}
-              style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:40rem;width:100%;max-height:calc(100% - 2rem);display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,0.35);text-align:left"
-            >
-              <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border);background:var(--bg-surface);border-radius:0.75rem 0.75rem 0 0">
-                <div style="font-size:0.95rem;font-weight:700;color:var(--text)">🔍 Question audit trail</div>
-                <button
-                  type="button"
-                  phx-click="close_audit"
-                  phx-target={@myself}
-                  aria-label="Close"
-                  style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--text-muted);line-height:1"
-                >✕</button>
-              </div>
+            aria-label="Close"
+            style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--text-muted);line-height:1"
+          >✕</button>
+        </div>
 
-              <%= if @row do %>
-                <div style="flex:1 1 auto;min-height:0;overflow-y:auto;padding:0.85rem 1rem;display:flex;flex-direction:column;gap:1rem">
-                  {facts(assigns)}
-                  {process(assigns)}
-                  {cost(assigns)}
-                  {lineage(assigns)}
-                  {signals(assigns)}
-                </div>
-              <% else %>
-                <div style="padding:1.25rem 1rem;color:var(--text-muted);font-size:0.85rem">
-                  This question row no longer exists.
-                </div>
-              <% end %>
-            </div>
-          </div>
-        <% end %>
-      <% end %>
-    </span>
+        <div style="flex:1 1 auto;min-height:0;overflow-y:auto;padding:0.85rem 1rem;display:flex;flex-direction:column;gap:1rem">
+          {facts(assigns)}
+          {process(assigns)}
+          {cost(assigns)}
+          {lineage(assigns)}
+          {signals(assigns)}
+        </div>
+      </div>
+    </div>
     """
   end
 
@@ -133,7 +135,7 @@ defmodule RuleMavenWeb.AdminAuditTrailComponent do
       {section_head("Facts")}
       <div style="font-size:0.78rem;color:var(--text);line-height:1.5">
         <div style="font-weight:600;margin-bottom:0.3rem;word-break:break-word">
-          {QuestionLog.listed_question(@row)}
+          {qtext(@row)}
         </div>
         <dl style="display:grid;grid-template-columns:auto 1fr;gap:0.15rem 0.6rem;margin:0">
           {fact("Asked", fmt_dt(@row.inserted_at))}
@@ -149,9 +151,7 @@ defmodule RuleMavenWeb.AdminAuditTrailComponent do
           {flag_chip("blocked", @row.blocked)}
           {flag_chip("needs_review", @row.needs_review)}
           {flag_chip("stale", @row.stale)}
-          <%= if @row.error_kind do %>
-            <span style={chip_style("var(--danger,#c0392b)")}>error: {@row.error_kind}</span>
-          <% end %>
+          <span :if={@row.error_kind} style={chip_style("var(--danger,#c0392b)")}>error: {@row.error_kind}</span>
         </div>
       </div>
     </section>
@@ -194,9 +194,9 @@ defmodule RuleMavenWeb.AdminAuditTrailComponent do
                 <span :if={c.detail["truncation_retry"]} style="color:var(--warning,#d97706)" title="retry of a truncated call with a doubled token cap">↻ retry</span>
                 <span :if={!c.success} style="color:var(--danger,#c0392b);font-weight:600">failed</span>
               </div>
-              <%= if !c.success && c.error_message do %>
-                <div style="font-size:0.66rem;color:var(--danger,#c0392b);margin-top:0.2rem;overflow-wrap:anywhere">{String.slice(c.error_message, 0, 200)}</div>
-              <% end %>
+              <div :if={!c.success && c.error_message} style="font-size:0.66rem;color:var(--danger,#c0392b);margin-top:0.2rem;overflow-wrap:anywhere">
+                {String.slice(c.error_message, 0, 200)}
+              </div>
               <details :if={c.detail["input"] || c.detail["output"]} style="margin-top:0.25rem">
                 <summary style="cursor:pointer;opacity:0.8;font-size:0.64rem;color:var(--text-muted)">in / out</summary>
                 <div :if={c.detail["input"]} style="margin-top:0.2rem">
@@ -233,11 +233,9 @@ defmodule RuleMavenWeb.AdminAuditTrailComponent do
         <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-muted)">
           <span>Wall time</span><span>{fmt_dur(@totals.duration_ms)}</span>
         </div>
-        <%= if @row.pooled do %>
-          <div style="margin-top:0.3rem;font-size:0.72rem;color:var(--accent-ink,var(--accent));font-weight:600">
-            Cache hit — this ask cost {fmt_usd(0.0)} to answer.
-          </div>
-        <% end %>
+        <div :if={@row.pooled} style="margin-top:0.3rem;font-size:0.72rem;color:var(--accent-ink,var(--accent));font-weight:600">
+          Cache hit — this ask cost {fmt_usd(0.0)} to answer.
+        </div>
       </div>
     </section>
     """
@@ -251,7 +249,7 @@ defmodule RuleMavenWeb.AdminAuditTrailComponent do
         <%= if @source do %>
           <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.6rem">
             <div style="font-size:0.66rem;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-muted);font-weight:700;margin-bottom:0.2rem">Matched source (##{@source.id})</div>
-            <div style="word-break:break-word">{QuestionLog.listed_question(@source)}</div>
+            <div style="word-break:break-word">{qtext(@source)}</div>
           </div>
         <% else %>
           <div :if={@row.pooled} style="color:var(--text-muted)">
@@ -266,7 +264,7 @@ defmodule RuleMavenWeb.AdminAuditTrailComponent do
           <ul :if={@children.count > 0} style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0.25rem">
             <%= for child <- @children.rows do %>
               <li style="font-size:0.74rem;color:var(--text-secondary);border-left:2px solid var(--border);padding-left:0.5rem;word-break:break-word">
-                {QuestionLog.listed_question(child)}
+                {qtext(child)}
               </li>
             <% end %>
           </ul>
@@ -333,6 +331,16 @@ defmodule RuleMavenWeb.AdminAuditTrailComponent do
 
   defp chip_style(color) do
     "font-size:0.64rem;font-weight:700;color:#{color};border:1px solid #{color};border-radius:0.35rem;padding:0.1rem 0.4rem"
+  end
+
+  # Question text for the audit. A solo row's raw wording is shown (admins
+  # already read it on /admin/questions, and the audit's whole point is to see
+  # what was asked). A CREW row is withheld to the crew-safe text — the same
+  # boundary LLM.calls_for_question/1 draws on the raw call previews.
+  defp qtext(%QuestionLog{} = q) do
+    if QuestionLog.crew_origin?(q),
+      do: QuestionLog.listed_question(q),
+      else: QuestionLog.display_question(q)
   end
 
   defp yn(true), do: "yes"

@@ -17,7 +17,7 @@ defmodule RuleMavenWeb.GameLive.Community do
   alias RuleMaven.Games
   alias RuleMaven.Games.QuestionLog
   alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
-  alias RuleMavenWeb.ReportModal
+  alias RuleMavenWeb.{AuditModal, ReportModal}
 
   # Table-tool events (sub-bar Play/Learn, window chrome) are shared with the
   # game page via ToolHost.
@@ -43,6 +43,8 @@ defmodule RuleMavenWeb.GameLive.Community do
         categories: categories,
         # Report-reason modal: nil, or the question id being reported.
         report_target: nil,
+        # Admin audit-trail modal: nil, or the assembled trail for one question.
+        audit: nil,
         filter_category: nil,
         search_query: "",
         # nil until handle_params: defaults to the first non-empty tab unless
@@ -154,6 +156,12 @@ defmodule RuleMavenWeb.GameLive.Community do
   @impl true
   def handle_event(event, params, socket) when event in @tool_events,
     do: ToolHost.handle_tool_event(event, params, socket)
+
+  def handle_event("open_audit", %{"id" => id}, socket),
+    do: {:noreply, assign(socket, audit: AuditModal.fetch(id, socket.assigns.current_user))}
+
+  def handle_event("close_audit", _params, socket),
+    do: {:noreply, assign(socket, audit: nil)}
 
   def handle_event("switch_tab", %{"tab" => tab}, socket)
       when tab in ["verified", "community", "unverified"] do
@@ -339,6 +347,23 @@ defmodule RuleMavenWeb.GameLive.Community do
     end)
   end
 
+  # All-categories view: place each question under exactly ONE section — its
+  # first tag in `categories` order. Rendering a multi-tagged question under
+  # every matching header duplicates the card (and its DOM ids: vote, copy,
+  # share), which LiveView forbids. The single-category filtered view above
+  # still uses `questions_for_category/3` (any match) since it renders one
+  # section and can't duplicate.
+  defp primary_questions_for_category(questions, category_map, categories, cat_id) do
+    Enum.filter(questions, fn q ->
+      primary_category_id(q, category_map, categories) == cat_id
+    end)
+  end
+
+  defp primary_category_id(q, category_map, categories) do
+    tagged = category_map |> Map.get(q.id, []) |> MapSet.new(& &1.id)
+    Enum.find_value(categories, fn c -> if MapSet.member?(tagged, c.id), do: c.id end)
+  end
+
   defp untagged_questions(questions, category_map) do
     Enum.filter(questions, fn q ->
       Map.get(category_map, q.id, []) == []
@@ -401,6 +426,7 @@ defmodule RuleMavenWeb.GameLive.Community do
     <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
     <%!-- Report-reason modal: pick why the answer is being reported. --%>
     <ReportModal.report_modal :if={@report_target} />
+    <AuditModal.audit_modal :if={@audit} audit={@audit} />
     <%!-- Same tool sub-bar as the game page: every game screen keeps the
           table tools one tap away. Admin Review lives in the More menu. --%>
     <SubBar.game_bar
@@ -617,7 +643,7 @@ defmodule RuleMavenWeb.GameLive.Community do
           <% else %>
             <%!-- All categories view --%>
             <%= for cat <- @categories do %>
-              <% cat_qs = questions_for_category(questions, @category_map, cat.id) %>
+              <% cat_qs = primary_questions_for_category(questions, @category_map, @categories, cat.id) %>
               <%= if cat_qs != [] do %>
                 <div id={"category-#{cat.id}"} style="margin-bottom:1.75rem">
                   <h2 style="font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-secondary);margin-bottom:0.5rem;display:flex;align-items:center;gap:0.4rem">
@@ -932,13 +958,8 @@ defmodule RuleMavenWeb.GameLive.Community do
                   class="card-menu__item"
                   title="Pull into the moderation queue"
                 >⏸ Pull for review</button>
-                <div class="card-menu__item" style="padding:0">
-                  <.live_component
-                    module={RuleMavenWeb.AdminAuditTrailComponent}
-                    id={"audit-community-#{@q.id}"}
-                    question_log_id={@q.id}
-                    current_user={@current_user}
-                  />
+                <div class="card-menu__item" style="padding:0.15rem 0.5rem">
+                  <AuditModal.audit_trigger current_user={@current_user} question_log_id={@q.id} />
                 </div>
               <% else %>
                 <%= if MapSet.member?(@flagged_ids, @q.id) do %>

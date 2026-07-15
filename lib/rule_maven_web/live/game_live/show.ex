@@ -80,6 +80,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        # and the lazily-fetched audit entries per thread id.
        history_open: MapSet.new(),
        question_history: %{},
+       # Admin audit-trail modal: nil, or the assembled trail for one question.
+       audit: nil,
        asks_disabled: false,
        included_expansions: %{},
        expansions_seeded: false,
@@ -1490,6 +1492,15 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def handle_event("cancel_report", _params, socket),
     do: {:noreply, assign(socket, report_target: nil)}
+
+  # Admin audit trail. fetch/2 re-checks admin standing and that the row exists;
+  # it does not scope to this game, but every id here is a rendered answer in
+  # this view and the trail is read-only.
+  def handle_event("open_audit", %{"id" => id}, socket),
+    do: {:noreply, assign(socket, audit: RuleMavenWeb.AuditModal.fetch(id, socket.assigns.current_user))}
+
+  def handle_event("close_audit", _params, socket),
+    do: {:noreply, assign(socket, audit: nil)}
 
   def handle_event("submit_report", params, socket) do
     case socket.assigns.report_target do
@@ -4642,12 +4653,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                     class="flex items-center gap-1 mt-0.5"
                     style="flex-wrap:wrap;min-width:0;padding-left:0.25rem"
                   >
-                    <.live_component
+                    <RuleMavenWeb.AuditModal.audit_trigger
                       :if={msg[:id] && !msg[:pending] && msg.content != "Thinking..."}
-                      module={RuleMavenWeb.AdminAuditTrailComponent}
-                      id={"audit-qa-#{msg.id}"}
-                      question_log_id={msg.id}
                       current_user={@current_user}
+                      question_log_id={msg.id}
                     />
                     <%= if msg.content == "Thinking..." do %>
                       <button
@@ -5048,6 +5057,11 @@ defmodule RuleMavenWeb.GameLive.Show do
             restarts its qa-rise-in entrance animation on every modal open. --%>
       <%!-- Report-reason modal: pick why the answer is being reported. --%>
       <ReportModal.report_modal :if={@report_target} />
+
+      <%!-- Admin audit-trail modal. Rendered here, OUTSIDE .chat-layout, so its
+            position:fixed resolves against the viewport instead of that fixed
+            ancestor's box. --%>
+      <RuleMavenWeb.AuditModal.audit_modal :if={@audit} audit={@audit} />
 
       <%!-- Suggested-questions modal. Backdrop closes via phx-click-away on the
             panel; picking a question asks it and closes (ask_suggestion). --%>

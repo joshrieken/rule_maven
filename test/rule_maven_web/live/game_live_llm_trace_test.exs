@@ -75,7 +75,7 @@ defmodule RuleMavenWeb.GameLiveLlmTraceTest do
 
     assert html =~ "Audit trail"
 
-    html = view |> element("button[phx-click=open_audit]") |> render_click()
+    html = render_click(view, "open_audit", %{"id" => to_string(ql.id)})
 
     assert html =~ "Question audit trail"
     assert html =~ "grounding_critic"
@@ -93,7 +93,7 @@ defmodule RuleMavenWeb.GameLiveLlmTraceTest do
     conn = login(conn, admin)
     {:ok, view, _html} = open_qa(conn, game, ql)
 
-    html = view |> element("button[phx-click=open_audit]") |> render_click()
+    html = render_click(view, "open_audit", %{"id" => to_string(ql.id)})
 
     assert html =~ "No LLM calls recorded"
   end
@@ -114,7 +114,7 @@ defmodule RuleMavenWeb.GameLiveLlmTraceTest do
     conn = login(conn, admin)
     {:ok, view, _html} = open_qa(conn, game, source)
 
-    html = view |> element("button[phx-click=open_audit]") |> render_click()
+    html = render_click(view, "open_audit", %{"id" => to_string(source.id)})
 
     assert html =~ "Served 1 later ask"
   end
