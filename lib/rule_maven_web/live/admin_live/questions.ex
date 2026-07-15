@@ -3,15 +3,18 @@ defmodule RuleMavenWeb.AdminLive.Questions do
 
   alias RuleMaven.{Audit, Games, Groups, Users}
 
+  @page_size 100
+
   @impl true
   def mount(_params, _session, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
-      questions = Games.admin_list_questions()
+      questions = Games.admin_list_questions(limit: @page_size)
 
       {:ok,
        assign(socket,
          page_title: "Questions",
          questions: questions,
+         has_more: length(questions) == @page_size,
          filter_game_id: nil,
          filter_game_name: nil,
          game_query: "",
@@ -71,16 +74,24 @@ defmodule RuleMavenWeb.AdminLive.Questions do
   end
 
   defp reload(socket) do
-    questions =
-      Games.admin_list_questions(
-        game_id: socket.assigns.filter_game_id,
-        user_id: socket.assigns.filter_user_id,
-        group_id: socket.assigns.filter_group_id,
-        status: socket.assigns.filter_status,
-        search: socket.assigns.search
-      )
+    questions = Games.admin_list_questions(filter_opts(socket) ++ [limit: @page_size])
 
-    assign(socket, questions: questions, confirm_delete_id: nil)
+    assign(socket,
+      questions: questions,
+      has_more: length(questions) == @page_size,
+      confirm_delete_id: nil
+    )
+  end
+
+  # Active filter opts, shared by reload/1 (first page) and load_more (next page).
+  defp filter_opts(socket) do
+    [
+      game_id: socket.assigns.filter_game_id,
+      user_id: socket.assigns.filter_user_id,
+      group_id: socket.assigns.filter_group_id,
+      status: socket.assigns.filter_status,
+      search: socket.assigns.search
+    ]
   end
 
   @impl true
@@ -89,6 +100,21 @@ defmodule RuleMavenWeb.AdminLive.Questions do
 
   def handle_event("close_audit", _params, socket),
     do: {:noreply, assign(socket, audit: nil)}
+
+  # Infinite scroll: sentinel entering viewport fetches the next offset page,
+  # appended to the loaded list (see InfiniteScroll JS hook).
+  def handle_event("load_more", _params, socket) do
+    more =
+      Games.admin_list_questions(
+        filter_opts(socket) ++ [limit: @page_size, offset: length(socket.assigns.questions)]
+      )
+
+    {:noreply,
+     assign(socket,
+       questions: socket.assigns.questions ++ more,
+       has_more: length(more) == @page_size
+     )}
+  end
 
   def handle_event("filter_status", params, socket) do
     status = if params["status"] == "", do: nil, else: params["status"]
@@ -793,8 +819,20 @@ defmodule RuleMavenWeb.AdminLive.Questions do
         <% end %>
       </div>
 
-      <p style="font-size:0.72rem;color:var(--text-muted);margin-top:0.5rem">
-        Showing up to 100 most recent.
+      <%!-- Infinite scroll sentinel: pulls the next page as it nears the viewport --%>
+      <div
+        :if={@has_more}
+        id="questions-load-more-sentinel"
+        phx-hook="InfiniteScroll"
+        style="height:1px"
+      >
+      </div>
+
+      <p
+        :if={@has_more}
+        style="font-size:0.72rem;color:var(--text-muted);margin-top:0.5rem;text-align:center"
+      >
+        Loading more…
       </p>
     </div>
     """

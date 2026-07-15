@@ -2855,6 +2855,7 @@ defmodule RuleMaven.Games do
 
   def admin_list_questions(opts \\ []) do
     limit = Keyword.get(opts, :limit, 100)
+    offset = Keyword.get(opts, :offset, 0)
     game_id = Keyword.get(opts, :game_id)
     user_id = Keyword.get(opts, :user_id)
     group_id = Keyword.get(opts, :group_id)
@@ -2864,6 +2865,7 @@ defmodule RuleMaven.Games do
     query =
       from q in base_question_query(),
         limit: ^limit,
+        offset: ^offset,
         preload: [:game, :user],
         select: struct(q, ^@question_list_fields)
 
