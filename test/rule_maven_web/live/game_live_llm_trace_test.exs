@@ -57,6 +57,21 @@ defmodule RuleMavenWeb.GameLiveLlmTraceTest do
     })
   end
 
+  defp trace_row_cached(ql_id) do
+    Repo.insert!(%Log{
+      provider: "openrouter",
+      model: "google/gemini-2.5-flash",
+      operation: "ask",
+      prompt_tokens: 15_000,
+      completion_tokens: 400,
+      total_tokens: 15_400,
+      duration_ms: 2000,
+      success: true,
+      question_log_id: ql_id,
+      detail: %{"cached_tokens" => 13_000}
+    })
+  end
+
   defp open_qa(conn, game, ql) do
     live(
       conn,
@@ -83,6 +98,22 @@ defmodule RuleMavenWeb.GameLiveLlmTraceTest do
     assert html =~ "1.2s"
     assert html =~ "1 LLM call"
     assert html =~ "Pool lineage"
+  end
+
+  test "cost splits billed vs. saved-by-cache when calls have cached tokens", %{conn: conn} do
+    admin = create_user("trace_cache_admin", %{role: "admin"})
+    game = published_game_fixture(%{name: "Cache Cost Game"})
+    ql = answered_question(game, admin)
+    trace_row_cached(ql.id)
+
+    conn = login(conn, admin)
+    {:ok, view, _html} = open_qa(conn, game, ql)
+
+    html = render_click(view, "open_audit", %{"id" => to_string(ql.id)})
+
+    assert html =~ "Billed (after cache)"
+    assert html =~ "Saved by prompt cache"
+    assert html =~ "List price (no cache)"
   end
 
   test "empty trace shows the no-calls message", %{conn: conn} do

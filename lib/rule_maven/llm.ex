@@ -3646,6 +3646,14 @@ defmodule RuleMaven.LLM do
           order_by: [asc: l.inserted_at, asc: l.id]
       )
       |> Enum.map(fn l ->
+        # `cost` is what the provider actually billed: the list-price on the
+        # (post-Headroom) token counts MINUS the cache discount on cached prompt
+        # tokens, which bill at a fraction of the input rate. `saved` is that
+        # discount, surfaced separately so the panel can split billed vs. saved.
+        cached = (l.detail || %{})["cached_tokens"] || 0
+        gross = Pricing.cost(l.model, l.prompt_tokens, l.completion_tokens)
+        saved = Pricing.cached_savings(l.model, cached)
+
         %{
           inserted_at: l.inserted_at,
           operation: l.operation,
@@ -3654,7 +3662,8 @@ defmodule RuleMaven.LLM do
           prompt_tokens: l.prompt_tokens,
           completion_tokens: l.completion_tokens,
           total_tokens: l.total_tokens,
-          cost: Pricing.cost(l.model, l.prompt_tokens, l.completion_tokens),
+          cost: gross - saved,
+          saved: saved,
           duration_ms: l.duration_ms,
           success: l.success,
           error_message: l.error_message,
@@ -3665,6 +3674,7 @@ defmodule RuleMaven.LLM do
     totals = %{
       count: length(calls),
       cost: calls |> Enum.map(& &1.cost) |> Enum.sum(),
+      saved: calls |> Enum.map(& &1.saved) |> Enum.sum(),
       duration_ms: calls |> Enum.map(&(&1.duration_ms || 0)) |> Enum.sum(),
       tokens: calls |> Enum.map(&(&1.total_tokens || 0)) |> Enum.sum()
     }

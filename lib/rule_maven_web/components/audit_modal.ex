@@ -362,8 +362,21 @@ defmodule RuleMavenWeb.AuditModal do
       {section_head("Cost")}
       <div style="font-size:0.8rem;color:var(--text);display:flex;flex-direction:column;gap:0.15rem">
         <div style="display:flex;justify-content:space-between">
-          <span style="color:var(--text-muted)">Total generation cost</span>
+          <span style="color:var(--text-muted)">Billed (after cache)</span>
           <span style="font-weight:700">{fmt_usd(@totals.cost)}</span>
+        </div>
+        <div
+          :if={@totals.saved > 0}
+          style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--success,#16a34a)"
+          title="Estimated discount: cached prompt tokens bill at a fraction of the input rate"
+        >
+          <span>Saved by prompt cache</span><span>−{fmt_usd(@totals.saved)}</span>
+        </div>
+        <div
+          :if={@totals.saved > 0}
+          style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-muted)"
+        >
+          <span>List price (no cache)</span><span>{fmt_usd(@totals.cost + @totals.saved)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-muted)">
           <span>Tokens</span><span>{@totals.tokens}</span>
