@@ -892,7 +892,21 @@ defmodule RuleMaven.LLM do
   # question happened to be phrased.
   defp drop_lead_on_negative_question({:ok, %{answer: answer} = res}, question)
        when is_binary(answer) do
-    {:ok, %{res | answer: RuleMaven.LLM.Polarity.strip_inverted_lead(answer, question)}}
+    # The persona `styled_answer` is prose over the SAME verdict, so it carries
+    # the same invertible Yes/No lead — strip it too, or the reader hears the
+    # lead the plain answer no longer has. strip_inverted_lead is idempotent and
+    # a no-op when styled_answer is nil/absent or the question is not negative.
+    stripped_styled =
+      case Map.get(res, :styled_answer) do
+        styled when is_binary(styled) ->
+          RuleMaven.LLM.Polarity.strip_inverted_lead(styled, question)
+
+        other ->
+          other
+      end
+
+    res = %{res | answer: RuleMaven.LLM.Polarity.strip_inverted_lead(answer, question)}
+    {:ok, Map.put(res, :styled_answer, stripped_styled)}
   end
 
   defp drop_lead_on_negative_question(result, _question), do: result
@@ -2039,6 +2053,9 @@ defmodule RuleMaven.LLM do
 
   @doc false
   def __answer_flipping__(question, match_text, row), do: answer_flipping?(question, match_text, row)
+
+  @doc false
+  def __drop_lead__(result, question), do: drop_lead_on_negative_question(result, question)
 
   defp unglue_interrogative(text) do
     String.replace(text, @glued_re, "\\1 ")
