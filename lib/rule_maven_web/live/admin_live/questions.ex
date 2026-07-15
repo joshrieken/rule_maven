@@ -222,7 +222,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
     end
   end
 
-  def handle_event("set_visibility", %{"id" => id, "visibility" => vis}, socket) do
+  def handle_event("demote_question", %{"id" => id}, socket) do
     id = String.to_integer(id)
 
     case Enum.find(socket.assigns.questions, &(&1.id == id)) do
@@ -230,20 +230,15 @@ defmodule RuleMavenWeb.AdminLive.Questions do
         {:noreply, socket}
 
       q ->
-        case Games.update_question_visibility(q, vis) do
-          {:ok, _} ->
-            Audit.log(socket.assigns.current_user, "question.set_visibility",
-              target_type: "question",
-              target_id: q.id,
-              target_label: admin_question_text(q),
-              metadata: %{from: if(q.promoted, do: "community", else: "private"), to: vis}
-            )
+        {:ok, _} = Games.demote_question(q)
 
-            {:noreply, reload(socket)}
+        Audit.log(socket.assigns.current_user, "question.demote",
+          target_type: "question",
+          target_id: q.id,
+          target_label: admin_question_text(q)
+        )
 
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Couldn't change visibility.")}
-        end
+        {:noreply, reload(socket)}
     end
   end
 
@@ -653,15 +648,14 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                   class="btn-xs"
                   style="background:#d4a017;border-color:#d4a017;color:#fff"
                 >Force publish</button>
-                <select
-                  phx-change="set_visibility"
+                <button
+                  :if={q.promoted}
+                  type="button"
+                  phx-click="demote_question"
                   phx-value-id={q.id}
-                  name="visibility"
-                  style="border:1px solid var(--border);border-radius:0.25rem;padding:0.1rem 0.25rem;font-size:0.7rem;background:var(--bg);color:var(--text)"
-                >
-                  <option value="private" selected={not q.promoted}>Private</option>
-                  <option value="community" selected={q.promoted}>Community</option>
-                </select>
+                  title="Pull this row out of the community FAQ, back to private."
+                  class="btn-xs"
+                >Demote</button>
                 <%= if @confirm_delete_id == q.id do %>
                   <span style="font-size:0.7rem;color:var(--red);font-weight:600">Delete?</span>
                   <button

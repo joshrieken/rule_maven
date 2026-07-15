@@ -87,7 +87,8 @@ defmodule RuleMavenWeb.StandingLiveTest do
         browsable: true
       })
 
-    Games.set_question_visibility(q.id, "community")
+    q |> Ecto.Changeset.change(promoted: true, pooled: true) |> Repo.update!()
+    RuleMaven.Games.Trust.recompute_reputation(asker.id)
 
     {:ok, _view, html} = conn |> login(asker) |> live(~p"/standing")
 

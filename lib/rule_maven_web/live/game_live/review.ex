@@ -70,7 +70,7 @@ defmodule RuleMavenWeb.GameLive.Review do
     game = socket.assigns.game
 
     if q = Games.get_game_question(game, id_str) do
-      Games.set_question_visibility(q.id, "private")
+      Games.demote_question(q.id)
     end
 
     {:noreply, assign(socket, community_questions: Games.faq_questions(game, 100))}

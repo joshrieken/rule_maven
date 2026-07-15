@@ -128,30 +128,7 @@ defmodule RuleMaven.Workers.SettleVotesWorkerTest do
     )
   end
 
-  test "set_question_visibility promoting to community enqueues a confirmed settle" do
-    game = game_fixture()
-    author = user_fixture("mauthor")
-
-    {:ok, q} =
-      Games.log_question(%{
-        game_id: game.id,
-        question: "M?",
-        answer: "A.",
-        user_id: author.id,
-        pooled: true,
-        browsable: true,
-        promoted: false
-      })
-
-    Games.set_question_visibility(q.id, "community")
-
-    assert_enqueued(
-      worker: SettleVotesWorker,
-      args: %{"question_log_id" => q.id, "outcome" => "confirmed"}
-    )
-  end
-
-  test "set_question_visibility demoting from community enqueues a rejected settle" do
+  test "demote_question from community enqueues a rejected settle" do
     game = game_fixture()
     author = user_fixture("nauthor")
 
@@ -165,7 +142,7 @@ defmodule RuleMaven.Workers.SettleVotesWorkerTest do
         promoted: true
       })
 
-    Games.set_question_visibility(q.id, "private")
+    Games.demote_question(q.id)
 
     assert_enqueued(
       worker: SettleVotesWorker,

@@ -2235,7 +2235,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         {:noreply, socket}
 
       q ->
-        Games.update_question_visibility(q, "private")
+        Games.demote_question(q)
 
         grouped = Games.grouped_questions(game, question_group_opts(socket))
 

@@ -142,7 +142,7 @@ defmodule RuleMaven.QuestionFlagsTest do
   # ── report_answer: trust-tiered auto-pull ──────────────────────────────────
 
   defp reload(q), do: RuleMaven.Repo.get(RuleMaven.Games.QuestionLog, q.id)
-  defp make_community(q), do: Games.set_question_visibility(q.id, "community")
+  defp make_community(q), do: q |> Ecto.Changeset.change(promoted: true, pooled: true) |> Repo.update!()
 
   defp make_verified(q) do
     {:ok, _} =

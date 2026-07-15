@@ -2474,9 +2474,8 @@ defmodule RuleMaven.Games do
   @doc """
   Admin override: mark a row browsable regardless of what PublishCheckWorker's
   automated screen decided (or whether it has run at all yet). Does not touch
-  `visibility` — promoting to community stays the separate, existing
-  `update_question_visibility/2` action; this only unlocks the row from the
-  publish gate.
+  `promoted` — community promotion is earned by vote quorum or admin verify, not
+  a manual action; this only unlocks the row from the publish gate.
 
   Refuses a retracted row (`retracted_at` set — group delete,
   owner account deletion). This override exists to bypass an ambiguous/failed
@@ -2499,45 +2498,26 @@ defmodule RuleMaven.Games do
     end
   end
 
-  def update_question_visibility(%QuestionLog{} = q, "community") do
-    if publishable?(q),
-      do: do_update_question_visibility(q, "community"),
-      else: {:error, :not_publishable}
-  end
-
-  def update_question_visibility(%QuestionLog{} = q, visibility),
-    do: do_update_question_visibility(q, visibility)
-
-  defp do_update_question_visibility(%QuestionLog{} = q, visibility) do
-    # Promoting to community makes the row cache-eligible. `visibility` is the
-    # admin action's vocabulary ("community"/"private"); it maps to the boolean
-    # `promoted` column.
-    old_promoted = q.promoted
-    promoted = visibility == "community"
-    attrs = %{promoted: promoted, pooled: promoted or q.pooled}
-
-    with {:ok, updated} <- q |> QuestionLog.changeset(attrs) |> Repo.update() do
-      # Keep trust_score consistent with the new tier (community floors it), and
-      # the author's reputation consistent with the promotion bonus (reputation
-      # counts community rows × bonus, so a tier change must re-derive it).
+  @doc """
+  Demote a promoted row back to private — an admin (or the asker) pulling it out
+  of the community FAQ. There is no manual "promote to community": promotion is
+  earned by vote quorum (DirectPromotionWorker) or admin verify, so this only
+  ever clears `promoted`. Accepts a row or an id.
+  """
+  def demote_question(%QuestionLog{} = q) do
+    with {:ok, updated} <- q |> QuestionLog.changeset(%{promoted: false}) |> Repo.update() do
       RuleMaven.Games.Trust.recompute_trust(updated)
       if updated.user_id, do: RuleMaven.Games.Trust.recompute_reputation(updated.user_id)
-
-      # A manual admin visibility change is itself a terminal trust event:
-      # promotion to community confirms the upvotes; demotion to private
-      # rejects them (mirrors the automatic promotion/demotion paths above).
-      cond do
-        not old_promoted and promoted ->
-          RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :confirmed)
-
-        old_promoted and not promoted ->
-          RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :rejected)
-
-        true ->
-          :ok
-      end
-
+      # Demoting a row that WAS promoted rejects the upvotes that promoted it.
+      if q.promoted, do: RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :rejected)
       {:ok, updated}
+    end
+  end
+
+  def demote_question(id) when is_integer(id) do
+    case Repo.get(QuestionLog, id) do
+      nil -> :ok
+      q -> with {:ok, _} <- demote_question(q), do: :ok
     end
   end
 
@@ -2589,48 +2569,6 @@ defmodule RuleMaven.Games do
   defp blank_to_nil(s) when is_binary(s) do
     trimmed = String.trim(s)
     if trimmed == "", do: nil, else: trimmed
-  end
-
-  def set_question_visibility(id, visibility) when is_integer(id) do
-    row = Repo.get(QuestionLog, id)
-    old_promoted = row && row.promoted
-
-    cond do
-      is_nil(row) ->
-        :ok
-
-      # Same gate as update_question_visibility/2: an unscreened crew row must
-      # not reach community promotion, which is what makes its text listable.
-      visibility == "community" and not publishable?(row) ->
-        {:error, :not_publishable}
-
-      true ->
-        do_set_question_visibility(id, visibility == "community", old_promoted)
-    end
-  end
-
-  defp do_set_question_visibility(id, promoted, old_promoted) do
-    set = [promoted: promoted]
-    set = if promoted, do: Keyword.put(set, :pooled, true), else: set
-    Repo.update_all(from(q in QuestionLog, where: q.id == ^id), set: set)
-
-    if q = Repo.get(QuestionLog, id) do
-      RuleMaven.Games.Trust.recompute_trust(q)
-      if q.user_id, do: RuleMaven.Games.Trust.recompute_reputation(q.user_id)
-
-      # Same terminal-event logic as update_question_visibility/2 — a manual
-      # admin change to/from community is itself a confirm/reject signal.
-      cond do
-        not old_promoted and promoted ->
-          RuleMaven.Workers.SettleVotesWorker.enqueue(q.id, :confirmed)
-
-        old_promoted and not promoted ->
-          RuleMaven.Workers.SettleVotesWorker.enqueue(q.id, :rejected)
-
-        true ->
-          :ok
-      end
-    end
   end
 
   def check_rate_limit(nil), do: {:error, "Not logged in."}

@@ -175,24 +175,10 @@ defmodule RuleMaven.GroupGateHolesTest do
       assert Repo.get(QuestionLog, q.id).promoted
     end
 
-    test "promoting an uncleared group row to community is refused", ctx do
+    test "demoting a row is always allowed", ctx do
       q = group_question!(ctx.game, ctx.member, ctx.grp)
 
-      assert {:error, :not_publishable} = Games.update_question_visibility(q, "community")
-      refute Repo.get(QuestionLog, q.id).promoted
-    end
-
-    test "set_question_visibility/2 refuses an uncleared group row too", ctx do
-      q = group_question!(ctx.game, ctx.member, ctx.grp)
-
-      assert {:error, :not_publishable} = Games.set_question_visibility(q.id, "community")
-      refute Repo.get(QuestionLog, q.id).promoted
-    end
-
-    test "demoting an uncleared group row to private is still allowed", ctx do
-      q = group_question!(ctx.game, ctx.member, ctx.grp)
-
-      Games.set_question_visibility(q.id, "private")
+      Games.demote_question(q.id)
       refute Repo.get(QuestionLog, q.id).promoted
     end
   end
