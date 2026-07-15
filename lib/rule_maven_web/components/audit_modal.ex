@@ -232,6 +232,7 @@ defmodule RuleMavenWeb.AuditModal do
         <dl style="display:grid;grid-template-columns:auto 1fr;gap:0.15rem 0.6rem;margin:0">
           {fact("Asked", fmt_dt(@row.inserted_at))}
           {fact("Row id", "##{@row.id}")}
+          {fact("Audience", audience_label(@row))}
           {fact("Visibility", @row.visibility)}
           {fact("Served", if(cache_hit?(@row), do: "pool (cache hit)", else: "fresh generation"))}
           {fact("Pool source", if(@row.pooled, do: "yes (may serve the cache)", else: "no"))}
@@ -574,6 +575,19 @@ defmodule RuleMavenWeb.AuditModal do
     if QuestionLog.crew_origin?(q),
       do: QuestionLog.listed_question(q),
       else: QuestionLog.display_question(q)
+  end
+
+  # Plain-English "who can actually see this row", mirroring the authorization
+  # predicate Games.reachable_by?/2 (minus the viewer-specific "own row" clause).
+  # `visibility` alone is misleading — it's a promotion tier, not access; real
+  # reach is a mix of visibility, pooled+browsable and crew origin.
+  defp audience_label(%QuestionLog{} = q) do
+    cond do
+      q.visibility == "community" -> "Everyone · community-verified"
+      q.pooled and q.browsable -> "Everyone · public FAQ"
+      not is_nil(q.group_id) or QuestionLog.crew_origin?(q) -> "Crew only"
+      true -> "Asker only"
+    end
   end
 
   # Was this answer SERVED from the pool? `pool_source_id` is set only when a
