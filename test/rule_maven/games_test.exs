@@ -468,6 +468,29 @@ defmodule RuleMaven.GamesTest do
       assert updated.canonical_question == "Q?"
       assert updated.canonical_answer == "With one exception..."
     end
+
+    test "rejects a canonical_question that facet-flips the answer's question" do
+      game = game_fixture(%{bgg_id: System.unique_integer([:positive])})
+      q = log_question!(game.id, nil, "Can a player trade before rolling?", "No, they cannot.")
+
+      # Re-keying the guard/embedding to a question the stored answer was never
+      # generated for (before -> after) would serve the wrong verdict cross-user.
+      assert {:error, :canonical_question_conflicts_answer} =
+               Games.update_canonical(q, "Can a player trade after rolling?", "No, they cannot.")
+
+      # The row is untouched.
+      assert Repo.get!(Games.QuestionLog, q.id).canonical_question == nil
+    end
+
+    test "allows a facet-compatible canonical_question rephrase" do
+      game = game_fixture(%{bgg_id: System.unique_integer([:positive])})
+      q = log_question!(game.id, nil, "Can a player trade before rolling?", "No.")
+
+      assert {:ok, updated} =
+               Games.update_canonical(q, "May a player trade before they roll?", "No.")
+
+      assert updated.canonical_question == "May a player trade before they roll?"
+    end
   end
 
   describe "DMCA takedowns" do

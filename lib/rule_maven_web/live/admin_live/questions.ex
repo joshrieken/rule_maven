@@ -345,6 +345,14 @@ defmodule RuleMavenWeb.AdminLive.Questions do
              |> put_flash(:info, "Saved curated FAQ text.")
              |> reload()}
 
+          {:error, :canonical_question_conflicts_answer} ->
+            {:noreply,
+             put_flash(
+               socket,
+               :error,
+               "That canonical question flips the meaning of the stored answer — regenerate the answer instead of relabelling it."
+             )}
+
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Couldn't save the curated text.")}
         end

@@ -235,6 +235,46 @@ defmodule RuleMaven.GamesPoolInvalidationTest do
       assert Games.find_similar_question_in_pool(game.id, embedding) == nil
     end
 
+    test "the pool lookup skips a blocked answer" do
+      game = game()
+      embedding = List.duplicate(0.1, 768)
+
+      {:ok, q} =
+        Games.log_question(%{game_id: game.id, question: "how to win", answer: "score points"})
+
+      Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
+        set: [
+          visibility: "community",
+          pooled: true,
+          blocked: true,
+          question_embedding: Pgvector.new(embedding)
+        ]
+      )
+
+      # A blocked answer must never serve cross-user, the same as the same-user
+      # tiers already enforce.
+      assert Games.find_similar_question_in_pool(game.id, embedding) == nil
+    end
+
+    test "the pool lookup skips a still-Thinking sentinel row" do
+      game = game()
+      embedding = List.duplicate(0.1, 768)
+
+      {:ok, q} =
+        Games.log_question(%{game_id: game.id, question: "how to win", answer: "Thinking..."})
+
+      Repo.update_all(from(x in QuestionLog, where: x.id == ^q.id),
+        set: [
+          visibility: "community",
+          pooled: true,
+          question_embedding: Pgvector.new(embedding)
+        ]
+      )
+
+      # An in-flight "Thinking..." answer must never be served.
+      assert Games.find_similar_question_in_pool(game.id, embedding) == nil
+    end
+
     test "a failed (error_kind) answer is never served from any cache tier" do
       game = game()
       embedding = List.duplicate(0.1, 768)

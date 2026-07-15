@@ -2545,10 +2545,23 @@ defmodule RuleMaven.Games do
   Does NOT change visibility — promotion stays a separate, explicit action.
   """
   def update_canonical(%QuestionLog{} = q, canonical_question, canonical_answer) do
-    attrs = %{
-      canonical_question: blank_to_nil(canonical_question),
-      canonical_answer: blank_to_nil(canonical_answer)
-    }
+    new_cq = blank_to_nil(canonical_question)
+
+    # `canonical_question` re-keys the pool guard AND the embedding (via
+    # EmbedQuestionWorker below), but the stored answer was generated for the
+    # ORIGINAL ask. If a curator re-keys to a facet-flipped question (before ->
+    # after, may -> must), the row would serve the wrong verdict for the new
+    # key. Refuse — the answer must be regenerated for that question, not
+    # relabelled onto it. A blank value reverts to the original, so it can't flip.
+    if new_cq && RuleMaven.LLM.QuestionFacets.conflict(new_cq, q.question) do
+      {:error, :canonical_question_conflicts_answer}
+    else
+      do_update_canonical(q, new_cq, blank_to_nil(canonical_answer))
+    end
+  end
+
+  defp do_update_canonical(%QuestionLog{} = q, new_cq, new_ca) do
+    attrs = %{canonical_question: new_cq, canonical_answer: new_ca}
 
     with {:ok, updated} <- q |> QuestionLog.changeset(attrs) |> Repo.update() do
       # Skip the re-embed enqueue under manual Oban (tests); enqueue in prod.
@@ -3120,6 +3133,12 @@ defmodule RuleMaven.Games do
         where: ^eligibility_filter,
         where: not is_nil(q.question_embedding),
         where: q.refused == false,
+        # Parity with every same-user tier: a moderator-blocked answer must
+        # never serve cross-user either.
+        where: q.blocked == false,
+        # An in-flight "Thinking..." sentinel (or a null answer) is not an
+        # answer — never serve it.
+        where: q.answer != "Thinking..." and not is_nil(q.answer),
         # Skip answers flagged stale by a rulebook change until re-approved.
         where: q.needs_review == false,
         # Belt-and-braces: `invalidate_pool/1` already demotes `pooled` on every
