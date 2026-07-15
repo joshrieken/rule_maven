@@ -178,7 +178,7 @@ defmodule RuleMaven.Games.QuestionLog do
   for every row. Use the stored `q.audience` for live rows (indexed, SQL-usable);
   this function is for rows rebuilt off-DB (e.g. deleted-version snapshots).
 
-    * `:public`  — visibility "community" OR (pooled AND screened/browsable)
+    * `:public`  — promoted OR (pooled AND screened/browsable)
     * `:crew`    — otherwise, while a group_id remains
     * `:private` — otherwise (owner only)
   """
