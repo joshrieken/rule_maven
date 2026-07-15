@@ -827,12 +827,133 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
              )
     end
 
-    test "once/twice is deliberately NOT gated — 'once' also means when" do
-      # "once you roll a seven, discard" uses once=WHEN, not once=one time, so it
-      # cannot be mapped to a count without false-gating a timing paraphrase.
+    test "bare once is NOT gated — 'once' also means when" do
+      # "once you roll a seven, discard" uses once=WHEN, not once=one time, so the
+      # bare token cannot be mapped to a count without false-gating a timing
+      # paraphrase. Only the pinned frequency shapes count — see the next test.
       assert Facets.compatible?(
                "Once you roll a seven, do you discard?",
                "When you roll a seven, do you discard?"
+             )
+
+      # "once a player" is the conjunction again, even though "once a" opens it.
+      assert Facets.compatible?(
+               "Once a player builds a settlement, do they draw?",
+               "Does a player draw after building a settlement?"
+             )
+    end
+
+    test "'once per X' and 'once a turn' ARE frequencies — vs twice, 0.956" do
+      refute Facets.compatible?(
+               "Can I play a knight once per turn?",
+               "Can I play a knight twice per turn?"
+             )
+
+      assert Facets.conflict(
+               "Can I play a knight once per turn?",
+               "Can I play a knight twice per turn?"
+             ) == :frequency
+
+      refute Facets.compatible?(
+               "Can I play a knight once a turn?",
+               "Can I play a knight twice per turn?"
+             )
+
+      # Same frequency, different phrasing — still a match.
+      assert Facets.compatible?(
+               "Can I play a knight once per turn?",
+               "Is playing a knight limited to once a turn?"
+             )
+    end
+
+    test "hyphen and space spellings collapse onto the same pole" do
+      # "counter-clockwise" split naively into counter+CLOCKWISE — the guard read
+      # it as the OPPOSITE pole and confirmed the flipped candidate at 0.94.
+      refute Facets.compatible?(
+               "Does play proceed counter-clockwise?",
+               "Does play proceed clockwise?"
+             )
+
+      assert Facets.conflict(
+               "Does play proceed counter clockwise?",
+               "Does play proceed clockwise?"
+             ) == :direction
+
+      # Same pole across spellings — a paraphrase survives.
+      assert Facets.compatible?(
+               "Does play proceed counter-clockwise?",
+               "Does play move counterclockwise?"
+             )
+
+      # "face-up" hyphenated slipped past the visibility axis at 0.96.
+      refute Facets.compatible?(
+               "Are development cards kept face-up?",
+               "Are development cards kept face down?"
+             )
+    end
+
+    test "'have to' is obligation — vs can, measured 0.92, exactly at the floor" do
+      refute Facets.compatible?(
+               "Do I have to play a development card the turn I buy it?",
+               "Can I play a development card the turn I buy it?"
+             )
+
+      assert Facets.conflict(
+               "Do I have to move the robber?",
+               "Can the robber be moved?"
+             ) == :modal
+
+      # Same side as must — the normalizer's usual rewrite survives.
+      assert Facets.compatible?(
+               "Do I have to move the robber?",
+               "Must the robber be moved?"
+             )
+
+      assert Facets.preserved_in_rewrite?(
+               "do I have to move the robber?",
+               "Must a player move the robber?"
+             )
+
+      refute Facets.preserved_in_rewrite?(
+               "do I have to move the robber?",
+               "Can a player move the robber?"
+             )
+    end
+
+    test "bare '2 for 1' trade ratio is ORDERED — same digits, opposite trade, 0.962" do
+      # No resource noun beside either number, so the unit-binding path never
+      # fires, and the number SETs are equal — only the pair order differs.
+      refute Facets.compatible?(
+               "Can I trade 2 for 1 at a harbor?",
+               "Can I trade 1 for 2 at a harbor?"
+             )
+
+      assert Facets.conflict(
+               "Can I trade 2 for 1 at a harbor?",
+               "Can I trade 1 for 2 at a harbor?"
+             ) == :trade_pair
+
+      # Same ordered pair in a different sentence — still a match.
+      assert Facets.compatible?(
+               "Can I trade 2 for 1 at a harbor?",
+               "Is 2 for 1 harbor trading allowed?"
+             )
+
+      # Spelled numbers bind the same way.
+      refute Facets.compatible?(
+               "Can I trade two for one at a harbor?",
+               "Can I trade one for two at a harbor?"
+             )
+
+      # A rewrite may drop the ratio (premise trimming) but must not reverse it.
+      assert Facets.preserved_in_rewrite?(
+               "Can I trade 2 for 1 at a harbor?",
+               "Can a player trade 2 for 1 at a harbor?"
+             )
+
+      refute Facets.preserved_in_rewrite?(
+               "Can I trade 2 for 1 at a harbor?",
+               "Can a player trade 1 for 2 at a harbor?"
              )
     end
   end

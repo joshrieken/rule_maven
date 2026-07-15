@@ -123,9 +123,12 @@ defmodule RuleMaven.LLM.QuestionFacets do
       ~w(after following subsequent afterward afterwards)
     ],
     # "CAN I move the robber" (permission) vs "MUST I move the robber" (obligation)
+    # `hasto` is the tokenizer's collapse of "have to"/"has to"/"had to" — see
+    # tokens/1 — carrying the commonest spoken obligation past words too
+    # ambiguous to gate bare.
     modal: [
       ~w(may can could allowed permitted optional able optionally),
-      ~w(must mandatory required require requires obligated forced need needs)
+      ~w(must mandatory required require requires obligated forced need needs hasto)
     ],
     # "MORE than seven cards" (discard) vs "FEWER than seven cards" (do not)
     comparative: [
@@ -364,6 +367,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
     Polarity.compatible?(question, candidate) and
       numbers_agree?(q, c) and
       ratios_agree?(question, candidate) and
+      trade_pairs_agree?(q, c) and
       bounds_agree?(q, c) and
       compass_agree?(q, c) and
       ordinals_agree?(q, c) and
@@ -398,6 +402,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       MapSet.subset?(numbers(w), numbers(r)) and
       MapSet.subset?(unit_numbers(w), unit_numbers(r)) and
       MapSet.subset?(ratios(rewrite), ratios(raw)) and
+      MapSet.subset?(trade_pairs(w), trade_pairs(r)) and
       MapSet.subset?(bound_preds(w), bound_preds(r)) and
       MapSet.subset?(compass_dirs(w), compass_dirs(r)) and
       MapSet.subset?(ordinals(w), ordinals(r)) and
@@ -418,6 +423,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
       not Polarity.compatible?(question, candidate) -> :negation
       not numbers_agree?(q, c) -> :number
       not ratios_agree?(question, candidate) -> :ratio
+      not trade_pairs_agree?(q, c) -> :trade_pair
       not compass_agree?(q, c) -> :compass
       not ordinals_agree?(q, c) -> :ordinal
       not frequencies_agree?(q, c) -> :frequency
@@ -736,9 +742,15 @@ defmodule RuleMaven.LLM.QuestionFacets do
   # "attack two targets" both mention 2 but mean different things, so folding
   # them together would wrongly equate a frequency with a quantity.
   #
-  # `once` is deliberately excluded — it doubles as the conjunction "when" ("once
-  # you build, ..."), and gating it would break pool hits on unrelated questions.
+  # Bare `once` is deliberately excluded — it doubles as the conjunction "when"
+  # ("once you build, ..."), and gating it would break pool hits on unrelated
+  # questions. But "once PER turn" vs "twice per turn" measured 0.956 — over the
+  # floor with the flip invisible — so `once` counts when the following words
+  # pin it as a frequency: "once per ..." always is, and "once a/an/every X"
+  # only when X is a game-time noun ("once a turn" is a frequency, "once a
+  # player builds" is the conjunction again).
   @freq_words %{"twice" => 2, "thrice" => 3}
+  @freq_periods ~w(turn turns round rounds game games phase phases age ages era eras)
 
   defp frequencies(tokens) do
     toks_t = List.to_tuple(tokens)
@@ -748,10 +760,13 @@ defmodule RuleMaven.LLM.QuestionFacets do
     |> Enum.with_index()
     |> Enum.reduce(MapSet.new(), fn {t, i}, acc ->
       next = if i + 1 < n, do: elem(toks_t, i + 1), else: nil
+      next2 = if i + 2 < n, do: elem(toks_t, i + 2), else: nil
 
       cond do
         Map.has_key?(@freq_words, t) -> MapSet.put(acc, @freq_words[t])
         next == "times" && to_number(t) -> MapSet.put(acc, to_number(t))
+        t == "once" && next == "per" -> MapSet.put(acc, 1)
+        t == "once" && next in ~w(a an every) && next2 in @freq_periods -> MapSet.put(acc, 1)
         true -> acc
       end
     end)
@@ -762,6 +777,34 @@ defmodule RuleMaven.LLM.QuestionFacets do
     fc = frequencies(c)
 
     Enum.empty?(fq) or Enum.empty?(fc) or MapSet.equal?(fq, fc)
+  end
+
+  # "Can I trade 2 for 1 at a harbor?" vs "... 1 for 2 ..." — same number SET,
+  # so numbers_agree? passes, and with no resource noun beside either number
+  # the unit-binding path never fires; measured 0.962, over the floor. The
+  # NUM-for-NUM shape is the rule itself, so the pair is kept ORDERED and must
+  # match exactly. A unit-bound ratio ("2 wood for 1 ore") never reaches here —
+  # the noun between the numbers breaks the three-token window.
+  defp trade_pairs(tokens) do
+    tokens
+    |> Enum.chunk_every(3, 1, :discard)
+    |> Enum.reduce(MapSet.new(), fn
+      [a, "for", b], acc ->
+        case {to_number(a), to_number(b)} do
+          {na, nb} when is_integer(na) and is_integer(nb) -> MapSet.put(acc, {na, nb})
+          _ -> acc
+        end
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp trade_pairs_agree?(q, c) do
+    tq = trade_pairs(q)
+    tc = trade_pairs(c)
+
+    Enum.empty?(tq) or Enum.empty?(tc) or MapSet.equal?(tq, tc)
   end
 
   defp to_number(token) do
@@ -782,14 +825,26 @@ defmodule RuleMaven.LLM.QuestionFacets do
   #
   # "face up"/"face down" collapse to single tokens first, so the visibility
   # axis fires on the PHRASE while the bare tokens up/down stay ungated — "up
-  # to seven cards" must not be dragged onto a visibility pole.
+  # to seven cards" must not be dragged onto a visibility pole. Hyphens split
+  # like spaces, so the phrase collapses must accept both: "face-up" left alone
+  # would split into face+up and slip past the axis at 0.96, and worse,
+  # "counter-clockwise" would split into counter+CLOCKWISE — read as the
+  # opposite pole, actively confirming the flipped candidate at 0.94.
+  #
+  # "have to"/"has to" collapse to a single token carried on the modal
+  # obligation side: "do I HAVE TO play it" vs "CAN I play it" measured 0.92 —
+  # exactly at the pool floor — and neither bare word can sit on the axis
+  # ("have" and "to" are everywhere). The phrase is obligation-only in
+  # questions, so the collapse is safe where the words are not.
   defp tokens(text) do
     text
     |> to_string()
     |> String.downcase()
     |> String.replace(~r/['’]/u, "")
-    |> String.replace(~r/\bface\s+up\b/u, "faceup")
-    |> String.replace(~r/\bface\s+down\b/u, "facedown")
+    |> String.replace(~r/\bface[\s-]+up\b/u, "faceup")
+    |> String.replace(~r/\bface[\s-]+down\b/u, "facedown")
+    |> String.replace(~r/\b(?:counter|anti)[\s-]+clockwise\b/u, "counterclockwise")
+    |> String.replace(~r/\b(?:have|has|had)\s+to\b/u, "hasto")
     |> String.split(~r/[^a-z0-9]+/u, trim: true)
   end
 end
