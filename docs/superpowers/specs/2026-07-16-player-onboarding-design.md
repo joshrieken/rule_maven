@@ -34,19 +34,26 @@ from data that already exists.
 
 | Milestone | Layer | Source (existing) | Net-new? |
 |---|---|---|---|
-| Ask your first question | aha | any `QuestionLog` for user | no |
-| Reach Level 2 in any game | **A** | `Progress.level_for/1` | no |
-| Earn a badge | D | `Curation` badges | no |
-| Invite your crew | C | group membership / invite | no |
+| Ask your first question | aha | any `mastery_events` row for user | no |
+| Reach Level 1 in any game (≈4 answers) | **A** | `Progress.best_level/1` (max `game_mastery.level`) | small helper |
+| Earn a badge | D | `Curation.curator_stats/1` `.badges` | no |
+| Invite your crew | C | `Groups.list_for_user/1` non-empty | no |
 | Keep a daily streak | B | **new** streak counters | yes |
+
+**Level curve note:** `threshold(n) = 25·n·(n+1)` → Level 1 @ 50 XP (≈4 answers at
+15 XP each), Level 2 @ 150 XP (≈10 answers). Level **1** is the achievable early hook;
+Level 2 is too far for first-run. First-answer card copy is computed from
+`Progress.level_progress/1`, never hardcoded.
 
 **Only net-new persisted state:**
 
 - **Streak fields on `users`**: `last_active_on :date`, `current_streak :integer`,
   `longest_streak :integer`. Bumped at the XP-award choke point (`Progress.award_ask/3`),
   one place, already durable.
-- **Dismissal / one-time flags**: reuse the existing `tours_seen` pattern — no new column.
-  Keys: `"getting_started"` (panel collapsed/complete), `"first_answer_reward"` (one-time card).
+- **Dismissal flag**: reuse the existing `tours_seen` pattern — no new column.
+  Key: `"getting_started"` (panel collapsed/complete). The first-answer card needs
+  **no** flag — it fires exactly once because it's gated on `mastery_events` count == 1,
+  which is inherently a once-ever condition.
 
 **API:** `PlayerOnboarding.summary(user)` → `{milestones, all_complete?, current_streak}`.
 One function, callable from any LiveView mount. Pure read except the streak bump, which lives
@@ -63,14 +70,15 @@ Function component `PlayerOnboarding.panel/1` (web). Rendered on **games index**
 - Rows, each: icon · label · one-line "why" · state.
   - **Done** → check + struck label, muted.
   - **Active/next** → highlighted, CTA deep-links to the action:
-    - *Reach Level 2* → shows `15/50 XP` mini-bar, button scrolls to ask box.
-    - *Invite your crew* → opens crew invite.
+    - *Reach Level 1* → shows the live XP mini-bar (`into/span` from `level_progress/1`),
+      button scrolls to ask box.
+    - *Invite your crew* → `/groups/join` invite (`Groups`/`GroupLive` invite_url).
     - *Earn a badge* → links to how-voting-works in /help.
   - **Locked/future** → dim, no CTA.
 - Footer once `all_complete?`: "You're rolling 🎉 — Level up your table" → crew invite.
   Then auto-collapse + stamp `tours_seen["getting_started"]`.
 
-**Ordering** = locked sequence: aha (first question) → **A progression** (Level 2) → then
+**Ordering** = locked sequence: aha (first question) → **A progression** (Level 1) → then
 B/C/D below. Progression sits directly under the aha row, visually primary (accent, larger);
 others stay quiet until progression is done.
 
@@ -92,19 +100,22 @@ Kept deliberately dumb. At the XP-award choke point, on each answered question:
 - older → reset to 1.
 - always `longest_streak = max(longest_streak, current_streak)`.
 
-Timezone: user's local date if known, else server date. No grace tokens, no freezes (YAGNI).
-The streak row just reads `current_streak`.
+Date basis: **server UTC date** (the bump runs in `AskWorker`, which has no user timezone).
+No grace tokens, no freezes (YAGNI). The streak row just reads `current_streak`.
 
 ## First-answer reward moment (sequence payoff)
 
 - Existing level-up confetti stays as-is for real level-ups.
-- **New one-time "progression card"** on the very first answered question — not confetti, a
-  small card: "First question answered ✓ · +15 XP · Level 1 → 3 answers to Level 2" with a
-  subtle bar, dismissible. Fires once ever via `tours_seen["first_answer_reward"]`.
+- **New one-time "progression card"** on the very first awarded answer — not confetti, a small
+  card: "First question answered ✓ · +15 XP · X more answers to Level 1" with a subtle bar,
+  dismissible. Copy is computed from `Progress.level_progress/1` (answers-to-next = `ceil((span
+  - into) / 15)`), never hardcoded.
+- **Detection:** inside `Progress.award/5`, `mastery_events` count for the user == 1 after the
+  insert → `first_award: true` in the result map. `AskWorker` passes it through the existing
+  `{:mastery_awarded, …}` broadcast; `show.ex` pushes `onboarding:first_answer`. Fires exactly
+  once because count==1 is a once-ever condition — **no seen-flag needed**.
 - This is the hinge: answer lands → immediately shows the A-progression ladder. The panel then
   persists that ladder for later visits.
-- **Detection:** count of user's answered questions == 1 at award time (already inside
-  `award_ask`; one cheap query or existing count). No new state beyond the seen-flag.
 
 ## Edge cases & error handling
 
