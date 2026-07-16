@@ -882,6 +882,7 @@ defmodule RuleMaven.LLM do
     body
     |> do_request(1, opts)
     |> maybe_retry_stalled_stream(body, opts)
+    |> maybe_retry_truncated_answer(body, opts)
     |> maybe_retry_bad_answer(body, game_id, opts)
     |> drop_lead_on_negative_question(question)
   end
@@ -1044,6 +1045,69 @@ defmodule RuleMaven.LLM do
       result
     end
   end
+
+  # A truncated answer — the provider dropped the stream mid-generation, or the
+  # completion hit its token cap — leaves an unclosed JSON object. `decode_answer/1`
+  # then falls to its `:error` branch, yielding the raw fragment as a non-empty,
+  # UNCITED answer. That is indistinguishable to `enforce_citations/3` from a
+  # sloppy real answer, so it gets converted into a false "The rulebook does not
+  # cover this question." refusal (verdict "silent") and cached as fact. This is
+  # the exact failure that produced a bogus refusal for a plainly-covered Catan
+  # question whose corpus and retrieval were both intact.
+  #
+  # Catch it before the citation guard: retry once (transient stream drops
+  # recover on a fresh call), and if the answer is STILL truncated, surface a
+  # retryable {:error, _} so AskWorker re-runs the ask instead of storing a
+  # refusal the rulebook never justified.
+  defp maybe_retry_truncated_answer({:ok, res} = result, body, opts) do
+    cond do
+      not answer_truncated?(res) ->
+        result
+
+      Keyword.get(opts, :truncation_retried, false) ->
+        {:error, "answer truncated (incomplete stream)"}
+
+      true ->
+        require Logger
+
+        Logger.warning(
+          "answer truncated (finish_reason=#{inspect(res[:finish_reason])}) — retrying once with cache-busting nonce"
+        )
+
+        retried_opts = Keyword.put(opts, :truncation_retried, true)
+
+        body
+        |> Map.update!(:messages, &append_cache_bust_nonce/1)
+        |> do_request(1, retried_opts)
+        |> maybe_retry_truncated_answer(body, retried_opts)
+    end
+  end
+
+  defp maybe_retry_truncated_answer(result, _body, _opts), do: result
+
+  # A response is truncated when the provider says so (finish_reason
+  # length/max_tokens) or when its JSON object never closed — a completion the
+  # ask path always requests as a `json_object`, so a raw payload that opens with
+  # `{` but won't parse was cut off, not merely malformed. Non-JSON raw (from
+  # `raw: true` callers) is left alone.
+  defp answer_truncated?(res) do
+    res[:finish_reason] in ["length", "max_tokens"] or unclosed_json?(res[:raw_response])
+  end
+
+  defp unclosed_json?(raw) when is_binary(raw) do
+    trimmed = String.trim(raw)
+    trimmed != "" and String.starts_with?(trimmed, "{") and json_object(trimmed) == :error
+  end
+
+  defp unclosed_json?(_), do: false
+
+  @doc false
+  # Test seams for the truncated-answer guard.
+  def __maybe_retry_truncated_answer__(result, body, opts),
+    do: maybe_retry_truncated_answer(result, body, opts)
+
+  @doc false
+  def __answer_truncated__(res), do: answer_truncated?(res)
 
   # Real pipeline progress for the asker's loader bar. Broadcast on the
   # per-question ask-stream topic (same channel as :ask_partial) so only the
