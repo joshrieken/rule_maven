@@ -357,12 +357,14 @@ defmodule RuleMaven.Voices do
           loading_phrases: gv.loading_phrases,
           thanks_phrases: gv.thanks_phrases,
           popularity_rank: gv.popularity_rank,
-          vetted: gv.vetted
+          vetted: gv.vetted,
+          unlock_level: gv.unlock_level
         }
     )
     |> Enum.map(fn gv ->
       %{
         id: @game_prefix <> gv.slug,
+        slug: gv.slug,
         label: gv.label,
         emoji: gv.emoji,
         style: gv.style,
@@ -370,9 +372,26 @@ defmodule RuleMaven.Voices do
         loading_phrases: gv.loading_phrases || [],
         thanks_phrases: gv.thanks_phrases || [],
         popularity_rank: gv.popularity_rank,
-        vetted: gv.vetted || false
+        vetted: gv.vetted || false,
+        unlock_level: gv.unlock_level || 0
       }
     end)
+  end
+
+  @doc """
+  Voices available to a specific user on `game`: the globals plus this game's
+  generated voices that are either always open (`unlock_level == 0`) or already
+  unlocked for the user (slug in `unlocked_slugs`). This is the per-game mastery
+  gate (feature C) — see `RuleMaven.Progress`.
+  """
+  def for_game(game, unlocked_slugs) when is_list(unlocked_slugs) do
+    available =
+      game
+      |> game_id()
+      |> game_voice_defs()
+      |> Enum.filter(fn v -> v.unlock_level == 0 or v.slug in unlocked_slugs end)
+
+    @voices ++ available
   end
 
   @doc "True for a built-in global voice id (no game context needed)."

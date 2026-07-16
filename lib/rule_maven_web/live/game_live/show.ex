@@ -40,6 +40,10 @@ defmodule RuleMavenWeb.GameLive.Show do
        my_groups: [],
        active_group_id: nil,
        group_feed: [],
+       # Per-game mastery HUD (video-game XP bar). Loaded with the game; updated
+       # live by {:mastery_awarded, …}. xp_toast is a transient "+N XP" flash.
+       game_mastery: nil,
+       xp_toast: nil,
        # Per-page-load seed (set by the :put_dyk_seed plug). Identical across the
        # dead render and the connected mount, so the "Did you know?" card picks
        # the same fact on both; re-rolls on a real refresh.
@@ -446,12 +450,16 @@ defmodule RuleMavenWeb.GameLive.Show do
     # this never doubles.
     prev_thread_id = socket.assigns[:active_thread_id]
 
+    mastery = RuleMaven.Progress.get_mastery(socket.assigns.current_user.id, game.id)
+
     socket =
       assign(socket,
         game: game,
         loaded_game_id: game.id,
         grouped: grouped,
-        voices: RuleMaven.Voices.for_game(game),
+        # Persona picker is gated by per-game mastery (feature C): locked voices
+        # are filtered out until unlocked.
+        voices: RuleMaven.Voices.for_game(game, mastery.unlocked_voice_slugs),
         page_title: game.name,
         conversation: conversation,
         threads: threads,
@@ -474,7 +482,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         favorited_answer_ids: favorited_answer_ids,
         flagged_ids: Games.user_flagged_ids(socket.assigns.current_user.id),
         asks_disabled: not RuleMaven.Flags.enabled?(:asks, socket.assigns.current_user),
-        question_categories: question_categories
+        question_categories: question_categories,
+        game_mastery: mastery
       )
 
     # Tool data + window state load once per mount (seeded_before gates first
@@ -2980,6 +2989,40 @@ defmodule RuleMavenWeb.GameLive.Show do
     {:noreply, refresh_house_rules(socket)}
   end
 
+  # Per-game mastery reward. `game:<id>` is public, so only react for the asker.
+  # A: update the HUD bar + flash the "+N XP" toast. B: on a level-up, push a
+  # client event so the confetti hook fires (reduced-motion is honored there).
+  def handle_info({:mastery_awarded, %{user_id: uid} = payload}, socket) do
+    user = socket.assigns.current_user
+
+    if user && user.id == uid && socket.assigns.game && socket.assigns.game.id == payload[:game_id] do
+      mastery = RuleMaven.Progress.get_mastery(uid, payload.game_id)
+      # Clear the toast shortly after so it re-mounts (and re-animates) on the
+      # next award rather than sitting statically.
+      Process.send_after(self(), :clear_xp_toast, 1800)
+      socket = assign(socket, game_mastery: mastery, xp_toast: payload.xp_delta)
+
+      socket =
+        if payload.level_up do
+          # Refresh the persona picker so any newly unlocked voice appears live,
+          # then fire the confetti moment.
+          socket
+          |> assign(voices: RuleMaven.Voices.for_game(socket.assigns.game, mastery.unlocked_voice_slugs))
+          |> push_event("mastery:level_up", %{level: payload.level, unlocked: payload.unlocked})
+        else
+          socket
+        end
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(:clear_xp_toast, socket) do
+    {:noreply, assign(socket, xp_toast: nil)}
+  end
+
   def handle_info({:house_rule_delta, hr_id, ql_id, status}, socket) do
     cond do
       socket.assigns.active_thread_id != ql_id ->
@@ -3450,6 +3493,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         house_rule_count={length(@house_rules)}
         my_groups={@my_groups}
         active_group_id={@active_group_id}
+        game_mastery={@game_mastery}
+        xp_toast={@xp_toast}
       >
         <%!-- Sidebar toggle: kept first so it is the leftmost control on
               whichever row this group wraps onto on narrow screens. The

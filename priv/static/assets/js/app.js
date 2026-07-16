@@ -1655,6 +1655,86 @@ Hooks.PersonaFilter = {
   }
 };
 
+// Per-game mastery HUD. The bar itself is server-rendered; this hook just owns
+// the rare "level up" moment (B): a full-screen banner + a short confetti burst
+// fired by the "mastery:level_up" server event. Honors prefers-reduced-motion
+// (no confetti, static banner) and never blocks — tap or timeout to dismiss.
+Hooks.MasteryHud = {
+  mounted() {
+    this.handleEvent("mastery:level_up", ({ level, unlocked }) =>
+      this.celebrate(level, unlocked || [])
+    );
+  },
+  celebrate(level, unlocked) {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const esc = (s) =>
+      String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+    const overlay = document.createElement("div");
+    overlay.className = "mastery-levelup";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-label", `Level ${level} reached`);
+    const unlockHtml = unlocked.length
+      ? `<div class="mastery-levelup__unlock">🎉 Unlocked: ${unlocked.map(esc).join(", ")}</div>`
+      : "";
+    overlay.innerHTML =
+      `<div class="mastery-levelup__card">` +
+      `<div class="mastery-levelup__eyebrow">LEVEL UP</div>` +
+      `<div class="mastery-levelup__lvl">Lv ${esc(level)}</div>` +
+      unlockHtml +
+      `<div class="mastery-levelup__hint">tap to continue</div>` +
+      `</div>`;
+
+    const dismiss = () => {
+      if (overlay._raf) cancelAnimationFrame(overlay._raf);
+      overlay.remove();
+    };
+    overlay.addEventListener("click", dismiss);
+    document.body.appendChild(overlay);
+    if (!reduce) this.confetti(overlay);
+    setTimeout(dismiss, 6000);
+  },
+  confetti(overlay) {
+    const canvas = document.createElement("canvas");
+    canvas.className = "mastery-levelup__confetti";
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    overlay.appendChild(canvas);
+    const ctx = canvas.getContext("2d");
+    const colors = ["#fbbf24", "#60a5fa", "#f87171", "#34d399", "#a78bfa"];
+    const parts = Array.from({ length: 90 }, () => ({
+      x: canvas.width / 2 + (Math.random() - 0.5) * 120,
+      y: canvas.height / 3,
+      vx: (Math.random() - 0.5) * 9,
+      vy: Math.random() * -9 - 4,
+      w: 6 + Math.random() * 5,
+      h: 9 + Math.random() * 7,
+      rot: Math.random() * Math.PI,
+      vr: (Math.random() - 0.5) * 0.3,
+      color: colors[(Math.random() * colors.length) | 0]
+    }));
+    const start = performance.now();
+    const tick = (now) => {
+      const t = now - start;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      parts.forEach((p) => {
+        p.vy += 0.28;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.rot += p.vr;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      });
+      if (t < 2600) overlay._raf = requestAnimationFrame(tick);
+    };
+    overlay._raf = requestAnimationFrame(tick);
+  }
+};
+
 // Score pad: a fully client-side end-game tally (categories generated from the
 // rulebook at finalize). Add players, punch in points per category, reveal the
 // winner with a little ceremony. State persists per game in localStorage — no

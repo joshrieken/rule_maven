@@ -60,6 +60,43 @@ defmodule RuleMaven.VoicesTest do
       refute Voices.valid?("g:herald", other)
       refute Voices.valid?("g:nope", g)
     end
+
+    test "for_game/2 gates locked voices until unlocked (feature C)" do
+      g = game()
+
+      {:ok, _} =
+        %GameVoice{}
+        |> Ecto.Changeset.change(%{
+          game_id: g.id,
+          slug: "open",
+          label: "Open",
+          emoji: "🙂",
+          style: "always here",
+          unlock_level: 0
+        })
+        |> Repo.insert()
+
+      {:ok, _} =
+        %GameVoice{}
+        |> Ecto.Changeset.change(%{
+          game_id: g.id,
+          slug: "locked",
+          label: "Locked",
+          emoji: "🔒",
+          style: "earn me",
+          unlock_level: 2
+        })
+        |> Repo.insert()
+
+      # No unlocks yet: the level-0 voice shows, the gated one is hidden.
+      ids = Enum.map(Voices.for_game(g, []), & &1.id)
+      assert "g:open" in ids
+      refute "g:locked" in ids
+
+      # Once unlocked, it appears.
+      ids = Enum.map(Voices.for_game(g, ["locked"]), & &1.id)
+      assert "g:locked" in ids
+    end
   end
 
   describe "loading_phrases/2" do

@@ -35,6 +35,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :my_groups, :list, default: []
   attr :active_group_id, :integer, default: nil
   attr :class, :string, default: nil, doc: "extra classes for the chrome element"
+  attr :game_mastery, :map, default: nil, doc: "per-game mastery rollup for the XP HUD"
+  attr :xp_toast, :integer, default: nil, doc: "transient +N XP flash amount"
   slot :inner_block
 
   @doc """
@@ -77,6 +79,43 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           {@game.name}
         </.link>
       </div>
+      <.mastery_hud :if={@game_mastery} mastery={@game_mastery} xp_toast={@xp_toast} game={@game} />
+    </div>
+    """
+  end
+
+  attr :mastery, :map, required: true
+  attr :xp_toast, :integer, default: nil
+  attr :game, :map, required: true
+
+  @doc """
+  The per-game mastery HUD: a video-game XP bar. Always subordinate — it sits
+  under the title strip, never over an answer. `mastery:level_up` from the
+  server drives the confetti hook (which honors prefers-reduced-motion). The
+  `+N XP` toast fades on its own via CSS animation keyed off the amount.
+  """
+  def mastery_hud(assigns) do
+    prog = RuleMaven.Progress.level_progress(assigns.mastery.xp)
+
+    pct =
+      if prog.span > 0, do: Float.round(prog.into / prog.span * 100, 1), else: 0.0
+
+    assigns = assign(assigns, pct: pct, level: prog.level)
+
+    ~H"""
+    <div
+      id={"mastery-hud-#{@game.id}"}
+      class="mastery-hud"
+      phx-hook="MasteryHud"
+      aria-label={"Mastery level #{@level}, #{@pct} percent to next"}
+    >
+      <span class="mastery-hud__level">Lv {@level}</span>
+      <div class="mastery-hud__track">
+        <div class="mastery-hud__fill" style={"width:#{@pct}%"}></div>
+      </div>
+      <span :if={@xp_toast} class="mastery-hud__toast">
+        +{@xp_toast} XP
+      </span>
     </div>
     """
   end

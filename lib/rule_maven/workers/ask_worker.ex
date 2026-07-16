@@ -530,6 +530,12 @@ defmodule RuleMaven.Workers.AskWorker do
                       unless refused? or error_kind do
                         RuleMaven.Workers.TagQuestionWorker.enqueue(question_log_id, game_id)
 
+                        # Per-game mastery: a confident, citation-backed answer that
+                        # is new to this user earns XP (the ledger's unique index does
+                        # the "new to you" dedupe — a pool hit still counts). Best
+                        # effort: never let progression break the answer.
+                        maybe_award_mastery(updated, game_id)
+
                         # Fresh, citation-backed answers become cache-eligible. Pool hits
                         # are duplicates of an existing pooled row — don't re-pool them.
                         # `never_pool` is set for a private one-off (regenerate/report
@@ -836,6 +842,45 @@ defmodule RuleMaven.Workers.AskWorker do
   # run may have died before telling the LiveView. Rebuild a minimal
   # :ask_complete from the persisted row; the handler re-reads the row for
   # everything it renders, so the payload only needs the routing fields.
+  # Awards per-game mastery for a confident, cited answer and broadcasts the
+  # reward so the asker's LiveView can render the XP tick / level-up moment.
+  # `game:<id>` is a public topic, so the payload carries `user_id` and the
+  # LiveView filters to the current user. Never raises into the answer path.
+  defp maybe_award_mastery(updated, game_id) do
+    if updated.user_id && updated.citation_valid do
+      source_key = to_string(updated.pool_source_id || updated.id)
+
+      case RuleMaven.Progress.award_ask(updated.user_id, game_id, source_key) do
+        {:awarded, result} ->
+          Phoenix.PubSub.broadcast(
+            RuleMaven.PubSub,
+            "game:#{game_id}",
+            {:mastery_awarded,
+             %{
+               user_id: updated.user_id,
+               game_id: game_id,
+               question_log_id: updated.id,
+               xp_delta: result.xp_delta,
+               xp: result.game_mastery.xp,
+               level: result.game_mastery.level,
+               level_up: result.level_up,
+               unlocked: result.unlocked
+             }}
+          )
+
+        _duplicate_or_error ->
+          :ok
+      end
+    end
+  rescue
+    e ->
+      Logger.warning(
+        "AskWorker: mastery award failed for question #{updated.id}: #{Exception.message(e)}"
+      )
+
+      :ok
+  end
+
   defp rebroadcast_completed(game_id, question_log_id) do
     if ql = get_question_log!(question_log_id) do
       # `answered_already?` treats a persisted ⚠️ row as "answered", so the
