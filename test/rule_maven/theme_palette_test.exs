@@ -106,12 +106,16 @@ defmodule RuleMaven.ThemePaletteTest do
     assert r > b
   end
 
-  test "high-contrast accents pass through the fill lift unchanged" do
+  test "high-contrast, already-vivid accents pass through both lifts unchanged" do
     {:ok, %{"dark" => dark}} =
-      ThemePalette.build(%{"light" => @light_anchors, "dark" => @dark_anchors})
+      ThemePalette.build(%{
+        "light" => @light_anchors,
+        "dark" => Map.put(@dark_anchors, "accent", "#8A1414")
+      })
 
-    # #8A2020 already clears 7:1 under white text — no lift.
-    assert dark["--accent"] == "#8A2020"
+    # #8A1414 is already above the saturation floor and clears 7:1 under white —
+    # neither the vividness saturation floor nor the fill lift touches it.
+    assert dark["--accent"] == "#8A1414"
   end
 
   test "accent-text keeps the soft near-black on bright accents" do
@@ -146,6 +150,88 @@ defmodule RuleMaven.ThemePaletteTest do
     assert ThemePalette.fix_accent_text(%{}) == %{}
     bad = %{"--accent" => "not-a-color", "--accent-text" => "#1A1A1A"}
     assert ThemePalette.fix_accent_text(bad) == bad
+  end
+
+  # HSL saturation of a hex color, 0..1 — used to pin the accent vividness floor.
+  defp saturation(hex) do
+    {:ok, {r, g, b}} = ThemePalette.parse(hex)
+    {r, g, b} = {r / 255, g / 255, b / 255}
+    mx = max(r, max(g, b))
+    mn = min(r, min(g, b))
+    l = (mx + mn) / 2
+    d = mx - mn
+    if d == 0, do: 0.0, else: d / (1 - abs(2 * l - 1))
+  end
+
+  # A washed-out cover: barely-saturated grey-mauve accent, and a "dark" bg that
+  # is really a light grey — the exact shape the vividness floors exist to fix.
+  @washed_dark %{
+    "accent" => "#6A6070",
+    "bg" => "#3A3A44",
+    "surface" => "#44444E",
+    "text" => "#D0D0D8"
+  }
+
+  test "build floors a washed-out accent's saturation" do
+    assert saturation(@washed_dark["accent"]) < 0.2
+
+    {:ok, %{"dark" => dark}} =
+      ThemePalette.build(%{"light" => @light_anchors, "dark" => @washed_dark})
+
+    assert saturation(dark["--accent"]) >= 0.67
+  end
+
+  test "build deepens a too-light dark background" do
+    {:ok, %{"dark" => dark}} =
+      ThemePalette.build(%{"light" => @light_anchors, "dark" => @washed_dark})
+
+    assert luminance(elem(ThemePalette.parse(dark["--bg"]), 1)) <= 0.045
+  end
+
+  test "build leaves a light scheme's bright background alone" do
+    {:ok, %{"light" => light}} =
+      ThemePalette.build(%{"light" => @light_anchors, "dark" => @dark_anchors})
+
+    # Light bg stays light — the depth floor is dark-scheme only.
+    assert luminance(elem(ThemePalette.parse(light["--bg"]), 1)) > 0.5
+  end
+
+  test "boost_vividness lifts a legacy dim palette in place" do
+    legacy = %{
+      "--accent" => "#6A6070",
+      "--bg" => "#3A3A44",
+      "--bg-surface" => "#44444E"
+    }
+
+    boosted = ThemePalette.boost_vividness(legacy)
+
+    assert saturation(boosted["--accent"]) >= 0.67
+    assert luminance(elem(ThemePalette.parse(boosted["--bg"]), 1)) <= 0.045
+  end
+
+  test "boost_vividness is idempotent on a freshly derived palette" do
+    {:ok, %{"dark" => dark}} =
+      ThemePalette.build(%{"light" => @light_anchors, "dark" => @dark_anchors})
+
+    assert ThemePalette.boost_vividness(dark) == dark
+  end
+
+  test "boost_vividness passes malformed maps through unchanged" do
+    assert ThemePalette.boost_vividness(%{}) == %{}
+    bad = %{"--accent" => "not-a-color", "--bg" => "#000000"}
+    assert ThemePalette.boost_vividness(bad) == bad
+  end
+
+  test "text floors still hold after the full render fixup on a washed cover" do
+    {:ok, %{"dark" => dark}} =
+      ThemePalette.build(%{"light" => @light_anchors, "dark" => @washed_dark})
+
+    fixed =
+      dark
+      |> ThemePalette.boost_vividness()
+      |> ThemePalette.fix_text_contrast()
+
+    assert_floors(fixed)
   end
 
   describe "build_sets/1" do

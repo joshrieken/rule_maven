@@ -106,6 +106,7 @@ defmodule RuleMavenWeb.GameLive.GameTheme do
   # time — no data backfill needed.
   defp fixup(vars) do
     vars
+    |> ThemePalette.boost_vividness()
     |> ThemePalette.fix_text_contrast()
     |> ThemePalette.fix_accent_text()
   end

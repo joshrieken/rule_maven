@@ -182,11 +182,30 @@ defmodule RuleMaven.ThemePalette do
     :math.sqrt(:math.pow(r1 - r2, 2) + :math.pow(g1 - g2, 2) + :math.pow(b1 - b2, 2))
   end
 
+  # Vividness floors — generated themes inherit whatever chroma the cover art
+  # happened to have, so a washed-out cover yielded a washed-out theme. Floor
+  # the accent's HSL saturation and (on dark schemes) the background's darkness
+  # so generated themes punch like the hand-authored set. Both are idempotent
+  # floors: an already-vivid accent / already-deep bg passes through unchanged,
+  # so they can run at generation *and* again at render on stored palettes.
+  @accent_sat_floor 0.70
+  # A tolerance below the floor that still counts as "vivid enough" — avoids a
+  # sub-perceptual re-nudge from hex round-tripping a freshly generated accent.
+  @accent_sat_tolerance 0.03
+  # A dark scheme's --bg must sit at or below this WCAG relative luminance; a
+  # too-light "dark" cover bg reads as washed grey next to the deep hand-authored
+  # darks. Deepening mixes toward black, which preserves the bg's hue tint.
+  @dark_bg_lum_ceiling 0.045
+
   defp build_variant(anchors, scheme) when is_map(anchors) do
     with {:ok, accent} <- fetch(anchors, "accent"),
          {:ok, bg} <- fetch(anchors, "bg"),
          {:ok, surface} <- fetch(anchors, "surface"),
          {:ok, text} <- fetch(anchors, "text") do
+      # Punch the anchors before deriving so every downstream shade (accent
+      # light/dark, header tint, subtle bg) stays coherent with the lifted values.
+      accent = saturate_to_floor(accent, @accent_sat_floor)
+      bg = if scheme == :dark, do: deepen_to_ceiling(bg, @dark_bg_lum_ceiling), else: bg
       {:ok, derive(accent, bg, surface, text, scheme)}
     end
   end
@@ -290,6 +309,127 @@ defmodule RuleMaven.ThemePalette do
       "--focus-ring" => rgba(accent, 0.18)
     }
     |> Map.merge(@semantic[scheme_key(scheme)])
+  end
+
+  @doc """
+  Lift an already-derived variant map to the vividness floors at render time —
+  saturates a washed-out `--accent`, deepens a too-light dark `--bg`, and
+  refreshes the shades derived from them (accent light/dark/subtle, subtle bg,
+  header tint, selection, focus, shadow). Mirrors the same floors `build_variant`
+  applies to fresh anchors, so palettes persisted before the floors existed punch
+  up in place with no data backfill. Idempotent: a palette already at/above the
+  floors passes through unchanged. Returns the map untouched if `--accent`/`--bg`
+  are missing or unparseable. `--accent-text` is left to `fix_accent_text/1`.
+  """
+  def boost_vividness(%{"--accent" => a, "--bg" => b} = vars) do
+    with {:ok, accent0} <- parse(a),
+         {:ok, bg0} <- parse(b) do
+      dark? = luminance(bg0) < 0.5
+      accent = saturate_to_floor(accent0, @accent_sat_floor)
+      bg = if dark?, do: deepen_to_ceiling(bg0, @dark_bg_lum_ceiling), else: bg0
+
+      # Already at the floors — pass through untouched. Re-deriving the shades off
+      # the hex-rounded accent would drift them ±1/255, breaking idempotency; a
+      # palette that needs no lift keeps its full-precision derived values.
+      if hex(accent) == hex(accent0) and hex(bg) == hex(bg0) do
+        vars
+      else
+        refresh_accent_family(vars, accent, bg)
+      end
+    else
+      _ -> vars
+    end
+  end
+
+  def boost_vividness(vars), do: vars
+
+  defp refresh_accent_family(vars, accent, bg) do
+    accent_family = %{
+      "--bg" => hex(bg),
+      "--bg-subtle" => hex(mix(bg, accent, 0.08)),
+      "--accent" => hex(accent),
+      "--accent-dark" => hex(darken(accent, 0.18)),
+      "--accent-light" => hex(lighten(accent, 0.20)),
+      "--accent-subtle" => hex(mix(bg, accent, 0.12)),
+      "--shadow-hover" => rgba(accent, 0.18),
+      "--header-bg-start" => hex(mix(@header_dark, accent, 0.22)),
+      "--header-bg-end" => hex(mix(@header_dark, accent, 0.10)),
+      "--selection-bg" => hex(ensure_contrast(accent, bg, 7.0)),
+      "--selection-text" => hex(readable_on(ensure_contrast(accent, bg, 7.0))),
+      "--focus-ring" => rgba(accent, 0.18)
+    }
+
+    # --accent-ink needs the surface; only refresh it when the surface parses.
+    ink =
+      case parse(vars["--bg-surface"] || "") do
+        {:ok, surface} -> %{"--accent-ink" => hex(readable_text(accent, surface, 4.5))}
+        :error -> %{}
+      end
+
+    Map.merge(vars, Map.merge(accent_family, ink))
+  end
+
+  # Raise an accent's HSL saturation to the floor, preserving hue and lightness so
+  # contrast behaviour is unchanged. A small tolerance below the floor still
+  # counts as vivid, so a freshly generated accent isn't re-nudged by hex rounding.
+  defp saturate_to_floor(rgb, floor) do
+    {h, s, l} = rgb_to_hsl(rgb)
+    if s >= floor - @accent_sat_tolerance, do: rgb, else: hsl_to_rgb({h, floor, l})
+  end
+
+  # Mix a dark-scheme bg toward black until its luminance clears the ceiling.
+  defp deepen_to_ceiling(rgb, ceiling), do: darken_until_luma(rgb, ceiling, 0)
+
+  defp darken_until_luma(rgb, ceiling, n) when n < 20 do
+    if luminance(rgb) <= ceiling,
+      do: rgb,
+      else: darken_until_luma(darken(rgb, 0.10), ceiling, n + 1)
+  end
+
+  defp darken_until_luma(rgb, _ceiling, _n), do: rgb
+
+  # sRGB <-> HSL. Operates on {r,g,b} floats in 0..255; hue in degrees, s/l in 0..1.
+  defp rgb_to_hsl({r, g, b}) do
+    r = r / 255
+    g = g / 255
+    b = b / 255
+    mx = max(r, max(g, b))
+    mn = min(r, min(g, b))
+    l = (mx + mn) / 2
+    d = mx - mn
+
+    if d == 0 do
+      {0.0, 0.0, l}
+    else
+      s = d / (1 - abs(2 * l - 1))
+
+      h =
+        cond do
+          mx == r -> 60 * :math.fmod((g - b) / d, 6)
+          mx == g -> 60 * ((b - r) / d + 2)
+          true -> 60 * ((r - g) / d + 4)
+        end
+
+      {if(h < 0, do: h + 360, else: h), s, l}
+    end
+  end
+
+  defp hsl_to_rgb({h, s, l}) do
+    c = (1 - abs(2 * l - 1)) * s
+    x = c * (1 - abs(:math.fmod(h / 60, 2) - 1))
+    m = l - c / 2
+
+    {r1, g1, b1} =
+      cond do
+        h < 60 -> {c, x, 0.0}
+        h < 120 -> {x, c, 0.0}
+        h < 180 -> {0.0, c, x}
+        h < 240 -> {0.0, x, c}
+        h < 300 -> {x, 0.0, c}
+        true -> {c, 0.0, x}
+      end
+
+    {(r1 + m) * 255, (g1 + m) * 255, (b1 + m) * 255}
   end
 
   defp scheme_key(:light), do: "light"
