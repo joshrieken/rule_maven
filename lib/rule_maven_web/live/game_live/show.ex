@@ -4801,6 +4801,18 @@ defmodule RuleMavenWeb.GameLive.Show do
             <% end %>
             <!-- end history else -->
           <% end %>
+          <%!-- AI disclaimer: the core caveat (AI can be wrong) must stay visible
+                on every ask — product rule. Sits right below the answer so the
+                caveat reads with the ruling; grounding/sharing details expand on tap. --%>
+          <details :if={@conversation != []} style="text-align:center;font-size:0.62rem;line-height:1.3;color:var(--text-muted);margin-top:0.6rem">
+            <summary class="ai-note-summary" style="cursor:pointer;list-style:none;display:inline">
+              🤖 AI can be wrong — double-check important rulings.
+              <span style="text-decoration:underline;opacity:0.8">more</span>
+            </summary>
+            <div style="margin-top:0.2rem">
+              Answers use strict guardrails: grounded in the rulebook, citing their sources. Answered questions may be shared anonymously in the Community Q&A.
+            </div>
+          </details>
         </div><%!-- /.answer-pane --%>
         </div><%!-- /.qa-column --%>
       </div><%!-- /horizontal row --%>
@@ -4974,18 +4986,6 @@ defmodule RuleMavenWeb.GameLive.Show do
               {@pending_count} of {@max_concurrent} questions in progress — please wait for one to finish
             </div>
           <% end %>
-          <%!-- AI disclaimer: the core caveat (AI can be wrong) must stay visible
-                on every ask — product rule. The one-liner keeps it in sight; the
-                grounding/sharing details expand on tap. --%>
-          <details style="text-align:center;font-size:0.62rem;line-height:1.3;color:var(--text-muted);margin-top:0.3rem">
-            <summary class="ai-note-summary" style="cursor:pointer;list-style:none;display:inline">
-              🤖 AI can be wrong — double-check important rulings.
-              <span style="text-decoration:underline;opacity:0.8">more</span>
-            </summary>
-            <div style="margin-top:0.2rem">
-              Answers use strict guardrails: grounded in the rulebook, citing their sources. Answered questions may be shared anonymously in the Community Q&A.
-            </div>
-          </details>
         </div>
       </div>
 
