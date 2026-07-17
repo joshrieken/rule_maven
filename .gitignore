@@ -42,6 +42,10 @@ boardgame-*.tar
 # Override global gitignore patterns that conflict with Elixir project
 !lib/
 !priv/static/assets/
+# lib/rule_maven/coverage/ is app source (Rulebook Coverage Engine), not a
+# `mix test --cover` artifact — the global gitignore's `coverage/` pattern
+# would otherwise silently exclude it.
+!lib/rule_maven/coverage/
 
 
 # Docling sidecar virtualenv (heavy, local only)
