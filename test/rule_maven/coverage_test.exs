@@ -1,6 +1,7 @@
 defmodule RuleMaven.CoverageTest do
   use RuleMaven.DataCase, async: true
 
+  import Ecto.Query
   import RuleMaven.GamesFixtures
 
   alias RuleMaven.Coverage
@@ -57,6 +58,58 @@ defmodule RuleMaven.CoverageTest do
       [stamped] = Coverage.resolve_document_ids(citations, [game.id])
 
       refute Map.has_key?(stamped, "document_id")
+    end
+  end
+
+  describe "record_citations/1" do
+    test "upserts distinct (document_id, page) and is idempotent, clamped to page_count" do
+      game = game_fixture()
+
+      {:ok, doc} =
+        %RuleMaven.Games.Document{}
+        |> RuleMaven.Games.Document.changeset(%{
+          label: "Rulebook",
+          game_id: game.id,
+          page_count: 8,
+          status: "published"
+        })
+        |> Repo.insert()
+
+      {:ok, user} =
+        RuleMaven.Users.create_user(%{
+          username: "coverage_user_#{System.unique_integer([:positive])}",
+          email: "coverage_user_#{System.unique_integer([:positive])}@test.com",
+          password: "password1234"
+        })
+
+      {:ok, ql} =
+        RuleMaven.Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "Test question?",
+          answer: "Test answer."
+        })
+
+      ql = %{
+        ql
+        | citations: [
+            %{"page" => 3, "document_id" => doc.id},
+            # dup page
+            %{"page" => 3, "document_id" => doc.id},
+            # beyond page_count -> skipped
+            %{"page" => 99, "document_id" => doc.id},
+            # no doc -> skipped
+            %{"page" => 5, "document_id" => nil}
+          ]
+      }
+
+      assert {:ok, 1} = Coverage.record_citations(ql)
+      assert {:ok, 0} = Coverage.record_citations(ql)
+
+      assert Repo.aggregate(
+               from(p in PageCoverage, where: p.document_id == ^doc.id),
+               :count
+             ) == 1
     end
   end
 end
