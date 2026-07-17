@@ -7,6 +7,7 @@ defmodule RuleMaven.Coverage do
   import Ecto.Query
 
   alias RuleMaven.Coverage.PageCoverage
+  alias RuleMaven.Games
   alias RuleMaven.Games.Document
   alias RuleMaven.Repo
 
@@ -94,4 +95,115 @@ defmodule RuleMaven.Coverage do
   end
 
   defp covered_pair(_, _), do: []
+
+  @doc """
+  Coverage snapshot for a single document: `page_count`, distinct pages
+  covered (capped at `page_count`), and `pct` (nil when `page_count` nil).
+  """
+  @spec for_document(integer()) :: %{
+          page_count: integer() | nil,
+          covered: non_neg_integer(),
+          pct: float() | nil
+        }
+  def for_document(document_id) do
+    page_count =
+      Repo.one(from d in Document, where: d.id == ^document_id, select: d.page_count)
+
+    covered_raw =
+      Repo.aggregate(from(p in PageCoverage, where: p.document_id == ^document_id), :count)
+
+    summarize(page_count, covered_raw)
+  end
+
+  @doc """
+  Coverage rollup for a game: published documents for the game plus its
+  expansions. `pending_review` (and any other non-`"published"`) documents
+  are excluded.
+  """
+  @spec for_game(integer()) :: %{
+          sources: [
+            %{
+              document_id: integer(),
+              label: String.t() | nil,
+              page_count: integer() | nil,
+              covered: non_neg_integer(),
+              pct: float() | nil
+            }
+          ],
+          covered: non_neg_integer(),
+          total: non_neg_integer(),
+          pct: float() | nil
+        }
+  def for_game(game_id) do
+    game_ids = [game_id | expansion_game_ids(game_id)]
+
+    docs =
+      Repo.all(
+        from d in Document,
+          where: d.game_id in ^game_ids and d.status == "published",
+          select: %{document_id: d.id, label: d.label, page_count: d.page_count}
+      )
+
+    document_ids = Enum.map(docs, & &1.document_id)
+
+    counts =
+      Repo.all(
+        from p in PageCoverage,
+          where: p.document_id in ^document_ids,
+          group_by: p.document_id,
+          select: {p.document_id, count(p.id)}
+      )
+      |> Map.new()
+
+    sources =
+      Enum.map(docs, fn d ->
+        s = summarize(d.page_count, Map.get(counts, d.document_id, 0))
+        Map.merge(d, s)
+      end)
+
+    total = sources |> Enum.map(&(&1.page_count || 0)) |> Enum.sum()
+    covered = sources |> Enum.map(& &1.covered) |> Enum.sum()
+
+    %{sources: sources, covered: covered, total: total, pct: pct(covered, total)}
+  end
+
+  @doc """
+  Sorted list of uncovered page numbers in `1..page_count` for a document.
+  Returns `[]` when `page_count` is nil.
+  """
+  @spec gaps(integer()) :: [integer()]
+  def gaps(document_id) do
+    page_count =
+      Repo.one(from d in Document, where: d.id == ^document_id, select: d.page_count)
+
+    case page_count do
+      pc when is_integer(pc) and pc > 0 ->
+        covered =
+          Repo.all(from p in PageCoverage, where: p.document_id == ^document_id, select: p.page)
+          |> MapSet.new()
+
+        Enum.reject(1..pc, &MapSet.member?(covered, &1))
+
+      _ ->
+        []
+    end
+  end
+
+  # page_count nil => pct nil, covered reported as-is (nothing to cap against).
+  defp summarize(nil, covered_raw), do: %{page_count: nil, covered: covered_raw, pct: nil}
+
+  defp summarize(page_count, covered_raw) when is_integer(page_count) do
+    covered = min(covered_raw, page_count)
+    %{page_count: page_count, covered: covered, pct: pct(covered, page_count)}
+  end
+
+  defp pct(_covered, 0), do: nil
+  defp pct(covered, total), do: covered / total
+
+  defp expansion_game_ids(game_id) do
+    case Games.get_game(game_id) do
+      nil -> []
+      game -> game |> Games.expansions_for() |> Enum.map(& &1.id)
+    end
+  end
 end

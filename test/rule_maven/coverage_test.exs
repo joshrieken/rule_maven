@@ -112,4 +112,121 @@ defmodule RuleMaven.CoverageTest do
              ) == 1
     end
   end
+
+  describe "reads" do
+    test "for_document computes pct, nil page_count -> nil pct" do
+      game = game_fixture()
+
+      {:ok, doc} =
+        %RuleMaven.Games.Document{}
+        |> RuleMaven.Games.Document.changeset(%{
+          label: "Rulebook",
+          game_id: game.id,
+          page_count: 4,
+          status: "published"
+        })
+        |> Repo.insert()
+
+      Repo.insert!(%PageCoverage{document_id: doc.id, page: 1})
+      Repo.insert!(%PageCoverage{document_id: doc.id, page: 2})
+
+      assert %{page_count: 4, covered: 2, pct: pct} = Coverage.for_document(doc.id)
+      assert_in_delta pct, 0.5, 0.001
+
+      {:ok, nild} =
+        %RuleMaven.Games.Document{}
+        |> RuleMaven.Games.Document.changeset(%{
+          label: "Appendix",
+          game_id: game.id,
+          page_count: nil,
+          status: "published"
+        })
+        |> Repo.insert()
+
+      assert %{pct: nil} = Coverage.for_document(nild.id)
+    end
+
+    test "for_game rolls up published docs only, across expansions" do
+      game = game_fixture()
+      expansion = game_fixture(%{bgg_id: 4200 + System.unique_integer([:positive])})
+      :ok = RuleMaven.Games.link_expansion(expansion.id, game.id)
+
+      {:ok, pub} =
+        %RuleMaven.Games.Document{}
+        |> RuleMaven.Games.Document.changeset(%{
+          label: "Rulebook",
+          game_id: game.id,
+          page_count: 4,
+          status: "published"
+        })
+        |> Repo.insert()
+
+      Repo.insert!(%PageCoverage{document_id: pub.id, page: 1})
+
+      {:ok, pending} =
+        %RuleMaven.Games.Document{}
+        |> RuleMaven.Games.Document.changeset(%{
+          label: "Draft",
+          game_id: game.id,
+          page_count: 10,
+          status: "pending_review"
+        })
+        |> Repo.insert()
+
+      Repo.insert!(%PageCoverage{document_id: pending.id, page: 1})
+
+      {:ok, exp_doc} =
+        %RuleMaven.Games.Document{}
+        |> RuleMaven.Games.Document.changeset(%{
+          label: "Expansion Rulebook",
+          game_id: expansion.id,
+          page_count: 6,
+          status: "published"
+        })
+        |> Repo.insert()
+
+      Repo.insert!(%PageCoverage{document_id: exp_doc.id, page: 1})
+      Repo.insert!(%PageCoverage{document_id: exp_doc.id, page: 2})
+
+      roll = Coverage.for_game(game.id)
+
+      assert roll.total == 10
+      assert roll.covered == 3
+      assert_in_delta roll.pct, 0.3, 0.001
+
+      source_ids = Enum.map(roll.sources, & &1.document_id) |> Enum.sort()
+      assert source_ids == Enum.sort([pub.id, exp_doc.id])
+      refute pending.id in source_ids
+    end
+
+    test "gaps returns sorted uncovered page numbers, [] when page_count nil" do
+      game = game_fixture()
+
+      {:ok, doc} =
+        %RuleMaven.Games.Document{}
+        |> RuleMaven.Games.Document.changeset(%{
+          label: "Rulebook",
+          game_id: game.id,
+          page_count: 3,
+          status: "published"
+        })
+        |> Repo.insert()
+
+      Repo.insert!(%PageCoverage{document_id: doc.id, page: 2})
+
+      assert Coverage.gaps(doc.id) == [1, 3]
+
+      {:ok, nild} =
+        %RuleMaven.Games.Document{}
+        |> RuleMaven.Games.Document.changeset(%{
+          label: "Appendix",
+          game_id: game.id,
+          page_count: nil,
+          status: "published"
+        })
+        |> Repo.insert()
+
+      assert Coverage.gaps(nild.id) == []
+    end
+  end
 end
