@@ -248,11 +248,15 @@ defmodule RuleMaven.Workers.AskWorkerCitationsTest do
 
     updated = Games.get_question_log(fresh.id)
 
+    # `resolve_document_ids/2` runs on every path (pool hit included) and
+    # stamps the published "Core rules" document's id onto the pooled
+    # citation — otherwise pool-served answers would never record coverage.
     assert updated.citations == [
              %{
                "quote" => "Roll the d20 to determine the first player.",
                "page" => 5,
-               "source" => "Core rules"
+               "source" => "Core rules",
+               "document_id" => game |> Games.list_documents() |> hd() |> Map.fetch!(:id)
              }
            ]
 
@@ -261,6 +265,7 @@ defmodule RuleMaven.Workers.AskWorkerCitationsTest do
     assert updated.cited_page == 5
     assert updated.cited_source == "Core rules"
     assert updated.pool_source_id == pooled.id
+    assert updated.document_id == updated.citations |> hd() |> Map.fetch!("document_id")
   end
 
   # `valid_citations/2` drops every citation whose quote is not verbatim in the

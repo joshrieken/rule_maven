@@ -458,6 +458,19 @@ defmodule RuleMaven.Workers.AskWorker do
                       {answer, valid_citations, citation_valid, passage, cited_page, cited_source}
                     end
 
+                  # Stamp each surviving citation with the published document it
+                  # resolves against (by source label, case-insensitive) so the
+                  # Coverage engine can attribute pages to a document. Done AFTER
+                  # the unsupported?/drop rebinding above so a refused answer's
+                  # empty citation list stays empty, and BEFORE persist so the
+                  # stamped list — not the pre-resolve one — is what's written.
+                  game_ids = [game_id | expansion_ids]
+                  valid_citations = RuleMaven.Coverage.resolve_document_ids(valid_citations, game_ids)
+
+                  primary =
+                    List.first(valid_citations) ||
+                      %{"quote" => nil, "page" => nil, "source" => nil, "document_id" => nil}
+
                   refused? = refused?(answer)
 
                   cleaned =
@@ -490,6 +503,10 @@ defmodule RuleMaven.Workers.AskWorker do
                     cited_source: cited_source,
                     citations: valid_citations,
                     citation_valid: citation_valid,
+                    # Coverage engine attribution: the document the PRIMARY
+                    # (first) surviving citation resolved against, or nil when
+                    # no citation resolved to a published document.
+                    document_id: primary["document_id"],
                     refused: refused?,
                     verdict: if(refused?, do: "silent", else: llm_result[:verdict]),
                     followups: if(refused?, do: [], else: llm_result[:followups] || []),
@@ -535,6 +552,19 @@ defmodule RuleMaven.Workers.AskWorker do
                         # the "new to you" dedupe — a pool hit still counts). Best
                         # effort: never let progression break the answer.
                         maybe_award_mastery(updated, game_id)
+
+                        # Rulebook Coverage Engine: record which (document, page)
+                        # pairs this answer's citations touched. Best-effort —
+                        # never let a coverage bug break the answer that already
+                        # persisted successfully.
+                        try do
+                          RuleMaven.Coverage.record_citations(updated)
+                        rescue
+                          e ->
+                            Logger.warning(
+                              "Coverage.record_citations failed: #{inspect(e)}"
+                            )
+                        end
 
                         # Fresh, citation-backed answers become cache-eligible. Pool hits
                         # are duplicates of an existing pooled row — don't re-pool them.
