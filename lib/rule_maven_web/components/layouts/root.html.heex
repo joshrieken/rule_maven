@@ -189,7 +189,17 @@
               <%!-- Game-theme options aren't rendered here: game pages publish
                     their variant list on the #game-theme marker
                     (data-variants), and the script below folds them into
-                    #theme-select as a top optgroup. --%>
+                    #theme-select as a top optgroup. The ‹ / › buttons step the
+                    same select one option at a time (skipping optgroup labels),
+                    so a theme can be cycled without opening the native picker —
+                    they earn their width on touch, where the dropdown is fiddly. --%>
+              <button
+                type="button"
+                class="theme-nav"
+                id="theme-prev"
+                aria-label="Previous theme"
+                title="Previous theme"
+              >‹</button>
               <select
                 class="theme-select"
                 id="theme-select"
@@ -205,6 +215,13 @@
                   </option>
                 </optgroup>
               </select>
+              <button
+                type="button"
+                class="theme-nav"
+                id="theme-next"
+                aria-label="Next theme"
+                title="Next theme"
+              >›</button>
               <%!-- Signed-in users get this inside the account menu instead —
                     the mobile header has no room for it. Signed-out visitors
                     have no menu, so it stays in the header for them. Exactly one
@@ -576,6 +593,30 @@
           html.setAttribute('data-theme', this.value);
           track(this.value);
         });
+
+        // ‹ / › step the picker one option at a time, wrapping at the ends and
+        // skipping the optgroup labels (they aren't <option>s) — a theme can be
+        // cycled without opening the native dropdown, which is the fiddly part on
+        // touch. Refresh the game options first so a game page's variants are in
+        // the list, then reuse the change path so tracking + localStorage + the
+        // game-match announce all fire exactly as a manual pick would.
+        function stepTheme(dir) {
+          syncGameOptions(gameThemeAvailable());
+          var opts = Array.prototype.filter.call(select.options, function(o) {
+            return !o.disabled;
+          });
+          if (!opts.length) return;
+          var current = select.options[select.selectedIndex];
+          var idx = opts.indexOf(current);
+          if (idx < 0) idx = 0;
+          idx = (idx + dir + opts.length) % opts.length;
+          select.value = opts[idx].value;
+          select.dispatchEvent(new Event('change'));
+        }
+        var prevBtn = document.getElementById('theme-prev');
+        var nextBtn = document.getElementById('theme-next');
+        if (prevBtn) prevBtn.addEventListener('click', function() { stepTheme(-1); });
+        if (nextBtn) nextBtn.addEventListener('click', function() { stepTheme(1); });
 
         // Ambient-animation toggle.
         var motionBtn = document.getElementById('motion-toggle');
