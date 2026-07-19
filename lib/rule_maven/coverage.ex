@@ -86,11 +86,13 @@ defmodule RuleMaven.Coverage do
 
   defp covered_pair(%{"document_id" => doc_id, "page" => page}, page_counts)
        when is_integer(doc_id) and is_integer(page) and page >= 1 do
-    case Map.get(page_counts, doc_id) do
+    case Map.fetch(page_counts, doc_id) do
+      # unknown document: skip
+      :error -> []
       # beyond denominator: skip
-      pc when is_integer(pc) and page > pc -> []
-      # nil page_count still records the page
-      _ -> [{doc_id, page}]
+      {:ok, pc} when is_integer(pc) and page > pc -> []
+      # in-range, or nil page_count still records the page
+      {:ok, _} -> [{doc_id, page}]
     end
   end
 
@@ -162,7 +164,7 @@ defmodule RuleMaven.Coverage do
       end)
 
     total = sources |> Enum.map(&(&1.page_count || 0)) |> Enum.sum()
-    covered = sources |> Enum.map(& &1.covered) |> Enum.sum()
+    covered = sources |> Enum.map(fn s -> if s.page_count, do: s.covered, else: 0 end) |> Enum.sum()
 
     %{sources: sources, covered: covered, total: total, pct: pct(covered, total)}
   end

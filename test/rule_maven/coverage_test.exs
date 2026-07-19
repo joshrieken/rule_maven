@@ -111,6 +111,34 @@ defmodule RuleMaven.CoverageTest do
                :count
              ) == 1
     end
+
+    test "citation for a non-existent document is skipped, not a raise" do
+      game = game_fixture()
+
+      {:ok, user} =
+        RuleMaven.Users.create_user(%{
+          username: "coverage_user_#{System.unique_integer([:positive])}",
+          email: "coverage_user_#{System.unique_integer([:positive])}@test.com",
+          password: "password1234"
+        })
+
+      {:ok, ql} =
+        RuleMaven.Games.log_question(%{
+          game_id: game.id,
+          user_id: user.id,
+          question: "Test question?",
+          answer: "Test answer."
+        })
+
+      ql = %{
+        ql
+        | citations: [
+            %{"page" => 3, "document_id" => 999_999}
+          ]
+      }
+
+      assert {:ok, 0} = Coverage.record_citations(ql)
+    end
   end
 
   describe "reads" do
@@ -227,6 +255,44 @@ defmodule RuleMaven.CoverageTest do
         |> Repo.insert()
 
       assert Coverage.gaps(nild.id) == []
+    end
+
+    test "for_game pct never exceeds 1.0 when a nil page_count doc has coverage rows" do
+      game = game_fixture()
+
+      {:ok, pub} =
+        %RuleMaven.Games.Document{}
+        |> RuleMaven.Games.Document.changeset(%{
+          label: "Rulebook",
+          game_id: game.id,
+          page_count: 4,
+          status: "published"
+        })
+        |> Repo.insert()
+
+      Repo.insert!(%PageCoverage{document_id: pub.id, page: 1})
+      Repo.insert!(%PageCoverage{document_id: pub.id, page: 2})
+
+      {:ok, nild} =
+        %RuleMaven.Games.Document{}
+        |> RuleMaven.Games.Document.changeset(%{
+          label: "Appendix",
+          game_id: game.id,
+          page_count: nil,
+          status: "published"
+        })
+        |> Repo.insert()
+
+      Repo.insert!(%PageCoverage{document_id: nild.id, page: 1})
+      Repo.insert!(%PageCoverage{document_id: nild.id, page: 2})
+      Repo.insert!(%PageCoverage{document_id: nild.id, page: 3})
+
+      roll = Coverage.for_game(game.id)
+
+      assert roll.total == 4
+      assert roll.covered == 2
+      assert_in_delta roll.pct, 0.5, 0.001
+      assert roll.pct <= 1.0
     end
   end
 end
