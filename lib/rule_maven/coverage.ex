@@ -7,6 +7,7 @@ defmodule RuleMaven.Coverage do
   import Ecto.Query
 
   alias RuleMaven.Coverage.PageCoverage
+  alias RuleMaven.Coverage.UserPageCoverage
   alias RuleMaven.Games
   alias RuleMaven.Games.Document
   alias RuleMaven.Repo
@@ -46,13 +47,11 @@ defmodule RuleMaven.Coverage do
   @doc "Record covered (document_id, page) pairs from a question_log's citations. Idempotent."
   @spec record_citations(map()) :: {:ok, non_neg_integer()}
   def record_citations(%{citations: citations} = ql) when is_list(citations) do
-    page_counts = page_count_map(citations)
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     rows =
       citations
-      |> Enum.flat_map(&covered_pair(&1, page_counts))
-      |> Enum.uniq()
+      |> distinct_covered_pairs()
       |> Enum.map(fn {doc_id, page} ->
         %{
           document_id: doc_id,
@@ -75,6 +74,46 @@ defmodule RuleMaven.Coverage do
   end
 
   def record_citations(_), do: {:ok, 0}
+
+  @doc "Record a user's personal page exposure from a grounded answer's citations. Idempotent."
+  @spec record_personal(integer() | nil, [map()]) :: {:ok, non_neg_integer()}
+  def record_personal(user_id, citations) when is_integer(user_id) and is_list(citations) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    rows =
+      citations
+      |> distinct_covered_pairs()
+      |> Enum.map(fn {doc_id, page} ->
+        %{
+          user_id: user_id,
+          document_id: doc_id,
+          page: page,
+          inserted_at: now,
+          updated_at: now
+        }
+      end)
+
+    {count, _} =
+      Repo.insert_all(UserPageCoverage, rows,
+        on_conflict: :nothing,
+        conflict_target: [:user_id, :document_id, :page]
+      )
+
+    {:ok, count}
+  end
+
+  def record_personal(_user_id, _citations), do: {:ok, 0}
+
+  # Shared: distinct valid (document_id, page) pairs from a citation list,
+  # clamped to page_count, unknown documents skipped. Used by both the
+  # community (record_citations) and personal (record_personal) write paths.
+  defp distinct_covered_pairs(citations) when is_list(citations) do
+    page_counts = page_count_map(citations)
+
+    citations
+    |> Enum.flat_map(&covered_pair(&1, page_counts))
+    |> Enum.uniq()
+  end
 
   # Page-count lookup for the documents referenced by these citations.
   defp page_count_map(citations) do
