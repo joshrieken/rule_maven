@@ -1817,6 +1817,33 @@ button.motion-toggle {
 button.motion-toggle:hover {
   background: rgba(255, 255, 255, 0.15);
 }
+
+/* ‹ / › theme steppers. Same square box + `button.` specificity guard as the
+   motion toggle so they read as one row of header controls and don't pick up
+   the generic button reset's surface fill on light themes. The glyph sits a hair
+   larger than the toggle's icon and nudges up — the chevron characters render
+   low in the line box. */
+button.theme-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex-shrink: 0;
+  padding: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background 0.15s;
+  color: rgba(255, 255, 255, 0.7);
+}
+button.theme-nav:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #FFFFFF;
+}
 /* The account-menu variant is a full-width menu row, not the square header
    button. It keeps the .motion-toggle class so the sparkle/moon swap below
    still applies, so it has to undo the square button's box here. */
@@ -4505,13 +4532,19 @@ body:has([data-phx-main].phx-connected)::after {
   .role-badge { margin-left: 0.2rem; padding: 0.05rem 0.25rem; font-size: 0.55rem; }
   /* Theme names are words now ("Dungeon Master"), not colors ("Dusk"), and a
      <select> truncates its label hard — no ellipsis. The stacked brand and the
-     relocated motion toggle free enough room for the longest name. */
+     relocated motion toggle free enough room for the longest name. The ‹ / ›
+     steppers cost ~5rem of this row on touch, so the label narrows to keep the
+     nowrap cluster inside a ~390px phone — the arrows cycle the name that's
+     clipped, so the truncation is no longer a dead end. */
   .theme-select {
-    max-width: 10.5rem;
+    max-width: 7.5rem;
     font-size: 0.66rem;
     padding: 0 1.2rem 0 0.45rem;
     background-position: right 0.4rem center;
   }
+  /* The chevrons are the finger-friendly control on touch; the header cluster
+     leans on them, so trim their gap to the select to buy width. */
+  .header-controls { gap: 0.25rem; }
 }
 
 /* Below 360px the wordmark loses: even stacked and shrunk it clips against the
@@ -4959,7 +4992,8 @@ body:has([data-phx-main].phx-connected)::after {
   /* Desktop deliberately sizes these two to a shared 1.6rem so the header
      reads as one row of controls. Growing only the toggle for touch broke that
      pairing, so the select grows with it. */
-  button.motion-toggle {
+  button.motion-toggle,
+  button.theme-nav {
     width: 2.5rem;
     height: 2.5rem;
   }
