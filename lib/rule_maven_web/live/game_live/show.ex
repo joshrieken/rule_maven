@@ -4,7 +4,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   alias RuleMaven.Games
   alias RuleMaven.Games.QuestionLog
   alias RuleMavenWeb.ReportModal
-  alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
+  alias RuleMavenWeb.GameLive.{CoveragePanel, SubBar, ToolHost, ToolPanel}
 
   # Events delegated to the shared ToolHost; the house-rule subset also
   # recomputes this page's answer overlay after the shared handler runs.
@@ -44,6 +44,12 @@ defmodule RuleMavenWeb.GameLive.Show do
        # live by {:mastery_awarded, …}. xp_toast is a transient "+N XP" flash.
        game_mastery: nil,
        xp_toast: nil,
+       # Rulebook coverage incentives: community meter + gaps + personal title.
+       # Loaded with the game, refreshed after each answer-view stamp.
+       coverage_for_game: nil,
+       coverage_gaps: [],
+       coverage_credit: 0,
+       coverage_title: nil,
        # Per-page-load seed (set by the :put_dyk_seed plug). Identical across the
        # dead render and the connected mount, so the "Did you know?" card picks
        # the same fact on both; re-rolls on a real refresh.
@@ -369,6 +375,8 @@ defmodule RuleMavenWeb.GameLive.Show do
       |> sync_ask_stream_subscriptions()
       |> apply_default_voice(socket.assigns.default_voice)
       |> load_hr_overlay()
+      |> record_personal_coverage()
+      |> assign_coverage()
 
     socket =
       if not is_nil(prev_thread_id) and prev_thread_id != active_thread_id,
@@ -519,6 +527,8 @@ defmodule RuleMavenWeb.GameLive.Show do
       |> sync_ask_stream_subscriptions()
       |> apply_default_voice(socket.assigns.default_voice)
       |> load_hr_overlay()
+      |> record_personal_coverage()
+      |> assign_coverage()
 
     socket =
       if not is_nil(prev_thread_id) and prev_thread_id != active_thread_id,
@@ -804,6 +814,55 @@ defmodule RuleMavenWeb.GameLive.Show do
        do: username
 
   defp asker_label(_question, _current_user_id), do: "Unknown"
+
+  # Best-effort: stamp the current user's personal coverage from grounded
+  # assistant answers now visible in the conversation. Never breaks render.
+  defp record_personal_coverage(socket) do
+    user = socket.assigns[:current_user]
+
+    if user && is_integer(user.id) do
+      citations =
+        (socket.assigns[:conversation] || [])
+        |> Enum.filter(&(Map.get(&1, :role) == :assistant))
+        |> Enum.flat_map(&(Map.get(&1, :citations) || []))
+
+      require Logger
+
+      try do
+        RuleMaven.Coverage.record_personal(user.id, citations)
+      rescue
+        e -> Logger.warning("record_personal_coverage failed: #{inspect(e)}")
+      end
+    end
+
+    socket
+  end
+
+  # Best-effort: load the coverage meter, gap list, credit, and personal title
+  # for the current game/user. Any failure hides the panel; play never gates.
+  defp assign_coverage(socket) do
+    game = socket.assigns[:game]
+    user = socket.assigns[:current_user]
+
+    if game && user && is_integer(user.id) do
+      require Logger
+
+      try do
+        assign(socket,
+          coverage_for_game: RuleMaven.Coverage.for_game(game.id),
+          coverage_gaps: RuleMaven.Coverage.gaps_enriched(game.id),
+          coverage_credit: RuleMaven.Coverage.contribution_credit(user.id, game.id),
+          coverage_title: RuleMaven.Coverage.title_for(user.id, game.id)
+        )
+      rescue
+        e ->
+          Logger.warning("assign_coverage failed: #{inspect(e)}")
+          socket
+      end
+    else
+      socket
+    end
+  end
 
   # True when the normalized/displayed question meaningfully differs from the raw
   # text the user typed. Ignores capitalization and whitespace so trivial cleanups
@@ -2874,6 +2933,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         # grafted back on (get_question_log_by_id/1 doesn't preload it).
         |> grouped_cache_update(question_log_id, fn p -> %{ql | user: p.user} end)
         |> sync_ask_stream_subscriptions()
+        |> record_personal_coverage()
+      |> assign_coverage()
 
       # Persona-direct path (Task 5): the ask call already produced the styled
       # answer in the same LLM response, so populate voice_cache straight from
@@ -3495,6 +3556,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         active_group_id={@active_group_id}
         game_mastery={@game_mastery}
         xp_toast={@xp_toast}
+        coverage_title={@coverage_title}
       >
         <%!-- Sidebar toggle: kept first so it is the leftmost control on
               whichever row this group wraps onto on narrow screens. The
@@ -3578,6 +3640,12 @@ defmodule RuleMavenWeb.GameLive.Show do
               >✕</button>
             </div>
           </div>
+
+          <CoveragePanel.coverage_panel
+            for_game={@coverage_for_game}
+            gaps={@coverage_gaps}
+            credit={@coverage_credit}
+          />
 
           <!-- Community questions -->
           <%= if @community_questions != [] do %>
