@@ -94,6 +94,14 @@ defmodule RuleMavenWeb.Tours do
         body:
           "Tap 🎲 Play or 📚 Learn to open Turn Wizard, Quiz, Setup checklist, Score pad, and more — they open as movable panels you can minimize to the dock, and they remember where you left off."
       },
+      %{
+        # Anchored to the sidebar coverage meter. present() skips this step
+        # gracefully on games with no grounded coverage yet (panel not rendered).
+        sel: "[data-tour='coverage']",
+        title: "Fill in the rulebook",
+        body:
+          "This meter shows how much of the rulebook the community has grounded. Ask about a page in “Help fill the gaps” to be first to open it up — and earn a per-game title (Student → Sage) for the pages you read or ask about."
+      },
       # Deliberately un-anchored (`sel: nil`, a centered step). The obvious
       # anchor — [data-tour='group-selector'] — only renders for a user who
       # already belongs to a crew, i.e. never for the new user this tour is

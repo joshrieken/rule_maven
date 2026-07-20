@@ -17,6 +17,7 @@ defmodule RuleMavenWeb.GameLive.CoveragePanel do
     <div
       :if={@for_game}
       class="coverage-panel"
+      data-tour="coverage"
       style="padding:0.5rem 0.75rem;border-bottom:1px solid var(--border)"
     >
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:0.5rem">
