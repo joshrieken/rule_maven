@@ -81,4 +81,27 @@ defmodule RuleMaven.CoveragePersonalTest do
       assert {:ok, 0} = Coverage.record_personal(nil, [%{"page" => 1, "document_id" => doc.id}])
     end
   end
+
+  describe "personal_for_game/2" do
+    test "personal pct uses the same denominator as for_game" do
+      game = game_fixture()
+      doc = published_doc(game, %{page_count: 4})
+      user = make_user()
+
+      Repo.insert!(%UserPageCoverage{user_id: user.id, document_id: doc.id, page: 1})
+      Repo.insert!(%UserPageCoverage{user_id: user.id, document_id: doc.id, page: 2})
+
+      assert %{total: 4, covered: 2, pct: pct} = Coverage.personal_for_game(user.id, game.id)
+      assert_in_delta pct, 0.5, 0.001
+      # denominator parity: community for_game over the same game reports total 4
+      assert Coverage.for_game(game.id).total == 4
+    end
+
+    test "nil page_count -> nil pct" do
+      game = game_fixture()
+      _doc = published_doc(game, %{page_count: nil})
+      user = make_user()
+      assert %{pct: nil} = Coverage.personal_for_game(user.id, game.id)
+    end
+  end
 end

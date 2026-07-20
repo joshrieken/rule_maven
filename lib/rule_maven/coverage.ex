@@ -208,6 +208,39 @@ defmodule RuleMaven.Coverage do
     %{sources: sources, covered: covered, total: total, pct: pct(covered, total)}
   end
 
+  @doc "A user's personal coverage rollup across the game's published docs + expansions."
+  def personal_for_game(user_id, game_id) do
+    game_ids = [game_id | expansion_game_ids(game_id)]
+
+    docs =
+      Repo.all(
+        from d in Document,
+          where: d.game_id in ^game_ids and d.status == "published",
+          select: %{document_id: d.id, page_count: d.page_count}
+      )
+
+    doc_ids = Enum.map(docs, & &1.document_id)
+
+    counts =
+      Repo.all(
+        from u in UserPageCoverage,
+          where: u.user_id == ^user_id and u.document_id in ^doc_ids,
+          group_by: u.document_id,
+          select: {u.document_id, count(u.id)}
+      )
+      |> Map.new()
+
+    summaries =
+      Enum.map(docs, fn d -> summarize(d.page_count, Map.get(counts, d.document_id, 0)) end)
+
+    total = summaries |> Enum.map(&(&1.page_count || 0)) |> Enum.sum()
+
+    covered =
+      summaries |> Enum.map(fn s -> if s.page_count, do: s.covered, else: 0 end) |> Enum.sum()
+
+    %{covered: covered, total: total, pct: pct(covered, total)}
+  end
+
   @doc """
   Sorted list of uncovered page numbers in `1..page_count` for a document.
   Returns `[]` when `page_count` is nil.
