@@ -104,4 +104,100 @@ defmodule RuleMaven.CoveragePersonalTest do
       assert %{pct: nil} = Coverage.personal_for_game(user.id, game.id)
     end
   end
+
+  describe "title_for/2" do
+    setup do
+      game = game_fixture(%{name: "Catan"})
+      doc = published_doc(game, %{page_count: 4})
+      user = make_user()
+      %{game: game, doc: doc, user: user}
+    end
+
+    test "below 25% has no title", %{game: g, user: u} do
+      assert %{tier: nil, label: nil} = Coverage.title_for(u.id, g.id)
+    end
+
+    test "25% -> Student, label carries game name", %{game: g, doc: d, user: u} do
+      Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: 1})
+      assert %{tier: :student, label: "Catan Student", pct: pct} = Coverage.title_for(u.id, g.id)
+      assert_in_delta pct, 0.25, 0.001
+    end
+
+    test "50% -> Scholar, 75% -> Expert", %{game: g, doc: d, user: u} do
+      Enum.each(1..2, &Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: &1}))
+      assert %{tier: :scholar} = Coverage.title_for(u.id, g.id)
+      Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: 3})
+      assert %{tier: :expert} = Coverage.title_for(u.id, g.id)
+    end
+
+    test "Sage when personal set covers the whole community-covered set", %{game: g, doc: d, user: u} do
+      Enum.each(1..2, &Repo.insert!(%RuleMaven.Coverage.PageCoverage{document_id: d.id, page: &1}))
+      Enum.each(1..2, &Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: &1}))
+      assert %{tier: :sage} = Coverage.title_for(u.id, g.id)
+    end
+
+    test "empty community set is not Sage", %{game: g, doc: d, user: u} do
+      Enum.each(1..3, &Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: &1}))
+      assert %{tier: :expert} = Coverage.title_for(u.id, g.id)
+    end
+  end
+
+  describe "gaps_enriched/1" do
+    test "returns uncovered pages with a snippet from chunk text" do
+      game = game_fixture()
+      doc = published_doc(game, %{page_count: 3})
+      Repo.insert!(%RuleMaven.Coverage.PageCoverage{document_id: doc.id, page: 2})
+
+      Repo.insert!(%RuleMaven.Games.Chunk{
+        document_id: doc.id,
+        page_number: 1,
+        chunk_index: 0,
+        content: "Setup\nPlace the board in the center.",
+        section_label: "Setup"
+      })
+
+      Repo.insert!(%RuleMaven.Games.Chunk{
+        document_id: doc.id,
+        page_number: 3,
+        chunk_index: 0,
+        content: "Winning the game\nFirst to 10 points wins.",
+        section_label: nil
+      })
+
+      gaps = Coverage.gaps_enriched(game.id)
+
+      assert [%{page: 1, label: "Setup", snippet: "Setup"}, %{page: 3, snippet: "Winning the game"}] =
+               Enum.map(gaps, &Map.take(&1, [:page, :label, :snippet]))
+    end
+  end
+
+  describe "contribution_credit/2" do
+    test "counts only this user's first-covered pages in the game" do
+      game = game_fixture()
+      doc = published_doc(game)
+      u1 = make_user()
+      u2 = make_user()
+
+      Repo.insert!(%RuleMaven.Coverage.PageCoverage{
+        document_id: doc.id,
+        page: 1,
+        first_covered_by_user_id: u1.id
+      })
+
+      Repo.insert!(%RuleMaven.Coverage.PageCoverage{
+        document_id: doc.id,
+        page: 2,
+        first_covered_by_user_id: u1.id
+      })
+
+      Repo.insert!(%RuleMaven.Coverage.PageCoverage{
+        document_id: doc.id,
+        page: 3,
+        first_covered_by_user_id: u2.id
+      })
+
+      assert Coverage.contribution_credit(u1.id, game.id) == 2
+      assert Coverage.contribution_credit(u2.id, game.id) == 1
+    end
+  end
 end
