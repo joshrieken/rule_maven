@@ -369,6 +369,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       |> sync_ask_stream_subscriptions()
       |> apply_default_voice(socket.assigns.default_voice)
       |> load_hr_overlay()
+      |> record_personal_coverage()
 
     socket =
       if not is_nil(prev_thread_id) and prev_thread_id != active_thread_id,
@@ -519,6 +520,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       |> sync_ask_stream_subscriptions()
       |> apply_default_voice(socket.assigns.default_voice)
       |> load_hr_overlay()
+      |> record_personal_coverage()
 
     socket =
       if not is_nil(prev_thread_id) and prev_thread_id != active_thread_id,
@@ -804,6 +806,29 @@ defmodule RuleMavenWeb.GameLive.Show do
        do: username
 
   defp asker_label(_question, _current_user_id), do: "Unknown"
+
+  # Best-effort: stamp the current user's personal coverage from grounded
+  # assistant answers now visible in the conversation. Never breaks render.
+  defp record_personal_coverage(socket) do
+    user = socket.assigns[:current_user]
+
+    if user && is_integer(user.id) do
+      citations =
+        (socket.assigns[:conversation] || [])
+        |> Enum.filter(&(Map.get(&1, :role) == :assistant))
+        |> Enum.flat_map(&(Map.get(&1, :citations) || []))
+
+      require Logger
+
+      try do
+        RuleMaven.Coverage.record_personal(user.id, citations)
+      rescue
+        e -> Logger.warning("record_personal_coverage failed: #{inspect(e)}")
+      end
+    end
+
+    socket
+  end
 
   # True when the normalized/displayed question meaningfully differs from the raw
   # text the user typed. Ignores capitalization and whitespace so trivial cleanups
@@ -2874,6 +2899,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         # grafted back on (get_question_log_by_id/1 doesn't preload it).
         |> grouped_cache_update(question_log_id, fn p -> %{ql | user: p.user} end)
         |> sync_ask_stream_subscriptions()
+        |> record_personal_coverage()
 
       # Persona-direct path (Task 5): the ask call already produced the styled
       # answer in the same LLM response, so populate voice_cache straight from
