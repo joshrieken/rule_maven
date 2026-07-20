@@ -4515,14 +4515,16 @@ body:has([data-phx-main].phx-connected)::after {
      every wasted pixel comes straight out of the chat area. */
   .header-inner { gap: 0.35rem; flex-wrap: nowrap; padding: 0.5rem 0; }
   .header { padding: 0 0.75rem; }
-  /* Stack "Rule" over "Maven": half the width of one line, and it costs no
-     header height — the control row is taller than the two lines. */
+  /* Single-line wordmark: with the hamburger clustered right and the theme
+     picker collapsed to an icon, the row has room for "Rule Maven" on one line
+     down to ~330px (below that the <320 block drops to the dice mark). The base
+     rule's ellipsis is the safety net if a theme name ever widens the row. */
   .header-title {
-    font-size: 0.72rem;
-    line-height: 1.05;
-    white-space: normal;
+    font-size: 1rem;
+    line-height: 1.1;
+    white-space: nowrap;
   }
-  .header-title-accent { display: block; }
+  .header-title-accent { display: inline; }
   .header-brand { align-items: center; }
   /* The username is replaced by an icon, so the summary is never empty. */
   .header-user-icon { display: inline; }
