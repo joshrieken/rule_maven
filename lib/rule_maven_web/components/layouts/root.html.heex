@@ -96,12 +96,6 @@
             assigns[:current_user] || (assigns[:conn] && assigns[:conn].assigns[:current_user]) ||
               (assigns[:conn] && RuleMavenWeb.Layouts.current_user(assigns[:conn])) %>
 
-          <%= if me && RuleMaven.Users.can?(me, :admin) do %>
-            <button class="hamburger" id="hamburger-btn" aria-label="Menu">
-              <span></span><span></span><span></span>
-            </button>
-          <% end %>
-
           <!-- Desktop nav -->
           <nav class="header-nav" id="header-nav">
             <%= if me && RuleMaven.Users.can?(me, :admin) do %>
@@ -185,6 +179,17 @@
           </nav>
 
           <div class="header-right">
+            <%!-- Admin drawer toggle rides with the right-hand controls (mobile
+                  only via .hamburger's display rule) so it never strands itself
+                  mid-header with the brand pushed left. --%>
+            <button
+              :if={me && RuleMaven.Users.can?(me, :admin)}
+              class="hamburger"
+              id="hamburger-btn"
+              aria-label="Menu"
+            >
+              <span></span><span></span><span></span>
+            </button>
             <div class="header-controls">
               <%!-- Game-theme options aren't rendered here: game pages publish
                     their variant list on the #game-theme marker
