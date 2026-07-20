@@ -4530,21 +4530,18 @@ body:has([data-phx-main].phx-connected)::after {
      so anything added to this row has to earn its width. The badge stays (it's
      the only elevated-session signal once the username is hidden) but shrinks. */
   .role-badge { margin-left: 0.2rem; padding: 0.05rem 0.25rem; font-size: 0.55rem; }
-  /* Theme names are words now ("Dungeon Master"), not colors ("Dusk"), and a
-     <select> truncates its label hard — no ellipsis. The stacked brand and the
-     relocated motion toggle free enough room for the longest name. The ‹ / ›
-     steppers cost ~5rem of this row on touch, so the label narrows to keep the
-     nowrap cluster inside a ~390px phone — the arrows cycle the name that's
-     clipped, so the truncation is no longer a dead end. */
-  .theme-select {
-    max-width: 7.5rem;
-    font-size: 0.66rem;
-    padding: 0 1.2rem 0 0.45rem;
-    background-position: right 0.4rem center;
-  }
-  /* The chevrons are the finger-friendly control on touch; the header cluster
-     leans on them, so trim their gap to the select to buy width. */
-  .header-controls { gap: 0.25rem; }
+  /* The named <select> is what overflowed this nowrap row and squeezed the
+     brand and the account button to zero width (clipped off-screen at ~320px).
+     On phones the ‹ / › steppers ARE the theme control — they cycle every theme
+     without the fiddly native dropdown — so drop the select from the bar and let
+     the arrows carry it. The select stays in the DOM (hidden), so the stepper
+     script still reads/writes it. */
+  .header-controls .theme-select { display: none; }
+  /* The two chevrons read as one segmented control when their gap is tight. */
+  .header-controls { gap: 0.2rem; }
+  /* The brand (dice, and the wordmark when it fits) must never be the thing that
+     collapses to make room for controls — it's the home link and the identity. */
+  .header-brand { flex-shrink: 0; }
 }
 
 /* Below 360px the wordmark loses: even stacked and shrunk it clips against the
