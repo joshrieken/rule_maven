@@ -37,6 +37,11 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :class, :string, default: nil, doc: "extra classes for the chrome element"
   attr :game_mastery, :map, default: nil, doc: "per-game mastery rollup for the XP HUD"
   attr :xp_toast, :integer, default: nil, doc: "transient +N XP flash amount"
+
+  attr :coverage_title, :map,
+    default: nil,
+    doc: "personal per-game rulebook title (Coverage.title_for/2)"
+
   slot :inner_block
 
   @doc """
@@ -80,9 +85,27 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         </.link>
       </div>
       <.mastery_hud :if={@game_mastery} mastery={@game_mastery} xp_toast={@xp_toast} game={@game} />
+      <span
+        :if={@coverage_title && @coverage_title.label}
+        class="coverage-title"
+        title="Rulebook mastery — pages you've read or asked about"
+        style="display:inline-flex;align-items:center;gap:0.3rem;flex-shrink:0;max-width:100%;overflow:hidden;font-size:0.7rem;font-weight:700;color:var(--accent);white-space:nowrap"
+      >
+        <span style="overflow:hidden;text-overflow:ellipsis">{@coverage_title.label}</span>
+        <span
+          :if={@coverage_title.pages_to_next && @coverage_title.next_tier}
+          style="flex-shrink:0;font-weight:500;color:var(--text-muted)"
+        >
+          · {@coverage_title.pages_to_next} to {next_label(@coverage_title.next_tier)}
+        </span>
+      </span>
     </div>
     """
   end
+
+  # Display name for the next tier. Single source of truth lives in
+  # RuleMaven.Coverage.tier_name/1 (same @tier_names map).
+  defp next_label(tier), do: RuleMaven.Coverage.tier_name(tier)
 
   attr :mastery, :map, required: true
   attr :xp_toast, :integer, default: nil

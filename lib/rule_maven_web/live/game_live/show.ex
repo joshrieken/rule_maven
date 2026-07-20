@@ -3556,6 +3556,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         active_group_id={@active_group_id}
         game_mastery={@game_mastery}
         xp_toast={@xp_toast}
+        coverage_title={@coverage_title}
       >
         <%!-- Sidebar toggle: kept first so it is the leftmost control on
               whichever row this group wraps onto on narrow screens. The

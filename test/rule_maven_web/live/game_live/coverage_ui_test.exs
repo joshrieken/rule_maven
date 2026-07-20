@@ -70,4 +70,21 @@ defmodule RuleMavenWeb.GameLive.CoverageUiTest do
     assert html =~ "50%"
     assert html =~ "Trading"
   end
+
+  test "sub-bar shows the personal title once earned", %{conn: conn} do
+    game = game_fixture(%{name: "Catan"}) |> make_playable()
+    doc = published_doc(game, 4)
+    user = make_user()
+
+    # 1 of 4 personal pages = 25% -> Student
+    Repo.insert!(%RuleMaven.Coverage.UserPageCoverage{
+      user_id: user.id,
+      document_id: doc.id,
+      page: 1
+    })
+
+    {:ok, _view, html} = conn |> login(user) |> live(~p"/games/#{game}")
+
+    assert html =~ "Catan Student"
+  end
 end
