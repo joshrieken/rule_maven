@@ -383,6 +383,10 @@ defmodule RuleMaven.Voices do
   generated voices that are either always open (`unlock_level == 0`) or already
   unlocked for the user (slug in `unlocked_slugs`). This is the per-game mastery
   gate (feature C) — see `RuleMaven.Progress`.
+
+  `unlocked_slugs` may also be `:all`, which ignores unlock levels entirely.
+  That is the `:mastery_levels`-off path: with no way left to earn a level, an
+  unlock gate would lock personas away permanently rather than gating them.
   """
   def for_game(game, unlocked_slugs) when is_list(unlocked_slugs) do
     available =
@@ -392,6 +396,10 @@ defmodule RuleMaven.Voices do
       |> Enum.filter(fn v -> v.unlock_level == 0 or v.slug in unlocked_slugs end)
 
     @voices ++ available
+  end
+
+  def for_game(game, :all) do
+    @voices ++ (game |> game_id() |> game_voice_defs())
   end
 
   @doc "True for a built-in global voice id (no game context needed)."

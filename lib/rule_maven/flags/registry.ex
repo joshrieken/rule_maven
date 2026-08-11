@@ -38,7 +38,21 @@ defmodule RuleMaven.Flags.Registry do
       default: true,
       admin_bypass: true
     },
-    %{id: :outbound_email, label: "Outbound email", kind: :ops, default: true}
+    %{id: :outbound_email, label: "Outbound email", kind: :ops, default: true},
+    # Off hides the XP bar and the level-up moment, and stops XP being folded
+    # into `game_mastery` / `curator_points`. Earning events keep being banked
+    # while it is off, so turning it back on levels everyone up for the work
+    # they did in the meantime (see `RuleMaven.Progress.backfill_pending/0`).
+    %{
+      id: :mastery_levels,
+      label: "Mastery levelling (XP, levels, unlocks)",
+      kind: :ops,
+      default: true
+    },
+    # Off hides the coverage meter, gap list and personal rulebook title.
+    # Coverage rows keep being recorded, so the meter is already current the
+    # moment it is turned back on.
+    %{id: :rulebook_coverage, label: "Rulebook coverage & titles", kind: :ops, default: true}
   ]
 
   @experiments [

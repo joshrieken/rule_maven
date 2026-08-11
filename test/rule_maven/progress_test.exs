@@ -130,10 +130,78 @@ defmodule RuleMaven.ProgressTest do
     end
   end
 
+  describe "the :mastery_levels flag" do
+    setup do
+      game = game_fixture()
+      user = user_fixture("flag")
+      voice_fixture(game, "merchant", 1)
+      # Flag rows are written through the Repo, so the sandbox rolls the gate
+      # back for us at the end of each test — no manual restore needed.
+      {:ok, _} = RuleMaven.Flags.disable(:mastery_levels)
+      %{user: user, game: game}
+    end
+
+    test "with the flag off, XP is banked instead of applied", %{user: user, game: game} do
+      assert {:deferred, mastery} = Progress.award_ask(user.id, game.id, "off-1")
+      assert mastery.xp == 0
+      assert Repo.get(User, user.id).curator_points == 0
+      assert Progress.pending_count() == 1
+    end
+
+    test "the dedupe still holds while banked", %{user: user, game: game} do
+      assert {:deferred, _} = Progress.award_ask(user.id, game.id, "off-1")
+      assert {:duplicate, _} = Progress.award_ask(user.id, game.id, "off-1")
+      assert Progress.pending_count() == 1
+    end
+
+    test "turning it back on levels the user up for the meantime", %{user: user, game: game} do
+      for n <- 1..4, do: {:deferred, _} = Progress.award_ask(user.id, game.id, "off-#{n}")
+
+      {:ok, _} = RuleMaven.Flags.enable(:mastery_levels)
+      assert %{users: 1, events: 4} = Progress.backfill_pending()
+
+      mastery = Progress.get_mastery(user.id, game.id)
+      # 4 × 15 = 60 XP → Lv1 (@50), and the level's persona comes with it.
+      assert mastery.xp == 60
+      assert mastery.level == 1
+      assert "merchant" in mastery.unlocked_voice_slugs
+      # One curator point per banked event, same as if they had been live.
+      assert Repo.get(User, user.id).curator_points == 4
+      assert Progress.pending_count() == 0
+    end
+
+    test "the backfill is idempotent", %{user: user, game: game} do
+      {:deferred, _} = Progress.award_ask(user.id, game.id, "off-1")
+      {:ok, _} = RuleMaven.Flags.enable(:mastery_levels)
+
+      assert %{events: 1} = Progress.backfill_pending()
+      assert %{users: 0, events: 0} = Progress.backfill_pending()
+      assert Progress.get_mastery(user.id, game.id).xp == 15
+      assert Repo.get(User, user.id).curator_points == 1
+    end
+
+    test "users still outside the gate keep their XP banked", %{user: user, game: game} do
+      {:deferred, _} = Progress.award_ask(user.id, game.id, "off-1")
+
+      assert %{users: 0, events: 0} = Progress.backfill_pending()
+      assert Progress.pending_count() == 1
+      assert Progress.get_mastery(user.id, game.id).xp == 0
+    end
+
+    test "an actor grant lets one user through ahead of the boolean", %{user: user, game: game} do
+      {:deferred, _} = Progress.award_ask(user.id, game.id, "off-1")
+      RuleMaven.Flags.grant_actor(:mastery_levels, user)
+
+      assert %{users: 1, events: 1} = Progress.backfill_pending()
+      assert Progress.get_mastery(user.id, game.id).xp == 15
+    end
+  end
+
   describe "get_mastery/2" do
     test "returns a zeroed virtual struct when none exists" do
       user = user_fixture("empty")
       game = game_fixture()
+
       assert %GameMastery{xp: 0, level: 0, unlocked_voice_slugs: []} =
                Progress.get_mastery(user.id, game.id)
     end

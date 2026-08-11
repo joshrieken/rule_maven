@@ -43,6 +43,10 @@ defmodule Mix.Tasks.RuleMaven.Flags.SyncTest do
   end
 
   test "--check raises when a declared flag is unsynced" do
+    # Establish the drift this asserts on rather than inheriting it from
+    # whatever the database happened to be missing.
+    FunWithFlags.clear(:tool_quiz)
+
     assert_raise Mix.Error, fn ->
       Mix.Tasks.RuleMaven.Flags.Sync.run(["--check"])
     end

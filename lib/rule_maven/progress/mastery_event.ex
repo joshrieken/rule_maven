@@ -13,6 +13,10 @@ defmodule RuleMaven.Progress.MasteryEvent do
     field :source_key, :string
     field :kind, :string
     field :xp, :integer
+    # nil while the `:mastery_levels` flag is off for this user: the event is
+    # banked but not yet folded into `game_mastery` / `curator_points`. The
+    # backfill stamps it when the flag comes on.
+    field :applied_at, :utc_datetime
     belongs_to :user, RuleMaven.Users.User
     belongs_to :game, RuleMaven.Games.Game
 
@@ -22,7 +26,7 @@ defmodule RuleMaven.Progress.MasteryEvent do
   @doc false
   def changeset(event, attrs) do
     event
-    |> cast(attrs, [:user_id, :game_id, :source_key, :kind, :xp])
+    |> cast(attrs, [:user_id, :game_id, :source_key, :kind, :xp, :applied_at])
     |> validate_required([:user_id, :game_id, :source_key, :kind, :xp])
     |> unique_constraint([:user_id, :source_key], name: :mastery_events_user_id_source_key_index)
   end

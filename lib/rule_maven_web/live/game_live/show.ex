@@ -458,6 +458,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     # this never doubles.
     prev_thread_id = socket.assigns[:active_thread_id]
 
+    levelling? = RuleMaven.Flags.enabled?(:mastery_levels, socket.assigns.current_user)
     mastery = RuleMaven.Progress.get_mastery(socket.assigns.current_user.id, game.id)
 
     socket =
@@ -466,8 +467,10 @@ defmodule RuleMavenWeb.GameLive.Show do
         loaded_game_id: game.id,
         grouped: grouped,
         # Persona picker is gated by per-game mastery (feature C): locked voices
-        # are filtered out until unlocked.
-        voices: RuleMaven.Voices.for_game(game, mastery.unlocked_voice_slugs),
+        # are filtered out until unlocked. With levelling flagged off there is no
+        # way left to unlock anything, so the gate opens rather than locking
+        # people out of personas for good.
+        voices: RuleMaven.Voices.for_game(game, unlocked_slugs(mastery, levelling?)),
         page_title: game.name,
         conversation: conversation,
         threads: threads,
@@ -491,7 +494,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         flagged_ids: Games.user_flagged_ids(socket.assigns.current_user.id),
         asks_disabled: not RuleMaven.Flags.enabled?(:asks, socket.assigns.current_user),
         question_categories: question_categories,
-        game_mastery: mastery
+        # nil hides the XP bar entirely (SubBar renders it behind an :if).
+        game_mastery: if(levelling?, do: mastery)
       )
 
     # Tool data + window state load once per mount (seeded_before gates first
@@ -838,13 +842,23 @@ defmodule RuleMavenWeb.GameLive.Show do
     socket
   end
 
+  # Which personas this user has earned. With `:mastery_levels` off the level
+  # curve is frozen, so keeping the filter would lock every unearned persona
+  # away permanently — the gate opens instead.
+  defp unlocked_slugs(_mastery, false), do: :all
+  defp unlocked_slugs(mastery, true), do: mastery.unlocked_voice_slugs
+
   # Best-effort: load the coverage meter, gap list, credit, and personal title
   # for the current game/user. Any failure hides the panel; play never gates.
+  # `:rulebook_coverage` off leaves the assigns at their zeroed defaults, which
+  # hides the panel and the title strip; recording keeps running, so the meter
+  # is already current the moment the flag comes back on.
   defp assign_coverage(socket) do
     game = socket.assigns[:game]
     user = socket.assigns[:current_user]
 
-    if game && user && is_integer(user.id) do
+    if game && user && is_integer(user.id) &&
+         RuleMaven.Flags.enabled?(:rulebook_coverage, user) do
       require Logger
 
       try do
@@ -860,7 +874,14 @@ defmodule RuleMavenWeb.GameLive.Show do
           socket
       end
     else
-      socket
+      # Also the path taken when an admin flips the flag off mid-session: reset
+      # rather than leaving a stale meter on screen until remount.
+      assign(socket,
+        coverage_for_game: nil,
+        coverage_gaps: [],
+        coverage_credit: 0,
+        coverage_title: nil
+      )
     end
   end
 

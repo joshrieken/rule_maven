@@ -91,8 +91,15 @@ defmodule RuleMaven.MixProject do
       # just digesting them (cache_manifest.json + hashed, gzipped copies) for
       # prod's cache_static_manifest.
       "assets.deploy": ["phx.digest"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      "test.fast": ["ecto.create --quiet", "ecto.migrate --quiet", "test --exclude feature"],
+      # `flags.sync` seeds any newly-registered flag at its registry default, so
+      # a test run sees the same on/off world production does. Idempotent.
+      test: ["ecto.create --quiet", "ecto.migrate --quiet", "rule_maven.flags.sync", "test"],
+      "test.fast": [
+        "ecto.create --quiet",
+        "ecto.migrate --quiet",
+        "rule_maven.flags.sync",
+        "test --exclude feature"
+      ],
       precommit: ["compile --warnings-as-errors", "format", "credo --strict", "test"]
     ]
   end

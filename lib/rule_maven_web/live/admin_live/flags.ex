@@ -3,6 +3,8 @@ defmodule RuleMavenWeb.AdminLive.Flags do
 
   alias RuleMaven.{Flags, Users, Audit}
   alias RuleMaven.Flags.Registry
+  alias RuleMaven.Progress
+  alias RuleMaven.Workers.MasteryBackfillWorker
 
   @impl true
   def mount(_params, _session, socket) do
@@ -20,7 +22,12 @@ defmodule RuleMavenWeb.AdminLive.Flags do
       _ = Registry.fetch!(flag)
       on? = Flags.enabled?(flag, nil)
 
-      if on?, do: Flags.disable(flag), else: Flags.enable(flag)
+      if on? do
+        Flags.disable(flag)
+      else
+        Flags.enable(flag)
+        catch_up(flag)
+      end
 
       Audit.log(
         socket.assigns.current_user,
@@ -49,6 +56,7 @@ defmodule RuleMavenWeb.AdminLive.Flags do
 
         user ->
           Flags.grant_actor(flag, user)
+          catch_up(flag)
           Audit.log(socket.assigns.current_user, "flag.grant_actor", target_label: id)
 
           socket
@@ -108,6 +116,7 @@ defmodule RuleMavenWeb.AdminLive.Flags do
       case Integer.parse(pct) do
         {n, ""} when n in 0..99 ->
           Flags.set_percentage(flag, n / 100)
+          catch_up_percentage(flag, n)
 
           Audit.log(socket.assigns.current_user, "flag.set_percentage",
             target_label: "#{id}=#{n}"
@@ -122,6 +131,18 @@ defmodule RuleMavenWeb.AdminLive.Flags do
       end
     end)
   end
+
+  # Widening a flag's audience can leave work banked behind it. `:mastery_levels`
+  # banks earning events while it is off, so anyone newly inside the gate has to
+  # be levelled up for what they did in the meantime.
+  defp catch_up(:mastery_levels) do
+    %{} |> MasteryBackfillWorker.new() |> Oban.insert()
+  end
+
+  defp catch_up(_flag), do: :ok
+
+  defp catch_up_percentage(flag, pct) when pct > 0, do: catch_up(flag)
+  defp catch_up_percentage(_flag, _pct), do: :ok
 
   # Re-check admin capability on every event, then run fun/0 which returns a socket.
   defp with_admin(socket, fun) do
@@ -139,6 +160,7 @@ defmodule RuleMavenWeb.AdminLive.Flags do
       |> Map.put(:on?, Flags.enabled?(f.id, nil))
       |> Map.put(:gates, gate_view(f.id))
       |> Map.put(:counts, if(f.kind == :experiment, do: Flags.assignment_counts(f.id), else: nil))
+      |> Map.put(:banked, if(f.id == :mastery_levels, do: Progress.pending_count()))
     end)
     |> Enum.group_by(& &1.kind)
   end
@@ -256,6 +278,10 @@ defmodule RuleMavenWeb.AdminLive.Flags do
                   ×
                 </button>
               </span>
+            </div>
+
+            <div :if={f[:banked] && f.banked > 0} class="flag-meta">
+              {f.banked} XP events banked while off — applied when this is turned on.
             </div>
 
             <div :if={f.counts} class="flag-meta">

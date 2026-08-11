@@ -68,7 +68,11 @@ config :rule_maven, Oban,
        # (keeps the token/cost columns forever for cost reporting).
        {"30 3 * * *", RuleMaven.Workers.LlmLogPruneWorker},
        # Daily: delete expired auth tokens (max validity 7 days + margin).
-       {"45 3 * * *", RuleMaven.Workers.UserTokenPruneWorker}
+       {"45 3 * * *", RuleMaven.Workers.UserTokenPruneWorker},
+       # Hourly: apply XP banked while `:mastery_levels` was off. The admin
+       # toggle enqueues this directly; the cron only catches users pulled in
+       # by a percentage rollout, and no-ops when nothing is banked.
+       {"20 * * * *", RuleMaven.Workers.MasteryBackfillWorker}
      ]}
   ],
   # Queue topology — interactive work never queues behind bulk work:
