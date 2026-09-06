@@ -84,8 +84,11 @@ defmodule RuleMaven.LLMVerdictPrefixTest do
     end
 
     test "the refusal phrase is not mistaken for a legality lead" do
+      # Not legal/illegal — that is what this test guards. It stamps "silent":
+      # a verdict-less refusal is still a refusal, and coverage now decides the
+      # stamp when the legality lead has nothing to say.
       json = ~s({"answer": "The rulebook does not cover this question.", "citations": []})
-      assert verdict_for(json) == nil
+      assert verdict_for(json) == "silent"
     end
   end
 end

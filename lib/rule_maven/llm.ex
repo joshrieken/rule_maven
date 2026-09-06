@@ -656,8 +656,54 @@ defmodule RuleMaven.LLM do
 
   defp refused_answer?(llm_result) do
     llm_result[:verdict] == "silent" or
-      String.trim(to_string(llm_result[:answer])) == @refusal_answer
+      String.trim(to_string(llm_result[:answer])) == @refusal_answer or
+      soft_refusal?(llm_result[:answer])
   end
+
+  # Every non-coverage gate above compares the answer to @refusal_answer, so a
+  # model that phrases "not covered" in its own words defeats all of them at
+  # once. A player asked what number of Monsters the rulebook recommends and got
+  # "The rulebook does not recommend a specific number of Monsters to play
+  # against." (2026-09-06): no widened-retrieval rung, no combining recheck, and
+  # a verdict of "info" that stamped 📖 IN THE RULES over prose saying it isn't
+  # — while the cited p.4 passage recommended a pair both times it spoke.
+  #
+  # So detect the SHAPE of the claim rather than the boilerplate. Two guards
+  # keep it honest:
+  #
+  #   * The claim must LEAD the answer. A substantive answer that ends "…the
+  #     rulebook does not specify what happens if you stop early" has answered
+  #     the question; only an opening non-coverage claim is a refusal.
+  #   * The verb must be one of REPORTING (say/specify/mention/…), never one of
+  #     PERMISSION. "The rulebook does not allow trading on another player's
+  #     turn" is a legality ruling, and reading it as a refusal would suppress a
+  #     correct ❌ NOT ALLOWED stamp — the exact inversion this file spends so
+  #     much effort preventing elsewhere.
+  #
+  # A false positive costs at most one escalation call that refuses again and is
+  # discarded; a false negative is the silent wrong stamp above. The asymmetry
+  # is why the verb list leans inclusive.
+  @noncoverage_lead ~r/
+    \A\s*(?:\*\*)?\s*
+    (?:the\s+)?(?:rulebook|rules|manual|instructions)\b
+    [^.!?]{0,60}?
+    (?:
+      (?:do(?:es)?\s+not|does\s?n't|do\s?n't)\s+
+      (?:explicitly\s+|specifically\s+|directly\s+)?
+      (?:say|specify|mention|state|define|cover|address|list|provide|indicate|
+         recommend|give|explain|describe|detail|clarify|note)
+      |(?:is|are)\s+silent
+      |(?:do(?:es)?\s+not|does\s?n't|do\s?n't)\s+contain\s+(?:any\s+)?(?:rule|guidance)
+    )\b
+  /xiu
+
+  defp soft_refusal?(answer) when is_binary(answer),
+    do: Regex.match?(@noncoverage_lead, answer)
+
+  defp soft_refusal?(_), do: false
+
+  @doc false
+  def __soft_refusal__(answer), do: soft_refusal?(answer)
 
   @doc """
   Whether an answer string is the canonical refusal. Public for `mix
@@ -4071,9 +4117,30 @@ defmodule RuleMaven.LLM do
       {"illegal", "legal"} -> "legal"
       {verdict, _} -> verdict
     end
+    |> verdict_from_coverage(answer)
   end
 
   defp verdict_from_lead(verdict, _answer), do: verdict
+
+  # The same correction one axis over. "info" is a claim about the KIND of
+  # question ("not a yes/no legality question") and says nothing about whether
+  # the book covers it, so an answer whose own opening sentence denies coverage
+  # still shipped stamped 📖 IN THE RULES — the stamp asserting coverage over
+  # prose denying it, which is what a skimming player trusts first.
+  #
+  # Only info/nil are rewritten. A legality verdict outranks this: the lead
+  # handling above has already reconciled it against the answer's own Yes/No,
+  # and `soft_refusal?/1` deliberately ignores permission verbs, so an
+  # "illegal" over "the rulebook does not allow…" is a correct pairing, not a
+  # contradiction.
+  defp verdict_from_coverage(verdict, answer) when verdict in [nil, "info"] do
+    if soft_refusal?(answer), do: "silent", else: verdict
+  end
+
+  defp verdict_from_coverage(verdict, _answer), do: verdict
+
+  @doc false
+  def __verdict_from_lead__(verdict, answer), do: verdict_from_lead(verdict, answer)
 
   defp api_url do
     provider_name = provider()
