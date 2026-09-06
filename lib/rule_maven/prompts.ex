@@ -342,6 +342,17 @@ defmodule RuleMaven.Prompts do
     regions with no text. Do NOT describe images, do NOT summarize, do NOT invent
     rules, numbers, or components that aren't visibly printed. If the page has no
     readable text at all, output nothing.
+  - An INLINE GLYPH — a small symbol, token, die face, or coloured badge set
+    inside a sentence, table cell, or step — is rules text, not art, and the
+    sentence is incomplete without it. When the glyph has characters printed
+    inside it (a number, "6+", "2x", a letter), transcribe THOSE CHARACTERS in
+    place, exactly as printed: "discard 6+ to battle it", never "discard [sword
+    icon] to battle it". When the glyph is purely pictorial with no characters,
+    write a short bracketed description of what is literally depicted, e.g.
+    "[red hexagon]". Never guess a name for what a glyph MEANS or what component
+    it stands for — naming it "[sword icon]" or "[weapon icon]" states a rule the
+    page does not print, and a reader downstream cannot tell your guess from the
+    book's own words.
 
   #{@keep_source_language}
 
@@ -359,6 +370,10 @@ defmodule RuleMaven.Prompts do
   - WRONG NUMBER: a count, value, or page number transcribed incorrectly.
   - TABLE: a table row dropped, merged, or garbled.
   - ORDER: columns or sections transcribed out of reading order.
+  - GLYPH: an inline symbol/token/die face read wrongly, dropped, or replaced by
+    a guessed name. Check every bracketed "[... icon]" against the image: if the
+    glyph has characters printed inside it, those characters belong in the text
+    instead. A wrong glyph silently rewrites the rule around it.
 
   Each defect must be specific enough to act on (quote the text). Do not list
   vague or stylistic concerns. Write all defect lines in English (quoted page
