@@ -20,7 +20,7 @@ Status legend: `open` · `fix-shipped` (code done, data not yet re-run) · `done
 
 | ID | Problem | Evidence | Status |
 |---|---|---|---|
-| S1 | **Scenario pages split from their heading.** A quest's continuation page reached the model unlabeled; rules were credited to other quests. | BP #55, #68 (Quest 0 rules on p.39, heading on p.38) | fix-shipped (c3d11525, 4b91fe7a) — needs Prepare → ⟳ Re-chunk on Black Plague, then regenerate #55, #68 |
+| S1 | **Scenario pages split from their heading.** A quest's continuation page reached the model unlabeled; rules were credited to other quests. | BP #55, #68 (Quest 0 rules on p.39, heading on p.38) | fix-shipped (c3d11525, 4b91fe7a); Black Plague re-chunked 2026-09-26 04:08 — #68 verified fixed (now #70); regenerate #55 |
 | S2 | **Icons extracted as placeholders.** Costs printed as icons became "[sword icon]" etc.; the model guesses what they mean. | Horrified #38, #49 (Mimic defeat cost) | open — re-extract affected pages with icons described (colour, Strength); b25f7ddc only covers inline glyphs on new extractions |
 | S3 | **Grafted qualifier skips the critic.** Quotes were verbatim, but the answer moved "at any time, for free" off a *discard* rule onto *moving* cards. No cheap trigger fired, so the grounding critic never ran. | BP #64 | fix-shipped — new `:grafted` suspicion trigger (fires on 1/38 stored answers: #64). Verify by regenerating #64: log should show `grounding_critic trigger=grafted` |
 | S4 | **Stops at the first matching line.** The decisive rule two lines away in the same passage is missed. | Horrified #42, #43; BP #64–#66 (p.19 "freely reorganize" never cited) | open |
@@ -36,9 +36,9 @@ Status legend: `open` · `fix-shipped` (code done, data not yet re-run) · `done
 
 | # | Question (short) | Result | Problem | Fix | Status |
 |---|---|---|---|---|---|
-| 55 | Quest 0 objective colours | incorrect | "Not covered" — p.39 Quest 0 special rules never retrieved; cited Quest 4's copy of a boilerplate line | S1 → re-chunk, regenerate | fix-shipped |
-| 68 | Quest 0 green spawn activation | incorrect | "Rulebook has no Quest 0"; used Quest 2's rule. Correct: p.39 "green Spawn Zone is inactive until the green Objective is taken" | S1 → re-chunk, regenerate | fix-shipped |
-| 64 | Moving cards between slots | incorrect | Invented "free at any time" from p.17 "discard… for free". Reorganize costs an Action (p.20), free only right after a Search (p.19) | S3, S4; regenerate | open |
+| 55 | What do the different objective colors mean in Quest 0? | incorrect | "Not covered" — p.39 Quest 0 special rules never retrieved; cited Quest 4's copy of a boilerplate line | S1 → re-chunk, regenerate | fix-shipped |
+| 68 → 70 | When does a green spawn point activate in Quest 0? | incorrect → **correct** | Was "Rulebook has no Quest 0". After re-chunk (2026-09-26 04:08) + regenerate: cites p.39 "The green Spawn Zone is inactive until the green Objective is taken." | S1 | done |
+| 64 | How is a newly found item equipped? | incorrect | Invented "free at any time" from p.17 "discard… for free". Reorganize costs an Action (p.20), free only right after a Search (p.19) | S3, S4; regenerate | open |
 | 66 | Choosing weapons before each Action | incorrect | Answers the "three hands" case instead; swapping from Backpack costs a Reorganize Action | S4, S5; regenerate | open |
 | 65 | Swapping inventory each turn | partial | "Can't do it multiple times per turn" is wrong — can, one Action each | S4; regenerate | open |
 | 57 | Ranged attack in own zone — downside | partial | Friendly Fire isn't own-zone specific; real downside is losing target choice + minimum Range; contradicts #63 | S5; regenerate | open |
