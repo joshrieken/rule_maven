@@ -416,6 +416,26 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     end
   end
 
+  # Re-chunk already-embedded rulebooks so they pick up chunking changes.
+  # chunk_document replaces the chunks atomically and enqueues re-embedding.
+  def handle_event("rechunk", _params, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      game = socket.assigns.game
+
+      game
+      |> Games.list_documents()
+      |> Enum.filter(&Readiness.step_complete?(:embed, game, [&1]))
+      |> Enum.each(&Games.chunk_document/1)
+
+      {:noreply,
+       socket
+       |> load()
+       |> put_flash(:info, "Re-chunking and re-embedding the rulebook text in the background…")}
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
   def handle_event("stop", _params, socket) do
     Readiness.stop_auto(socket.assigns.game.id)
 
@@ -1641,6 +1661,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       # cleanup it's document-scoped, so in-flight embedding needs its own check.
       |> assign(:embeddable?, assigns.step.id == :embed and assigns.step.state == :pending)
       |> assign(:embedding?, assigns.step.id == :embed and embed_active?(assigns.game))
+      # Once embedded, offer a re-chunk: chunking logic evolves (e.g. scenario
+      # headings carried onto continuation pages) and existing games only pick
+      # it up by being chunked again.
+      |> assign(:rechunkable?, assigns.step.id == :embed and assigns.step.state == :done)
       |> assign(:cat_draft?, categories? and category_draft(assigns.game.id) != [])
       |> assign(:cat_saved?, categories? and Games.list_game_categories(assigns.game) != [])
 
@@ -1648,7 +1672,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     <div
       :if={
         @link || @regen? || @clear? || @cat_draft? || @cat_saved? || @extractable? || @cleanable? ||
-          @embeddable?
+          @embeddable? || @rechunkable?
       }
       style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.6rem"
     >
@@ -1685,6 +1709,15 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         class="btn-primary btn-xs"
       >
         Chunk &amp; embed
+      </button>
+      <button
+        :if={@rechunkable? && !@embedding?}
+        type="button"
+        phx-click="rechunk"
+        data-confirm="Re-chunk and re-embed the rulebook text? Picks up chunking improvements; spends a little embedding budget."
+        class="btn-xs"
+      >
+        ⟳ Re-chunk
       </button>
       <span
         :if={@embedding?}
