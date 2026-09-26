@@ -962,11 +962,35 @@ defmodule RuleMaven.LLM do
           other
       end
 
-    res = %{res | answer: RuleMaven.LLM.Polarity.strip_inverted_lead(answer, question)}
+    res =
+      res
+      |> Map.put(:verdict, negative_question_verdict(res, question))
+      |> Map.put(:answer, RuleMaven.LLM.Polarity.strip_inverted_lead(answer, question))
+
     {:ok, Map.put(res, :styled_answer, stripped_styled)}
   end
 
   defp drop_lead_on_negative_question(result, _question), do: result
+
+  # `verdict_from_lead/2` (run in decode_answer, which never sees the question)
+  # overrides the model's verdict from the answer's opening Yes/No. On a negative
+  # question that lead is exactly the part documented above as unreliable — and
+  # even a correct one inverts: "Is there a disadvantage to attacking in your own
+  # zone?" → "No, there is no inherent disadvantage…" means the attack is FINE,
+  # yet the "No" re-stamped the model's `legal` as ❌ NOT ALLOWED. So on these
+  # questions the stamp comes from the model's own verdict field (judged on the
+  # action), with only the coverage correction applied.
+  defp negative_question_verdict(res, question) do
+    alias RuleMaven.LLM.Polarity
+
+    with true <- Polarity.negative?(question),
+         raw when is_binary(raw) <- res[:raw_response],
+         {:ok, map} <- json_object(raw) do
+      map["verdict"] |> coerce_verdict() |> verdict_from_coverage(res.answer)
+    else
+      _ -> res[:verdict]
+    end
+  end
 
   # The rulebook block is the same text on every ask for a game (whole-corpus
   # retrieval, stable-ordered — see `build_context_block/3`), and it is ~14k of

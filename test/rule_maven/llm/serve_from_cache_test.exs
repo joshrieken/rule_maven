@@ -3,7 +3,7 @@ defmodule RuleMaven.LLM.ServeFromCacheTest do
   # inverted Yes/No lead. Served against a negatively-phrased question that lead
   # reads as the OPPOSITE verdict, so the serve path strips it (idempotent: a
   # no-op on already-stripped answers or non-negative questions).
-  use ExUnit.Case, async: true
+  use RuleMaven.DataCase, async: true
 
   alias RuleMaven.LLM
 

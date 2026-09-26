@@ -41,4 +41,32 @@ defmodule RuleMaven.LLM.DropLeadTest do
     assert out.answer == "**No**, you cannot."
     assert out.styled_answer == "No, ye cannot."
   end
+
+  # Regression (Zombicide: Black Plague): the model said "legal", but decode's
+  # lead reconciliation read the opening "No" as ❌ NOT ALLOWED. On a negative
+  # question the stamp must come from the model's own verdict.
+  test "a negative question keeps the model's verdict, not the lead's" do
+    q = "Is there a disadvantage to attacking zombies within your own zone?"
+
+    raw =
+      ~s({"verdict": "legal", "answer": "No, there is no inherent disadvantage to attacking in your own Zone.", "citations": []})
+
+    decoded = LLM.decode_answer(raw) |> Map.put(:raw_response, raw)
+    assert decoded.verdict == "illegal"
+
+    {:ok, out} = LLM.__drop_lead__({:ok, decoded}, q)
+    assert out.verdict == "legal"
+    assert out.answer == "There is no inherent disadvantage to attacking in your own Zone."
+  end
+
+  test "a positive question still lets a contradicting lead correct the stamp" do
+    q = "Can I trade during another player's turn?"
+
+    raw =
+      ~s({"verdict": "legal", "answer": "No, you may not trade during another player's turn.", "citations": []})
+
+    decoded = LLM.decode_answer(raw) |> Map.put(:raw_response, raw)
+    {:ok, out} = LLM.__drop_lead__({:ok, decoded}, q)
+    assert out.verdict == "illegal"
+  end
 end

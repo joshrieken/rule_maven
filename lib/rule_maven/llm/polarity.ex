@@ -30,6 +30,9 @@ defmodule RuleMaven.LLM.Polarity do
   # -> "Can the robber be placed on the desert?"). That rewrite is why this must
   # run on the RAW question and not on the normalized text: by then the evidence
   # is gone.
+  #
+  # The penalty family ("is there a DISADVANTAGE to…", "any penalty for…") is
+  # negative the same way: a "No" there means the action is fine.
   @negations ~w(
     not no never none nobody nothing neither noone
     cannot cant dont doesnt didnt isnt arent wasnt werent
@@ -39,6 +42,9 @@ defmodule RuleMaven.LLM.Polarity do
     prevented unable forbid forbids prohibit prohibits
     cheating cheat cheats
     invalid invalidate invalidates invalidated
+    disadvantage disadvantages disadvantaged penalty penalties penalize penalized
+    penalizes penalise penalised drawback drawbacks downside downsides
+    restriction restrictions restricted
   )
 
   # Negative polarity carried by a PHRASE none of whose words is negative alone:

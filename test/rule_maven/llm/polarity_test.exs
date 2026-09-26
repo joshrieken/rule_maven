@@ -25,6 +25,16 @@ defmodule RuleMaven.LLM.PolarityTest do
       assert Polarity.negative?("cant i trade before rolling")
     end
 
+    test "the penalty family: a No there means the action is fine" do
+      assert Polarity.negative?(
+               "Is there a disadvantage to attacking zombies within your own zone?"
+             )
+
+      assert Polarity.negative?("Is there any penalty for dropping equipment?")
+      assert Polarity.negative?("What's the drawback of a Ranged attack in my Zone?")
+      assert Polarity.negative?("Is movement restricted in the dark?")
+    end
+
     test "the banned/forbidden family, which is negative without a negative word" do
       assert Polarity.negative?("Is it forbidden to put the robber on the desert?")
       assert Polarity.negative?("Is a player prohibited from trading before rolling?")
