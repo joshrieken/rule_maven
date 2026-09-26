@@ -2539,6 +2539,12 @@ defmodule RuleMavenWeb.GameLive.Form do
           }
           class={if i == @cur, do: "btn-xs btn-primary", else: "btn-xs"}
         >{page_num_label(p)}{if Games.page_blocks_review?(p), do: " ⚠"}</button>
+        <.link
+          :if={@game && Games.bgg_synced?(@game)}
+          href={~p"/games/#{@game}/prepare"}
+          class="btn-xs"
+          style="margin-left:auto"
+        >🚀 Back to Prepare</.link>
       </div>
 
       <%!-- Bulk action: re-extract every flagged page at once. Shown whichever
@@ -3300,6 +3306,11 @@ defmodule RuleMavenWeb.GameLive.Form do
               <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
                 <h2 class="text-lg font-semibold">Rulebook Sources</h2>
                 <.confidence_banner :if={@source_entries != []} entries={@source_entries} />
+                <.link
+                  :if={@game && Games.bgg_synced?(@game)}
+                  href={~p"/games/#{@game}/prepare"}
+                  class="btn-xs"
+                >🚀 Back to Prepare</.link>
               </div>
               <div
                 :if={@uploading_pdfs}
@@ -3459,6 +3470,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                     cur={cur}
                     can_reextract={reextractable_source?(entry)}
                     busy={regenerating?}
+                    game={@game}
                   />
                   <%!-- Live re-extraction progress, streamed from the worker.
                         Editing is locked while it runs (the worker overwrites the
@@ -4067,6 +4079,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                     cur={cur}
                     can_reextract={reextractable_source?(reader)}
                     busy={regenerating?}
+                    game={@game}
                   />
                   <textarea
                     name={"pgm_#{reader.id}_#{cur}_#{layer_field(layer)}"}

@@ -29,7 +29,8 @@ defmodule RuleMavenWeb.PrepareReviewUnblockTest do
       game_fixture(%{
         name: "Review Unblock #{System.unique_integer([:positive])}",
         bgg_id: System.unique_integer([:positive]),
-        bgg_data: "<items/>"
+        bgg_data: "<items/>",
+        min_players: 2
       })
 
     {:ok, doc} =
@@ -87,12 +88,13 @@ defmodule RuleMavenWeb.PrepareReviewUnblockTest do
     refute Readiness.step_complete?(:review, game, Games.list_documents(game))
 
     {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/edit?tab=manage")
-    html = render_click(view, "bypass_bgg_gate", %{})
+    html = render(view)
 
     assert html =~ "2 of 3 page(s) flagged for review — 1 low-confidence blocking Ready"
     assert has_element?(view, ~s(button[phx-click="goto_source_page"][phx-value-page="0"]))
     assert has_element?(view, ~s(button[phx-click="goto_source_page"][phx-value-page="2"]))
     refute has_element?(view, ~s(button[phx-click="goto_source_page"][phx-value-page="1"]))
+    assert has_element?(view, ~s(a[href$="/prepare"]), "Back to Prepare")
 
     html = render_click(view, "mark_reviewed", %{"id" => "0", "page" => "0"})
 
