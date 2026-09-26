@@ -804,7 +804,11 @@ defmodule RuleMavenWeb.GameLive.Form do
         Enum.map(socket.assigns.source_entries, fn
           %{id: ^id} = e ->
             pages =
-              List.update_at(e.pages, page, &%{&1 | reviewed: true, needs_review: false})
+              List.update_at(
+                e.pages,
+                page,
+                &%{&1 | reviewed: true, cleanup_defects: [], needs_review: false}
+              )
 
             %{e | pages: pages}
 

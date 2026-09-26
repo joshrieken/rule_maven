@@ -1954,7 +1954,7 @@ defmodule RuleMaven.Games do
                 # this pass — it replaces whatever was recorded before, so a faithful
                 # re-clean un-flags the page. `nil` (manual edits) leaves it alone.
                 is_list(defects) ->
-                  %{attrs | cleaned: cleaned, cleanup_defects: defects, reviewed: nil}
+                  %{attrs | cleaned: cleaned, cleanup_defects: defects}
 
                 true ->
                   %{attrs | cleaned: cleaned}
@@ -2019,13 +2019,13 @@ defmodule RuleMaven.Games do
 
   @doc """
   True when a page warrants human review: the extraction gate's confidence is
-  low, or the last cleanup pass left residual defects on record — unless an
-  admin already marked it reviewed. Pages with no confidence
-  (native/clean-layer/legacy) and no defects are never flagged.
+  low and no admin has accepted it yet, or the last cleanup pass left residual
+  defects on record. Pages with no confidence (native/clean-layer/legacy) and no
+  defects are never flagged.
   """
   def page_needs_review?(page) do
     defects = Map.get(page, :cleanup_defects)
-    not reviewed?(page) and (low_confidence?(page) or (is_list(defects) and defects != []))
+    page_blocks_review?(page) or (is_list(defects) and defects != [])
   end
 
   @doc """
@@ -2051,8 +2051,10 @@ defmodule RuleMaven.Games do
   def review_block_count(pages) when is_list(pages), do: Enum.count(pages, &page_blocks_review?/1)
 
   @doc """
-  Admin accepts a flagged page as-is, clearing it from review. Touches only the
-  flag (no re-chunk — the text is unchanged). Returns `{:ok, doc}`.
+  Admin accepts a flagged page as-is: marks its extraction reviewed (clearing the
+  low-confidence block until the page is re-extracted) and dismisses the current
+  cleanup defects (a later cleanup pass records its own verdict). No re-chunk —
+  the text is unchanged. Returns `{:ok, doc}`.
   """
   def mark_page_reviewed(doc_id, index) do
     Repo.transaction(fn ->
@@ -2067,7 +2069,9 @@ defmodule RuleMaven.Games do
     end)
   end
 
-  defp reviewed_page_attrs(%{index: index} = p, index), do: %{page_attrs(p) | reviewed: true}
+  defp reviewed_page_attrs(%{index: index} = p, index),
+    do: %{page_attrs(p) | reviewed: true, cleanup_defects: []}
+
   defp reviewed_page_attrs(p, _index), do: page_attrs(p)
 
   defp page_attrs(p) do

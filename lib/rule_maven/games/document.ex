@@ -67,9 +67,10 @@ defmodule RuleMaven.Games.Document do
       # layer (distinct from `residual_defects`, the extraction critic's count).
       # Non-empty flags the page for review; each re-clean replaces the list.
       field :cleanup_defects, {:array, :string}
-      # An admin looked at this page and accepted it as-is ("Mark reviewed"),
-      # silencing both review flags. Reset by any fresh machine verdict on the
-      # page (re-extract, or a cleanup pass that records defects).
+      # An admin accepted this page's *extraction* ("Mark reviewed"), lifting the
+      # low-confidence review block. Only a re-extract (new text + confidence)
+      # resets it; cleanup passes never touch it — they don't change the
+      # extraction, and resetting here re-blocked the pipeline behind itself.
       field :reviewed, :boolean
     end
 

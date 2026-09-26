@@ -343,9 +343,10 @@ defmodule RuleMaven.GamesPagesTest do
   end
 
   describe "reviewed pages" do
-    test "a reviewed page is neither flagged nor blocking" do
+    test "a reviewed low-confidence page is neither flagged nor blocking" do
       refute Games.page_needs_review?(%{confidence: 0.3, reviewed: true})
-      refute Games.page_needs_review?(%{confidence: 0.9, cleanup_defects: ["x"], reviewed: true})
+      # Defects recorded after the review still surface (advisory).
+      assert Games.page_needs_review?(%{confidence: 0.9, cleanup_defects: ["x"], reviewed: true})
       refute Games.page_blocks_review?(%{confidence: 0.3, reviewed: true})
     end
 
@@ -399,18 +400,44 @@ defmodule RuleMaven.GamesPagesTest do
       assert page.cleanup_defects == ["GARBLE: soup"]
     end
 
-    test "mark_page_reviewed persists; a fresh defects verdict resets it", %{doc: doc} do
+    test "mark_page_reviewed persists and dismisses the page's defects", %{doc: doc} do
       {:ok, _} = Games.set_page_cleaned(doc.id, 0, "BAD", ["GARBLE: soup"])
       {:ok, _} = Games.mark_page_reviewed(doc.id, 0)
 
       page = Games.get_document!(doc.id).pages |> Enum.find(&(&1.index == 0))
       assert page.reviewed
+      assert page.cleanup_defects == []
       refute Games.page_needs_review?(page)
+    end
 
-      {:ok, _} = Games.set_page_cleaned(doc.id, 0, "BAD AGAIN", ["GARBLE: stew"])
+    # Regression: Mark reviewed arms the pipeline, whose cleanup step then
+    # re-cleans the page. That verdict must not un-review the extraction, or the
+    # review gate re-closes behind the pipeline (the Black Plague loop).
+    test "a later cleanup pass keeps the page reviewed", %{doc: doc} do
+      {:ok, _} = Games.mark_page_reviewed(doc.id, 0)
+      {:ok, _} = Games.set_page_cleaned(doc.id, 0, "RE-CLEANED", ["JUNK: header"])
+
+      page = Games.get_document!(doc.id).pages |> Enum.find(&(&1.index == 0))
+      assert page.reviewed
+      refute Games.page_blocks_review?(Map.put(page, :confidence, 0.3))
+      # The new defects are still surfaced as advisory.
+      assert Games.page_needs_review?(page)
+    end
+
+    test "a re-extract resets reviewed (new extraction, new verdict)", %{doc: doc} do
+      {:ok, _} = Games.mark_page_reviewed(doc.id, 0)
+
+      {:ok, _} =
+        Games.replace_page(Games.get_document!(doc.id), 0, %{
+          text: "fresh text",
+          confidence: 0.4,
+          lane: "vision",
+          source: "reextract"
+        })
+
       page = Games.get_document!(doc.id).pages |> Enum.find(&(&1.index == 0))
       refute page.reviewed
-      assert Games.page_needs_review?(page)
+      assert Games.page_blocks_review?(page)
     end
   end
 end

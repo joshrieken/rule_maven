@@ -136,7 +136,9 @@ Prepare page "Prepare"/"Run remaining" → Readiness.start_auto/2 → ReadinessW
 Review gate = `Games.review_block_count/1`: unreviewed LOW-CONFIDENCE pages only.
 Cleanup-critic `cleanup_defects` flag pages in the UI (`page_needs_review?/1`) but never
 gate review — cleanup runs AFTER review, so they deadlocked the pipeline.
-Edit page "Mark reviewed" → `Games.mark_page_reviewed/2` sets Page `reviewed` (silences both
-flags) + `Readiness.advance/1`. Re-extract or a cleanup pass recording defects resets it.
+Edit page "Mark reviewed" → `Games.mark_page_reviewed/2` sets Page `reviewed` (lifts the
+low-confidence block) + clears that page's `cleanup_defects`, then `Readiness.advance/1`.
+Only a re-extract resets `reviewed` — NEVER cleanup: the advance runs cleanup next, and a
+reset there re-closed the review gate behind the pipeline (the Black Plague loop).
 Edit page review banner lists flagged pages as jump chips ("goto_source_page"; ⚠ = blocks Ready);
 Mark reviewed advances to the next flagged page.
