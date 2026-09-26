@@ -1657,7 +1657,16 @@ defmodule RuleMavenWeb.GameLive.Show do
         if Enum.any?(socket.assigns.threads, &(&1.id == id)) do
           {:noreply, goto_thread(socket, id)}
         else
-          {:noreply, socket}
+          # The sidebar can list rows outside the cached @threads window — the
+          # admin full-history search, or rows that appeared after mount — and
+          # this used to drop those clicks silently until a page refresh. Route
+          # through ?t=, the bookmark path: inject_out_of_window_thread loads the
+          # row under the viewer's own visibility rules, so an id they can't see
+          # still resolves to nothing.
+          {:noreply,
+           push_patch(socket,
+             to: ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(id)}"
+           )}
         end
 
       :error ->
