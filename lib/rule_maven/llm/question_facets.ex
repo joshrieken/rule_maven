@@ -1193,6 +1193,27 @@ defmodule RuleMaven.LLM.QuestionFacets do
     end
   end
 
+  # Words that make a question about PERMISSION ("can I…", "is it legal…"),
+  # which is what the ✅ LEGAL MOVE / ❌ NOT ALLOWED stamp claims to answer.
+  # Obligation (must / have to / required) is deliberately absent: "Must I
+  # discard?" → Yes is not "allowed", it is "required".
+  @permission_cues ~w(
+    can cant cannot could couldnt may might allowed allow allows permitted permit
+    permits permission able unable possible impossible legal illegal forbidden
+    prohibited banned ok okay
+  )
+
+  @doc """
+  True when the question asks whether something is permitted, so a legal/illegal
+  verdict reads as ALLOWED / NOT ALLOWED. Any other yes/no question ("Do
+  eliminated Survivors count toward the Danger Level?") gets a plain YES / NO
+  stamp — the model's verdict polarity is right there, only the permission
+  framing is not.
+  """
+  def permission_question?(question) do
+    question |> tokens() |> Enum.any?(&(&1 in @permission_cues))
+  end
+
   # Digits are kept (they carry the rule) and apostrophes dropped, so that
   # "can't"/"can’t" collapse the way Polarity collapses them.
   #

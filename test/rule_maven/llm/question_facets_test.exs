@@ -1190,4 +1190,23 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
       end
     end
   end
+
+  describe "permission_question?/1" do
+    test "permission phrasings" do
+      assert Facets.permission_question?("Can I trade before rolling?")
+      assert Facets.permission_question?("Can't I move twice?")
+      assert Facets.permission_question?("Is it legal to attack through a door?")
+      assert Facets.permission_question?("Am I allowed to reorganize for free?")
+    end
+
+    test "factual and obligation questions are not permission questions" do
+      refute Facets.permission_question?(
+               "Do eliminated Survivors contribute to the Danger Level?"
+             )
+
+      refute Facets.permission_question?("Must I discard down to five cards?")
+      refute Facets.permission_question?("Do I have to spend an action to open a door?")
+      refute Facets.permission_question?(nil)
+    end
+  end
 end

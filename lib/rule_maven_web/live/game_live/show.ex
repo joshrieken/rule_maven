@@ -4057,7 +4057,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <div style={"#{if msg.role == :user, do: "width:100%", else: "width:100%;padding:0.9rem 1.05rem;border-radius:0.6rem;font-size:0.95rem;line-height:1.5;background:var(--bg-surface);border:1px solid var(--border);color:var(--text)"}#{if msg[:refused], do: ";opacity:0.72", else: ""}"}>
                     <% stamp =
                       msg.role == :assistant && msg.content != "Thinking..." &&
-                        verdict_stamp(msg[:verdict]) %>
+                        verdict_stamp(msg[:verdict], @qa_active_question) %>
                     <% show_voice =
                       msg.role == :assistant && !msg[:refused] &&
                         msg.content != "Thinking..." && !msg[:pending] &&
@@ -5640,6 +5640,23 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   # ── Verdict stamp ──
   # Maps the persisted verdict to {emoji, label, color, bg}. `nil` = no stamp.
+  #
+  # legal/illegal only read as LEGAL MOVE / NOT ALLOWED when the question asked
+  # about permission. The model also answers factual yes/no questions with them
+  # ("Do eliminated Survivors count toward the Danger Level?" → illegal), where
+  # the polarity is right but "NOT ALLOWED" is not — those get YES / NO. Decided
+  # at render from the thread's question, so it corrects stored answers too.
+  defp verdict_stamp(verdict, question) when verdict in ["legal", "illegal"] do
+    if RuleMaven.LLM.QuestionFacets.permission_question?(question),
+      do: verdict_stamp(verdict),
+      else: yes_no_stamp(verdict)
+  end
+
+  defp verdict_stamp(verdict, _question), do: verdict_stamp(verdict)
+
+  defp yes_no_stamp("legal"), do: {"✅", "YES", "var(--green)", stamp_bg("--green")}
+  defp yes_no_stamp("illegal"), do: {"❌", "NO", "var(--red)", stamp_bg("--red")}
+
   # Theme-aware verdict stamps: text uses the theme's semantic color, background
   # a faint tint of it over the surface — so they adapt to light/dark and to the
   # per-game palette instead of fixed pastels that clash on dark themes.
