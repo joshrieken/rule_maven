@@ -1947,12 +1947,17 @@ defmodule RuleMaven.Games do
               attrs = page_attrs(p)
 
               cond do
-                p.index != index -> attrs
+                p.index != index ->
+                  attrs
+
                 # A defects list (possibly empty) is the cleanup critic's verdict for
                 # this pass — it replaces whatever was recorded before, so a faithful
                 # re-clean un-flags the page. `nil` (manual edits) leaves it alone.
-                is_list(defects) -> %{attrs | cleaned: cleaned, cleanup_defects: defects}
-                true -> %{attrs | cleaned: cleaned}
+                is_list(defects) ->
+                  %{attrs | cleaned: cleaned, cleanup_defects: defects, reviewed: nil}
+
+                true ->
+                  %{attrs | cleaned: cleaned}
               end
             end)
 
@@ -2014,18 +2019,56 @@ defmodule RuleMaven.Games do
 
   @doc """
   True when a page warrants human review: the extraction gate's confidence is
-  low, or the last cleanup pass left residual defects on record. Pages with no
-  confidence (native/clean-layer/legacy) and no defects are never flagged.
+  low, or the last cleanup pass left residual defects on record — unless an
+  admin already marked it reviewed. Pages with no confidence
+  (native/clean-layer/legacy) and no defects are never flagged.
   """
   def page_needs_review?(page) do
-    c = Map.get(page, :confidence)
     defects = Map.get(page, :cleanup_defects)
-    (is_number(c) and c < @review_threshold) or (is_list(defects) and defects != [])
+    not reviewed?(page) and (low_confidence?(page) or (is_list(defects) and defects != []))
   end
+
+  @doc """
+  True when a page blocks the readiness pipeline's review step: low extraction
+  confidence the admin hasn't accepted. Cleanup defects are advisory only — they
+  come from the cleanup step, which runs *after* review.
+  """
+  def page_blocks_review?(page), do: not reviewed?(page) and low_confidence?(page)
+
+  defp low_confidence?(page) do
+    c = Map.get(page, :confidence)
+    is_number(c) and c < @review_threshold
+  end
+
+  defp reviewed?(page), do: Map.get(page, :reviewed) == true
 
   @doc "Count of pages on a document (or page list) flagged for review."
   def review_page_count(%Document{pages: pages}), do: review_page_count(pages)
   def review_page_count(pages) when is_list(pages), do: Enum.count(pages, &page_needs_review?/1)
+
+  @doc "Count of pages on a document (or page list) blocking the review step."
+  def review_block_count(%Document{pages: pages}), do: review_block_count(pages)
+  def review_block_count(pages) when is_list(pages), do: Enum.count(pages, &page_blocks_review?/1)
+
+  @doc """
+  Admin accepts a flagged page as-is, clearing it from review. Touches only the
+  flag (no re-chunk — the text is unchanged). Returns `{:ok, doc}`.
+  """
+  def mark_page_reviewed(doc_id, index) do
+    Repo.transaction(fn ->
+      doc = lock_document!(doc_id)
+
+      pages = Enum.map(doc.pages, &reviewed_page_attrs(&1, index))
+
+      case doc |> Document.changeset(%{pages: pages}) |> Repo.update() do
+        {:ok, updated} -> updated
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
+  end
+
+  defp reviewed_page_attrs(%{index: index} = p, index), do: %{page_attrs(p) | reviewed: true}
+  defp reviewed_page_attrs(p, _index), do: page_attrs(p)
 
   defp page_attrs(p) do
     %{
@@ -2044,7 +2087,8 @@ defmodule RuleMaven.Games do
       escalated: Map.get(p, :escalated),
       critic_rounds: Map.get(p, :critic_rounds),
       residual_defects: Map.get(p, :residual_defects),
-      cleanup_defects: Map.get(p, :cleanup_defects)
+      cleanup_defects: Map.get(p, :cleanup_defects),
+      reviewed: Map.get(p, :reviewed)
     }
   end
 
@@ -4081,7 +4125,8 @@ defmodule RuleMaven.Games do
                 gate_coverage: Map.get(fields, :gate_coverage),
                 escalated: Map.get(fields, :escalated),
                 critic_rounds: Map.get(fields, :critic_rounds),
-                residual_defects: Map.get(fields, :residual_defects)
+                residual_defects: Map.get(fields, :residual_defects),
+                reviewed: nil
             }
           else
             page_attrs(p)

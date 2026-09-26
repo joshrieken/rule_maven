@@ -108,6 +108,8 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | Fix conversation UI | `game_live/show.ex` (LiveView + template), `games.ex` (`grouped_questions/2`) |
 | Fix rulebook upload | `game_live/form.ex` (LiveView), `games.ex` (`create_document/1`) |
 | Add new background job | `workers/` (new file), `application.ex` (maybe), config |
+| Prepare pipeline stuck / Run remaining | `readiness.ex` (`next_action/1` pure decision, `drive/1` executes, `step_complete?/3`), `workers/readiness_worker.ex`, `game_live/prepare.ex` ("resume") |
+| Page review flags | `games.ex` (`page_needs_review?/1` UI flag, `page_blocks_review?/1` pipeline gate, `mark_page_reviewed/2`), `games/document.ex` (Page `reviewed`), `game_live/form.ex` (`review_flag`, "mark_reviewed") |
 | Change page layout | `components/layouts/` (root shell), `components/core_components.ex` (shared UI) |
 | Add new LiveView page | `live/` (new file), `router.ex` (route), test |
 | Debug community pool cache | `llm.ex` (`ask/5`), `games.ex` (`find_similar_question_in_pool/3`, community-only) |

@@ -67,6 +67,10 @@ defmodule RuleMaven.Games.Document do
       # layer (distinct from `residual_defects`, the extraction critic's count).
       # Non-empty flags the page for review; each re-clean replaces the list.
       field :cleanup_defects, {:array, :string}
+      # An admin looked at this page and accepted it as-is ("Mark reviewed"),
+      # silencing both review flags. Reset by any fresh machine verdict on the
+      # page (re-extract, or a cleanup pass that records defects).
+      field :reviewed, :boolean
     end
 
     def changeset(page, attrs) do
@@ -90,7 +94,8 @@ defmodule RuleMaven.Games.Document do
           :escalated,
           :critic_rounds,
           :residual_defects,
-          :cleanup_defects
+          :cleanup_defects,
+          :reviewed
         ],
         empty_values: []
       )

@@ -172,9 +172,12 @@ defmodule RuleMaven.Readiness do
   # Review is only meaningfully "done" once there's extracted text to review.
   # Without the doc_extracted? guard an unextracted source (no pages, so zero
   # low-confidence pages) reads as vacuously reviewed right after upload.
+  # Gated on *extraction* confidence only (review_block_count/1): cleanup-critic
+  # defects are produced by the cleanup step that runs after this one, so letting
+  # them count re-closed this gate behind itself and deadlocked the pipeline.
   def step_complete?(:review, _game, docs) do
     docs != [] and
-      Enum.all?(docs, &(doc_extracted?(&1) and Games.review_page_count(&1) == 0))
+      Enum.all?(docs, &(doc_extracted?(&1) and Games.review_block_count(&1) == 0))
   end
 
   def step_complete?(:cleanup, _game, docs) do
@@ -328,6 +331,43 @@ defmodule RuleMaven.Readiness do
   end
 
   @doc """
+  Decide what the auto pipeline should do next, without doing it: `{:run, step}`
+  (a required step to kick), `{:pause, reason}` (needs a human or a missing
+  prerequisite), or `:done` (every required step complete). Side-effect free, so
+  callers (e.g. the prepare page's Run remaining) can report a blocker up front
+  instead of arming a pipeline that would instantly re-pause.
+  """
+  def next_action(%Game{} = game), do: next_action(game, Games.list_documents(game))
+
+  def next_action(%Game{} = game, docs) do
+    cond do
+      # BGG data is the first required step — it must be pulled before anything
+      # else runs. Without a bgg_id there's nothing to pull, so pause for a human
+      # to set one (or override) rather than silently stalling forever.
+      not step_complete?(:bgg, game, docs) ->
+        if is_nil(game.bgg_id), do: {:pause, "needs_bgg"}, else: {:run, :bgg}
+
+      docs == [] ->
+        {:pause, "needs_source"}
+
+      not step_complete?(:extract, game, docs) ->
+        {:run, :extract}
+
+      not step_complete?(:review, game, docs) ->
+        {:pause, "needs_review"}
+
+      not step_complete?(:cleanup, game, docs) ->
+        {:run, :cleanup}
+
+      not step_complete?(:embed, game, docs) ->
+        {:run, :embed}
+
+      true ->
+        :done
+    end
+  end
+
+  @doc """
   Decide and launch the next action for a game's auto pipeline. Returns
   `{:running, step}` (a step was kicked), `{:paused, reason}` (needs a human or
   a missing prerequisite), or `:done` (playable reached + enrichments kicked;
@@ -337,41 +377,16 @@ defmodule RuleMaven.Readiness do
   def drive(%Game{} = game) do
     docs = Games.list_documents(game)
 
-    cond do
-      # BGG data is the first required step — it must be pulled before anything
-      # else runs. Without a bgg_id there's nothing to pull, so pause for a human
-      # to set one (or override) rather than silently stalling forever.
-      not step_complete?(:bgg, game, docs) ->
-        if is_nil(game.bgg_id) do
-          pause(game, "needs_bgg")
-        else
-          run_bgg(game)
-          clear_pause(game)
-          {:running, :bgg}
-        end
+    case next_action(game, docs) do
+      {:pause, reason} ->
+        pause(game, reason)
 
-      docs == [] ->
-        pause(game, "needs_source")
-
-      not step_complete?(:extract, game, docs) ->
-        run_extract(docs)
+      {:run, step} ->
+        run_step(step, game, docs)
         clear_pause(game)
-        {:running, :extract}
+        {:running, step}
 
-      not step_complete?(:review, game, docs) ->
-        pause(game, "needs_review")
-
-      not step_complete?(:cleanup, game, docs) ->
-        run_cleanup(docs)
-        clear_pause(game)
-        {:running, :cleanup}
-
-      not step_complete?(:embed, game, docs) ->
-        run_embed(docs)
-        clear_pause(game)
-        {:running, :embed}
-
-      true ->
+      :done ->
         # Required phase complete → game is playable. Kick the enrichment
         # fan-out once and consider auto satisfied (enrichments finish on their
         # own; we don't keep the pipeline armed waiting on optional polish).
@@ -382,6 +397,11 @@ defmodule RuleMaven.Readiness do
         :done
     end
   end
+
+  defp run_step(:bgg, game, _docs), do: run_bgg(game)
+  defp run_step(:extract, _game, docs), do: run_extract(docs)
+  defp run_step(:cleanup, _game, docs), do: run_cleanup(docs)
+  defp run_step(:embed, _game, docs), do: run_embed(docs)
 
   # Kick extraction for each source that isn't extracted yet and isn't already
   # being extracted. A failed/blank extract leaves the doc unextracted, so the

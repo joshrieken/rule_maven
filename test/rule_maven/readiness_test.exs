@@ -118,6 +118,24 @@ defmodule RuleMaven.ReadinessTest do
       assert Readiness.step_complete?(:review, game, docs)
     end
 
+    test "cleanup defects do not block the review step (they come from a later step)" do
+      game = game_fixture()
+      doc = doc_fixture(game, pages: [{0.9, true}, {0.9, true}])
+      {:ok, _} = Games.set_page_cleaned(doc.id, 1, "clean page 1", ["JUNK: header"])
+      docs = Games.list_documents(game)
+
+      assert Games.review_page_count(hd(docs)) == 1
+      assert Readiness.step_complete?(:review, game, docs)
+    end
+
+    test "review step passes once a low-confidence page is marked reviewed" do
+      game = game_fixture()
+      doc = doc_fixture(game, pages: [{0.9, true}, {0.3, true}])
+      {:ok, _} = Games.mark_page_reviewed(doc.id, 1)
+
+      assert Readiness.step_complete?(:review, game, Games.list_documents(game))
+    end
+
     test "review step is not vacuously done for an unextracted source" do
       game = game_fixture()
       # Saved but not yet extracted: no pages, so zero low-confidence pages. Review
@@ -307,6 +325,14 @@ defmodule RuleMaven.ReadinessTest do
       game = game_fixture(bgg_data: "<items/>")
       doc_fixture(game, pages: [{0.9, true}, {0.2, true}])
       assert {:paused, "needs_review"} = Readiness.drive(game)
+    end
+
+    test "next_action reports the review blocker without side effects" do
+      game = game_fixture(bgg_data: "<items/>")
+      doc_fixture(game, pages: [{0.9, true}, {0.2, true}])
+
+      assert {:pause, "needs_review"} = Readiness.next_action(game)
+      assert Readiness.pause_reason(game.id) in [nil, ""]
     end
 
     test "reaches done and disarms once required steps complete" do

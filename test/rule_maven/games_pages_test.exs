@@ -342,6 +342,24 @@ defmodule RuleMaven.GamesPagesTest do
     end
   end
 
+  describe "reviewed pages" do
+    test "a reviewed page is neither flagged nor blocking" do
+      refute Games.page_needs_review?(%{confidence: 0.3, reviewed: true})
+      refute Games.page_needs_review?(%{confidence: 0.9, cleanup_defects: ["x"], reviewed: true})
+      refute Games.page_blocks_review?(%{confidence: 0.3, reviewed: true})
+    end
+
+    test "only low confidence blocks review; defects are advisory" do
+      assert Games.page_blocks_review?(%{confidence: 0.3})
+      refute Games.page_blocks_review?(%{confidence: 0.9, cleanup_defects: ["JUNK: header"]})
+
+      assert Games.review_block_count([
+               %{confidence: 0.3},
+               %{confidence: 0.9, cleanup_defects: ["x"]}
+             ]) == 1
+    end
+  end
+
   describe "set_page_cleaned/4 (defects)" do
     setup do
       {:ok, game} = Games.create_game(%{name: "Defects #{System.unique_integer([:positive])}"})
@@ -379,6 +397,20 @@ defmodule RuleMaven.GamesPagesTest do
       page = Games.get_document!(doc.id).pages |> Enum.find(&(&1.index == 0))
       assert page.cleaned == "edited by hand"
       assert page.cleanup_defects == ["GARBLE: soup"]
+    end
+
+    test "mark_page_reviewed persists; a fresh defects verdict resets it", %{doc: doc} do
+      {:ok, _} = Games.set_page_cleaned(doc.id, 0, "BAD", ["GARBLE: soup"])
+      {:ok, _} = Games.mark_page_reviewed(doc.id, 0)
+
+      page = Games.get_document!(doc.id).pages |> Enum.find(&(&1.index == 0))
+      assert page.reviewed
+      refute Games.page_needs_review?(page)
+
+      {:ok, _} = Games.set_page_cleaned(doc.id, 0, "BAD AGAIN", ["GARBLE: stew"])
+      page = Games.get_document!(doc.id).pages |> Enum.find(&(&1.index == 0))
+      refute page.reviewed
+      assert Games.page_needs_review?(page)
     end
   end
 end

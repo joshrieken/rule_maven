@@ -145,7 +145,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     actuals =
       Map.new(steps, fn s -> {s.id, step_actual_cost(s.id, by_operation)} end)
 
-    review_pages = Enum.sum(Enum.map(docs, &Games.review_page_count/1))
+    review_pages = Enum.sum(Enum.map(docs, &Games.review_block_count/1))
     step_logs = load_step_logs(game, docs)
 
     step_run_ids =
@@ -429,14 +429,25 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # or "needs BGG id" blocker on the edit page). start_auto is idempotent and
   # only drives whatever's still incomplete, so this is a plain resume, not a
   # restart from scratch.
+  #
+  # If a human-gated blocker still holds, say so instead of arming a pipeline
+  # that would re-pause within milliseconds (which read as "nothing happens").
   def handle_event("resume", _params, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
-      Readiness.start_auto(socket.assigns.game, socket.assigns.current_user)
+      game = socket.assigns.game
 
-      {:noreply,
-       socket
-       |> load()
-       |> put_flash(:info, "Running the remaining steps…")}
+      case Readiness.next_action(game) do
+        {:pause, reason} ->
+          {:noreply, socket |> load() |> put_flash(:error, still_blocked_message(reason, game))}
+
+        _ ->
+          Readiness.start_auto(game, socket.assigns.current_user)
+
+          {:noreply,
+           socket
+           |> load()
+           |> put_flash(:info, "Running the remaining steps…")}
+      end
     else
       {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
     end
@@ -1183,7 +1194,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   defp review_summary(docs) do
     Enum.map(docs, fn d ->
-      %{label: d.label || "Untitled", remaining: Games.review_page_count(d)}
+      %{label: d.label || "Untitled", remaining: Games.review_block_count(d)}
     end)
   end
 
@@ -1885,6 +1896,21 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   defp step_action(_step, _game), do: nil
 
+  defp still_blocked_message("needs_review", game) do
+    n = game |> Games.list_documents() |> Enum.map(&Games.review_block_count/1) |> Enum.sum()
+
+    "Still blocked: #{n} low-confidence #{ngettext("page needs", "pages need", n)} review. " <>
+      "Re-extract or mark #{ngettext("it", "them", n)} reviewed on the edit page, then run again."
+  end
+
+  defp still_blocked_message("needs_bgg", _game),
+    do: "Still blocked: set a BoardGameGeek ID on the edit page first."
+
+  defp still_blocked_message("needs_source", _game),
+    do: "Still blocked: upload a rulebook source first."
+
+  defp still_blocked_message(_reason, _game), do: "Still blocked — see the notice above."
+
   defp pause_message(%{pause_reason: "needs_bgg"} = assigns) do
     ~H"""
     BoardGameGeek data must be pulled first — set a BGG ID on the <.link
@@ -1915,12 +1941,14 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   defp pause_message(%{pause_reason: "needs_review"} = assigns) do
     ~H"""
-    {fmt_int(@review_pages)} low-confidence {ngettext("page needs", "pages need", @review_pages)} review — <.link
+    {fmt_int(@review_pages)} low-confidence {ngettext("page needs", "pages need", @review_pages)} review —
+    <.link
       navigate={~p"/games/#{@game}/edit"}
       style="color:var(--accent-ink, var(--accent));font-weight:600"
     >
       review them on the edit page
-    </.link>, then click Run remaining to resume.
+    </.link>
+    (re-extract or mark reviewed), then click Run remaining to resume.
     """
   end
 

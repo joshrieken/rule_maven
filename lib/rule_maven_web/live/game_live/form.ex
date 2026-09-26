@@ -784,6 +784,42 @@ defmodule RuleMavenWeb.GameLive.Form do
     end
   end
 
+  # Accept a flagged page as-is. Persists only the `reviewed` flag (the page
+  # text is untouched, so in-progress edits elsewhere survive), mirrors it into
+  # socket state so a later Save carries it through, and nudges an armed
+  # prepare pipeline that may be paused on this very review.
+  def handle_event("mark_reviewed", %{"id" => id, "page" => page}, socket) do
+    id = String.to_integer(id)
+    page = String.to_integer(page)
+    entry = Enum.find(socket.assigns.source_entries, &(&1.id == id))
+
+    with %{source_id: sid} when is_integer(sid) <- entry,
+         %{index: index} <- Enum.at(entry.pages, page),
+         {:ok, _doc} <- Games.mark_page_reviewed(sid, index) do
+      entries =
+        Enum.map(socket.assigns.source_entries, fn
+          %{id: ^id} = e ->
+            pages =
+              List.update_at(e.pages, page, &%{&1 | reviewed: true, needs_review: false})
+
+            %{e | pages: pages}
+
+          e ->
+            e
+        end)
+
+      RuleMaven.Readiness.advance(socket.assigns.game.id)
+
+      {:noreply,
+       socket
+       |> assign(source_entries: entries)
+       |> put_flash(:info, "Page marked reviewed.")}
+    else
+      _ ->
+        {:noreply, put_flash(socket, :error, "Save the rulebook before marking a page reviewed.")}
+    end
+  end
+
   # Re-extract one low-confidence page at the top tier (strong model + critic),
   # durably via Oban. Marks the source busy; {:reextract_done} reloads it.
   def handle_event("reextract_page", %{"id" => id, "page" => page}, socket) do
@@ -2077,13 +2113,19 @@ defmodule RuleMavenWeb.GameLive.Form do
             escalated: Map.get(p, :escalated),
             critic_rounds: Map.get(p, :critic_rounds),
             residual_defects: Map.get(p, :residual_defects),
-            cleanup_defects: Map.get(p, :cleanup_defects)
+            cleanup_defects: Map.get(p, :cleanup_defects),
+            reviewed: Map.get(p, :reviewed)
           }
         end)
 
       _ ->
         Games.pages_from_full_text(s.full_text || "")
-        |> Enum.map(&(&1 |> Map.put(:cleaned, nil) |> Map.put(:needs_review, false)))
+        |> Enum.map(
+          &(&1
+            |> Map.put(:cleaned, nil)
+            |> Map.put(:needs_review, false)
+            |> Map.put(:reviewed, nil))
+        )
     end
   end
 
@@ -2408,7 +2450,8 @@ defmodule RuleMavenWeb.GameLive.Form do
     assigns =
       assign(assigns,
         flagged: Enum.count(assigns.pages, & &1[:needs_review]),
-        cur_flagged?: match?(%{needs_review: true}, Enum.at(assigns.pages, assigns.cur))
+        cur_flagged?: match?(%{needs_review: true}, Enum.at(assigns.pages, assigns.cur)),
+        cur_defects: cur_defects(Enum.at(assigns.pages, assigns.cur))
       )
 
     ~H"""
@@ -2418,7 +2461,22 @@ defmodule RuleMavenWeb.GameLive.Form do
         title="The extraction gate had low confidence in this page (two reads disagreed and the adversarial check left residual defects). Verify it against the source and fix the text if needed."
         style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.5rem;font-size:0.7rem;padding:0.25rem 0.55rem;border-radius:0.3rem;border:1px solid var(--amber-border, #d4a017);background:var(--amber-bg, rgba(212,160,23,0.12));color:var(--amber-text, #b8860b)"
       >
-        <span>⚠ Low-confidence extraction — verify or fix this page.</span>
+        <span :if={@cur_defects == []}>⚠ Low-confidence extraction — verify or fix this page.</span>
+        <span :if={@cur_defects != []} title={Enum.join(@cur_defects, "\n")}>
+          ⚠ Cleanup left {length(@cur_defects)} possible {ngettext(
+            "defect",
+            "defects",
+            length(@cur_defects)
+          )} — verify this page.
+        </span>
+        <button
+          type="button"
+          phx-click="mark_reviewed"
+          phx-value-id={@id}
+          phx-value-page={@cur}
+          disabled={@busy}
+          class="btn-xs"
+        >✓ Mark reviewed</button>
         <button
           :if={@can_reextract}
           type="button"
@@ -2452,6 +2510,11 @@ defmodule RuleMavenWeb.GameLive.Form do
     </div>
     """
   end
+
+  # Cleanup-critic defects recorded on a page (empty when the flag, if any, is
+  # low extraction confidence instead).
+  defp cur_defects(%{cleanup_defects: [_ | _] = defects}), do: defects
+  defp cur_defects(_page), do: []
 
   @edit_tabs ~w(details rulebook manage cheatsheet danger)
 
@@ -3703,7 +3766,11 @@ defmodule RuleMavenWeb.GameLive.Form do
                       <% end %>
                     </div>
                   <% end %>
-                  <form phx-submit="generate_cheat" class="flex items-center gap-3 mb-3">
+                  <form
+                    id="cheat-generate-form"
+                    phx-submit="generate_cheat"
+                    class="flex items-center gap-3 mb-3"
+                  >
                     <select name="level" class="border rounded px-2 py-1.5 text-xs">
                       <option value="ultra" selected={@cheat_level == "ultra"}>
                         Ultra - just the facts

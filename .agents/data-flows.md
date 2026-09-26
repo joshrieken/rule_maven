@@ -122,3 +122,19 @@ AdminLive.Threads ("Review Threads")
 Key files:
 - `lib/rule_maven/games.ex` — `question_threads/1`, `all_question_threads/0`
 - `lib/rule_maven_web/live/admin_live/threads.ex` — thread UI, merge form, `build_consolidated_answer/2`
+
+## Prepare Pipeline (Readiness)
+
+```
+Prepare page "Prepare"/"Run remaining" → Readiness.start_auto/2 → ReadinessWorker
+  → Readiness.drive/1 → next_action/2 (pure):
+      bgg → source → extract → review (PAUSE "needs_review") → cleanup → embed → :done
+  → each step's worker finishes → Jobs.finish_run/3 → Readiness.advance/1 → worker again
+"resume" checks next_action/1 first: a still-holding {:pause, reason} flashes the blocker, no re-arm
+```
+
+Review gate = `Games.review_block_count/1`: unreviewed LOW-CONFIDENCE pages only.
+Cleanup-critic `cleanup_defects` flag pages in the UI (`page_needs_review?/1`) but never
+gate review — cleanup runs AFTER review, so they deadlocked the pipeline.
+Edit page "Mark reviewed" → `Games.mark_page_reviewed/2` sets Page `reviewed` (silences both
+flags) + `Readiness.advance/1`. Re-extract or a cleanup pass recording defects resets it.
