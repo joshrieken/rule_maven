@@ -218,6 +218,19 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
       assert entry["answer"] == 1
       assert Settings.get("quiz_#{game.id}") =~ "refill your hand"
     end
+
+    test "an empty reply is a failure, not a silent 'done'" do
+      mock_llm("")
+      game = game_with_rulebook()
+
+      assert {:cancel, :no_usable_questions} =
+               RuleMaven.Workers.QuizWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
+
+      assert Settings.get("quiz_#{game.id}") in [nil, ""]
+
+      assert [%{state: "failed"}] =
+               RuleMaven.Jobs.list_runs(kind: "quiz", scope_type: "game", scope_id: game.id)
+    end
   end
 
   describe "CategoriesWorker" do

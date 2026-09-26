@@ -47,9 +47,13 @@ defmodule RuleMaven.Workers.QuizWorker do
         Jobs.finish_run(run, "done", "#{length(entries)} quiz questions.")
         :ok
 
+      # A rulebook always has quizzable rules, so an empty parse means the
+      # generation went wrong (bad JSON, empty reply). Report it as a failure
+      # rather than "done": nothing is stored, so the Prepare step stays
+      # Pending, and a green "done" there hid the problem.
       {:ok, []} ->
-        Jobs.finish_run(run, "done", "No usable quiz questions.")
-        :ok
+        Jobs.finish_run(run, "failed", "No usable quiz questions in the model's reply.")
+        {:cancel, :no_usable_questions}
 
       {:error, reason} ->
         Jobs.finish_run(run, "failed", inspect(reason))

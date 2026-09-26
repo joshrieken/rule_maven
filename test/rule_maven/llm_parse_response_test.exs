@@ -66,5 +66,22 @@ defmodule RuleMaven.LLMParseResponseTest do
       body = %{"choices" => [], "error" => %{"message" => "context length exceeded"}}
       assert {:error, "context length exceeded"} = LLM.__parse_response__(body)
     end
+
+    test "a tool-call finish is an error, not a blank answer" do
+      # Headroom's CCR mode injects a retrieve tool into long prompts; the model
+      # calls it and returns no text. Decoded as blank, JSON-list callers parsed
+      # [] and quietly "succeeded" with nothing.
+      body = %{
+        "choices" => [
+          %{
+            "message" => %{"content" => nil, "tool_calls" => [%{"id" => "t1"}]},
+            "finish_reason" => "tool_calls"
+          }
+        ]
+      }
+
+      assert {:error, msg} = LLM.__parse_response__(body)
+      assert msg =~ "tool call"
+    end
   end
 end

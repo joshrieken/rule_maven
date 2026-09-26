@@ -3889,6 +3889,17 @@ defmodule RuleMaven.LLM do
       %{"error" => %{"message" => message}} ->
         {:error, message}
 
+      # We never send `tools`, so a tool-call finish means something in between
+      # injected one we can't honor — the Headroom proxy's CCR mode compresses a
+      # long prompt and adds a `headroom_retrieve` tool the model then calls.
+      # The content is empty; decoding it as a blank answer made every JSON
+      # list caller parse `[]` and "succeed" with nothing (the rules quiz sat on
+      # Pending). Fail loudly and name the likely culprit instead.
+      %{"choices" => [%{"finish_reason" => "tool_calls"} | _]} ->
+        {:error,
+         "model returned a tool call instead of text (no tools were sent — an LLM proxy injected one; " <>
+           "for Headroom run it with --lossless or --no-ccr)"}
+
       %{"choices" => [%{"message" => %{"content" => content}} = choice | _]} ->
         # finish_reason == "length" (or Anthropic "max_tokens") means the model was
         # cut off at the token cap — surfaced so callers can reject a partial.
