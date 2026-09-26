@@ -109,6 +109,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | Fix rulebook upload | `game_live/form.ex` (LiveView), `games.ex` (`create_document/1`) |
 | Add new background job | `workers/` (new file), `application.ex` (maybe), config |
 | Prepare pipeline stuck / Run remaining | `readiness.ex` (`next_action/1` pure decision, `drive/1` executes, `step_complete?/3`), `workers/readiness_worker.ex`, `game_live/prepare.ex` ("resume") |
+| Import hand-authored enrichments / answers | `manual_import/enrichments.ex` (per-step validation mirroring the LLM parsers, same storage calls as the workers), `manual_import/answers.ex` (every citation must pass `Citations.valid_citations/2`, embeds question, `force_publish_question`), `mix rule_maven.import_content GAME_ID USERNAME FILE.json` |
 | Rebuild a game from hand-transcribed pages | `manual_import.ex` (`ManualImport.import/2`: JSON pages → create_document, lane "manual"), `mix rule_maven.import_pages GAME_ID FILE.json`, `mix rule_maven.reset_prepared GAME_ID --yes` (Q&A + reset_preparation; DELETES PDFs — back up). Both start Oban with queues OFF so the dev server runs the jobs |
 | Page review flags | `games.ex` (`page_needs_review?/1` UI flag, `page_blocks_review?/1` pipeline gate, `mark_page_reviewed/2`), `games/document.ex` (Page `reviewed`), `game_live/form.ex` (`review_flag`, "mark_reviewed") |
 | Change page layout | `components/layouts/` (root shell), `components/core_components.ex` (shared UI) |
