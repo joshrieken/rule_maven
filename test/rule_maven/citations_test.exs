@@ -235,6 +235,31 @@ defmodule RuleMaven.Games.CitationsTest do
       assert Citations.suspicion(answer, quotes) == :keyword
     end
 
+    # Zombicide: Black Plague #64. Every quote verbatim, no trigger word, no
+    # number, answer shorter than its quotes — yet it invented a rule by lifting
+    # the qualifier off a DISCARD rule and attaching it to MOVING cards.
+    @bp_quotes [
+      "You may discard cards from your inventory to make room for new cards at any time, for free (even during another player's Turn).",
+      "You can only Search building Zones and only if there are no Zombies in the Zone. The player draws a card from the Equip- ment deck. He may then place it in the Survivor's inventory or immediately discard it.",
+      "Each Survivor can carry up to eight Equipment cards, divided into three types of Equipment slots on his Dashboard: Two Hands, a Body and five Backpack slots."
+    ]
+
+    test "names the grafted trigger when a quote's qualifier moves to a new action" do
+      answer =
+        "When a Survivor finds a new item (draws an Equipment card), they may place it in their inventory or immediately discard it. " <>
+          "The inventory consists of specific slots: Two Hands, a Body, and five Backpack slots. " <>
+          "Cards can be moved between inventory slots at any time for free, even during another player's turn."
+
+      assert Citations.suspicion(answer, @bp_quotes) == :grafted
+    end
+
+    test "a faithful restatement of the same quote is not grafted" do
+      answer =
+        "You may discard cards from your inventory at any time, for free, even during another player's turn."
+
+      assert Citations.suspicion(answer, @bp_quotes) == nil
+    end
+
     test "returns nil for a grounded answer" do
       quotes = ["Each player draws three cards at the start of their turn."]
       assert Citations.suspicion("Each player draws three cards.", quotes) == nil

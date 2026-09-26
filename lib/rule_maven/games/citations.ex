@@ -591,12 +591,71 @@ defmodule RuleMaven.Games.Citations do
       keyword_hit? -> :keyword
       numeric_hit?(answer_norm, sources) -> :numeric
       length_ratio_hit? -> :length_ratio
+      grafted_hit?(answer, quotes) -> :grafted
       legality_hit?(answer) -> :legality
       true -> nil
     end
   end
 
   def suspicion(_answer, _quotes, _sources), do: nil
+
+  # A GRAFTED qualifier: an answer sentence reuses a long run of a quote's words
+  # but attaches it to something the quotes never say. Zombicide: Black Plague,
+  # verbatim quote "You may discard cards from your inventory … at any time, for
+  # free (even during another player's Turn)" → answer "Cards can be moved
+  # between inventory slots at any time for free, even during another player's
+  # turn." An invented rule (reorganizing costs an Action), yet every addition
+  # trigger stayed silent: no trigger word, no number, answer shorter than its
+  # quotes. Borrowed wording is what makes the graft read as grounded.
+  #
+  # Fires when a sentence borrows a BROADENING qualifier from a quote ("at any
+  # time", "for free", "even during"…) AND carries a content word no quote
+  # contains (crudely stemmed, so "moves"/"move" isn't novel). Plain wording
+  # overlap is normal in correct answers ("determined by the highest danger
+  # level among…"), so it isn't enough: replayed over 38 stored answers, bare
+  # overlap fired on 12 with 3 wrong. Qualifiers that widen permission are what
+  # a graft reuses. This only buys a critic call; the critic decides.
+  @broadening_qualifiers [
+    "at any time",
+    "for free",
+    "free of charge",
+    "at no cost",
+    "without spending",
+    "any number of times",
+    "as many times",
+    "even during",
+    "in any order"
+  ]
+  @graft_function_words ~w(
+    this that they them their there then than with from also when only even into
+    each other which while these those will would could should must have been
+    being what some such more most very just like your yours about after before
+    same does doing done make made upon onto within
+  )
+
+  defp grafted_hit?(answer, quotes) do
+    quote_text = quotes |> Enum.join(" ") |> normalize()
+    borrowed = Enum.filter(@broadening_qualifiers, &contains_word?(quote_text, &1))
+    vocab = quote_text |> String.split(" ", trim: true) |> MapSet.new(&stem/1)
+
+    borrowed != [] and
+      answer
+      |> String.split(~r/(?<=[.!?])\s+/u, trim: true)
+      |> Enum.map(&normalize/1)
+      |> Enum.any?(fn sentence ->
+        Enum.any?(borrowed, &contains_word?(sentence, &1)) and
+          sentence |> String.split(" ", trim: true) |> Enum.any?(&novel_content_word?(&1, vocab))
+      end)
+  end
+
+  defp novel_content_word?(word, vocab) do
+    String.length(word) >= 4 and word not in @graft_function_words and
+      not String.match?(word, ~r/^\d+$/) and not MapSet.member?(vocab, stem(word))
+  end
+
+  # Crude on purpose: "moves"/"moved"/"moving"/"move" all fold to "mov".
+  defp stem(word),
+    do: word |> String.replace(~r/(?:ing|ed|es|s)$/, "") |> String.replace(~r/e$/, "")
 
   # A yes/no legality answer is ALWAYS worth a critic call, whatever the other
   # heuristics think.
