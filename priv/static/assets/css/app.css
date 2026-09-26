@@ -3976,6 +3976,28 @@ body.tool-panel-resizing { user-select: none; }
   }
 }
 
+/* ===== First-connect watchdog (app.js watchFirstConnect) ===== */
+/* A page that hasn't connected 3s after load: clicks do nothing yet, so say
+   so. Non-blocking (a slow first connect is normal); app.js reloads once if it
+   still hasn't connected at 8s. Cleared the moment the socket connects. */
+body.rm-connecting::after {
+  content: "Connecting…";
+  position: fixed;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10001;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: var(--bg-surface, #222);
+  color: var(--text, #fff);
+  border: 1px solid var(--border, #444);
+  font-size: 0.8rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
 /* ===== Connection Status Overlay ===== */
 /* Only show overlay if we were connected before and now we're not.
    Prevents flash on initial page load before WebSocket connects. */

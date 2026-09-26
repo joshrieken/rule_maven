@@ -2551,6 +2551,43 @@ if (mainEl) {
 // connected, so its phx-click (expand/select) did nothing.
 if (document.querySelector("[data-phx-main], [data-phx-session]")) {
   liveSocket.connect();
+  watchFirstConnect();
+}
+
+// A page whose LiveView NEVER connects looks normal but every click is dead,
+// and the "Lost connection" overlay can't help: its CSS keys off
+// .phx-was-connected, which a never-connected page never gets. Seen behind the
+// dev tunnel (a blip makes the service worker serve a cached page whose session
+// tokens are stale, so the join is refused). Show "Connecting…" after a few
+// seconds, then reload once — what a manual refresh was doing. The session
+// flag stops a reload loop when the server is genuinely down; it clears once a
+// page does connect.
+function watchFirstConnect() {
+  const main = document.querySelector("[data-phx-main]");
+  if (!main) return;
+  const connected = () => main.classList.contains("phx-connected");
+  const RELOADED = "rm:first-connect-reloaded";
+
+  const observer = new MutationObserver(() => {
+    if (!connected()) return;
+    observer.disconnect();
+    document.body.classList.remove("rm-connecting");
+    try { sessionStorage.removeItem(RELOADED); } catch (_e) {}
+  });
+  observer.observe(main, {attributes: true, attributeFilter: ["class"]});
+
+  setTimeout(() => {
+    if (!connected()) document.body.classList.add("rm-connecting");
+  }, 3000);
+
+  setTimeout(() => {
+    if (connected()) return;
+    let already = false;
+    try { already = sessionStorage.getItem(RELOADED) === "1"; } catch (_e) {}
+    if (already) return;
+    try { sessionStorage.setItem(RELOADED, "1"); } catch (_e) {}
+    window.location.reload();
+  }, 8000);
 }
 
 if ("serviceWorker" in navigator) {
