@@ -12,17 +12,20 @@ defmodule Mix.Tasks.RuleMaven.ImportPages do
   """
   use Mix.Task
 
+  alias Mix.Tasks.RuleMaven.ResetPrepared
+  alias RuleMaven.{Games, ManualImport}
+
   @shortdoc "Import manually transcribed rulebook pages"
 
   @impl Mix.Task
   def run([game_id | files]) when files != [] do
-    Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues()
-    game = RuleMaven.Games.get_game!(String.to_integer(game_id))
+    ResetPrepared.start_without_queues()
+    game = Games.get_game!(String.to_integer(game_id))
 
     for file <- files do
       attrs = file |> File.read!() |> Jason.decode!()
 
-      case RuleMaven.ManualImport.import(game, attrs) do
+      case ManualImport.import(game, attrs) do
         {:ok, doc} ->
           Mix.shell().info(
             "#{game.name}: imported \"#{doc.label}\" (#{length(doc.pages)} pages, doc #{doc.id})"
