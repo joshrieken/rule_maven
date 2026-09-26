@@ -1209,4 +1209,19 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
       refute Facets.permission_question?(nil)
     end
   end
+
+  describe "yes_no_question?/1" do
+    test "auxiliary-led questions, even behind a lead-in phrase" do
+      assert Facets.yes_no_question?("Do eliminated Survivors contribute to the Danger Level?")
+      assert Facets.yes_no_question?("Can I close a door?")
+      assert Facets.yes_no_question?("In Quest 0, can I open the vault first?")
+    end
+
+    test "wh-questions are open, whatever follows" do
+      refute Facets.yes_no_question?("When does a green spawn point activate in Quest 0?")
+      refute Facets.yes_no_question?("When can I trade?")
+      refute Facets.yes_no_question?("In quest 0, what do the objective colors mean?")
+      refute Facets.yes_no_question?(nil)
+    end
+  end
 end

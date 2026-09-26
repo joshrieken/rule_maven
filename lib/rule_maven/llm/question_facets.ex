@@ -1214,6 +1214,28 @@ defmodule RuleMaven.LLM.QuestionFacets do
     question |> tokens() |> Enum.any?(&(&1 in @permission_cues))
   end
 
+  # Openers that make a question answerable with yes/no, and the wh-words that
+  # make it open-ended. Whichever appears FIRST decides, so a lead-in phrase
+  # doesn't hide the shape: "In Quest 0, can I…" is yes/no, "When can I…" is not.
+  @yes_no_openers ~w(
+    do does did dont doesnt didnt is are was were am isnt arent wasnt werent
+    can cant cannot could couldnt may might must shall should shouldnt will wont
+    would wouldnt has have had hasnt havent hadnt
+  )
+  @wh_words ~w(what when where why how who whom whose which)
+
+  @doc """
+  True when the question can be answered yes/no. A legal/illegal verdict on an
+  open question ("When does a green spawn point activate?") has no meaningful
+  YES/NO or ALLOWED reading, so the stamp falls back to 📖 IN THE RULES.
+  """
+  def yes_no_question?(question) do
+    question
+    |> tokens()
+    |> Enum.find(&(&1 in @yes_no_openers or &1 in @wh_words))
+    |> then(&(&1 in @yes_no_openers))
+  end
+
   # Digits are kept (they carry the rule) and apostrophes dropped, so that
   # "can't"/"can’t" collapse the way Polarity collapses them.
   #

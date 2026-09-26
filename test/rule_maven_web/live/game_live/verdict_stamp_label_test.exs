@@ -58,4 +58,11 @@ defmodule RuleMavenWeb.GameLive.VerdictStampLabelTest do
       refute html =~ "LEGAL MOVE"
     end
   end
+
+  test "an open wh-question gets no polarity stamp", %{conn: conn} do
+    html = render_thread(conn, "When does a green spawn point activate in Quest 0?", "illegal")
+
+    assert html =~ "IN THE RULES"
+    refute html =~ ~r/<\/span>\s*NO\s*<\/div>/
+  end
 end

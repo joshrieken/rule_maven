@@ -5660,6 +5660,8 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     cond do
       Polarity.negative?(question) -> verdict_stamp("info")
+      # An open question ("When does…?") has no yes/no to stamp.
+      not QuestionFacets.yes_no_question?(question) -> verdict_stamp("info")
       QuestionFacets.permission_question?(question) -> verdict_stamp(verdict)
       true -> yes_no_stamp(verdict)
     end
