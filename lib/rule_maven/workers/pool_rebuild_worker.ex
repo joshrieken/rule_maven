@@ -127,7 +127,11 @@ defmodule RuleMaven.Workers.PoolRebuildWorker do
             oban_job_id: oban_id
           )
 
-        Jobs.event(run, "info", "Re-asking #{length(rows)} staled question(s) against the new text.")
+        Jobs.event(
+          run,
+          "info",
+          "Re-asking #{length(rows)} staled question(s) against the new text."
+        )
 
         enqueued = Enum.count(rows, &reask(&1, game_id))
 

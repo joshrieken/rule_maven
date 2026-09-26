@@ -1369,9 +1369,14 @@ defmodule RuleMaven.LLMTest do
         content = body[:messages] |> List.last() |> Map.get(:content)
 
         cond do
-          content =~ "Same underlying rules question?" and content =~ "THIRD" -> {:ok, %{answer: "yes"}}
-          content =~ "Same underlying rules question?" -> {:ok, %{answer: "no"}}
-          true -> {:ok, %{answer: "Fresh answer.", cited_passage: "p.1", followups: []}}
+          content =~ "Same underlying rules question?" and content =~ "THIRD" ->
+            {:ok, %{answer: "yes"}}
+
+          content =~ "Same underlying rules question?" ->
+            {:ok, %{answer: "no"}}
+
+          true ->
+            {:ok, %{answer: "Fresh answer.", cited_passage: "p.1", followups: []}}
         end
       end)
 

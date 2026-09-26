@@ -145,8 +145,12 @@ defmodule RuleMaven.LLM.PolarityTest do
       neg = "Isn't trading allowed?"
 
       assert Polarity.strip_inverted_lead("**No!** Never.", neg) == "Never."
-      assert Polarity.strip_inverted_lead("**Yes.** Trading is allowed.", neg) == "Trading is allowed."
-      assert Polarity.strip_inverted_lead("**Correct** — that is banned.", neg) == "That is banned."
+
+      assert Polarity.strip_inverted_lead("**Yes.** Trading is allowed.", neg) ==
+               "Trading is allowed."
+
+      assert Polarity.strip_inverted_lead("**Correct** — that is banned.", neg) ==
+               "That is banned."
     end
 
     test "negation words round 25: mustnt/nobody/nothing/neither/noone/neednt/aint" do

@@ -94,13 +94,15 @@ defmodule Mix.Tasks.RuleMaven.EvalCritic do
         id: "grounded_discard",
         expect: :grounded,
         quotes: ["you must discard half of your Resource Cards"],
-        answer: "If you have more than 7 resource cards when a 7 is rolled, you discard half of them, rounded down."
+        answer:
+          "If you have more than 7 resource cards when a 7 is rolled, you discard half of them, rounded down."
       },
       %{
         id: "grounded_longest_road",
         expect: :grounded,
         quotes: ["Longest Road"],
-        answer: "The Longest Road card is worth 2 victory points, and another player can take it from you by building a longer road."
+        answer:
+          "The Longest Road card is worth 2 victory points, and another player can take it from you by building a longer road."
       },
       %{
         id: "grounded_robber_desert",
@@ -112,19 +114,22 @@ defmodule Mix.Tasks.RuleMaven.EvalCritic do
         id: "hallucinated_invented_number",
         expect: :hallucinated,
         quotes: ["you must discard half of your Resource Cards"],
-        answer: "When a 7 is rolled you must discard exactly 3 resource cards, no matter how many you hold."
+        answer:
+          "When a 7 is rolled you must discard exactly 3 resource cards, no matter how many you hold."
       },
       %{
         id: "hallucinated_invented_rule",
         expect: :hallucinated,
         quotes: ["Longest Road"],
-        answer: "The Longest Road card is worth 2 victory points, and it also lets you take one free resource card from the bank on each of your turns."
+        answer:
+          "The Longest Road card is worth 2 victory points, and it also lets you take one free resource card from the bank on each of your turns."
       },
       %{
         id: "hallucinated_foreign_rule",
         expect: :hallucinated,
         quotes: ["The robber begins the game in the desert"],
-        answer: "The robber begins in the desert, and any player may pay 2 gold to move it at the start of their turn."
+        answer:
+          "The robber begins in the desert, and any player may pay 2 gold to move it at the start of their turn."
       },
       %{
         # The polarity inversion. Decided in code before the critic ever runs

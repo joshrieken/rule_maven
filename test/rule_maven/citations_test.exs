@@ -599,7 +599,8 @@ defmodule RuleMaven.Games.CitationsTest do
     end
 
     test "questions with no fractions never flag" do
-      assert Citations.ignored_fractions("How do I move the robber?", "Roll a 7 to move it.") == []
+      assert Citations.ignored_fractions("How do I move the robber?", "Roll a 7 to move it.") ==
+               []
     end
 
     test "non-binary input never flags" do

@@ -465,7 +465,9 @@ defmodule RuleMaven.Workers.AskWorker do
                   # empty citation list stays empty, and BEFORE persist so the
                   # stamped list — not the pre-resolve one — is what's written.
                   game_ids = [game_id | expansion_ids]
-                  valid_citations = RuleMaven.Coverage.resolve_document_ids(valid_citations, game_ids)
+
+                  valid_citations =
+                    RuleMaven.Coverage.resolve_document_ids(valid_citations, game_ids)
 
                   primary =
                     List.first(valid_citations) ||
@@ -561,9 +563,7 @@ defmodule RuleMaven.Workers.AskWorker do
                           RuleMaven.Coverage.record_citations(updated)
                         rescue
                           e ->
-                            Logger.warning(
-                              "Coverage.record_citations failed: #{inspect(e)}"
-                            )
+                            Logger.warning("Coverage.record_citations failed: #{inspect(e)}")
                         end
 
                         # Fresh, citation-backed answers become cache-eligible. Pool hits

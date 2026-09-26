@@ -332,7 +332,9 @@ defmodule RuleMavenWeb.GameLive.SubBar do
             <div class="card-menu__divider"></div>
             <div class="card-menu__label">🎲 Play</div>
             <button
-              :for={t <- ToolRegistry.group(:play, @current_user) |> Enum.reject(&(&1.id == :expansions))}
+              :for={
+                t <- ToolRegistry.group(:play, @current_user) |> Enum.reject(&(&1.id == :expansions))
+              }
               type="button"
               phx-click="open_tool"
               phx-value-tool={t.id}
@@ -344,7 +346,10 @@ defmodule RuleMavenWeb.GameLive.SubBar do
             <div class="card-menu__divider"></div>
             <div class="card-menu__label">📚 Learn</div>
             <button
-              :for={t <- ToolRegistry.group(:learn, @current_user) |> Enum.reject(&(&1.id == :house_rules))}
+              :for={
+                t <-
+                  ToolRegistry.group(:learn, @current_user) |> Enum.reject(&(&1.id == :house_rules))
+              }
               type="button"
               phx-click="open_tool"
               phx-value-tool={t.id}
@@ -440,7 +445,9 @@ defmodule RuleMavenWeb.GameLive.SubBar do
         <span aria-hidden="true">🏠</span>
         <%!-- "Add" is the wide case — hidden on mobile (tc-label) so the strip
               fits the one-row header; a real count is narrow and stays. --%>
-        <span class={if @house_rule_count == 0, do: "tc-label"}>{if @house_rule_count == 0, do: "Add", else: @house_rule_count}</span>
+        <span class={if @house_rule_count == 0, do: "tc-label"}>{if @house_rule_count == 0,
+          do: "Add",
+          else: @house_rule_count}</span>
       </button>
     </div>
     """
@@ -466,7 +473,11 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       <details class="card-menu" style="flex-shrink:0">
         <summary
           class="pill-link pill-link-accent"
-          title={if active, do: "Asking for the crew: #{active.name} — tap to switch", else: "Asking just for yourself — tap to switch"}
+          title={
+            if active,
+              do: "Asking for the crew: #{active.name} — tap to switch",
+              else: "Asking just for yourself — tap to switch"
+          }
           aria-label="Who are you asking for?"
           style="cursor:pointer;list-style:none;gap:0.25rem;user-select:none;font-weight:600"
         >
@@ -483,7 +494,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
             aria-pressed={to_string(is_nil(@active_group_id))}
             class="card-menu__item"
           >
-            <span aria-hidden="true">🙋</span> Just me
+            <span aria-hidden="true">🙋</span>
+            Just me
             <span :if={is_nil(@active_group_id)} aria-hidden="true" style="margin-left:auto">✓</span>
           </button>
           <button
@@ -652,52 +664,52 @@ defmodule RuleMavenWeb.GameLive.SubBar do
     <.link :if={@current == :show} patch={~p"/games/#{@game}?start=1"} class="card-menu__item">
       <span aria-hidden="true">🔍</span> Overview
     </.link>
-        <.link
-          :if={@current != :show}
-          navigate={~p"/games/#{@game}?start=1"}
-          class="card-menu__item"
-        >
-          <span aria-hidden="true">🔍</span> Overview
-        </.link>
-        <.link
-          :if={@community_count > 0}
-          navigate={~p"/games/#{@game}/community"}
-          class="card-menu__item"
-        ><span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})</.link>
-        <%= if @has_cheatsheet do %>
-          <.link href={~p"/games/#{@game}/cheatsheet"} target="_blank" class="card-menu__item">
-            <span aria-hidden="true">📋</span> Cheat Sheet
-          </.link>
-        <% end %>
-        <%= if @include_rulebooks and @sources != [] do %>
-          <div class="card-menu__divider"></div>
-          <div class="card-menu__label">📖 Rulebooks</div>
-          <.rulebook_items game={@game} sources={@sources} is_admin={@is_admin} current={@current} />
-        <% end %>
-        <.link
-          :if={@game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category)}
-          href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
-          target="_blank"
-          rel="noopener"
-          class="card-menu__item"
-        ><span aria-hidden="true">🔗</span> View on BGG</.link>
-        <%!-- Admin actions live here too: on phones the header collapses to one
+    <.link
+      :if={@current != :show}
+      navigate={~p"/games/#{@game}?start=1"}
+      class="card-menu__item"
+    >
+      <span aria-hidden="true">🔍</span> Overview
+    </.link>
+    <.link
+      :if={@community_count > 0}
+      navigate={~p"/games/#{@game}/community"}
+      class="card-menu__item"
+    ><span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})</.link>
+    <%= if @has_cheatsheet do %>
+      <.link href={~p"/games/#{@game}/cheatsheet"} target="_blank" class="card-menu__item">
+        <span aria-hidden="true">📋</span> Cheat Sheet
+      </.link>
+    <% end %>
+    <%= if @include_rulebooks and @sources != [] do %>
+      <div class="card-menu__divider"></div>
+      <div class="card-menu__label">📖 Rulebooks</div>
+      <.rulebook_items game={@game} sources={@sources} is_admin={@is_admin} current={@current} />
+    <% end %>
+    <.link
+      :if={@game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category)}
+      href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
+      target="_blank"
+      rel="noopener"
+      class="card-menu__item"
+    ><span aria-hidden="true">🔗</span> View on BGG</.link>
+    <%!-- Admin actions live here too: on phones the header collapses to one
               row and the separate "Admin ▾" pill is hidden, so this menu is the
               only way in. --%>
-        <%= if @is_admin do %>
-          <div class="card-menu__divider"></div>
-          <.link navigate={~p"/games/#{@game}/edit"} class="card-menu__item">
-            <span aria-hidden="true">✏️</span> Edit
-          </.link>
-          <.link navigate={~p"/games/#{@game}/review"} class="card-menu__item">
-            <span aria-hidden="true">🔍</span> Review
-          </.link>
-          <.link
-            :if={RuleMaven.Games.bgg_synced?(@game)}
-            href={~p"/games/#{@game}/prepare"}
-            class="card-menu__item"
-          ><span aria-hidden="true">🚀</span> Prepare</.link>
-        <% end %>
+    <%= if @is_admin do %>
+      <div class="card-menu__divider"></div>
+      <.link navigate={~p"/games/#{@game}/edit"} class="card-menu__item">
+        <span aria-hidden="true">✏️</span> Edit
+      </.link>
+      <.link navigate={~p"/games/#{@game}/review"} class="card-menu__item">
+        <span aria-hidden="true">🔍</span> Review
+      </.link>
+      <.link
+        :if={RuleMaven.Games.bgg_synced?(@game)}
+        href={~p"/games/#{@game}/prepare"}
+        class="card-menu__item"
+      ><span aria-hidden="true">🚀</span> Prepare</.link>
+    <% end %>
     """
   end
 end

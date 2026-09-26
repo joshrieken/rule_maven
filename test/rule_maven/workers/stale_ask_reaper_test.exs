@@ -138,7 +138,9 @@ defmodule RuleMaven.Workers.StaleAskReaperTest do
       # A backstop, not a bulk rewrite: hundreds of stranded rows means something
       # else is broken, and the cap stops one bad tick from defacing the table.
       still_thinking =
-        Repo.all(from q in QuestionLog, where: q.game_id == ^game.id and q.answer == "Thinking...")
+        Repo.all(
+          from q in QuestionLog, where: q.game_id == ^game.id and q.answer == "Thinking..."
+        )
 
       assert length(still_thinking) == 3
     end

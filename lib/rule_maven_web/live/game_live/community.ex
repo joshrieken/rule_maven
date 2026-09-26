@@ -442,7 +442,10 @@ defmodule RuleMavenWeb.GameLive.Community do
       included_expansions={@included_expansions}
       house_rule_count={@house_rule_count}
     />
-    <div class="community-page" style="max-width:52rem;margin:0 auto;padding:0 1rem 1.5rem;position:relative;z-index:1">
+    <div
+      class="community-page"
+      style="max-width:52rem;margin:0 auto;padding:0 1rem 1.5rem;position:relative;z-index:1"
+    >
       <%!-- Sticky page head: title + universal search pin just below the
             (also sticky) game bar — --gamebar-h is measured by app.js's
             syncHeaderHeight, same mechanism as --header-height. --%>
@@ -643,7 +646,8 @@ defmodule RuleMavenWeb.GameLive.Community do
           <% else %>
             <%!-- All categories view --%>
             <%= for cat <- @categories do %>
-              <% cat_qs = primary_questions_for_category(questions, @category_map, @categories, cat.id) %>
+              <% cat_qs =
+                primary_questions_for_category(questions, @category_map, @categories, cat.id) %>
               <%= if cat_qs != [] do %>
                 <div id={"category-#{cat.id}"} style="margin-bottom:1.75rem">
                   <h2 style="font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-secondary);margin-bottom:0.5rem;display:flex;align-items:center;gap:0.4rem">

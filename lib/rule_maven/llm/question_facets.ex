@@ -350,7 +350,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
     before after attack attacks attacked block blocks blocked trump trumps
     against versus vs wins loses win lose protect protects protected
   )
-  |> MapSet.new()
+                |> MapSet.new()
 
   # Function words carry no entity identity, so grammatical differences
   # (do/does, a/the) must not count as bag differences or eat a typo-pair slot.
@@ -359,7 +359,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
     a an the do does did is are was were be been being to of on in at for it
     this that these those as with my your our their his her its i you he she we they them
   )
-  |> MapSet.new()
+               |> MapSet.new()
 
   # True when the two token lists are NOT a role reversal (i.e. safe to treat as
   # the same question on this axis). Empty-safe: any pair without the fingerprint.
@@ -527,19 +527,45 @@ defmodule RuleMaven.LLM.QuestionFacets do
     c = tokens(candidate)
 
     cond do
-      not Polarity.compatible?(question, candidate) -> :negation
-      not numbers_agree?(q, c) -> :number
-      not ratios_agree?(question, candidate) -> :ratio
-      not trade_pairs_agree?(q, c) -> :trade_pair
-      not dice_agree?(q, c) -> :dice
-      not fractions_agree?(q, c) -> :fraction
-      not multipliers_agree?(q, c) -> :multiplier
-      not letter_ids_agree?(q, c) -> :letter_id
-      not turn_ownership_agrees?(q, c) -> :turn_ownership
-      not role_order_agrees?(q, c) -> :role_order
-      not compass_agree?(q, c) -> :compass
-      not ordinals_agree?(q, c) -> :ordinal
-      not frequencies_agree?(q, c) -> :frequency
+      not Polarity.compatible?(question, candidate) ->
+        :negation
+
+      not numbers_agree?(q, c) ->
+        :number
+
+      not ratios_agree?(question, candidate) ->
+        :ratio
+
+      not trade_pairs_agree?(q, c) ->
+        :trade_pair
+
+      not dice_agree?(q, c) ->
+        :dice
+
+      not fractions_agree?(q, c) ->
+        :fraction
+
+      not multipliers_agree?(q, c) ->
+        :multiplier
+
+      not letter_ids_agree?(q, c) ->
+        :letter_id
+
+      not turn_ownership_agrees?(q, c) ->
+        :turn_ownership
+
+      not role_order_agrees?(q, c) ->
+        :role_order
+
+      not compass_agree?(q, c) ->
+        :compass
+
+      not ordinals_agree?(q, c) ->
+        :ordinal
+
+      not frequencies_agree?(q, c) ->
+        :frequency
+
       true ->
         Enum.find(Map.keys(@axes), &(not axis_agrees?(&1, q, c))) ||
           if(not bounds_agree?(q, c), do: :bound)
@@ -1117,6 +1143,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
     |> Enum.reduce({false, false}, fn
       {t, i}, {own, other} when t in ["turn", "turns"] ->
         window = for j <- max(i - 2, 0)..(i - 1)//1, j >= 0, do: elem(toks_t, j)
+
         {own or Enum.any?(window, &(&1 in @turn_own)),
          other or Enum.any?(window, &(&1 in @turn_other))}
 

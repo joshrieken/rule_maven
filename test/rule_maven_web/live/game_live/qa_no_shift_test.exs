@@ -77,7 +77,8 @@ defmodule RuleMavenWeb.GameLive.QaNoShiftTest do
         game_id: game.id,
         user_id: user.id,
         question: "does the kight beat the archer even in a really long-winded question?",
-        cleaned_question: "Does the knight beat the archer even in a really long-winded question?",
+        cleaned_question:
+          "Does the knight beat the archer even in a really long-winded question?",
         answer: "Yes.",
         promoted: false
       })

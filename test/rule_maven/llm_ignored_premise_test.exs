@@ -37,7 +37,12 @@ defmodule RuleMaven.LLMIgnoredPremiseTest do
     {:ok, game} = Games.create_game(%{name: "Premise #{System.unique_integer([:positive])}"})
     doc = published_doc(game)
     put_chunk(doc, 1, "[Page 1]\nIn a solo game the Terror Marker starts at Terror Level 3.")
-    put_chunk(doc, 2, "[Page 2]\nWhen a Monster is defeated, move the Terror Track down one space.")
+
+    put_chunk(
+      doc,
+      2,
+      "[Page 2]\nWhen a Monster is defeated, move the Terror Track down one space."
+    )
 
     Application.put_env(:rule_maven, :embed_mock, fn _text ->
       {:ok, List.duplicate(0.0, 768) |> List.replace_at(0, 1.0)}
@@ -153,7 +158,8 @@ defmodule RuleMaven.LLMIgnoredPremiseTest do
   test "an asserted fraction the answer recites past spends one retry" do
     game = seed_corpus()
 
-    fraction_q = "Playing solo, do I move the Terror Track down a third when a Monster is defeated?"
+    fraction_q =
+      "Playing solo, do I move the Terror Track down a third when a Monster is defeated?"
 
     reciting =
       answer_result("When a Monster is defeated, move the Terror Track down one space.")

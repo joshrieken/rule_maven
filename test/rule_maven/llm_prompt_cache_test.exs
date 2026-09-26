@@ -144,7 +144,10 @@ defmodule RuleMaven.LLMPromptCacheTest do
     defp message_text(parts) when is_list(parts), do: Enum.map_join(parts, "", & &1.text)
 
     defp answer_then_critic(body) do
-      if Enum.any?(body.messages, &String.contains?(message_text(&1.content), "RULEBOOK EXCERPTS:")) do
+      if Enum.any?(
+           body.messages,
+           &String.contains?(message_text(&1.content), "RULEBOOK EXCERPTS:")
+         ) do
         # `raw: true` — the critic reads raw_response, not the ask-shaped answer.
         {:ok, %{answer: "", raw_response: "VERDICT: grounded", finish_reason: "stop"}}
       else

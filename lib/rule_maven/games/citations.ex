@@ -527,9 +527,11 @@ defmodule RuleMaven.Games.Citations do
     text
     |> String.downcase()
     |> then(&Regex.replace(@percent_expr, &1, " "))
-    |> then(&Regex.replace(@compound_number, &1, fn _, tens, unit ->
-      " #{Map.fetch!(@tens, tens) + String.to_integer(Map.fetch!(@number_words, unit))} "
-    end))
+    |> then(
+      &Regex.replace(@compound_number, &1, fn _, tens, unit ->
+        " #{Map.fetch!(@tens, tens) + String.to_integer(Map.fetch!(@number_words, unit))} "
+      end)
+    )
     |> String.split(~r/[^a-z0-9:]+/, trim: true)
     |> Enum.map(&Map.get(@number_words, &1, &1))
     |> Enum.filter(&(&1 =~ ~r/^\d+(?::\d+)?$/))

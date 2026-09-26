@@ -2172,7 +2172,8 @@ defmodule RuleMaven.LLM do
   def __affirmative__(text), do: affirmative?(text)
 
   @doc false
-  def __answer_flipping__(question, match_text, row), do: answer_flipping?(question, match_text, row)
+  def __answer_flipping__(question, match_text, row),
+    do: answer_flipping?(question, match_text, row)
 
   @doc false
   def __drop_lead__(result, question), do: drop_lead_on_negative_question(result, question)

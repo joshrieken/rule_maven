@@ -244,7 +244,8 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
 
     html = render_click(view, "open_audit", %{"id" => to_string(live_row.id)})
 
-    refute html =~ "HISTORYSECRET", "the audit-trail version history leaked a withheld crew answer"
+    refute html =~ "HISTORYSECRET",
+           "the audit-trail version history leaked a withheld crew answer"
   end
 
   test "the audit-trail modal's version history shows prior versions for a visible row", ctx do
@@ -279,7 +280,9 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
 
     html = render_click(view, "open_audit", %{"id" => to_string(live_row.id)})
 
-    assert html =~ "HISTORYSHOWN", "the audit-trail version history dropped a prior version's answer"
+    assert html =~ "HISTORYSHOWN",
+           "the audit-trail version history dropped a prior version's answer"
+
     # The full field snapshot round-trips into the version's own stat sections.
     assert html =~ "HISTORYMODEL-9", "the version panel dropped a snapshotted stat (model)"
   end

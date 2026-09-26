@@ -204,7 +204,9 @@ defmodule RuleMaven.Coverage do
       end)
 
     total = sources |> Enum.map(&(&1.page_count || 0)) |> Enum.sum()
-    covered = sources |> Enum.map(fn s -> if s.page_count, do: s.covered, else: 0 end) |> Enum.sum()
+
+    covered =
+      sources |> Enum.map(fn s -> if s.page_count, do: s.covered, else: 0 end) |> Enum.sum()
 
     %{sources: sources, covered: covered, total: total, pct: pct(covered, total)}
   end

@@ -58,9 +58,17 @@ defmodule RuleMaven.Workers.StaleAskReaper do
 
     if rows != [] do
       run =
-        Jobs.start_run("stale_ask_reaper", {"system", 0}, "Reaped #{length(rows)} stranded ask(s)")
+        Jobs.start_run(
+          "stale_ask_reaper",
+          {"system", 0},
+          "Reaped #{length(rows)} stranded ask(s)"
+        )
 
-      Jobs.finish_run(run, "done", "Finalized #{length(rows)} question(s) stuck on \"Thinking...\".")
+      Jobs.finish_run(
+        run,
+        "done",
+        "Finalized #{length(rows)} question(s) stuck on \"Thinking...\"."
+      )
     end
 
     :ok

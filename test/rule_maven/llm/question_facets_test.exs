@@ -110,7 +110,10 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
                "Can I trade at a 1:2 harbor?"
              )
 
-      refute Facets.compatible?("Can a player roll only two dice?", "Can a player roll only one die?")
+      refute Facets.compatible?(
+               "Can a player roll only two dice?",
+               "Can a player roll only one die?"
+             )
     end
 
     test "number-unit swap — same digits, opposite roles, 0.99" do
@@ -547,9 +550,15 @@ defmodule RuleMaven.LLM.QuestionFacetsTest do
     end
 
     test "frequency (how many times) is its own count, separate from quantity" do
-      refute Facets.compatible?("Can I attack twice this turn?", "Can I attack three times this turn?")
+      refute Facets.compatible?(
+               "Can I attack twice this turn?",
+               "Can I attack three times this turn?"
+             )
 
-      assert Facets.conflict("Can I attack twice this turn?", "Can I attack three times this turn?") ==
+      assert Facets.conflict(
+               "Can I attack twice this turn?",
+               "Can I attack three times this turn?"
+             ) ==
                :frequency
 
       refute Facets.compatible?("Do I roll twice?", "Do I roll thrice?")

@@ -13,24 +13,44 @@ defmodule RuleMaven.LLMTruncatedAnswerRetryTest do
   describe "answer_truncated?/1" do
     test "flags an explicit length/max_tokens finish_reason" do
       assert LLM.__answer_truncated__(%{finish_reason: "length", answer: "x", raw_response: ""})
-      assert LLM.__answer_truncated__(%{finish_reason: "max_tokens", answer: "x", raw_response: ""})
+
+      assert LLM.__answer_truncated__(%{
+               finish_reason: "max_tokens",
+               answer: "x",
+               raw_response: ""
+             })
     end
 
     test "flags an unclosed JSON object even when finish_reason is absent" do
       # The exact shape of the real Catan false-refusal: verdict opened, answer
       # cut off mid-string, no closing quote or brace.
       partial = ~s({"verdict": "info", "answer": "Specific terrain hexes produce the following)
-      assert LLM.__answer_truncated__(%{finish_reason: nil, answer: partial, raw_response: partial})
+
+      assert LLM.__answer_truncated__(%{
+               finish_reason: nil,
+               answer: partial,
+               raw_response: partial
+             })
     end
 
     test "passes a complete JSON answer through untouched" do
       whole = ~s({"verdict":"info","answer":"Forest produces lumber.","citations":[]})
-      refute LLM.__answer_truncated__(%{finish_reason: "stop", answer: "Forest produces lumber.", raw_response: whole})
+
+      refute LLM.__answer_truncated__(%{
+               finish_reason: "stop",
+               answer: "Forest produces lumber.",
+               raw_response: whole
+             })
+
       refute LLM.__answer_truncated__(%{finish_reason: nil, answer: "ok", raw_response: whole})
     end
 
     test "does not flag non-JSON raw payloads (raw: true callers)" do
-      refute LLM.__answer_truncated__(%{finish_reason: "stop", answer: "plain prose", raw_response: "plain prose"})
+      refute LLM.__answer_truncated__(%{
+               finish_reason: "stop",
+               answer: "plain prose",
+               raw_response: "plain prose"
+             })
     end
   end
 
@@ -55,7 +75,12 @@ defmodule RuleMaven.LLMTruncatedAnswerRetryTest do
       body = %{model: "m", max_tokens: 2048, messages: [%{role: "user", content: "q"}]}
 
       truncated =
-        {:ok, %{finish_reason: nil, answer: ~s({"answer": "partial), raw_response: ~s({"answer": "partial)}}
+        {:ok,
+         %{
+           finish_reason: nil,
+           answer: ~s({"answer": "partial),
+           raw_response: ~s({"answer": "partial)
+         }}
 
       result = LLM.__maybe_retry_truncated_answer__(truncated, body, operation: "ask")
 
@@ -70,7 +95,12 @@ defmodule RuleMaven.LLMTruncatedAnswerRetryTest do
 
     test "surfaces a retryable error when the retry is still truncated" do
       Application.put_env(:rule_maven, :llm_mock, fn _body ->
-        {:ok, %{finish_reason: "length", answer: ~s({"answer": "still cut), raw_response: ~s({"answer": "still cut)}}
+        {:ok,
+         %{
+           finish_reason: "length",
+           answer: ~s({"answer": "still cut),
+           raw_response: ~s({"answer": "still cut)
+         }}
       end)
 
       on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
@@ -78,7 +108,12 @@ defmodule RuleMaven.LLMTruncatedAnswerRetryTest do
       body = %{model: "m", max_tokens: 2048, messages: [%{role: "user", content: "q"}]}
 
       truncated =
-        {:ok, %{finish_reason: "length", answer: ~s({"answer": "partial), raw_response: ~s({"answer": "partial)}}
+        {:ok,
+         %{
+           finish_reason: "length",
+           answer: ~s({"answer": "partial),
+           raw_response: ~s({"answer": "partial)
+         }}
 
       assert {:error, reason} =
                LLM.__maybe_retry_truncated_answer__(truncated, body, operation: "ask")
@@ -91,7 +126,12 @@ defmodule RuleMaven.LLMTruncatedAnswerRetryTest do
       on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
       truncated =
-        {:ok, %{finish_reason: "length", answer: ~s({"answer": "partial), raw_response: ~s({"answer": "partial)}}
+        {:ok,
+         %{
+           finish_reason: "length",
+           answer: ~s({"answer": "partial),
+           raw_response: ~s({"answer": "partial)
+         }}
 
       assert {:error, _} =
                LLM.__maybe_retry_truncated_answer__(truncated, %{messages: []},

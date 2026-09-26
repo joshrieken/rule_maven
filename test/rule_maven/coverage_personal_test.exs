@@ -124,20 +124,40 @@ defmodule RuleMaven.CoveragePersonalTest do
     end
 
     test "50% -> Scholar, 75% -> Expert", %{game: g, doc: d, user: u} do
-      Enum.each(1..2, &Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: &1}))
+      Enum.each(
+        1..2,
+        &Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: &1})
+      )
+
       assert %{tier: :scholar} = Coverage.title_for(u.id, g.id)
       Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: 3})
       assert %{tier: :expert} = Coverage.title_for(u.id, g.id)
     end
 
-    test "Sage when personal set covers the whole community-covered set", %{game: g, doc: d, user: u} do
-      Enum.each(1..2, &Repo.insert!(%RuleMaven.Coverage.PageCoverage{document_id: d.id, page: &1}))
-      Enum.each(1..2, &Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: &1}))
+    test "Sage when personal set covers the whole community-covered set", %{
+      game: g,
+      doc: d,
+      user: u
+    } do
+      Enum.each(
+        1..2,
+        &Repo.insert!(%RuleMaven.Coverage.PageCoverage{document_id: d.id, page: &1})
+      )
+
+      Enum.each(
+        1..2,
+        &Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: &1})
+      )
+
       assert %{tier: :sage} = Coverage.title_for(u.id, g.id)
     end
 
     test "empty community set is not Sage", %{game: g, doc: d, user: u} do
-      Enum.each(1..3, &Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: &1}))
+      Enum.each(
+        1..3,
+        &Repo.insert!(%UserPageCoverage{user_id: u.id, document_id: d.id, page: &1})
+      )
+
       assert %{tier: :expert} = Coverage.title_for(u.id, g.id)
     end
   end
@@ -166,7 +186,10 @@ defmodule RuleMaven.CoveragePersonalTest do
 
       gaps = Coverage.gaps_enriched(game.id)
 
-      assert [%{page: 1, label: "Setup", snippet: "Setup"}, %{page: 3, snippet: "Winning the game"}] =
+      assert [
+               %{page: 1, label: "Setup", snippet: "Setup"},
+               %{page: 3, snippet: "Winning the game"}
+             ] =
                Enum.map(gaps, &Map.take(&1, [:page, :label, :snippet]))
     end
   end

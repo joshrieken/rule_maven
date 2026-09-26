@@ -23,7 +23,12 @@ defmodule RuleMaven.LLM.ServeFromCacheTest do
 
   test "strips an inverted lead from a cached answer on a negative question" do
     q = "Is it forbidden to trade before rolling?"
-    {:ok, res} = LLM.__serve_from_cache__({row("**No**, trading is not allowed before rolling."), :trusted}, q)
+
+    {:ok, res} =
+      LLM.__serve_from_cache__(
+        {row("**No**, trading is not allowed before rolling."), :trusted},
+        q
+      )
 
     assert res.answer == "Trading is not allowed before rolling."
   end

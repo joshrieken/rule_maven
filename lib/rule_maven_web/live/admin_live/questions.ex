@@ -49,7 +49,15 @@ defmodule RuleMavenWeb.AdminLive.Questions do
     socket =
       case params["status"] do
         s
-        when s in ["needs_review", "answered", "pending", "refused", "error", "publish_pending", "pooled"] ->
+        when s in [
+               "needs_review",
+               "answered",
+               "pending",
+               "refused",
+               "error",
+               "publish_pending",
+               "pooled"
+             ] ->
           socket |> assign(filter_status: s) |> reload()
 
         _ ->
@@ -96,7 +104,9 @@ defmodule RuleMavenWeb.AdminLive.Questions do
 
   @impl true
   def handle_event("open_audit", %{"id" => id}, socket),
-    do: {:noreply, assign(socket, audit: RuleMavenWeb.AuditModal.fetch(id, socket.assigns.current_user))}
+    do:
+      {:noreply,
+       assign(socket, audit: RuleMavenWeb.AuditModal.fetch(id, socket.assigns.current_user))}
 
   def handle_event("close_audit", _params, socket),
     do: {:noreply, assign(socket, audit: nil)}

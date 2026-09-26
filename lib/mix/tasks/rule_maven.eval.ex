@@ -172,7 +172,9 @@ defmodule Mix.Tasks.RuleMaven.Eval do
       ok = Enum.count(runs_for, & &1.pass)
       mark = if ok == runs, do: "PASS", else: "FAIL"
 
-      shell.info("#{String.pad_trailing(mark, 5)} #{String.pad_trailing(probe.id, 24)} #{ok}/#{runs}")
+      shell.info(
+        "#{String.pad_trailing(mark, 5)} #{String.pad_trailing(probe.id, 24)} #{ok}/#{runs}"
+      )
 
       for r <- runs_for, not r.pass do
         shell.info("        run #{r.run}: #{r.reason}")

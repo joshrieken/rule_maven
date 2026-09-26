@@ -1583,7 +1583,9 @@ defmodule RuleMavenWeb.GameLive.Show do
   # it does not scope to this game, but every id here is a rendered answer in
   # this view and the trail is read-only.
   def handle_event("open_audit", %{"id" => id}, socket),
-    do: {:noreply, assign(socket, audit: RuleMavenWeb.AuditModal.fetch(id, socket.assigns.current_user))}
+    do:
+      {:noreply,
+       assign(socket, audit: RuleMavenWeb.AuditModal.fetch(id, socket.assigns.current_user))}
 
   def handle_event("close_audit", _params, socket),
     do: {:noreply, assign(socket, audit: nil)}
@@ -2955,7 +2957,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         |> grouped_cache_update(question_log_id, fn p -> %{ql | user: p.user} end)
         |> sync_ask_stream_subscriptions()
         |> record_personal_coverage()
-      |> assign_coverage()
+        |> assign_coverage()
 
       # Persona-direct path (Task 5): the ask call already produced the styled
       # answer in the same LLM response, so populate voice_cache straight from
@@ -3077,7 +3079,8 @@ defmodule RuleMavenWeb.GameLive.Show do
   def handle_info({:mastery_awarded, %{user_id: uid} = payload}, socket) do
     user = socket.assigns.current_user
 
-    if user && user.id == uid && socket.assigns.game && socket.assigns.game.id == payload[:game_id] do
+    if user && user.id == uid && socket.assigns.game &&
+         socket.assigns.game.id == payload[:game_id] do
       mastery = RuleMaven.Progress.get_mastery(uid, payload.game_id)
       # Clear the toast shortly after so it re-mounts (and re-animates) on the
       # next award rather than sitting statically.
@@ -3089,7 +3092,9 @@ defmodule RuleMavenWeb.GameLive.Show do
           # Refresh the persona picker so any newly unlocked voice appears live,
           # then fire the confetti moment.
           socket
-          |> assign(voices: RuleMaven.Voices.for_game(socket.assigns.game, mastery.unlocked_voice_slugs))
+          |> assign(
+            voices: RuleMaven.Voices.for_game(socket.assigns.game, mastery.unlocked_voice_slugs)
+          )
           |> push_event("mastery:level_up", %{level: payload.level, unlocked: payload.unlocked})
         else
           socket
@@ -3824,7 +3829,8 @@ defmodule RuleMavenWeb.GameLive.Show do
           phx-hook="CrewDefault"
           data-game={RuleMaven.Hashid.encode(@game.id)}
           style="display:none"
-        ></div>
+        >
+        </div>
 
         <%!-- Fixed two-region view: the question is pinned on top at a LOCKED
               height (2 lines), so a normalization rewrite or pop-in swaps the
@@ -3832,371 +3838,371 @@ defmodule RuleMavenWeb.GameLive.Show do
               moves while the reader is reading. The answer-pane is the one
               scroll region. --%>
         <div class="qa-column" style="flex:1;min-width:0;display:flex;flex-direction:column">
-        <!-- Persistent Did-you-know, pinned above the question (fixed, never scrolls) -->
-        <%= if @rule_card && @conversation != [] do %>
-          <div class="qa-dyk">
-            <button
-              type="button"
-              phx-click="shuffle_rule"
-              title="Another rule"
-              class="qa-dyk__shuffle"
-            >🔀</button>
-            <span class="qa-dyk__label">💡 Did you know?</span>
-            {clean_rule_text(@rule_card.content)}
-            <span :if={@rule_card.page_number} class="qa-dyk__page">· p.{@rule_card.page_number}</span>
-          </div>
-        <% end %>
-        <!-- Question region: fixed height, never scrolls, never resizes.
+          <!-- Persistent Did-you-know, pinned above the question (fixed, never scrolls) -->
+          <%= if @rule_card && @conversation != [] do %>
+            <div class="qa-dyk">
+              <button
+                type="button"
+                phx-click="shuffle_rule"
+                title="Another rule"
+                class="qa-dyk__shuffle"
+              >🔀</button>
+              <span class="qa-dyk__label">💡 Did you know?</span>
+              {clean_rule_text(@rule_card.content)}
+              <span :if={@rule_card.page_number} class="qa-dyk__page">· p.{@rule_card.page_number}</span>
+            </div>
+          <% end %>
+          <!-- Question region: fixed height, never scrolls, never resizes.
              Carries the pager, the "· edited" marker (tap to see original vs
              normalized), and the "Ask exactly this" escape hatch — all inline
              so their appearance never changes the bar height / moves the answer. -->
-        <%= if @conversation != [] && @qa_active_question do %>
-          <% u_msg = Enum.find(@conversation, &(&1.role == :user)) %>
-          <% asked_as = u_msg && (Map.get(@reask_typed, u_msg[:id]) || u_msg[:original_question]) %>
-          <% normalized? = !!(u_msg && normalization_changed?(asked_as, u_msg.content)) %>
-          <div class="qa-question">
-            <button
-              type="button"
-              class="qa-question__pager"
-              phx-click="qa_prev"
-              disabled={@qa_active_index <= 0}
-              aria-label="Previous question"
-            >◂</button>
-            <button
-              type="button"
-              class="qa-question__text"
-              phx-click="qa_show_question"
-              title="Show full question"
-            >{@qa_active_question}</button>
-            <%!-- The "edited" pill sits OUTSIDE the 2-line-clamped text button:
+          <%= if @conversation != [] && @qa_active_question do %>
+            <% u_msg = Enum.find(@conversation, &(&1.role == :user)) %>
+            <% asked_as = u_msg && (Map.get(@reask_typed, u_msg[:id]) || u_msg[:original_question]) %>
+            <% normalized? = !!(u_msg && normalization_changed?(asked_as, u_msg.content)) %>
+            <div class="qa-question">
+              <button
+                type="button"
+                class="qa-question__pager"
+                phx-click="qa_prev"
+                disabled={@qa_active_index <= 0}
+                aria-label="Previous question"
+              >◂</button>
+              <button
+                type="button"
+                class="qa-question__text"
+                phx-click="qa_show_question"
+                title="Show full question"
+              >{@qa_active_question}</button>
+              <%!-- The "edited" pill sits OUTSIDE the 2-line-clamped text button:
                   inside it, a long question pushes the pill past the clamp and
                   overflow:hidden eats it — invisible for exactly the verbose
                   questions most likely to be rewritten. As a flex sibling it is
                   always shown, and adds no height (the row is sized by the
                   fixed-height text button). --%>
-            <button
-              :if={normalized?}
-              type="button"
-              class="qa-question__edited"
-              phx-click="qa_show_question"
-              title="We rewrote your question — tap to compare with what you typed"
-              aria-label="Question was edited — tap to compare with what you typed"
-            >edited</button>
-            <span class="qa-question__count">{@qa_active_index + 1} / {@qa_total}</span>
-            <button
-              type="button"
-              class="qa-question__pager"
-              phx-click="qa_next"
-              disabled={@qa_active_index >= @qa_total - 1}
-              aria-label="Next question"
-            >▸</button>
-          </div>
-        <% end %>
-
-        <!-- Row 2: the ONE scroll region -->
-        <div
-          id="chat-messages"
-          class="answer-pane"
-          data-answer-key={"#{@active_thread_id}-#{@qa_active_index}"}
-          phx-hook="AnswerPane"
-        >
-          <%= if @source_count == 0 do %>
-            <div class="text-center text-gray-400 py-8">
-              <p class="text-sm">No rulebook sources yet.</p>
-              <.link
-                :if={RuleMaven.Users.can?(@current_user, :admin)}
-                navigate={~p"/games/#{@game}/edit"}
-                class="btn btn-primary btn-sm"
-              >
-                Add rulebook text or PDF
-              </.link>
+              <button
+                :if={normalized?}
+                type="button"
+                class="qa-question__edited"
+                phx-click="qa_show_question"
+                title="We rewrote your question — tap to compare with what you typed"
+                aria-label="Question was edited — tap to compare with what you typed"
+              >edited</button>
+              <span class="qa-question__count">{@qa_active_index + 1} / {@qa_total}</span>
+              <button
+                type="button"
+                class="qa-question__pager"
+                phx-click="qa_next"
+                disabled={@qa_active_index >= @qa_total - 1}
+                aria-label="Next question"
+              >▸</button>
             </div>
           <% end %>
 
-          <%= if @conversation == [] && @source_count > 0 do %>
-            <!-- Empty state: lead with the primary action, suggestions visible immediately -->
-            <div
-              class="answer-in"
-              style="text-align:center;padding:2rem 1rem;color:var(--text-secondary);font-size:0.85rem;line-height:1.6;position:relative;z-index:1"
-            >
-              <%= if @game.image_url do %>
-                <img
-                  src={@game.image_url}
-                  alt={@game.name}
-                  style="width:120px;height:120px;object-fit:cover;border-radius:0.75rem;margin:0 auto 0.75rem;box-shadow:0 4px 16px rgba(0,0,0,0.18)"
-                />
-              <% else %>
-                <div style="font-size:1.5rem;margin-bottom:0.4rem">🎲</div>
-              <% end %>
-              <p style="font-size:1.15rem;font-weight:700;color:var(--text);margin-bottom:0.4rem">
-                {@game.name} Rules
-              </p>
-              <% stats = bgg_stats(@game) %>
-              <%= if stats != [] || @game.weight do %>
-                <div style="display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:0.4rem;margin:0 auto 0.75rem;max-width:30rem">
-                  <.difficulty_badge weight={
-                    difficulty_weight(@game, {@expansions, @included_expansions})
-                  } />
-                  <span
-                    :for={{icon, label} <- stats}
-                    style="display:inline-flex;align-items:center;gap:0.25rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;font-size:0.7rem;font-weight:600;color:var(--text-secondary)"
-                  >
-                    <span aria-hidden="true">{icon}</span> {label}
-                  </span>
-                  <.link
-                    :if={@game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category)}
-                    href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
-                    target="_blank"
-                    rel="noopener"
-                    style="display:inline-flex;align-items:center;gap:0.25rem;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;font-size:0.7rem;font-weight:600;color:var(--blue);text-decoration:none"
-                  >
-                    View on BGG ↗
-                  </.link>
-                </div>
-              <% end %>
-              <p style="max-width:30rem;margin:0 auto">
-                Ask any rules question in plain English — answers cite the exact rulebook passage.
-                <%= if @community_count > 0 do %>
-                  <.link
-                    navigate={~p"/games/#{@game}/community"}
-                    style="color:var(--accent-ink,var(--accent));font-weight:600;white-space:nowrap"
-                  >Or browse {@community_count} community answers →</.link>
-                <% end %>
-              </p>
+          <!-- Row 2: the ONE scroll region -->
+          <div
+            id="chat-messages"
+            class="answer-pane"
+            data-answer-key={"#{@active_thread_id}-#{@qa_active_index}"}
+            phx-hook="AnswerPane"
+          >
+            <%= if @source_count == 0 do %>
+              <div class="text-center text-gray-400 py-8">
+                <p class="text-sm">No rulebook sources yet.</p>
+                <.link
+                  :if={RuleMaven.Users.can?(@current_user, :admin)}
+                  navigate={~p"/games/#{@game}/edit"}
+                  class="btn btn-primary btn-sm"
+                >
+                  Add rulebook text or PDF
+                </.link>
+              </div>
+            <% end %>
 
-              <%!-- One-click opt-in to this game's own colors. Only shown when
+            <%= if @conversation == [] && @source_count > 0 do %>
+              <!-- Empty state: lead with the primary action, suggestions visible immediately -->
+              <div
+                class="answer-in"
+                style="text-align:center;padding:2rem 1rem;color:var(--text-secondary);font-size:0.85rem;line-height:1.6;position:relative;z-index:1"
+              >
+                <%= if @game.image_url do %>
+                  <img
+                    src={@game.image_url}
+                    alt={@game.name}
+                    style="width:120px;height:120px;object-fit:cover;border-radius:0.75rem;margin:0 auto 0.75rem;box-shadow:0 4px 16px rgba(0,0,0,0.18)"
+                  />
+                <% else %>
+                  <div style="font-size:1.5rem;margin-bottom:0.4rem">🎲</div>
+                <% end %>
+                <p style="font-size:1.15rem;font-weight:700;color:var(--text);margin-bottom:0.4rem">
+                  {@game.name} Rules
+                </p>
+                <% stats = bgg_stats(@game) %>
+                <%= if stats != [] || @game.weight do %>
+                  <div style="display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:0.4rem;margin:0 auto 0.75rem;max-width:30rem">
+                    <.difficulty_badge weight={
+                      difficulty_weight(@game, {@expansions, @included_expansions})
+                    } />
+                    <span
+                      :for={{icon, label} <- stats}
+                      style="display:inline-flex;align-items:center;gap:0.25rem;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;font-size:0.7rem;font-weight:600;color:var(--text-secondary)"
+                    >
+                      <span aria-hidden="true">{icon}</span> {label}
+                    </span>
+                    <.link
+                      :if={@game.bgg_id && RuleMaven.Games.Category.bgg_relevant?(@game.category)}
+                      href={"https://boardgamegeek.com/boardgame/#{@game.bgg_id}"}
+                      target="_blank"
+                      rel="noopener"
+                      style="display:inline-flex;align-items:center;gap:0.25rem;border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.55rem;font-size:0.7rem;font-weight:600;color:var(--blue);text-decoration:none"
+                    >
+                      View on BGG ↗
+                    </.link>
+                  </div>
+                <% end %>
+                <p style="max-width:30rem;margin:0 auto">
+                  Ask any rules question in plain English — answers cite the exact rulebook passage.
+                  <%= if @community_count > 0 do %>
+                    <.link
+                      navigate={~p"/games/#{@game}/community"}
+                      style="color:var(--accent-ink,var(--accent));font-weight:600;white-space:nowrap"
+                    >Or browse {@community_count} community answers →</.link>
+                  <% end %>
+                </p>
+
+                <%!-- One-click opt-in to this game's own colors. Only shown when
                    a palette exists; the hook swaps between the opt-in pill and
                    a "switch back" pill depending on whether a game variant is
                    already active. --%>
-              <div
-                :if={RuleMavenWeb.GameLive.GameTheme.has_palette?(@game)}
-                id="game-theme-hint"
-                phx-hook="GameThemeHint"
-                data-tour="game-theme-hint"
-                style="margin:1.1rem auto 0"
-              >
-                <button
-                  type="button"
-                  data-role="dress"
-                  style="display:inline-flex;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.75rem;font-weight:700;color:var(--accent-ink,var(--accent));cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
+                <div
+                  :if={RuleMavenWeb.GameLive.GameTheme.has_palette?(@game)}
+                  id="game-theme-hint"
+                  phx-hook="GameThemeHint"
+                  data-tour="game-theme-hint"
+                  style="margin:1.1rem auto 0"
                 >
-                  🖌️ Dress this page in {@game.name}'s colors
-                </button>
-                <button
-                  type="button"
-                  data-role="restyle"
-                  hidden
-                  style="display:none;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.72rem;font-weight:700;color:var(--accent-ink,var(--accent));cursor:pointer"
-                >
-                  🎲 Try another look
-                </button>
-                <button
-                  type="button"
-                  data-role="undress"
-                  hidden
-                  style="display:none;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:transparent;border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.72rem;font-weight:600;color:var(--text-muted);cursor:pointer"
-                >
-                  🖌️ Wearing {@game.name}'s colors — switch back
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    data-role="dress"
+                    style="display:inline-flex;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.75rem;font-weight:700;color:var(--accent-ink,var(--accent));cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.06)"
+                  >
+                    🖌️ Dress this page in {@game.name}'s colors
+                  </button>
+                  <button
+                    type="button"
+                    data-role="restyle"
+                    hidden
+                    style="display:none;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.72rem;font-weight:700;color:var(--accent-ink,var(--accent));cursor:pointer"
+                  >
+                    🎲 Try another look
+                  </button>
+                  <button
+                    type="button"
+                    data-role="undress"
+                    hidden
+                    style="display:none;align-items:center;justify-content:center;gap:0.4rem;max-width:100%;white-space:normal;text-align:center;line-height:1.35;overflow-wrap:anywhere;background:transparent;border:1px solid var(--border);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.72rem;font-weight:600;color:var(--text-muted);cursor:pointer"
+                  >
+                    🖌️ Wearing {@game.name}'s colors — switch back
+                  </button>
+                </div>
 
-              <%= if @suggestions != [] && !Enum.any?(@conversation, & &1[:refused]) do %>
-                <div style="margin-top:1.5rem;text-align:left;max-width:28rem;margin-left:auto;margin-right:auto">
-                  <div style="font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:0.75rem">
-                    Suggested questions
-                  </div>
-                  <%= for cat <- @suggestions do %>
-                    <div style="margin-bottom:1rem">
-                      <div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:0.3rem">
-                        {cat.category}
-                      </div>
-                      <%= for q <- cat.questions do %>
-                        <button
-                          type="button"
-                          phx-click="ask_suggestion"
-                          phx-value-q={q}
-                          disabled={@pending_count >= @max_concurrent}
-                          class="btn-sm"
-                          style="display:block;width:100%;text-align:left;margin-bottom:0.2rem;white-space:normal;word-break:break-word;line-height:1.45"
-                        >{q}</button>
-                      <% end %>
+                <%= if @suggestions != [] && !Enum.any?(@conversation, & &1[:refused]) do %>
+                  <div style="margin-top:1.5rem;text-align:left;max-width:28rem;margin-left:auto;margin-right:auto">
+                    <div style="font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:0.75rem">
+                      Suggested questions
                     </div>
-                  <% end %>
-                </div>
-              <% end %>
-            </div>
-          <% end %>
-
-          <%= for {msg, idx} <- @conversation |> Enum.with_index() do %>
-            <%= if msg[:history] do %>
-              <details style="width:100%;margin-bottom:0.1rem">
-                <summary style="font-size:0.72rem;color:var(--text-muted);cursor:pointer;list-style:none;padding:0.15rem 0.5rem;border-radius:0.25rem;background:var(--bg-subtle);display:inline-block">
-                  <span>▸ Previous attempt</span>
-                </summary>
-                <div style="margin-top:0.25rem;padding:0.5rem;border-left:2px solid var(--border-subtle);opacity:0.8">
-                  <div style="font-size:0.82rem;color:var(--text)">
-                    {render_markdown(msg.content)}
+                    <%= for cat <- @suggestions do %>
+                      <div style="margin-bottom:1rem">
+                        <div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:0.3rem">
+                          {cat.category}
+                        </div>
+                        <%= for q <- cat.questions do %>
+                          <button
+                            type="button"
+                            phx-click="ask_suggestion"
+                            phx-value-q={q}
+                            disabled={@pending_count >= @max_concurrent}
+                            class="btn-sm"
+                            style="display:block;width:100%;text-align:left;margin-bottom:0.2rem;white-space:normal;word-break:break-word;line-height:1.45"
+                          >{q}</button>
+                        <% end %>
+                      </div>
+                    <% end %>
                   </div>
-                </div>
-              </details>
-            <% else %>
-              <div
-                id={"chat-msg-#{@active_thread_id}-#{idx}"}
-                class={[
-                  "chat-msg",
-                  msg.role == :user && "chat-msg-user"
-                ]}
-                style="display:flex;flex-direction:column;align-items:stretch"
-              >
-                <div style={"#{if msg.role == :user, do: "width:100%", else: "width:100%;padding:0.9rem 1.05rem;border-radius:0.6rem;font-size:0.95rem;line-height:1.5;background:var(--bg-surface);border:1px solid var(--border);color:var(--text)"}#{if msg[:refused], do: ";opacity:0.72", else: ""}"}>
-                  <% stamp =
-                    msg.role == :assistant && msg.content != "Thinking..." &&
-                      verdict_stamp(msg[:verdict]) %>
-                  <% show_voice =
-                    msg.role == :assistant && !msg[:refused] &&
-                      msg.content != "Thinking..." && !msg[:pending] &&
-                      not String.starts_with?(to_string(msg.content), "⚠️") %>
-                  <%!-- While the answer is still pending, reserve the top row with a
+                <% end %>
+              </div>
+            <% end %>
+
+            <%= for {msg, idx} <- @conversation |> Enum.with_index() do %>
+              <%= if msg[:history] do %>
+                <details style="width:100%;margin-bottom:0.1rem">
+                  <summary style="font-size:0.72rem;color:var(--text-muted);cursor:pointer;list-style:none;padding:0.15rem 0.5rem;border-radius:0.25rem;background:var(--bg-subtle);display:inline-block">
+                    <span>▸ Previous attempt</span>
+                  </summary>
+                  <div style="margin-top:0.25rem;padding:0.5rem;border-left:2px solid var(--border-subtle);opacity:0.8">
+                    <div style="font-size:0.82rem;color:var(--text)">
+                      {render_markdown(msg.content)}
+                    </div>
+                  </div>
+                </details>
+              <% else %>
+                <div
+                  id={"chat-msg-#{@active_thread_id}-#{idx}"}
+                  class={[
+                    "chat-msg",
+                    msg.role == :user && "chat-msg-user"
+                  ]}
+                  style="display:flex;flex-direction:column;align-items:stretch"
+                >
+                  <div style={"#{if msg.role == :user, do: "width:100%", else: "width:100%;padding:0.9rem 1.05rem;border-radius:0.6rem;font-size:0.95rem;line-height:1.5;background:var(--bg-surface);border:1px solid var(--border);color:var(--text)"}#{if msg[:refused], do: ";opacity:0.72", else: ""}"}>
+                    <% stamp =
+                      msg.role == :assistant && msg.content != "Thinking..." &&
+                        verdict_stamp(msg[:verdict]) %>
+                    <% show_voice =
+                      msg.role == :assistant && !msg[:refused] &&
+                        msg.content != "Thinking..." && !msg[:pending] &&
+                        not String.starts_with?(to_string(msg.content), "⚠️") %>
+                    <%!-- While the answer is still pending, reserve the top row with a
                         skeleton stamp and a disabled persona selector so the real
                         ones don't pop in later and push the answer down. --%>
-                  <% row_placeholder? = msg.role == :assistant && msg[:pending] %>
-                  <%!-- Top row: verdict stamp + voice switcher (which persona is
+                    <% row_placeholder? = msg.role == :assistant && msg[:pending] %>
+                    <%!-- Top row: verdict stamp + voice switcher (which persona is
                         speaking) + default-voice star, visible before reading. --%>
-                  <%= if stamp || show_voice || row_placeholder? do %>
-                    <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;margin-bottom:0.5rem">
-                      <%= if stamp do %>
-                        <% {emoji, label, color, bg} = stamp %>
-                        <div
-                          class="verdict-stamp"
-                          style={"display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.55rem;border-radius:999px;background:#{bg};color:#{color};font-weight:800;font-size:0.7rem;letter-spacing:0.04em;text-transform:uppercase"}
-                        >
-                          <span aria-hidden="true">{emoji}</span> {label}
-                        </div>
-                      <% end %>
-                      <%= if !stamp && row_placeholder? do %>
-                        <div
-                          class="verdict-stamp verdict-stamp--pending"
-                          style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.55rem;border-radius:999px;background:var(--bg-subtle);color:var(--text-muted);font-weight:800;font-size:0.7rem;letter-spacing:0.04em;text-transform:uppercase;animation:pulse 1.6s ease-in-out infinite"
-                        >
-                          <span aria-hidden="true">⏳</span> Checking rules
-                        </div>
-                      <% end %>
-                      <%= if show_voice do %>
-                        <% {conf_label, conf_level, conf_color, conf_help, conf_next} =
-                          answer_confidence(msg) %>
-                        <div
-                          class="conf-pill"
-                          aria-label={"Confidence: #{conf_word(conf_level)} (#{conf_level} of #{conf_max()})"}
-                        >
-                          <span class="conf-pill__dots" aria-hidden="true">
-                            <span
-                              :for={seg <- 1..conf_max()}
-                              class="conf-pill__dot"
-                              style={if seg <= conf_level, do: "background:#{conf_color}"}
-                            />
-                          </span>
-                          <span style={"color:#{conf_color};font-weight:700"}>{conf_word(conf_level)}</span>
-                          <span style="opacity:0.75">· {conf_label}</span>
-                          <span class="conf-help">
-                            <button
-                              type="button"
-                              class="conf-help__btn"
-                              aria-label={"What \"#{conf_label}\" means"}
-                            >?</button>
-                            <span class="conf-help__pop" role="tooltip">
-                              {conf_help}
+                    <%= if stamp || show_voice || row_placeholder? do %>
+                      <div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;margin-bottom:0.5rem">
+                        <%= if stamp do %>
+                          <% {emoji, label, color, bg} = stamp %>
+                          <div
+                            class="verdict-stamp"
+                            style={"display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.55rem;border-radius:999px;background:#{bg};color:#{color};font-weight:800;font-size:0.7rem;letter-spacing:0.04em;text-transform:uppercase"}
+                          >
+                            <span aria-hidden="true">{emoji}</span> {label}
+                          </div>
+                        <% end %>
+                        <%= if !stamp && row_placeholder? do %>
+                          <div
+                            class="verdict-stamp verdict-stamp--pending"
+                            style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.55rem;border-radius:999px;background:var(--bg-subtle);color:var(--text-muted);font-weight:800;font-size:0.7rem;letter-spacing:0.04em;text-transform:uppercase;animation:pulse 1.6s ease-in-out infinite"
+                          >
+                            <span aria-hidden="true">⏳</span> Checking rules
+                          </div>
+                        <% end %>
+                        <%= if show_voice do %>
+                          <% {conf_label, conf_level, conf_color, conf_help, conf_next} =
+                            answer_confidence(msg) %>
+                          <div
+                            class="conf-pill"
+                            aria-label={"Confidence: #{conf_word(conf_level)} (#{conf_level} of #{conf_max()})"}
+                          >
+                            <span class="conf-pill__dots" aria-hidden="true">
                               <span
-                                :if={conf_next}
-                                style="display:block;margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid rgba(255,255,255,0.2)"
-                              >
-                                <span style="font-weight:700">Next level:</span> {conf_next}
+                                :for={seg <- 1..conf_max()}
+                                class="conf-pill__dot"
+                                style={if seg <= conf_level, do: "background:#{conf_color}"}
+                              />
+                            </span>
+                            <span style={"color:#{conf_color};font-weight:700"}>{conf_word(conf_level)}</span>
+                            <span style="opacity:0.75">· {conf_label}</span>
+                            <span class="conf-help">
+                              <button
+                                type="button"
+                                class="conf-help__btn"
+                                aria-label={"What \"#{conf_label}\" means"}
+                              >?</button>
+                              <span class="conf-help__pop" role="tooltip">
+                                {conf_help}
+                                <span
+                                  :if={conf_next}
+                                  style="display:block;margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid rgba(255,255,255,0.2)"
+                                >
+                                  <span style="font-weight:700">Next level:</span> {conf_next}
+                                </span>
                               </span>
                             </span>
-                          </span>
-                        </div>
-                      <% end %>
-                      <%= if show_voice || row_placeholder? do %>
-                        <% cur_voice = Map.get(@voice_sel, msg[:id], @default_voice) %>
-                        <% cur = Enum.find(@voices, &(&1.id == cur_voice)) || hd(@voices) %>
-                        <% speaking = cur_voice != "neutral" %>
-                        <button
-                          type="button"
-                          phx-click={show_voice && "open_persona_modal"}
-                          phx-value-target="answer"
-                          phx-value-msg-id={msg[:id]}
-                          disabled={!show_voice}
-                          aria-disabled={!show_voice}
-                          style={"font-size:0.65rem;font-weight:600;border-radius:999px;padding:0.12rem 0.5rem;display:inline-flex;align-items:center;gap:0.2rem;cursor:pointer;#{if !show_voice, do: "opacity:0.55;pointer-events:none;"}#{if speaking, do: "border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--text)", else: "border:1px solid var(--border);background:var(--bg-surface);color:var(--text-muted)"}"}
-                          title="Answer persona — your pick applies to every answer and is remembered"
-                        >
-                          <span
-                            :if={String.starts_with?(cur_voice, "g:")}
-                            aria-hidden="true"
-                            style="color:var(--accent-ink, var(--accent))"
-                          >✦</span>
-                          <span aria-hidden="true">{cur.emoji}</span>
-                          <span>{if speaking,
-                            do: "#{cur.label} speaking",
-                            else: "#{cur.label} persona"}</span>
-                          <span style="opacity:0.6">▾</span>
-                        </button>
-                      <% end %>
-                    </div>
-                  <% end %>
-                  <%= if msg.role == :assistant && msg[:refused] && is_nil(msg[:verdict]) do %>
-                    <div style="font-size:0.6rem;opacity:0.55;margin-bottom:0.15rem;color:var(--text-muted)">
-                      ⚐ not covered
-                    </div>
-                  <% end %>
-                  <div>
-                    <%!-- A refused answer is never restylable (VoiceWorker skips
+                          </div>
+                        <% end %>
+                        <%= if show_voice || row_placeholder? do %>
+                          <% cur_voice = Map.get(@voice_sel, msg[:id], @default_voice) %>
+                          <% cur = Enum.find(@voices, &(&1.id == cur_voice)) || hd(@voices) %>
+                          <% speaking = cur_voice != "neutral" %>
+                          <button
+                            type="button"
+                            phx-click={show_voice && "open_persona_modal"}
+                            phx-value-target="answer"
+                            phx-value-msg-id={msg[:id]}
+                            disabled={!show_voice}
+                            aria-disabled={!show_voice}
+                            style={"font-size:0.65rem;font-weight:600;border-radius:999px;padding:0.12rem 0.5rem;display:inline-flex;align-items:center;gap:0.2rem;cursor:pointer;#{if !show_voice, do: "opacity:0.55;pointer-events:none;"}#{if speaking, do: "border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--text)", else: "border:1px solid var(--border);background:var(--bg-surface);color:var(--text-muted)"}"}
+                            title="Answer persona — your pick applies to every answer and is remembered"
+                          >
+                            <span
+                              :if={String.starts_with?(cur_voice, "g:")}
+                              aria-hidden="true"
+                              style="color:var(--accent-ink, var(--accent))"
+                            >✦</span>
+                            <span aria-hidden="true">{cur.emoji}</span>
+                            <span>{if speaking,
+                              do: "#{cur.label} speaking",
+                              else: "#{cur.label} persona"}</span>
+                            <span style="opacity:0.6">▾</span>
+                          </button>
+                        <% end %>
+                      </div>
+                    <% end %>
+                    <%= if msg.role == :assistant && msg[:refused] && is_nil(msg[:verdict]) do %>
+                      <div style="font-size:0.6rem;opacity:0.55;margin-bottom:0.15rem;color:var(--text-muted)">
+                        ⚐ not covered
+                      </div>
+                    <% end %>
+                    <div>
+                      <%!-- A refused answer is never restylable (VoiceWorker skips
                           it), so force neutral — otherwise the waiting? branch
                           below would show a loader that never resolves. --%>
-                    <% v_sel =
-                      (msg.role == :assistant && !msg[:refused] &&
-                         Map.get(@voice_sel, msg[:id], @default_voice)) ||
-                        "neutral" %>
-                    <%!-- `answer_visible == false` (a crew answer withheld from
+                      <% v_sel =
+                        (msg.role == :assistant && !msg[:refused] &&
+                           Map.get(@voice_sel, msg[:id], @default_voice)) ||
+                          "neutral" %>
+                      <%!-- `answer_visible == false` (a crew answer withheld from
                           this viewer) never renders a persona overlay: the styled
                           copy is the same withheld prose in a costume. --%>
-                    <% v_content =
-                      if v_sel == "neutral" or msg.content == "Thinking..." or
-                           msg[:answer_visible] == false,
-                         do: nil,
-                         else: Map.get(@voice_cache, {msg[:id], v_sel}) %>
-                    <% v_failed = MapSet.member?(@voice_failed, {msg[:id], v_sel}) %>
-                    <% partial =
-                      msg.role == :assistant && msg[:pending] &&
-                        Map.get(@ask_partial, msg[:id]) %>
-                    <%!-- A persona viewer only ever sees persona text: stream the
+                      <% v_content =
+                        if v_sel == "neutral" or msg.content == "Thinking..." or
+                             msg[:answer_visible] == false,
+                           do: nil,
+                           else: Map.get(@voice_cache, {msg[:id], v_sel}) %>
+                      <% v_failed = MapSet.member?(@voice_failed, {msg[:id], v_sel}) %>
+                      <% partial =
+                        msg.role == :assistant && msg[:pending] &&
+                          Map.get(@ask_partial, msg[:id]) %>
+                      <%!-- A persona viewer only ever sees persona text: stream the
                           styled_answer partial when the single-call path emits one,
                           and show the voice loader through every other wait (plain
                           text streaming underneath, pool-hit restyle in flight) —
                           the plain answer must never flash first. Neutral viewers
                           stream the plain partial as before. A failed restyle
                           falls through to the plain answer. --%>
-                    <% stream_text =
-                      case partial do
-                        %{styled: styled, text: text} ->
-                          if v_sel == "neutral", do: text, else: styled
+                      <% stream_text =
+                        case partial do
+                          %{styled: styled, text: text} ->
+                            if v_sel == "neutral", do: text, else: styled
 
-                        _ ->
-                          nil
-                      end %>
-                    <% stream_done =
-                      case partial do
-                        %{} = p ->
-                          (v_sel == "neutral" && p[:text_done] == true) ||
-                            (v_sel != "neutral" && p[:styled_done] == true)
+                          _ ->
+                            nil
+                        end %>
+                      <% stream_done =
+                        case partial do
+                          %{} = p ->
+                            (v_sel == "neutral" && p[:text_done] == true) ||
+                              (v_sel != "neutral" && p[:styled_done] == true)
 
-                        _ ->
-                          false
-                      end %>
-                    <% thinking? = msg.content == "Thinking..." && msg[:pending] %>
-                    <% voicing? =
-                      msg.content != "Thinking..." && v_sel != "neutral" && is_nil(v_content) &&
-                        not v_failed && msg[:answer_visible] != false %>
-                    <%!-- Keying the text node by voice makes LiveView replace it
+                          _ ->
+                            false
+                        end %>
+                      <% thinking? = msg.content == "Thinking..." && msg[:pending] %>
+                      <% voicing? =
+                        msg.content != "Thinking..." && v_sel != "neutral" && is_nil(v_content) &&
+                          not v_failed && msg[:answer_visible] != false %>
+                      <%!-- Keying the text node by voice makes LiveView replace it
                           rather than patch it whenever the persona changes, so
                           the .answer-in rise animation replays instead of the
                           restyled text popping in. The streaming branch reuses
@@ -4204,591 +4210,555 @@ defmodule RuleMavenWeb.GameLive.Show do
                           the stream → final swap and never re-animates over text
                           the stream already revealed. Role is in the id because a
                           question and its answer share a question_log id. --%>
-                    <% answer_dom_id = "ans-#{msg.role}-#{msg[:id]}-#{v_sel}" %>
-                    <%= cond do %>
-                      <% thinking? && stream_text -> %>
-                        <div class="answer-in" id={answer_dom_id}>
-                          {render_markdown(stream_text)}
-                          <span :if={!stream_done} class="stream-cursor" aria-hidden="true"></span>
-                        </div>
-                        <%!-- Answer text is final but citations + verdict are
+                      <% answer_dom_id = "ans-#{msg.role}-#{msg[:id]}-#{v_sel}" %>
+                      <%= cond do %>
+                        <% thinking? && stream_text -> %>
+                          <div class="answer-in" id={answer_dom_id}>
+                            {render_markdown(stream_text)}
+                            <span :if={!stream_done} class="stream-cursor" aria-hidden="true"></span>
+                          </div>
+                          <%!-- Answer text is final but citations + verdict are
                               still streaming/being checked — without this the
                               finished-looking text just sits there until
                               :ask_complete swaps everything in. --%>
-                        <div :if={stream_done} class="cite-pending">
-                          <span class="voice-loader__spinner" aria-hidden="true"></span>
-                          <span>Gathering rulebook citations…</span>
-                        </div>
-                      <% thinking? || voicing? -> %>
-                        <div class="answer-in">
-                          <%!-- Voice in the id so switching persona mid-wait replaces
+                          <div :if={stream_done} class="cite-pending">
+                            <span class="voice-loader__spinner" aria-hidden="true"></span>
+                            <span>Gathering rulebook citations…</span>
+                          </div>
+                        <% thinking? || voicing? -> %>
+                          <div class="answer-in">
+                            <%!-- Voice in the id so switching persona mid-wait replaces
                                 the ignored element — remounting the hook with the new
                                 persona's phrases and label. The id is shared across
                                 the thinking → voicing stages so the loader (and its
                                 phrase cycle) persists seamlessly between them. --%>
-                          <%!-- No persona name/emoji row here: the persona button
+                            <%!-- No persona name/emoji row here: the persona button
                                 directly above already shows "<name> speaking", so
                                 repeating "<name> ANSWERING…" in the loader was
                                 redundant. --%>
-                          <div
-                            class="voice-loader"
-                            id={"voice-loader-#{msg[:id]}-#{v_sel}"}
-                            phx-hook="VoiceLoader"
-                            phx-update="ignore"
-                            data-phrases={
-                              Jason.encode!(RuleMaven.Voices.loading_phrases(v_sel, @game))
-                            }
-                            data-stage={
-                              if(voicing?,
-                                do: "voicing",
-                                else: Map.get(@ask_stage, msg[:id], "understanding")
-                              )
-                            }
-                          >
-                            <div class="voice-loader__row">
-                              <span class="voice-loader__spinner" aria-hidden="true"></span>
-                              <span class="voice-loader__phrase">Reticulating splines…</span>
-                            </div>
-                            <div class="voice-loader__bar">
-                              <div class="voice-loader__fill"></div>
+                            <div
+                              class="voice-loader"
+                              id={"voice-loader-#{msg[:id]}-#{v_sel}"}
+                              phx-hook="VoiceLoader"
+                              phx-update="ignore"
+                              data-phrases={
+                                Jason.encode!(RuleMaven.Voices.loading_phrases(v_sel, @game))
+                              }
+                              data-stage={
+                                if(voicing?,
+                                  do: "voicing",
+                                  else: Map.get(@ask_stage, msg[:id], "understanding")
+                                )
+                              }
+                            >
+                              <div class="voice-loader__row">
+                                <span class="voice-loader__spinner" aria-hidden="true"></span>
+                                <span class="voice-loader__phrase">Reticulating splines…</span>
+                              </div>
+                              <div class="voice-loader__bar">
+                                <div class="voice-loader__fill"></div>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      <% msg.role == :assistant && msg.content == "Thinking..." -> %>
-                        <div style="font-size:0.6rem;opacity:0.5;margin-bottom:0.1rem;color:var(--text-muted)">
-                          No answer received
-                        </div>
-                      <% true -> %>
-                        <%!-- The question renders once, in the fixed .qa-question
+                        <% msg.role == :assistant && msg.content == "Thinking..." -> %>
+                          <div style="font-size:0.6rem;opacity:0.5;margin-bottom:0.1rem;color:var(--text-muted)">
+                            No answer received
+                          </div>
+                        <% true -> %>
+                          <%!-- The question renders once, in the fixed .qa-question
                               box on top — suppressed here so it's not duplicated.
                               The "you asked" / "ask exactly this" escape hatches
                               below still render for the asker. --%>
-                        <%= unless msg.role == :user do %>
-                          <div class="answer-in" id={answer_dom_id}>
-                            {render_markdown(v_content || msg.content)}
-                          </div>
-                        <% end %>
-                        <%!-- The question, the "you asked" original-vs-normalized
+                          <%= unless msg.role == :user do %>
+                            <div class="answer-in" id={answer_dom_id}>
+                              {render_markdown(v_content || msg.content)}
+                            </div>
+                          <% end %>
+                          <%!-- The question, the "you asked" original-vs-normalized
                               disclosure, and "Ask exactly this" all live in the fixed
                               .qa-question bar on top now — nothing question-related
                               renders in this user row (that lone button used to float
                               here). --%>
-                    <% end %>
-                  </div>
+                      <% end %>
+                    </div>
 
-                  <%= if msg.content != "Thinking..." do %>
-                    <%= for c <- citation_list(msg) do %>
-                      <% on_user = msg.role == :user %>
-                      <figure
-                        data-tour={if !on_user, do: "citation"}
-                        style={"margin:0.75rem 0 0;border-radius:0.5rem;overflow:hidden;border:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 25%,transparent)", else: "var(--border)"};background:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 10%,transparent)", else: "var(--bg-subtle)"}"}
-                      >
-                        <%= if c["page"] do %>
-                          <figcaption style={"display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.6rem;font-size:0.66rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;border-bottom:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 15%,transparent)", else: "var(--border-subtle)"};color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 85%,transparent)", else: "var(--text-muted)"}"}>
-                            <span aria-hidden="true">&#128206;</span>
-                            <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-                              {c["source"] || "Rulebook"}
-                            </span>
-                            <span class="cite-page">p.{c["page"]}</span>
-                          </figcaption>
-                        <% end %>
-                        <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 50%,transparent)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;word-break:break-word;color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 92%,transparent)", else: "var(--text)"}"}>
-                          {render_markdown(String.trim(c["quote"] || ""))}
-                        </blockquote>
-                      </figure>
+                    <%= if msg.content != "Thinking..." do %>
+                      <%= for c <- citation_list(msg) do %>
+                        <% on_user = msg.role == :user %>
+                        <figure
+                          data-tour={if !on_user, do: "citation"}
+                          style={"margin:0.75rem 0 0;border-radius:0.5rem;overflow:hidden;border:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 25%,transparent)", else: "var(--border)"};background:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 10%,transparent)", else: "var(--bg-subtle)"}"}
+                        >
+                          <%= if c["page"] do %>
+                            <figcaption style={"display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.6rem;font-size:0.66rem;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;border-bottom:1px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 15%,transparent)", else: "var(--border-subtle)"};color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 85%,transparent)", else: "var(--text-muted)"}"}>
+                              <span aria-hidden="true">&#128206;</span>
+                              <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                {c["source"] || "Rulebook"}
+                              </span>
+                              <span class="cite-page">p.{c["page"]}</span>
+                            </figcaption>
+                          <% end %>
+                          <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 50%,transparent)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;word-break:break-word;color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 92%,transparent)", else: "var(--text)"}"}>
+                            {render_markdown(String.trim(c["quote"] || ""))}
+                          </blockquote>
+                        </figure>
+                      <% end %>
                     <% end %>
-                  <% end %>
 
-                  <!-- House-rule overlay: the user's own checked rules that embed near
+                    <!-- House-rule overlay: the user's own checked rules that embed near
                        this question. The RAW answer above stays canonical (and cache-
                        shared); house-rule flavor renders per-user underneath. -->
-                  <%= if msg.role == :assistant && msg.id == @active_thread_id &&
+                    <%= if msg.role == :assistant && msg.id == @active_thread_id &&
                          @hr_overlay != [] && !msg[:refused] && !msg[:pending] &&
                          msg.content != "Thinking..." do %>
-                    <.house_rule_overlay
-                      rules={@hr_overlay}
-                      deltas={@hr_overlay_deltas}
-                      pending={@hr_delta_pending}
-                      failed={@hr_delta_failed}
-                    />
-                  <% end %>
+                      <.house_rule_overlay
+                        rules={@hr_overlay}
+                        deltas={@hr_overlay_deltas}
+                        pending={@hr_delta_pending}
+                        failed={@hr_delta_failed}
+                      />
+                    <% end %>
 
-                  <!-- Related questions: followups (refine) + also-asked (separate) merged -->
-                  <% has_followups = msg.role == :assistant && msg[:followups] not in [nil, []] %>
-                  <% has_also = msg.role == :assistant && msg[:also_asked] not in [nil, []] %>
-                  <%= if has_followups || has_also do %>
-                    <div
-                      data-tour="related"
-                      style="margin-top:0.75rem;padding:0.6rem 0.75rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.5rem"
-                    >
-                      <div style="color:var(--text-muted);font-weight:600;margin-bottom:0.4rem;font-size:0.72rem">
-                        Related questions
+                    <!-- Related questions: followups (refine) + also-asked (separate) merged -->
+                    <% has_followups = msg.role == :assistant && msg[:followups] not in [nil, []] %>
+                    <% has_also = msg.role == :assistant && msg[:also_asked] not in [nil, []] %>
+                    <%= if has_followups || has_also do %>
+                      <div
+                        data-tour="related"
+                        style="margin-top:0.75rem;padding:0.6rem 0.75rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.5rem"
+                      >
+                        <div style="color:var(--text-muted);font-weight:600;margin-bottom:0.4rem;font-size:0.72rem">
+                          Related questions
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.3rem">
+                          <%= if has_followups do %>
+                            <button
+                              :for={q <- msg[:followups]}
+                              type="button"
+                              phx-click="ask_suggestion"
+                              phx-value-q={q}
+                              disabled={@pending_count >= @max_concurrent}
+                              class="btn-sm"
+                              style="display:block;width:100%;box-sizing:border-box;text-align:left;line-height:1.35;white-space:normal;overflow-wrap:anywhere"
+                            >{q}</button>
+                          <% end %>
+                          <%= if has_also do %>
+                            <button
+                              :for={q <- msg[:also_asked]}
+                              type="button"
+                              phx-click="quick_ask"
+                              phx-value-question={q}
+                              disabled={@pending_count >= @max_concurrent}
+                              class="btn-sm"
+                              style="display:block;width:100%;box-sizing:border-box;text-align:left;line-height:1.35;white-space:normal;overflow-wrap:anywhere"
+                            >{q}</button>
+                          <% end %>
+                        </div>
                       </div>
-                      <div style="display:flex;flex-direction:column;gap:0.3rem">
-                        <%= if has_followups do %>
+                    <% end %>
+
+                    <!-- Refusal: suggest other questions -->
+                    <%= if msg.role == :assistant && msg[:refused] do %>
+                      <div style="margin-top:0.5rem;padding:0.5rem;background:var(--bg-subtle);border-radius:0.4rem;font-size:0.7rem;color:var(--text-secondary);line-height:1.5">
+                        Try asking about:
+                        <div style="margin-top:0.3rem;display:flex;flex-wrap:wrap;gap:0.25rem">
                           <button
-                            :for={q <- msg[:followups]}
                             type="button"
                             phx-click="ask_suggestion"
-                            phx-value-q={q}
+                            phx-value-q="What is the setup?"
                             disabled={@pending_count >= @max_concurrent}
-                            class="btn-sm"
-                            style="display:block;width:100%;box-sizing:border-box;text-align:left;line-height:1.35;white-space:normal;overflow-wrap:anywhere"
-                          >{q}</button>
-                        <% end %>
-                        <%= if has_also do %>
+                            class="btn-xs"
+                          >Setup</button>
                           <button
-                            :for={q <- msg[:also_asked]}
                             type="button"
-                            phx-click="quick_ask"
-                            phx-value-question={q}
+                            phx-click="ask_suggestion"
+                            phx-value-q="How do turns work?"
                             disabled={@pending_count >= @max_concurrent}
-                            class="btn-sm"
-                            style="display:block;width:100%;box-sizing:border-box;text-align:left;line-height:1.35;white-space:normal;overflow-wrap:anywhere"
-                          >{q}</button>
-                        <% end %>
+                            class="btn-xs"
+                          >Turn order</button>
+                          <button
+                            type="button"
+                            phx-click="ask_suggestion"
+                            phx-value-q="How does scoring work?"
+                            disabled={@pending_count >= @max_concurrent}
+                            class="btn-xs"
+                          >Scoring</button>
+                          <button
+                            type="button"
+                            phx-click="ask_suggestion"
+                            phx-value-q="What are the win conditions?"
+                            disabled={@pending_count >= @max_concurrent}
+                            class="btn-xs"
+                          >Win conditions</button>
+                        </div>
                       </div>
-                    </div>
-                  <% end %>
+                    <% end %>
 
-                  <!-- Refusal: suggest other questions -->
-                  <%= if msg.role == :assistant && msg[:refused] do %>
-                    <div style="margin-top:0.5rem;padding:0.5rem;background:var(--bg-subtle);border-radius:0.4rem;font-size:0.7rem;color:var(--text-secondary);line-height:1.5">
-                      Try asking about:
-                      <div style="margin-top:0.3rem;display:flex;flex-wrap:wrap;gap:0.25rem">
-                        <button
-                          type="button"
-                          phx-click="ask_suggestion"
-                          phx-value-q="What is the setup?"
-                          disabled={@pending_count >= @max_concurrent}
-                          class="btn-xs"
-                        >Setup</button>
-                        <button
-                          type="button"
-                          phx-click="ask_suggestion"
-                          phx-value-q="How do turns work?"
-                          disabled={@pending_count >= @max_concurrent}
-                          class="btn-xs"
-                        >Turn order</button>
-                        <button
-                          type="button"
-                          phx-click="ask_suggestion"
-                          phx-value-q="How does scoring work?"
-                          disabled={@pending_count >= @max_concurrent}
-                          class="btn-xs"
-                        >Scoring</button>
-                        <button
-                          type="button"
-                          phx-click="ask_suggestion"
-                          phx-value-q="What are the win conditions?"
-                          disabled={@pending_count >= @max_concurrent}
-                          class="btn-xs"
-                        >Win conditions</button>
-                      </div>
-                    </div>
-                  <% end %>
-
-                  <!-- Refusal report: lets a player flag a wrong "not covered" so
+                    <!-- Refusal report: lets a player flag a wrong "not covered" so
                        an admin can review — reuses flag_question, which also
                        fetches a fresh (skip_pool) answer for the reporter.
                        Admins don't report (they ARE the reviewers); they get a
                        direct regenerate instead. -->
-                  <%= if msg.role == :assistant && msg[:refused] && msg.content != "Thinking..." do %>
-                    <div style="margin-top:0.4rem">
-                      <%= if @is_admin do %>
-                        <button
-                          type="button"
-                          phx-click="regenerate_answer"
-                          phx-value-id={msg.id}
-                          data-confirm="Regenerate a fresh answer for this wrongly refused question?"
-                          class="btn-xs"
-                          title="Wrongly marked 'not covered' — fetch a fresh answer"
-                        >↻ Regenerate — wrongly refused</button>
-                      <% else %>
-                        <%= if MapSet.member?(@flagged_ids, msg[:id]) do %>
-                          <span style="font-size:0.65rem;color:var(--text-muted)">
-                            ✓ Reported — thanks
-                          </span>
-                        <% else %>
+                    <%= if msg.role == :assistant && msg[:refused] && msg.content != "Thinking..." do %>
+                      <div style="margin-top:0.4rem">
+                        <%= if @is_admin do %>
                           <button
                             type="button"
-                            phx-click="flag_question"
+                            phx-click="regenerate_answer"
                             phx-value-id={msg.id}
-                            data-confirm="Report this as wrongly marked 'not covered'? A moderator will review it, and we'll fetch you a fresh answer."
+                            data-confirm="Regenerate a fresh answer for this wrongly refused question?"
                             class="btn-xs"
-                            title="This should be covered by the rulebook"
-                          >🚩 Report as miscategorized</button>
+                            title="Wrongly marked 'not covered' — fetch a fresh answer"
+                          >↻ Regenerate — wrongly refused</button>
+                        <% else %>
+                          <%= if MapSet.member?(@flagged_ids, msg[:id]) do %>
+                            <span style="font-size:0.65rem;color:var(--text-muted)">
+                              ✓ Reported — thanks
+                            </span>
+                          <% else %>
+                            <button
+                              type="button"
+                              phx-click="flag_question"
+                              phx-value-id={msg.id}
+                              data-confirm="Report this as wrongly marked 'not covered'? A moderator will review it, and we'll fetch you a fresh answer."
+                              class="btn-xs"
+                              title="This should be covered by the rulebook"
+                            >🚩 Report as miscategorized</button>
+                          <% end %>
                         <% end %>
-                      <% end %>
-                    </div>
-                  <% end %>
+                      </div>
+                    <% end %>
 
-                  <!-- Pool hit badge. Both variants carry the mismatch escape
+                    <!-- Pool hit badge. Both variants carry the mismatch escape
                        hatch: a trusted community answer can still be the wrong
                        MATCH for this question (distinct from being a bad
                        answer, which is what regenerate/votes cover), so the
                        button is not gated on can_regen. -->
-                  <div
-                    :if={msg[:pool_hit] && !msg[:pool_provisional]}
-                    style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:var(--blue)"
-                  >
-                    💬 Community answer &mdash; from question pool
-                  </div>
-                  <div
-                    :if={msg[:pool_hit] && msg[:pool_provisional]}
-                    style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:var(--text-muted)"
-                  >
-                    🔎 Unverified answer &mdash; single source, not yet community-reviewed.
-                    Vote below to help, or regenerate a fresh answer.
-                  </div>
-                  <%!-- Player-facing affordance for failed ("⚠️ ...") answers.
+                    <div
+                      :if={msg[:pool_hit] && !msg[:pool_provisional]}
+                      style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:var(--blue)"
+                    >
+                      💬 Community answer &mdash; from question pool
+                    </div>
+                    <div
+                      :if={msg[:pool_hit] && msg[:pool_provisional]}
+                      style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:var(--text-muted)"
+                    >
+                      🔎 Unverified answer &mdash; single source, not yet community-reviewed.
+                      Vote below to help, or regenerate a fresh answer.
+                    </div>
+                    <%!-- Player-facing affordance for failed ("⚠️ ...") answers.
                         Admins get their own re-ask row below; refused/blocked
                         rows and the kill-switch "paused" notice stay dead-ended
                         on purpose. Kind decides the affordance: bounded retry,
                         cooldown note for rate limits, shorten-hint for
                         too-long, auto-report notice once retries run out. --%>
-                  <% err_kind = msg[:error_kind] %>
-                  <% err_retries = msg[:error_retries] || 0 %>
-                  <% retryable_kind? = is_nil(err_kind) || err_kind not in ["paused", "too_long"] %>
-                  <div
-                    :if={
-                      !@is_admin && msg.role == :assistant && !msg[:pending] && !msg[:history] &&
-                        !msg[:refused] && is_binary(msg.content) &&
-                        String.starts_with?(msg.content, "⚠️") && err_kind != "paused"
-                    }
-                    style="margin-top:0.5rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap"
-                  >
-                    <%= cond do %>
-                      <% err_kind == "too_long" -> %>
-                        <span style="font-size:0.72rem;color:var(--text-muted)">
-                          Try asking a shorter question.
-                        </span>
-                      <% retryable_kind? && err_retries < Games.error_retry_limit() -> %>
-                        <button
-                          type="button"
-                          phx-click="retry_question"
-                          phx-value-id={msg.id}
-                          disabled={@pending_count >= @max_concurrent}
-                          class="btn-xs"
-                          title="Try this question again"
-                        >↻ Retry</button>
-                        <span
-                          :if={err_kind == "rate_limited"}
-                          style="font-size:0.7rem;color:var(--text-muted)"
-                        >Give it ~30 seconds first.</span>
-                      <% err_kind && err_retries >= Games.error_retry_limit() -> %>
-                        <span style="font-size:0.72rem;color:var(--text-muted)">
-                          🚩 Still failing after retries — this has been reported to the admins.
-                        </span>
-                      <% true -> %>
-                        <span style="font-size:0.72rem;color:var(--text-muted)">
-                          This keeps failing. Please try again later.
-                        </span>
-                    <% end %>
-                  </div>
-
-                  <% is_community_msg =
-                    MapSet.member?(MapSet.new(@community_questions, & &1.id), msg[:id]) %>
-
-                  <!-- Answer actions: voice switcher + vote + overflow, one row.
-                       Lives INSIDE the bubble (not a sibling below it) so it
-                       stretches to the bubble's actual rendered width instead
-                       of shrink-wrapping its own content — the outer chat-msg
-                       column uses align-items:flex-start, which sizes each
-                       sibling independently. -->
-                  <div
-                    :if={
-                      msg.role == :assistant && !msg[:refused] &&
-                        msg.content != "Thinking..." && !msg[:pending] &&
-                        not String.starts_with?(msg.content, "⚠️")
-                    }
-                    style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-top:0.5rem"
-                  >
-                    <% q_text = find_question_for_answer(@conversation, msg) %>
-                    <% plain_text = strip_markdown(msg.content) %>
-                    <% can_regen =
-                      cond do
-                        is_community_msg ->
-                          false
-
-                        msg[:pool_hit] && msg[:pool_source_id] ->
-                          msg[:pool_provisional] &&
-                            (@is_admin or
-                               Map.get(@community_user_votes, msg[:pool_source_id]) != "up")
-
-                        !msg[:pool_hit] ->
-                          @is_admin or Map.get(@community_user_votes, msg[:id]) != "up"
-
-                        true ->
-                          false
-                      end %>
-
-                    <!-- Community vote buttons (primary action, kept inline) -->
-                    <%= if is_community_msg do %>
-                      <% cv = Map.get(@community_user_votes, msg[:id]) %>
-                      <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
-                      <span
-                        data-tour="answer-vote"
-                        style="display:inline-flex;align-items:center;gap:0.15rem"
-                      >
-                        <.vote_thumb
-                          event="community_vote"
-                          id={msg[:id]}
-                          voted={cv == "up"}
-                          count={Map.get(counts, :up, 0)}
-                          title={if cv == "up", do: "Remove vote", else: "Helpful"}
-                        />
-                        <span
-                          :if={MapSet.member?(@asker_confirmed_ids, msg[:id])}
-                          style="font-size:0.6rem;color:var(--accent-ink, var(--accent));border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
-                          title="Count includes the asker, who confirmed this answered their question"
-                        >✓ asker</span>
-                      </span>
-                    <% else %>
-                      <%= if msg[:pool_hit] && msg[:pool_source_id] do %>
-                        <!-- Pool hit (trusted or provisional): vote accrues to the
-                           source row, so every player sees the same tally. -->
-                        <% sid = msg[:pool_source_id] %>
-                        <% cv = Map.get(@community_user_votes, sid) %>
-                        <% counts = Map.get(@community_vote_counts, sid, %{up: 0, down: 0}) %>
-                        <span
-                          data-tour="answer-vote"
-                          style="display:inline-flex;align-items:center;gap:0.15rem"
-                        >
-                          <.vote_thumb
-                            event="community_vote"
-                            id={sid}
-                            voted={cv == "up"}
-                            count={Map.get(counts, :up, 0)}
-                            title={if cv == "up", do: "Remove vote", else: "Helpful"}
-                          />
-                          <span
-                            :if={MapSet.member?(@asker_confirmed_ids, sid)}
-                            style="font-size:0.6rem;color:var(--accent-ink, var(--accent));border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
-                            title="Count includes the asker, who confirmed this answered their question"
-                          >✓ asker</span>
-                        </span>
-                      <% else %>
-                        <!-- Own (non-pool) answer: votes go to the same QuestionVote
-                           store as community/pool answers, so the asker's thumb and
-                           every other player's vote sum into one per-user tally
-                           (was a separate scalar `feedback` column that never
-                           combined with other users' votes). -->
-                        <% cv = Map.get(@community_user_votes, msg[:id]) %>
-                        <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
-                        <span
-                          :if={!msg[:pool_hit]}
-                          data-tour="answer-vote"
-                          style="display:inline-flex;align-items:center;gap:0.15rem"
-                        >
-                          <%!-- This branch is always the asker's own question: the
-                              thumb is a self-confirmation, stored at weight 0. It
-                              counts in the visible tally (a click must increment
-                              the number) and shows other users an "asker
-                              confirmed" badge. --%>
-                          <.vote_thumb
-                            event="community_vote"
-                            id={msg[:id]}
-                            voted={cv == "up"}
-                            count={Map.get(counts, :up, 0)}
-                            title={
-                              if cv == "up",
-                                do: "Remove confirmation",
-                                else: "Confirm this answered your question"
-                            }
-                          />
-                        </span>
-                      <% end %>
-                    <% end %>
-
-                    <%!-- Everything else right-aligns in one group: category pills,
-                        then the overflow menu. --%>
-                    <span style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-left:auto">
-                      <!-- Category pills. Shown under any answered question now
-                       that unverified answers are browsable by category on the
-                       community Q&A page — each pill deep-links into that page
-                       filtered to the category. -->
-                      <% msg_cats =
-                        if msg.role == :assistant && msg[:id],
-                          do: Map.get(@question_categories, msg[:id], []),
-                          else: [] %>
-                      <span
-                        :if={msg_cats != []}
-                        style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.25rem"
-                      >
-                        <span style="font-size:0.55rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);font-weight:600">
-                          Categories
-                        </span>
-                        <.link
-                          :for={cat <- msg_cats}
-                          navigate={
-                            ~p"/games/#{@game}/community?category=#{RuleMaven.Hashid.encode(cat.id)}"
-                          }
-                          style="font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:1rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);text-decoration:none"
-                        >
-                          {cat.name}
-                        </.link>
-                      </span>
-
-                      <!-- Overflow: secondary actions (favorite, copy, regenerate) -->
-                      <details class="card-menu">
-                        <summary class="card-menu__trigger" title="More actions">
-                          ⋯
-                        </summary>
-                        <div class="card-menu__pop card-menu__pop--right card-menu__pop--up">
-                          <%= if is_community_msg do %>
-                            <%!-- Browsed community answer: favorite marks it for the
-                              Community sidebar list, unrelated to thread order. --%>
-                            <% fav? = MapSet.member?(@favorited_answer_ids, msg[:id]) %>
-                            <button
-                              type="button"
-                              phx-click="favorite_community_answer"
-                              phx-value-id={msg[:id]}
-                              class="card-menu__item"
-                              title={
-                                if fav?,
-                                  do: "Remove from your favorites",
-                                  else: "Add to your favorites"
-                              }
-                            >{if fav?, do: "♥ Unfavorite", else: "♡ Favorite"}</button>
-                          <% else %>
-                            <%!-- Your own asked question (private or pool-served): pins
-                              it to the top of the sidebar's thread list. --%>
-                            <button
-                              type="button"
-                              phx-click="favorite_question"
-                              phx-value-id={msg.id}
-                              class="card-menu__item"
-                              title={
-                                if msg[:favorited],
-                                  do: "Unfavorite",
-                                  else: "Favorite — moves to top of your list"
-                              }
-                            >{if msg[:favorited], do: "♥ Unfavorite", else: "♡ Favorite"}</button>
-                          <% end %>
-                          <button
-                            type="button"
-                            id={"copy-btn-#{idx}"}
-                            phx-hook="ClipboardCopy"
-                            data-clipboard-text={"Q: #{q_text}\n\nA: #{plain_text}"}
-                            class="card-menu__item"
-                            title="Copy question and answer"
-                          >📋 Copy Q&amp;A</button>
-                          <button
-                            type="button"
-                            id={"read-btn-#{idx}"}
-                            phx-hook="ReadAloud"
-                            data-speak={plain_text}
-                            aria-pressed="false"
-                            class="card-menu__item"
-                            title="Read this answer aloud"
-                          >🔊 Read aloud</button>
-                          <button
-                            :if={can_regen}
-                            type="button"
-                            phx-click="regenerate_answer"
-                            phx-value-id={msg.id}
-                            data-confirm="Regenerate this answer? The current one will be replaced."
-                            class="card-menu__item"
-                            title="Generate a fresh answer from the rulebook"
-                          >↻ Regenerate</button>
-                          <% flag_id = msg[:pool_source_id] || msg[:id] %>
-                          <%= if flag_id && msg.content != "Thinking..." do %>
-                            <%= if @is_admin do %>
-                              <!-- Admins don't report (they ARE the moderators) —
-                               direct pull from the pool instead. -->
-                              <button
-                                type="button"
-                                phx-click="pull_for_review"
-                                phx-value-id={msg.id}
-                                data-confirm="Pull this answer from the shared pool for review? It stays out of the pool until re-approved."
-                                class="card-menu__item"
-                                title="Pull from the pool into the moderation queue"
-                              >⏸ Pull for review</button>
-                            <% else %>
-                              <%= if MapSet.member?(@flagged_ids, flag_id) do %>
-                                <button
-                                  type="button"
-                                  disabled
-                                  class="card-menu__item"
-                                  style="opacity:0.6;cursor:default"
-                                  title="You reported this answer"
-                                >✓ Reported</button>
-                              <% else %>
-                                <button
-                                  type="button"
-                                  phx-click="open_report"
-                                  phx-value-id={msg.id}
-                                  class="card-menu__item"
-                                  title="Report a wrong or unhelpful answer"
-                                >🚩 Report</button>
-                              <% end %>
-                            <% end %>
-                          <% end %>
-                        </div>
-                      </details>
-                    </span>
-                  </div>
-
-                  <!-- Message actions (admin only). Also inside the bubble (like
-                     the row above) so it stretches to the bubble's own width
-                     instead of shrink-wrapping — otherwise margin-left:auto on
-                     the model-name span below has no room to push into. -->
-                  <div
-                    :if={RuleMaven.Users.can?(@current_user, :admin) && msg.role == :assistant}
-                    class="flex items-center gap-1 mt-0.5"
-                    style="flex-wrap:wrap;min-width:0;padding-left:0.25rem"
-                  >
-                    <RuleMavenWeb.AuditModal.audit_trigger
-                      :if={msg[:id] && !msg[:pending] && msg.content != "Thinking..."}
-                      current_user={@current_user}
-                      question_log_id={msg.id}
-                    />
-                    <%= if msg.content == "Thinking..." do %>
-                      <button
-                        type="button"
-                        phx-click="retry_question"
-                        phx-value-id={msg.id}
-                        disabled={@pending_count >= @max_concurrent}
-                        style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                        title="Re-ask"
-                      >↻</button>
-                      <%= if @confirm_delete_id == msg.id do %>
-                        <span class="text-xs" style="color:var(--red)">Delete?</span>
-                        <button
-                          type="button"
-                          phx-click="confirm_delete_question"
-                          phx-value-id={msg.id}
-                          style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
-                        >Yes</button>
-                        <button
-                          type="button"
-                          phx-click="cancel_delete_question"
-                          style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                        >No</button>
-                      <% else %>
-                        <button
-                          type="button"
-                          phx-click="delete_question"
-                          phx-value-id={msg.id}
-                          style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                          title="Delete"
-                        >✕</button>
-                      <% end %>
-                    <% else %>
-                      <% is_error = is_binary(msg.content) && String.starts_with?(msg.content, "⚠️") %>
-                      <%= if msg[:refused] || is_error do %>
-                        <!-- error/refused: retry + delete only -->
-                        <%= if is_error do %>
+                    <% err_kind = msg[:error_kind] %>
+                    <% err_retries = msg[:error_retries] || 0 %>
+                    <% retryable_kind? = is_nil(err_kind) || err_kind not in ["paused", "too_long"] %>
+                    <div
+                      :if={
+                        !@is_admin && msg.role == :assistant && !msg[:pending] && !msg[:history] &&
+                          !msg[:refused] && is_binary(msg.content) &&
+                          String.starts_with?(msg.content, "⚠️") && err_kind != "paused"
+                      }
+                      style="margin-top:0.5rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap"
+                    >
+                      <%= cond do %>
+                        <% err_kind == "too_long" -> %>
+                          <span style="font-size:0.72rem;color:var(--text-muted)">
+                            Try asking a shorter question.
+                          </span>
+                        <% retryable_kind? && err_retries < Games.error_retry_limit() -> %>
                           <button
                             type="button"
                             phx-click="retry_question"
                             phx-value-id={msg.id}
                             disabled={@pending_count >= @max_concurrent}
-                            style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                            title="Re-ask"
-                          >↻</button>
+                            class="btn-xs"
+                            title="Try this question again"
+                          >↻ Retry</button>
+                          <span
+                            :if={err_kind == "rate_limited"}
+                            style="font-size:0.7rem;color:var(--text-muted)"
+                          >Give it ~30 seconds first.</span>
+                        <% err_kind && err_retries >= Games.error_retry_limit() -> %>
+                          <span style="font-size:0.72rem;color:var(--text-muted)">
+                            🚩 Still failing after retries — this has been reported to the admins.
+                          </span>
+                        <% true -> %>
+                          <span style="font-size:0.72rem;color:var(--text-muted)">
+                            This keeps failing. Please try again later.
+                          </span>
+                      <% end %>
+                    </div>
+
+                    <% is_community_msg =
+                      MapSet.member?(MapSet.new(@community_questions, & &1.id), msg[:id]) %>
+
+                    <!-- Answer actions: voice switcher + vote + overflow, one row.
+                       Lives INSIDE the bubble (not a sibling below it) so it
+                       stretches to the bubble's actual rendered width instead
+                       of shrink-wrapping its own content — the outer chat-msg
+                       column uses align-items:flex-start, which sizes each
+                       sibling independently. -->
+                    <div
+                      :if={
+                        msg.role == :assistant && !msg[:refused] &&
+                          msg.content != "Thinking..." && !msg[:pending] &&
+                          not String.starts_with?(msg.content, "⚠️")
+                      }
+                      style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-top:0.5rem"
+                    >
+                      <% q_text = find_question_for_answer(@conversation, msg) %>
+                      <% plain_text = strip_markdown(msg.content) %>
+                      <% can_regen =
+                        cond do
+                          is_community_msg ->
+                            false
+
+                          msg[:pool_hit] && msg[:pool_source_id] ->
+                            msg[:pool_provisional] &&
+                              (@is_admin or
+                                 Map.get(@community_user_votes, msg[:pool_source_id]) != "up")
+
+                          !msg[:pool_hit] ->
+                            @is_admin or Map.get(@community_user_votes, msg[:id]) != "up"
+
+                          true ->
+                            false
+                        end %>
+
+                      <!-- Community vote buttons (primary action, kept inline) -->
+                      <%= if is_community_msg do %>
+                        <% cv = Map.get(@community_user_votes, msg[:id]) %>
+                        <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
+                        <span
+                          data-tour="answer-vote"
+                          style="display:inline-flex;align-items:center;gap:0.15rem"
+                        >
+                          <.vote_thumb
+                            event="community_vote"
+                            id={msg[:id]}
+                            voted={cv == "up"}
+                            count={Map.get(counts, :up, 0)}
+                            title={if cv == "up", do: "Remove vote", else: "Helpful"}
+                          />
+                          <span
+                            :if={MapSet.member?(@asker_confirmed_ids, msg[:id])}
+                            style="font-size:0.6rem;color:var(--accent-ink, var(--accent));border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
+                            title="Count includes the asker, who confirmed this answered their question"
+                          >✓ asker</span>
+                        </span>
+                      <% else %>
+                        <%= if msg[:pool_hit] && msg[:pool_source_id] do %>
+                          <!-- Pool hit (trusted or provisional): vote accrues to the
+                           source row, so every player sees the same tally. -->
+                          <% sid = msg[:pool_source_id] %>
+                          <% cv = Map.get(@community_user_votes, sid) %>
+                          <% counts = Map.get(@community_vote_counts, sid, %{up: 0, down: 0}) %>
+                          <span
+                            data-tour="answer-vote"
+                            style="display:inline-flex;align-items:center;gap:0.15rem"
+                          >
+                            <.vote_thumb
+                              event="community_vote"
+                              id={sid}
+                              voted={cv == "up"}
+                              count={Map.get(counts, :up, 0)}
+                              title={if cv == "up", do: "Remove vote", else: "Helpful"}
+                            />
+                            <span
+                              :if={MapSet.member?(@asker_confirmed_ids, sid)}
+                              style="font-size:0.6rem;color:var(--accent-ink, var(--accent));border:1px solid currentColor;border-radius:0.5rem;padding:0 0.35rem;line-height:1.4;white-space:nowrap"
+                              title="Count includes the asker, who confirmed this answered their question"
+                            >✓ asker</span>
+                          </span>
+                        <% else %>
+                          <!-- Own (non-pool) answer: votes go to the same QuestionVote
+                           store as community/pool answers, so the asker's thumb and
+                           every other player's vote sum into one per-user tally
+                           (was a separate scalar `feedback` column that never
+                           combined with other users' votes). -->
+                          <% cv = Map.get(@community_user_votes, msg[:id]) %>
+                          <% counts = Map.get(@community_vote_counts, msg[:id], %{up: 0, down: 0}) %>
+                          <span
+                            :if={!msg[:pool_hit]}
+                            data-tour="answer-vote"
+                            style="display:inline-flex;align-items:center;gap:0.15rem"
+                          >
+                            <%!-- This branch is always the asker's own question: the
+                              thumb is a self-confirmation, stored at weight 0. It
+                              counts in the visible tally (a click must increment
+                              the number) and shows other users an "asker
+                              confirmed" badge. --%>
+                            <.vote_thumb
+                              event="community_vote"
+                              id={msg[:id]}
+                              voted={cv == "up"}
+                              count={Map.get(counts, :up, 0)}
+                              title={
+                                if cv == "up",
+                                  do: "Remove confirmation",
+                                  else: "Confirm this answered your question"
+                              }
+                            />
+                          </span>
                         <% end %>
+                      <% end %>
+
+                      <%!-- Everything else right-aligns in one group: category pills,
+                        then the overflow menu. --%>
+                      <span style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-left:auto">
+                        <!-- Category pills. Shown under any answered question now
+                       that unverified answers are browsable by category on the
+                       community Q&A page — each pill deep-links into that page
+                       filtered to the category. -->
+                        <% msg_cats =
+                          if msg.role == :assistant && msg[:id],
+                            do: Map.get(@question_categories, msg[:id], []),
+                            else: [] %>
+                        <span
+                          :if={msg_cats != []}
+                          style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:0.25rem"
+                        >
+                          <span style="font-size:0.55rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);font-weight:600">
+                            Categories
+                          </span>
+                          <.link
+                            :for={cat <- msg_cats}
+                            navigate={
+                              ~p"/games/#{@game}/community?category=#{RuleMaven.Hashid.encode(cat.id)}"
+                            }
+                            style="font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:1rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);text-decoration:none"
+                          >
+                            {cat.name}
+                          </.link>
+                        </span>
+
+                        <!-- Overflow: secondary actions (favorite, copy, regenerate) -->
+                        <details class="card-menu">
+                          <summary class="card-menu__trigger" title="More actions">
+                            ⋯
+                          </summary>
+                          <div class="card-menu__pop card-menu__pop--right card-menu__pop--up">
+                            <%= if is_community_msg do %>
+                              <%!-- Browsed community answer: favorite marks it for the
+                              Community sidebar list, unrelated to thread order. --%>
+                              <% fav? = MapSet.member?(@favorited_answer_ids, msg[:id]) %>
+                              <button
+                                type="button"
+                                phx-click="favorite_community_answer"
+                                phx-value-id={msg[:id]}
+                                class="card-menu__item"
+                                title={
+                                  if fav?,
+                                    do: "Remove from your favorites",
+                                    else: "Add to your favorites"
+                                }
+                              >{if fav?, do: "♥ Unfavorite", else: "♡ Favorite"}</button>
+                            <% else %>
+                              <%!-- Your own asked question (private or pool-served): pins
+                              it to the top of the sidebar's thread list. --%>
+                              <button
+                                type="button"
+                                phx-click="favorite_question"
+                                phx-value-id={msg.id}
+                                class="card-menu__item"
+                                title={
+                                  if msg[:favorited],
+                                    do: "Unfavorite",
+                                    else: "Favorite — moves to top of your list"
+                                }
+                              >{if msg[:favorited], do: "♥ Unfavorite", else: "♡ Favorite"}</button>
+                            <% end %>
+                            <button
+                              type="button"
+                              id={"copy-btn-#{idx}"}
+                              phx-hook="ClipboardCopy"
+                              data-clipboard-text={"Q: #{q_text}\n\nA: #{plain_text}"}
+                              class="card-menu__item"
+                              title="Copy question and answer"
+                            >📋 Copy Q&amp;A</button>
+                            <button
+                              type="button"
+                              id={"read-btn-#{idx}"}
+                              phx-hook="ReadAloud"
+                              data-speak={plain_text}
+                              aria-pressed="false"
+                              class="card-menu__item"
+                              title="Read this answer aloud"
+                            >🔊 Read aloud</button>
+                            <button
+                              :if={can_regen}
+                              type="button"
+                              phx-click="regenerate_answer"
+                              phx-value-id={msg.id}
+                              data-confirm="Regenerate this answer? The current one will be replaced."
+                              class="card-menu__item"
+                              title="Generate a fresh answer from the rulebook"
+                            >↻ Regenerate</button>
+                            <% flag_id = msg[:pool_source_id] || msg[:id] %>
+                            <%= if flag_id && msg.content != "Thinking..." do %>
+                              <%= if @is_admin do %>
+                                <!-- Admins don't report (they ARE the moderators) —
+                               direct pull from the pool instead. -->
+                                <button
+                                  type="button"
+                                  phx-click="pull_for_review"
+                                  phx-value-id={msg.id}
+                                  data-confirm="Pull this answer from the shared pool for review? It stays out of the pool until re-approved."
+                                  class="card-menu__item"
+                                  title="Pull from the pool into the moderation queue"
+                                >⏸ Pull for review</button>
+                              <% else %>
+                                <%= if MapSet.member?(@flagged_ids, flag_id) do %>
+                                  <button
+                                    type="button"
+                                    disabled
+                                    class="card-menu__item"
+                                    style="opacity:0.6;cursor:default"
+                                    title="You reported this answer"
+                                  >✓ Reported</button>
+                                <% else %>
+                                  <button
+                                    type="button"
+                                    phx-click="open_report"
+                                    phx-value-id={msg.id}
+                                    class="card-menu__item"
+                                    title="Report a wrong or unhelpful answer"
+                                  >🚩 Report</button>
+                                <% end %>
+                              <% end %>
+                            <% end %>
+                          </div>
+                        </details>
+                      </span>
+                    </div>
+
+                    <!-- Message actions (admin only). Also inside the bubble (like
+                     the row above) so it stretches to the bubble's own width
+                     instead of shrink-wrapping — otherwise margin-left:auto on
+                     the model-name span below has no room to push into. -->
+                    <div
+                      :if={RuleMaven.Users.can?(@current_user, :admin) && msg.role == :assistant}
+                      class="flex items-center gap-1 mt-0.5"
+                      style="flex-wrap:wrap;min-width:0;padding-left:0.25rem"
+                    >
+                      <RuleMavenWeb.AuditModal.audit_trigger
+                        :if={msg[:id] && !msg[:pending] && msg.content != "Thinking..."}
+                        current_user={@current_user}
+                        question_log_id={msg.id}
+                      />
+                      <%= if msg.content == "Thinking..." do %>
+                        <button
+                          type="button"
+                          phx-click="retry_question"
+                          phx-value-id={msg.id}
+                          disabled={@pending_count >= @max_concurrent}
+                          style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                          title="Re-ask"
+                        >↻</button>
                         <%= if @confirm_delete_id == msg.id do %>
                           <span class="text-xs" style="color:var(--red)">Delete?</span>
                           <button
@@ -4804,7 +4774,6 @@ defmodule RuleMavenWeb.GameLive.Show do
                           >No</button>
                         <% else %>
                           <button
-                            :if={!msg[:history]}
                             type="button"
                             phx-click="delete_question"
                             phx-value-id={msg.id}
@@ -4813,98 +4782,141 @@ defmodule RuleMavenWeb.GameLive.Show do
                           >✕</button>
                         <% end %>
                       <% else %>
-                        <!-- normal answer: full actions. Re-ask is dropped here —
+                        <% is_error = is_binary(msg.content) && String.starts_with?(msg.content, "⚠️") %>
+                        <%= if msg[:refused] || is_error do %>
+                          <!-- error/refused: retry + delete only -->
+                          <%= if is_error do %>
+                            <button
+                              type="button"
+                              phx-click="retry_question"
+                              phx-value-id={msg.id}
+                              disabled={@pending_count >= @max_concurrent}
+                              style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                              title="Re-ask"
+                            >↻</button>
+                          <% end %>
+                          <%= if @confirm_delete_id == msg.id do %>
+                            <span class="text-xs" style="color:var(--red)">Delete?</span>
+                            <button
+                              type="button"
+                              phx-click="confirm_delete_question"
+                              phx-value-id={msg.id}
+                              style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
+                            >Yes</button>
+                            <button
+                              type="button"
+                              phx-click="cancel_delete_question"
+                              style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                            >No</button>
+                          <% else %>
+                            <button
+                              :if={!msg[:history]}
+                              type="button"
+                              phx-click="delete_question"
+                              phx-value-id={msg.id}
+                              style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                              title="Delete"
+                            >✕</button>
+                          <% end %>
+                        <% else %>
+                          <!-- normal answer: full actions. Re-ask is dropped here —
                            skip_pool:false just re-serves the same pooled
                            answer, so it's a no-op vs the overflow menu's
                            "Regenerate" (skip_pool:true, forces fresh). -->
-                        <%!-- Demote-only: rows reach the community pool via vote
+                          <%!-- Demote-only: rows reach the community pool via vote
                             quorum or admin verify. A manual promote here would
                             render identically to a crowd-promoted row, passing
                             off an admin push as community consensus. --%>
-                        <button
-                          :if={
-                            @is_admin && !msg[:history] && !msg[:pool_hit] &&
-                              msg[:promoted]
-                          }
-                          type="button"
-                          phx-click="toggle_question_visibility"
-                          phx-value-id={msg.id}
-                          title="Remove from community (make private)"
-                          style="background:none;border:none;font-size:0.6rem;cursor:pointer;color:var(--accent-ink,var(--accent))"
-                        >🌐</button>
-                        <%!-- Favorite/pin-to-top moved to the main action row
-                            (visible to all users, not just admins). --%>
-                        <button
-                          :if={!msg[:history]}
-                          type="button"
-                          phx-click="verify_question"
-                          phx-value-id={msg.id}
-                          style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:verified], do: "color:#15803d", else: "color:var(--text-muted)"}"}
-                          title={
-                            if msg[:verified],
-                              do: "Admin-verified & published — click to unpublish",
-                              else: "Verify & publish to community (admin)"
-                          }
-                        >{if msg[:verified], do: "✔", else: "✓"}</button>
-                        <%= if @confirm_delete_id == msg.id do %>
-                          <span class="text-xs" style="color:var(--red)">{if msg[:pending],
-                            do: "Cancel?",
-                            else: "Delete?"}</span>
                           <button
+                            :if={
+                              @is_admin && !msg[:history] && !msg[:pool_hit] &&
+                                msg[:promoted]
+                            }
                             type="button"
-                            phx-click="confirm_delete_question"
+                            phx-click="toggle_question_visibility"
                             phx-value-id={msg.id}
-                            style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
-                          >Yes</button>
-                          <button
-                            type="button"
-                            phx-click="cancel_delete_question"
-                            style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                          >No</button>
-                        <% else %>
+                            title="Remove from community (make private)"
+                            style="background:none;border:none;font-size:0.6rem;cursor:pointer;color:var(--accent-ink,var(--accent))"
+                          >🌐</button>
+                          <%!-- Favorite/pin-to-top moved to the main action row
+                            (visible to all users, not just admins). --%>
                           <button
                             :if={!msg[:history]}
                             type="button"
-                            phx-click="delete_question"
+                            phx-click="verify_question"
                             phx-value-id={msg.id}
-                            style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
-                            title={if msg[:pending], do: "Cancel", else: "Delete"}
-                          >✕</button>
-                        <% end %>
-                        <%= if RuleMaven.Users.can?(@current_user, :admin) && (msg[:llm_provider] || msg[:llm_model]) do %>
-                          <span
-                            class="text-xs"
-                            style="color:var(--text-muted);margin-left:auto;min-width:0;overflow-wrap:anywhere;word-break:break-word;text-align:right"
-                          >{msg[
-                            :llm_provider
-                          ]} &middot; {msg[:llm_model]}</span>
+                            style={"background:none;border:none;font-size:0.6rem;cursor:pointer;#{if msg[:verified], do: "color:#15803d", else: "color:var(--text-muted)"}"}
+                            title={
+                              if msg[:verified],
+                                do: "Admin-verified & published — click to unpublish",
+                                else: "Verify & publish to community (admin)"
+                            }
+                          >{if msg[:verified], do: "✔", else: "✓"}</button>
+                          <%= if @confirm_delete_id == msg.id do %>
+                            <span class="text-xs" style="color:var(--red)">{if msg[:pending],
+                              do: "Cancel?",
+                              else: "Delete?"}</span>
+                            <button
+                              type="button"
+                              phx-click="confirm_delete_question"
+                              phx-value-id={msg.id}
+                              style="color:var(--red);background:none;border:none;font-size:0.6rem;font-weight:600;cursor:pointer"
+                            >Yes</button>
+                            <button
+                              type="button"
+                              phx-click="cancel_delete_question"
+                              style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                            >No</button>
+                          <% else %>
+                            <button
+                              :if={!msg[:history]}
+                              type="button"
+                              phx-click="delete_question"
+                              phx-value-id={msg.id}
+                              style="color:var(--text-muted);background:none;border:none;font-size:0.6rem;cursor:pointer"
+                              title={if msg[:pending], do: "Cancel", else: "Delete"}
+                            >✕</button>
+                          <% end %>
+                          <%= if RuleMaven.Users.can?(@current_user, :admin) && (msg[:llm_provider] || msg[:llm_model]) do %>
+                            <span
+                              class="text-xs"
+                              style="color:var(--text-muted);margin-left:auto;min-width:0;overflow-wrap:anywhere;word-break:break-word;text-align:right"
+                            >{msg[
+                              :llm_provider
+                            ]} &middot; {msg[:llm_model]}</span>
+                          <% end %>
                         <% end %>
                       <% end %>
-                    <% end %>
-                    <!-- Admin debug — raw LLM response, version history, call
+                      <!-- Admin debug — raw LLM response, version history, call
                        trace, cost, pool lineage and community signals all live in
                        the "🔍 Audit trail" modal on the action row above. -->
+                    </div>
                   </div>
                 </div>
-              </div>
+              <% end %>
+              <!-- end history else -->
             <% end %>
-            <!-- end history else -->
-          <% end %>
-          <%!-- AI disclaimer: the core caveat (AI can be wrong) must stay visible
+            <%!-- AI disclaimer: the core caveat (AI can be wrong) must stay visible
                 on every ask — product rule. Sits right below the answer so the
                 caveat reads with the ruling; grounding/sharing details expand on tap. --%>
-          <details :if={@conversation != []} style="text-align:center;font-size:0.62rem;line-height:1.3;color:var(--text-muted);margin-top:0.6rem">
-            <summary class="ai-note-summary" style="cursor:pointer;list-style:none;display:inline">
-              🤖 AI can be wrong — double-check important rulings.
-              <span style="text-decoration:underline;opacity:0.8">more</span>
-            </summary>
-            <div style="margin-top:0.2rem">
-              Answers use strict guardrails: grounded in the rulebook, citing their sources. Answered questions may be shared anonymously in the Community Q&A.
-            </div>
-          </details>
-        </div><%!-- /.answer-pane --%>
-        </div><%!-- /.qa-column --%>
-      </div><%!-- /horizontal row --%>
+            <details
+              :if={@conversation != []}
+              style="text-align:center;font-size:0.62rem;line-height:1.3;color:var(--text-muted);margin-top:0.6rem"
+            >
+              <summary class="ai-note-summary" style="cursor:pointer;list-style:none;display:inline">
+                🤖 AI can be wrong — double-check important rulings.
+                <span style="text-decoration:underline;opacity:0.8">more</span>
+              </summary>
+              <div style="margin-top:0.2rem">
+                Answers use strict guardrails: grounded in the rulebook, citing their sources. Answered questions may be shared anonymously in the Community Q&A.
+              </div>
+            </details>
+          </div>
+          <%!-- /.answer-pane --%>
+        </div>
+        <%!-- /.qa-column --%>
+      </div>
+      <%!-- /horizontal row --%>
 
       <%!-- Minimized tools: a distinct in-flow bar directly above the composer
             at every width (the messages area shrinks instead of being
@@ -5246,7 +5258,6 @@ defmodule RuleMavenWeb.GameLive.Show do
           </div>
         </div>
       <% end %>
-
     </div>
 
     <%!-- Outside .chat-layout on purpose: that element is `position:fixed;

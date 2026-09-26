@@ -150,12 +150,14 @@ defmodule RuleMavenWeb.AuditModal do
   defp parse_dt(dt), do: dt
 
   defp to_int(i) when is_integer(i), do: i
+
   defp to_int(s) when is_binary(s) do
     case Integer.parse(s) do
       {i, _} -> i
       _ -> nil
     end
   end
+
   defp to_int(_), do: nil
 
   attr :current_user, :map, required: true
@@ -201,7 +203,9 @@ defmodule RuleMavenWeb.AuditModal do
         style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.75rem;max-width:40rem;width:100%;max-height:calc(100% - 2rem);display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,0.35);text-align:left"
       >
         <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;border-bottom:1px solid var(--border);background:var(--bg-surface);border-radius:0.75rem 0.75rem 0 0">
-          <div style="font-size:0.95rem;font-weight:700;color:var(--text)">🔍 Question audit trail</div>
+          <div style="font-size:0.95rem;font-weight:700;color:var(--text)">
+            🔍 Question audit trail
+          </div>
           <button
             type="button"
             phx-click="close_audit"
@@ -276,7 +280,9 @@ defmodule RuleMavenWeb.AuditModal do
               </div>
               <div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem;display:flex;flex-wrap:wrap;gap:0.15rem 0.45rem;align-items:baseline">
                 <span>{c.prompt_tokens || 0}→{c.completion_tokens || 0} tok</span>
-                <span :if={c.detail["cached_tokens"]} title="provider-cached prompt tokens">⚡{c.detail["cached_tokens"]} cached</span>
+                <span :if={c.detail["cached_tokens"]} title="provider-cached prompt tokens">⚡{c.detail[
+                  "cached_tokens"
+                ]} cached</span>
                 <span>{fmt_dur(c.duration_ms)}</span>
                 <span>{fmt_usd(c.cost)}</span>
                 <span :if={c.detail["reasoning_effort"]}>🧠 {c.detail["reasoning_effort"]}</span>
@@ -285,21 +291,39 @@ defmodule RuleMavenWeb.AuditModal do
                   style="color:var(--warning,#d97706)"
                   title="model stopped before a natural end"
                 >⚠ {c.detail["finish_reason"]}</span>
-                <span :if={c.detail["truncation_retry"]} style="color:var(--warning,#d97706)" title="retry of a truncated call with a doubled token cap">↻ retry</span>
+                <span
+                  :if={c.detail["truncation_retry"]}
+                  style="color:var(--warning,#d97706)"
+                  title="retry of a truncated call with a doubled token cap"
+                >↻ retry</span>
                 <span :if={!c.success} style="color:var(--danger,#c0392b);font-weight:600">failed</span>
               </div>
-              <div :if={!c.success && c.error_message} style="font-size:0.66rem;color:var(--danger,#c0392b);margin-top:0.2rem;overflow-wrap:anywhere">
+              <div
+                :if={!c.success && c.error_message}
+                style="font-size:0.66rem;color:var(--danger,#c0392b);margin-top:0.2rem;overflow-wrap:anywhere"
+              >
                 {String.slice(c.error_message, 0, 200)}
               </div>
               <details :if={c.detail["input"] || c.detail["output"]} style="margin-top:0.25rem">
-                <summary style="cursor:pointer;opacity:0.8;font-size:0.64rem;color:var(--text-muted)">in / out</summary>
+                <summary style="cursor:pointer;opacity:0.8;font-size:0.64rem;color:var(--text-muted)">
+                  in / out
+                </summary>
                 <div :if={c.detail["input"]} style="margin-top:0.2rem">
-                  <div style="font-size:0.62rem;font-weight:600;color:var(--text-secondary)">→ in <span style="font-weight:400;color:var(--text-muted)">(user message only — the system prompt/rulebook is billed in the token count but not stored)</span></div>
-                  <div style="font-size:0.64rem;color:var(--text-muted);white-space:pre-wrap;max-height:8rem;overflow:auto;overflow-wrap:anywhere;font-family:var(--font-mono,monospace)">{String.slice(to_string(c.detail["input"]), 0, 1200)}</div>
+                  <div style="font-size:0.62rem;font-weight:600;color:var(--text-secondary)">
+                    → in
+                    <span style="font-weight:400;color:var(--text-muted)">(user message only — the system prompt/rulebook is billed in the token count but not stored)</span>
+                  </div>
+                  <div style="font-size:0.64rem;color:var(--text-muted);white-space:pre-wrap;max-height:8rem;overflow:auto;overflow-wrap:anywhere;font-family:var(--font-mono,monospace)">
+                    {String.slice(to_string(c.detail["input"]), 0, 1200)}
+                  </div>
                 </div>
                 <div :if={c.detail["output"]} style="margin-top:0.3rem">
-                  <div style="font-size:0.62rem;font-weight:600;color:var(--text-secondary)">← out</div>
-                  <div style="font-size:0.64rem;color:var(--text-muted);white-space:pre-wrap;max-height:8rem;overflow:auto;overflow-wrap:anywhere;font-family:var(--font-mono,monospace)">{String.slice(to_string(c.detail["output"]), 0, 1200)}</div>
+                  <div style="font-size:0.62rem;font-weight:600;color:var(--text-secondary)">
+                    ← out
+                  </div>
+                  <div style="font-size:0.64rem;color:var(--text-muted);white-space:pre-wrap;max-height:8rem;overflow:auto;overflow-wrap:anywhere;font-family:var(--font-mono,monospace)">
+                    {String.slice(to_string(c.detail["output"]), 0, 1200)}
+                  </div>
                 </div>
               </details>
             </li>
@@ -330,9 +354,14 @@ defmodule RuleMavenWeb.AuditModal do
           <%= for c <- @chunks do %>
             <li style="border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.6rem;background:var(--bg-subtle)">
               <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-muted);font-weight:700;margin-bottom:0.2rem">
-                {c.section_label || "Chunk ##{c.chunk_index}"}<%= if c.page_number do %> · p.{c.page_number}<% end %>
+                {c.section_label || "Chunk ##{c.chunk_index}"}
+                <%= if c.page_number do %>
+                  · p.{c.page_number}
+                <% end %>
               </div>
-              <div style="font-size:0.72rem;color:var(--text);white-space:pre-wrap;max-height:8rem;overflow:auto;overflow-wrap:anywhere">{c.content}</div>
+              <div style="font-size:0.72rem;color:var(--text);white-space:pre-wrap;max-height:8rem;overflow:auto;overflow-wrap:anywhere">
+                {c.content}
+              </div>
             </li>
           <% end %>
         </ol>
@@ -349,7 +378,9 @@ defmodule RuleMavenWeb.AuditModal do
         <summary style="cursor:pointer;font-size:0.72rem;color:var(--text-muted)">
           Show vector ({length(@embedding)} floats)
         </summary>
-        <div style="margin-top:0.3rem;font-size:0.64rem;color:var(--text-muted);white-space:pre-wrap;max-height:10rem;overflow:auto;overflow-wrap:anywhere;font-family:var(--font-mono,monospace)">[{Enum.map_join(@embedding, ", ", &Float.round(&1 * 1.0, 5))}]</div>
+        <div style="margin-top:0.3rem;font-size:0.64rem;color:var(--text-muted);white-space:pre-wrap;max-height:10rem;overflow:auto;overflow-wrap:anywhere;font-family:var(--font-mono,monospace)">
+          [{Enum.map_join(@embedding, ", ", &Float.round(&1 * 1.0, 5))}]
+        </div>
       </details>
     </section>
     """
@@ -385,7 +416,10 @@ defmodule RuleMavenWeb.AuditModal do
         <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-muted)">
           <span>Wall time</span><span>{fmt_dur(@totals.duration_ms)}</span>
         </div>
-        <div :if={cache_hit?(@row)} style="margin-top:0.3rem;font-size:0.72rem;color:var(--accent-ink,var(--accent));font-weight:600">
+        <div
+          :if={cache_hit?(@row)}
+          style="margin-top:0.3rem;font-size:0.72rem;color:var(--accent-ink,var(--accent));font-weight:600"
+        >
           Cache hit — the answer was copied from the pool; the {fmt_usd(@totals.cost)} above is just the lookup (embed + normalize), no generation.
         </div>
       </div>
@@ -400,7 +434,9 @@ defmodule RuleMavenWeb.AuditModal do
       <div style="font-size:0.78rem;color:var(--text);display:flex;flex-direction:column;gap:0.5rem">
         <%= if @source do %>
           <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.5rem 0.6rem">
-            <div style="font-size:0.66rem;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-muted);font-weight:700;margin-bottom:0.2rem">Matched source (##{@source.id})</div>
+            <div style="font-size:0.66rem;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-muted);font-weight:700;margin-bottom:0.2rem">
+              Matched source (##{@source.id})
+            </div>
             <div style="word-break:break-word">{qtext(@source)}</div>
           </div>
         <% else %>
@@ -413,7 +449,10 @@ defmodule RuleMavenWeb.AuditModal do
           <div style="font-size:0.66rem;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-muted);font-weight:700;margin-bottom:0.25rem">
             Served {@children.count} later ask(s) via pool
           </div>
-          <ul :if={@children.count > 0} style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0.25rem">
+          <ul
+            :if={@children.count > 0}
+            style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0.25rem"
+          >
             <%= for child <- @children.rows do %>
               <li style="font-size:0.74rem;color:var(--text-secondary);border-left:2px solid var(--border);padding-left:0.5rem;word-break:break-word">
                 {qtext(child)}
@@ -496,8 +535,8 @@ defmodule RuleMavenWeb.AuditModal do
           "via"
         ] || "system"}
         <span style="opacity:0.85;font-weight:400">&middot; 👍 {@entry.metadata["upvotes"] || 0} 👎 {@entry.metadata[
-            "downvotes"
-          ] || 0}{history_flags(@entry.metadata)}</span>
+          "downvotes"
+        ] || 0}{history_flags(@entry.metadata)}</span>
       </summary>
       <div style="padding:0.6rem;display:flex;flex-direction:column;gap:1rem;border-top:1px solid var(--border)">
         <section>
@@ -590,8 +629,11 @@ defmodule RuleMavenWeb.AuditModal do
           _ -> "Everyone · unverified FAQ"
         end
 
-      :crew -> "Crew only"
-      :private -> "Asker only"
+      :crew ->
+        "Crew only"
+
+      :private ->
+        "Asker only"
     end
   end
 
