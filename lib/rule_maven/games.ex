@@ -3007,6 +3007,21 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
+  When the game's rulebook chunks were last rebuilt: the newest chunk
+  `inserted_at` across its documents (chunk_document replaces a document's
+  chunks in one batch). `nil` when the game has no chunks.
+  """
+  def rechunked_at(game_id) do
+    Repo.one(
+      from c in Chunk,
+        join: d in Document,
+        on: c.document_id == d.id,
+        where: d.game_id == ^game_id,
+        select: max(c.inserted_at)
+    )
+  end
+
+  @doc """
   For a pooled question, the source row whose answer it was served from
   (`pool_source_id`). `nil` when the row was not pooled or the source is gone.
   """

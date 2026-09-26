@@ -54,9 +54,9 @@ defmodule RuleMavenWeb.AuditModal do
         source: Games.pool_source(row),
         children: Games.pool_children(id),
         embedding: row.question_embedding && Pgvector.to_list(row.question_embedding),
-        chunks: Games.chunks_by_ids(row.source_chunk_ids || []),
         history: history_bundles(row, current_user)
       }
+      |> Map.merge(chunk_context(row))
     else
       _ -> nil
     end
@@ -93,8 +93,23 @@ defmodule RuleMavenWeb.AuditModal do
       row: row,
       trace: LLM.calls_for_question(entry.target_id),
       source: Games.pool_source(row),
-      children: Games.pool_children(entry.target_id),
-      chunks: Games.chunks_by_ids(row.source_chunk_ids || [])
+      children: Games.pool_children(entry.target_id)
+    }
+    |> Map.merge(chunk_context(row))
+  end
+
+  # The chunks a row was answered from, plus how many are gone. Re-chunking a
+  # rulebook replaces its chunks (new ids), so an older answer's recorded ids
+  # stop resolving — say when that happened instead of showing an empty list.
+  defp chunk_context(%QuestionLog{source_chunk_ids: ids, game_id: game_id}) do
+    ids = ids || []
+    chunks = Games.chunks_by_ids(ids)
+    missing = length(ids) - length(chunks)
+
+    %{
+      chunks: chunks,
+      missing_chunks: missing,
+      rechunked_at: if(missing > 0 and game_id, do: Games.rechunked_at(game_id))
     }
   end
 
@@ -187,6 +202,8 @@ defmodule RuleMavenWeb.AuditModal do
       |> assign(:children, assigns.audit.children)
       |> assign(:embedding, assigns.audit[:embedding])
       |> assign(:chunks, assigns.audit[:chunks] || [])
+      |> assign(:missing_chunks, assigns.audit[:missing_chunks] || 0)
+      |> assign(:rechunked_at, assigns.audit[:rechunked_at])
       |> assign(:history, assigns.audit[:history] || [])
 
     ~H"""
@@ -338,36 +355,56 @@ defmodule RuleMavenWeb.AuditModal do
     ~H"""
     <section>
       {section_head("Retrieved context — #{length(@chunks)} chunk(s)")}
-      <%= if @chunks == [] do %>
-        <div style="font-size:0.74rem;color:var(--text-muted)">
-          <%= if cache_hit?(@row) do %>
-            Cache hit — retrieval didn't run. The grounding lives on the matched source's own trail (see lineage).
-          <% else %>
-            No source chunks recorded for this row.
-          <% end %>
-        </div>
-      <% else %>
-        <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.4rem">
-          The exact rulebook passages fed to the model (the full rulebook is in the admin extracted-text view).
-        </div>
-        <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0.4rem">
-          <%= for c <- @chunks do %>
-            <li style="border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.6rem;background:var(--bg-subtle)">
-              <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-muted);font-weight:700;margin-bottom:0.2rem">
-                {c.section_label || "Chunk ##{c.chunk_index}"}
-                <%= if c.page_number do %>
-                  · p.{c.page_number}
-                <% end %>
-              </div>
-              <div style="font-size:0.72rem;color:var(--text);white-space:pre-wrap;max-height:8rem;overflow:auto;overflow-wrap:anywhere">
-                {c.content}
-              </div>
-            </li>
-          <% end %>
-        </ol>
+      <div
+        :if={@missing_chunks > 0}
+        style="font-size:0.74rem;color:var(--text-secondary);margin-bottom:0.4rem"
+      >
+        {rechunked_note(@missing_chunks, @chunks, @rechunked_at)}
+      </div>
+      <%= cond do %>
+        <% @chunks == [] and @missing_chunks > 0 -> %>
+        <% @chunks == [] -> %>
+          <div style="font-size:0.74rem;color:var(--text-muted)">
+            <%= if cache_hit?(@row) do %>
+              Cache hit — retrieval didn't run. The grounding lives on the matched source's own trail (see lineage).
+            <% else %>
+              No source chunks recorded for this row.
+            <% end %>
+          </div>
+        <% true -> %>
+          <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.4rem">
+            The exact rulebook passages fed to the model (the full rulebook is in the admin extracted-text view).
+          </div>
+          <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0.4rem">
+            <%= for c <- @chunks do %>
+              <li style="border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.6rem;background:var(--bg-subtle)">
+                <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-muted);font-weight:700;margin-bottom:0.2rem">
+                  {c.section_label || "Chunk ##{c.chunk_index}"}
+                  <%= if c.page_number do %>
+                    · p.{c.page_number}
+                  <% end %>
+                </div>
+                <div style="font-size:0.72rem;color:var(--text);white-space:pre-wrap;max-height:8rem;overflow:auto;overflow-wrap:anywhere">
+                  {c.content}
+                </div>
+              </li>
+            <% end %>
+          </ol>
       <% end %>
     </section>
     """
+  end
+
+  defp rechunked_note(missing, chunks, rechunked_at) do
+    which =
+      if chunks == [],
+        do: "the #{missing} chunk(s) this answer was built from",
+        else: "#{missing} of the chunks this answer was built from"
+
+    when_text = if rechunked_at, do: " on #{fmt_dt(rechunked_at)}", else: ""
+
+    "⚠ Rulebook re-chunked#{when_text} — #{which} no longer exist, so this " <>
+      "retrieval snapshot is invalidated. Regenerate to answer from the current chunks."
   end
 
   defp embedding(assigns) do
@@ -525,6 +562,8 @@ defmodule RuleMavenWeb.AuditModal do
       source: bundle.source,
       children: bundle.children,
       chunks: bundle.chunks,
+      missing_chunks: bundle.missing_chunks,
+      rechunked_at: bundle.rechunked_at,
       embedding: nil
     }
 
