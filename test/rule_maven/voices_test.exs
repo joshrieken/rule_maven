@@ -103,13 +103,13 @@ defmodule RuleMaven.VoicesTest do
     test "returns a non-empty list for neutral (generic pool only)" do
       g = game()
       phrases = Voices.loading_phrases("neutral", g)
-      assert is_list(phrases) and phrases != []
+      assert match?([_ | _], phrases)
       assert Enum.all?(phrases, &is_binary/1)
     end
 
     test "returns a non-empty list for an unknown voice (generic pool only)" do
       g = game()
-      assert Voices.loading_phrases("does-not-exist", g) != []
+      assert match?([_ | _], Voices.loading_phrases("does-not-exist", g))
     end
 
     test "a built-in persona's own phrases are returned exclusively, no generic mixed in" do
@@ -208,7 +208,7 @@ defmodule RuleMaven.VoicesTest do
         ])
 
       phrases = Voices.loading_phrases("g:plain-gen", g)
-      assert phrases != []
+      assert match?([_ | _], phrases)
       assert "Reticulating splines…" in phrases
     end
   end

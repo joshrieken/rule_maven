@@ -142,3 +142,7 @@ Only a re-extract resets `reviewed` — NEVER cleanup: the advance runs cleanup 
 reset there re-closed the review gate behind the pipeline (the Black Plague loop).
 Edit page review banner lists flagged pages as jump chips ("goto_source_page"; ⚠ = blocks Ready);
 Mark reviewed advances to the next flagged page.
+
+Chunking: `Games.chunk_document/1` → `carry_scenario_headings/1` adds "(Continues: QUEST 0: …)" under
+`[Page N]` for chunks continuing a scenario (≤2 pages past the heading; ToC lines ignored). Re-chunk
+(re-embed) a doc to apply it to existing games.

@@ -4413,10 +4413,9 @@ defmodule RuleMaven.Games do
       |> Enum.flat_map(fn {page_num, page_text} ->
         page_text
         |> split_into_chunks(500)
-        |> Enum.map(fn chunk_text ->
-          %{content: "[Page #{page_num}]\n#{String.trim(chunk_text)}", page_number: page_num}
-        end)
+        |> Enum.map(&{page_num, String.trim(&1)})
       end)
+      |> carry_scenario_headings()
       |> Enum.with_index()
       |> Enum.map(fn {%{content: text, page_number: pn}, idx} ->
         section = detect_section_label(text)
@@ -4456,6 +4455,53 @@ defmodule RuleMaven.Games do
       %{document_id: doc.id}
       |> RuleMaven.Workers.EmbedChunksWorker.new()
       |> Oban.insert()
+    end
+  end
+
+  # A scenario's rules often run onto a second page, and only the first carries
+  # its title — so the continuation chunk reached the model as unlabeled rules.
+  # Measured on Zombicide: Black Plague: "QUEST 0: TUTORIAL: DANSE MACABRE" sat
+  # on p.38, its special rules ("The green Spawn Zone is inactive until the
+  # green Objective is taken") on p.39; asked about Quest 0's green spawn, the
+  # model credited the rule to Quest 2 and said Quest 0 didn't exist.
+  #
+  # Each chunk that doesn't itself show the scenario heading in effect gets a
+  # "(Continues: <heading>)" line under its [Page N] marker (the marker stays
+  # first and unchanged — citation parsing keys on it). A heading carries at
+  # most @heading_carry_pages past its own page, or until the next heading, so
+  # it can't bleed into the reference pages that follow the scenarios.
+  @scenario_heading ~r/^\s*(?:QUEST|SCENARIO|MISSION|ADVENTURE|CHAPTER)\s+[A-Z]?\d+[A-Z]?\b.*$/imu
+  @heading_carry_pages 2
+
+  defp carry_scenario_headings(chunks) do
+    {out, _state} =
+      Enum.map_reduce(chunks, nil, fn {page_num, text}, state ->
+        prefix = continuation_prefix(state, page_num, text)
+        chunk = %{content: "[Page #{page_num}]\n#{prefix}#{text}", page_number: page_num}
+        {chunk, last_scenario_heading(text, page_num) || state}
+      end)
+
+    out
+  end
+
+  defp continuation_prefix({heading, from_page}, page_num, text)
+       when is_integer(page_num) and page_num - from_page <= @heading_carry_pages do
+    if String.contains?(text, heading), do: "", else: "(Continues: #{heading})\n"
+  end
+
+  defp continuation_prefix(_state, _page_num, _text), do: ""
+
+  # The last scenario heading line in a chunk, skipping table-of-contents lines
+  # ("QUEST 0 DANSE MACABRE ........ 38") so the ToC page doesn't start a carry.
+  defp last_scenario_heading(text, page_num) do
+    @scenario_heading
+    |> Regex.scan(text)
+    |> Enum.map(fn [line] -> String.trim(line) end)
+    |> Enum.reject(&(&1 =~ ~r/\.{3,}|…/u or String.length(&1) > 80))
+    |> List.last()
+    |> case do
+      nil -> nil
+      heading -> {heading, page_num}
     end
   end
 
