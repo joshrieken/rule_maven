@@ -5646,8 +5646,16 @@ defmodule RuleMavenWeb.GameLive.Show do
   # ("Do eliminated Survivors count toward the Danger Level?" → illegal), where
   # the polarity is right but "NOT ALLOWED" is not — those get YES / NO. Decided
   # at render from the thread's question, so it corrects stored answers too.
+  #
+  # A NEGATIVELY-phrased question ("Is there a disadvantage to…?") also keeps the
+  # permission labels: its Yes/No is inverted relative to the verdict, and the
+  # answer's own lead is stripped there (`Polarity.strip_inverted_lead/2`), so a
+  # bare YES over "There is no inherent disadvantage…" would read backwards.
+  # LEGAL MOVE describes the action and stays unambiguous.
   defp verdict_stamp(verdict, question) when verdict in ["legal", "illegal"] do
-    if RuleMaven.LLM.QuestionFacets.permission_question?(question),
+    alias RuleMaven.LLM.{Polarity, QuestionFacets}
+
+    if QuestionFacets.permission_question?(question) or Polarity.negative?(question),
       do: verdict_stamp(verdict),
       else: yes_no_stamp(verdict)
   end

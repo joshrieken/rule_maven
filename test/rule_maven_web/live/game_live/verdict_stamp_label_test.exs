@@ -40,4 +40,17 @@ defmodule RuleMavenWeb.GameLive.VerdictStampLabelTest do
     html = render_thread(conn, "Can I attack a zombie in my own zone?", "illegal")
     assert html =~ "NOT ALLOWED"
   end
+
+  test "a negatively-phrased question keeps the action label", %{conn: conn} do
+    # Its Yes/No is inverted vs the verdict ("No disadvantage" = the attack is
+    # fine), so YES/NO would read backwards; LEGAL MOVE describes the action.
+    html =
+      render_thread(
+        conn,
+        "Is there a disadvantage to attacking zombies within your own zone?",
+        "legal"
+      )
+
+    assert html =~ "LEGAL MOVE"
+  end
 end
