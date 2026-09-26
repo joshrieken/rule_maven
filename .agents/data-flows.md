@@ -138,3 +138,5 @@ Cleanup-critic `cleanup_defects` flag pages in the UI (`page_needs_review?/1`) b
 gate review — cleanup runs AFTER review, so they deadlocked the pipeline.
 Edit page "Mark reviewed" → `Games.mark_page_reviewed/2` sets Page `reviewed` (silences both
 flags) + `Readiness.advance/1`. Re-extract or a cleanup pass recording defects resets it.
+Edit page review banner lists flagged pages as jump chips ("goto_source_page"; ⚠ = blocks Ready);
+Mark reviewed advances to the next flagged page.

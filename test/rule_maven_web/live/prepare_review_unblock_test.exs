@@ -60,17 +60,50 @@ defmodule RuleMavenWeb.PrepareReviewUnblockTest do
     assert html =~ "Still blocked: 1 low-confidence page needs review"
   end
 
-  test "Mark reviewed on the edit page clears the review gate", %{
+  test "flagged pages are one click away, and Mark reviewed walks the queue", %{
     conn: conn,
     game: game,
     doc: doc
   } do
+    # Add an advisory (cleanup-defect) page after the blocking one.
+    {:ok, _} =
+      doc
+      |> Document.changeset(%{
+        pages: [
+          %{index: 0, printed: 1, text: "raw 0", cleaned: "clean 0", confidence: 0.3},
+          %{index: 1, printed: 2, text: "raw 1", cleaned: "clean 1", confidence: 0.9},
+          %{
+            index: 2,
+            printed: 3,
+            text: "raw 2",
+            cleaned: "clean 2",
+            confidence: 0.9,
+            cleanup_defects: ["JUNK: header"]
+          }
+        ]
+      })
+      |> Repo.update()
+
     refute Readiness.step_complete?(:review, game, Games.list_documents(game))
 
-    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/edit")
+    {:ok, view, _html} = live(conn, "/games/#{RuleMaven.Hashid.encode(game.id)}/edit?tab=manage")
+    html = render_click(view, "bypass_bgg_gate", %{})
+
+    assert html =~ "2 of 3 page(s) flagged for review — 1 low-confidence blocking Ready"
+    assert has_element?(view, ~s(button[phx-click="goto_source_page"][phx-value-page="0"]))
+    assert has_element?(view, ~s(button[phx-click="goto_source_page"][phx-value-page="2"]))
+    refute has_element?(view, ~s(button[phx-click="goto_source_page"][phx-value-page="1"]))
+
     html = render_click(view, "mark_reviewed", %{"id" => "0", "page" => "0"})
 
-    assert html =~ "Page marked reviewed."
+    assert html =~ "Page marked reviewed — next flagged page."
+    assert html =~ "none blocking Ready"
+    # Landed on the next flagged page (index 2).
+    assert has_element?(
+             view,
+             ~s(button[phx-click="goto_source_page"][phx-value-page="2"][aria-current="page"])
+           )
+
     assert hd(Games.get_document!(doc.id).pages).reviewed
     assert Readiness.step_complete?(:review, game, Games.list_documents(game))
   end

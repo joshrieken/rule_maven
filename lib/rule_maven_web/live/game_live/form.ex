@@ -706,6 +706,10 @@ defmodule RuleMavenWeb.GameLive.Form do
     end
   end
 
+  def handle_event("goto_source_page", %{"id" => id, "page" => page}, socket) do
+    {:noreply, persist_source_page(socket, String.to_integer(id), String.to_integer(page))}
+  end
+
   def handle_event("source_page_step", %{"id" => id, "delta" => delta}, socket) do
     id = String.to_integer(id)
     cur = Map.get(socket.assigns.source_page, id, 0)
@@ -810,10 +814,28 @@ defmodule RuleMavenWeb.GameLive.Form do
 
       RuleMaven.Readiness.advance(socket.assigns.game.id)
 
+      # Walk the review queue: land on the next still-flagged page (wrapping),
+      # so reviewing is click → read → click, not paging through the book.
+      next =
+        entries
+        |> Enum.find(&(&1.id == id))
+        |> Map.fetch!(:pages)
+        |> flagged_pages()
+        |> Enum.map(&elem(&1, 1))
+        |> then(&(Enum.find(&1, fn i -> i > page end) || List.first(&1)))
+
+      socket = assign(socket, source_entries: entries)
+      socket = if next, do: persist_source_page(socket, id, next), else: socket
+
       {:noreply,
-       socket
-       |> assign(source_entries: entries)
-       |> put_flash(:info, "Page marked reviewed.")}
+       put_flash(
+         socket,
+         :info,
+         if(next,
+           do: "Page marked reviewed — next flagged page.",
+           else: "Page marked reviewed — none left."
+         )
+       )}
     else
       _ ->
         {:noreply, put_flash(socket, :error, "Save the rulebook before marking a page reviewed.")}
@@ -2314,9 +2336,7 @@ defmodule RuleMavenWeb.GameLive.Form do
               or falsely render as the first printed page). --%>
         <select name={"pagesel_#{@id}"} phx-change="set_source_page" style={@select_style}>
           <option :for={{p, i} <- Enum.with_index(@pages)} value={i} selected={i == @cur}>
-            {if p.printed,
-              do: "#{p.printed}",
-              else: "Sheet #{p.sheet}#{sheet_half_suffix(p)} (unnumbered)"}
+            {if p.printed, do: page_num_label(p), else: "#{page_num_label(p)} (unnumbered)"}
           </option>
         </select>
       </label>
@@ -2421,7 +2441,8 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     %{
       graded: Enum.count(pages, &is_number(&1[:confidence])),
-      flagged: Enum.count(pages, & &1[:needs_review])
+      flagged: Enum.count(pages, & &1[:needs_review]),
+      blocking: Enum.count(pages, &Games.page_blocks_review?/1)
     }
   end
 
@@ -2439,9 +2460,11 @@ defmodule RuleMavenWeb.GameLive.Form do
       >✓ All {@summary.graded} page(s) passed the confidence check</span>
       <span
         :if={@summary.flagged > 0}
-        title="Some pages had low extraction confidence. Open them below to verify or re-extract."
+        title="Low extraction confidence blocks the prepare pipeline until the page is re-extracted or marked reviewed. Cleanup defects are advisory. Open the pages below to verify."
         style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.75rem;font-weight:600;padding:0.25rem 0.6rem;border-radius:0.3rem;border:1px solid var(--amber-border, #d4a017);background:var(--amber-bg, rgba(212,160,23,0.12));color:var(--amber-text, #b8860b)"
-      >⚠ {@summary.flagged} of {@summary.graded} page(s) flagged for review</span>
+      >⚠ {@summary.flagged} of {@summary.graded} page(s) flagged for review{if @summary.blocking > 0,
+        do: " — #{@summary.blocking} low-confidence blocking Ready",
+        else: " — none blocking Ready"}</span>
     </div>
     """
   end
@@ -2450,6 +2473,7 @@ defmodule RuleMavenWeb.GameLive.Form do
     assigns =
       assign(assigns,
         flagged: Enum.count(assigns.pages, & &1[:needs_review]),
+        flagged_pages: flagged_pages(assigns.pages),
         cur_flagged?: match?(%{needs_review: true}, Enum.at(assigns.pages, assigns.cur)),
         cur_defects: cur_defects(Enum.at(assigns.pages, assigns.cur))
       )
@@ -2488,10 +2512,30 @@ defmodule RuleMavenWeb.GameLive.Form do
           class="btn-xs"
         >{if @busy, do: "Re-extracting…", else: "Re-extract (stronger model)"}</button>
       </div>
-      <span
-        :if={not @cur_flagged?}
-        style="font-size:0.68rem;color:var(--text-muted)"
-      >⚠ {@flagged} page(s) flagged for review — navigate to them to verify.</span>
+      <%!-- Jump straight to each flagged page instead of paging through the
+            whole book. ⚠ marks low-confidence pages (they block Ready); the
+            rest carry advisory cleanup defects. --%>
+      <div
+        role="group"
+        aria-label="Flagged pages"
+        style="display:flex;flex-wrap:wrap;align-items:center;gap:0.3rem;margin-top:0.4rem;font-size:0.7rem;color:var(--text-muted)"
+      >
+        <span>Flagged pages:</span>
+        <button
+          :for={{p, i} <- @flagged_pages}
+          type="button"
+          phx-click="goto_source_page"
+          phx-value-id={@id}
+          phx-value-page={i}
+          aria-current={if i == @cur, do: "page"}
+          title={
+            if Games.page_blocks_review?(p),
+              do: "Low-confidence extraction — blocks Ready",
+              else: "Cleanup defects (advisory)"
+          }
+          class={if i == @cur, do: "btn-xs btn-primary", else: "btn-xs"}
+        >{page_num_label(p)}{if Games.page_blocks_review?(p), do: " ⚠"}</button>
+      </div>
 
       <%!-- Bulk action: re-extract every flagged page at once. Shown whichever
             page you're on, so you don't have to visit each one. --%>
@@ -2510,6 +2554,15 @@ defmodule RuleMavenWeb.GameLive.Form do
     </div>
     """
   end
+
+  # {page, index} for every page still flagged for review, in book order.
+  defp flagged_pages(pages) do
+    pages |> Enum.with_index() |> Enum.filter(fn {p, _i} -> p[:needs_review] end)
+  end
+
+  # Same label the page dropdown shows: printed number, else the sheet.
+  defp page_num_label(%{printed: n}) when is_integer(n), do: "#{n}"
+  defp page_num_label(p), do: "Sheet #{p.sheet}#{sheet_half_suffix(p)}"
 
   # Cleanup-critic defects recorded on a page (empty when the flag, if any, is
   # low extraction confidence instead).
@@ -2730,7 +2783,7 @@ defmodule RuleMavenWeb.GameLive.Form do
 
           <div class="border rounded-lg p-3 mb-4">
             <label class="block text-xs font-medium mb-1 text-gray-500">Find on BGG to auto-fill</label>
-            <form phx-submit="bgg_search" class="flex gap-2">
+            <form id="bgg-search-form" phx-submit="bgg_search" class="flex gap-2">
               <input
                 type="text"
                 name="search"
@@ -2992,7 +3045,7 @@ defmodule RuleMavenWeb.GameLive.Form do
               </div>
             <% end %>
           <% end %>
-          <form phx-submit="download">
+          <form id="rulebook-download-form" phx-submit="download">
             <div style="margin-bottom:0.5rem">
               <label class="block text-xs font-medium mb-1 text-gray-500">PDF URL</label>
               <input
