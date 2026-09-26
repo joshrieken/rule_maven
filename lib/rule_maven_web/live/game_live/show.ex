@@ -5647,17 +5647,22 @@ defmodule RuleMavenWeb.GameLive.Show do
   # the polarity is right but "NOT ALLOWED" is not — those get YES / NO. Decided
   # at render from the thread's question, so it corrects stored answers too.
   #
-  # A NEGATIVELY-phrased question ("Is there a disadvantage to…?") also keeps the
-  # permission labels: its Yes/No is inverted relative to the verdict, and the
-  # answer's own lead is stripped there (`Polarity.strip_inverted_lead/2`), so a
-  # bare YES over "There is no inherent disadvantage…" would read backwards.
-  # LEGAL MOVE describes the action and stays unambiguous.
+  # A NEGATIVELY-phrased question ("Is there a disadvantage to…?", "Is it
+  # forbidden to…?") gets no polarity stamp at all, only 📖 IN THE RULES. Its
+  # polarity is unreliable from every source: the answer's own Yes/No lead flips
+  # (so `Polarity.strip_inverted_lead/2` drops it), and measured on Black Plague
+  # the model's `verdict` flips too — "no disadvantage to attacking in your own
+  # zone" came back `illegal` (the question's No) on one run and `legal` (the
+  # action's permission) on another. The stripped body states the rule plainly;
+  # a stamp that can invert it adds only risk.
   defp verdict_stamp(verdict, question) when verdict in ["legal", "illegal"] do
     alias RuleMaven.LLM.{Polarity, QuestionFacets}
 
-    if QuestionFacets.permission_question?(question) or Polarity.negative?(question),
-      do: verdict_stamp(verdict),
-      else: yes_no_stamp(verdict)
+    cond do
+      Polarity.negative?(question) -> verdict_stamp("info")
+      QuestionFacets.permission_question?(question) -> verdict_stamp(verdict)
+      true -> yes_no_stamp(verdict)
+    end
   end
 
   defp verdict_stamp(verdict, _question), do: verdict_stamp(verdict)

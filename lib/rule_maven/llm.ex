@@ -945,8 +945,8 @@ defmodule RuleMaven.LLM do
   # the lead is DROPPED rather than trusted. What remains ("A player cannot trade
   # before rolling for resource production.") is correct whichever way the model was
   # leaning, costs no extra call, and has nothing left to invert. The `verdict`
-  # field still feeds the verdict stamp — it is judged on the action, not on how the
-  # question happened to be phrased.
+  # field is unreliable here too, so the answer view shows no legal/illegal stamp
+  # on negative questions (`GameLive.Show.verdict_stamp/2`).
   defp drop_lead_on_negative_question({:ok, %{answer: answer} = res}, question)
        when is_binary(answer) do
     # The persona `styled_answer` is prose over the SAME verdict, so it carries

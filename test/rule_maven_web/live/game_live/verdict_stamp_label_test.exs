@@ -41,16 +41,21 @@ defmodule RuleMavenWeb.GameLive.VerdictStampLabelTest do
     assert html =~ "NOT ALLOWED"
   end
 
-  test "a negatively-phrased question keeps the action label", %{conn: conn} do
-    # Its Yes/No is inverted vs the verdict ("No disadvantage" = the attack is
-    # fine), so YES/NO would read backwards; LEGAL MOVE describes the action.
-    html =
-      render_thread(
-        conn,
-        "Is there a disadvantage to attacking zombies within your own zone?",
-        "legal"
-      )
+  # Measured: the model returned both `legal` and `illegal` for "no
+  # disadvantage" answers, and the Yes/No lead is stripped — so neither YES/NO
+  # nor ALLOWED can be trusted there. The body carries the rule.
+  for verdict <- ["legal", "illegal"] do
+    test "a negatively-phrased question gets no polarity stamp (#{verdict})", %{conn: conn} do
+      html =
+        render_thread(
+          conn,
+          "Is there a disadvantage to attacking zombies within your own zone?",
+          unquote(verdict)
+        )
 
-    assert html =~ "LEGAL MOVE"
+      assert html =~ "IN THE RULES"
+      refute html =~ "NOT ALLOWED"
+      refute html =~ "LEGAL MOVE"
+    end
   end
 end

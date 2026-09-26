@@ -92,9 +92,9 @@ defmodule RuleMaven.LLM.Polarity do
 
   So the lead is removed rather than corrected. "A player cannot trade before
   rolling for resource production." is right no matter which way the model was
-  leaning, needs no extra call, and cannot invert. The `verdict` field
-  (legal/illegal) still drives the verdict stamp, and it is judged on the action
-  rather than on the question's phrasing.
+  leaning, needs no extra call, and cannot invert. The model's `verdict` field
+  flips on these questions too, so the answer view shows no legal/illegal stamp
+  for them (📖 IN THE RULES instead — see `GameLive.Show.verdict_stamp/2`).
 
   Positive questions keep their lead: that is where **Yes**/**No** is unambiguous
   and load-bearing, and the existing citation-contradiction check already guards it.
