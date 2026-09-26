@@ -61,7 +61,7 @@ defmodule RuleMaven.GamesChunkHeadingsTest do
     refute page.(41) =~ "Continues"
   end
 
-  test "the carry stops a few pages after its heading" do
+  test "the carry stops one page after its heading" do
     chunks =
       chunk_contents([
         {10, "QUEST 5: LAST STAND\nsetup"},
@@ -72,7 +72,28 @@ defmodule RuleMaven.GamesChunkHeadingsTest do
 
     by_page = Map.new(chunks)
     assert by_page[11] =~ "(Continues: QUEST 5: LAST STAND)"
-    assert by_page[12] =~ "(Continues: QUEST 5: LAST STAND)"
+    # One page past the heading is the limit: the next page may already be a
+    # reference section (Black Plague's SKILLS followed Quest 10's map page).
+    refute by_page[12] =~ "Continues"
     refute by_page[13] =~ "Continues"
+  end
+
+  test "decorated headings with the name on the next line" do
+    chunks =
+      chunk_contents([
+        {40, "◆QUEST 1:\nBIG GAME HUNTING\nsetup"},
+        {41, "special rules one"},
+        {43, "[diamond shape] QUEST 4:\n# FAMINE\nsetup"},
+        {44, "special rules four"},
+        {46, "**QUEST 7:**\n# DEAD TRAIL\nsetup"},
+        {47, "special rules seven"}
+      ])
+
+    by_page = Map.new(chunks)
+    assert by_page[41] =~ "(Continues: QUEST 1: BIG GAME HUNTING)"
+    assert by_page[44] =~ "(Continues: QUEST 4: FAMINE)"
+    assert by_page[47] =~ "(Continues: QUEST 7: DEAD TRAIL)"
+    # A page with its own heading is never labeled with the previous one.
+    refute by_page[43] =~ "Continues"
   end
 end

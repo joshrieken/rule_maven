@@ -144,5 +144,5 @@ Edit page review banner lists flagged pages as jump chips ("goto_source_page"; �
 Mark reviewed advances to the next flagged page.
 
 Chunking: `Games.chunk_document/1` → `carry_scenario_headings/1` adds "(Continues: QUEST 0: …)" under
-`[Page N]` for chunks continuing a scenario (≤2 pages past the heading; ToC lines ignored). Re-chunk
+`[Page N]` for chunks continuing a scenario (one page past the heading; decorated two-line headings joined; ToC lines ignored). Prepare embed step "⟳ Re-chunk" applies it to embedded docs. Re-chunk
 (re-embed) a doc to apply it to existing games.

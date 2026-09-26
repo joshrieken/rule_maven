@@ -4467,43 +4467,56 @@ defmodule RuleMaven.Games do
   #
   # Each chunk that doesn't itself show the scenario heading in effect gets a
   # "(Continues: <heading>)" line under its [Page N] marker (the marker stays
-  # first and unchanged — citation parsing keys on it). A heading carries at
-  # most @heading_carry_pages past its own page, or until the next heading, so
-  # it can't bleed into the reference pages that follow the scenarios.
-  @scenario_heading ~r/^\s*(?:QUEST|SCENARIO|MISSION|ADVENTURE|CHAPTER)\s+[A-Z]?\d+[A-Z]?\b.*$/imu
-  @heading_carry_pages 2
+  # first and unchanged — citation parsing keys on it). A heading carries onto
+  # the page after its own, or until the next heading — no further: on Black
+  # Plague a 2-page carry labeled the SKILLS reference (p.51) as Quest 10.
+  #
+  # Headings arrive decorated from extraction ("◆QUEST 1:", "[diamond shape]
+  # QUEST 4:", "**QUEST 7:**") with the name on the NEXT line ("# FAMINE"), so
+  # leading glyphs and markdown are skipped and a bare "QUEST 4:" is joined with
+  # its name line into "QUEST 4: FAMINE".
+  @scenario_heading ~r/^[^\p{L}\p{N}\n]*(?:\[[^\]\n]*\][^\p{L}\p{N}\n]*)?((?:QUEST|SCENARIO|MISSION|ADVENTURE|CHAPTER)\s+[A-Z]?\d+[A-Z]?\b[^\n]*)(?:\n([^\n]*))?/imu
+  @bare_heading ~r/^(?:QUEST|SCENARIO|MISSION|ADVENTURE|CHAPTER)\s+[A-Z]?\d+[A-Z]?\s*:?$/iu
+  @heading_carry_pages 1
 
   defp carry_scenario_headings(chunks) do
     {out, _state} =
       Enum.map_reduce(chunks, nil, fn {page_num, text}, state ->
-        prefix = continuation_prefix(state, page_num, text)
+        own = scenario_headings(text)
+        prefix = if own == [], do: continuation_prefix(state, page_num), else: ""
         chunk = %{content: "[Page #{page_num}]\n#{prefix}#{text}", page_number: page_num}
-        {chunk, last_scenario_heading(text, page_num) || state}
+        {chunk, if(own == [], do: state, else: {List.last(own), page_num})}
       end)
 
     out
   end
 
-  defp continuation_prefix({heading, from_page}, page_num, text)
-       when is_integer(page_num) and page_num - from_page <= @heading_carry_pages do
-    if String.contains?(text, heading), do: "", else: "(Continues: #{heading})\n"
-  end
+  defp continuation_prefix({heading, from_page}, page_num)
+       when is_integer(page_num) and page_num - from_page <= @heading_carry_pages,
+       do: "(Continues: #{heading})\n"
 
-  defp continuation_prefix(_state, _page_num, _text), do: ""
+  defp continuation_prefix(_state, _page_num), do: ""
 
-  # The last scenario heading line in a chunk, skipping table-of-contents lines
-  # ("QUEST 0 DANSE MACABRE ........ 38") so the ToC page doesn't start a carry.
-  defp last_scenario_heading(text, page_num) do
+  # Normalized scenario headings in a chunk, in order. Table-of-contents lines
+  # ("QUEST 0 DANSE MACABRE ........ 38") are skipped so the ToC page doesn't
+  # start a carry.
+  defp scenario_headings(text) do
     @scenario_heading
     |> Regex.scan(text)
-    |> Enum.map(fn [line] -> String.trim(line) end)
+    |> Enum.map(fn
+      [_, line, next] -> join_heading(clean_heading(line), clean_heading(next))
+      [_, line] -> clean_heading(line)
+    end)
     |> Enum.reject(&(&1 =~ ~r/\.{3,}|…/u or String.length(&1) > 80))
-    |> List.last()
-    |> case do
-      nil -> nil
-      heading -> {heading, page_num}
-    end
   end
+
+  defp join_heading(line, next) do
+    if Regex.match?(@bare_heading, line) and next =~ ~r/\p{L}/u and String.length(next) <= 60,
+      do: "#{String.trim_trailing(line, ":")}: #{next}",
+      else: line
+  end
+
+  defp clean_heading(text), do: text |> String.replace(~r/[*#_]/u, "") |> String.trim()
 
   # Backward compat alias
   defdelegate chunk_source(source), to: __MODULE__, as: :chunk_document
