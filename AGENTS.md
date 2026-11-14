@@ -16,6 +16,7 @@ Ask questions in plain English, get answers grounded in rulebook text.
 | Codebase map (every module, file, function) | [`.agents/codebase-map.md`](.agents/codebase-map.md) |
 | Data flows (ask question, save rulebook, FAQ cluster) | [`.agents/data-flows.md`](.agents/data-flows.md) |
 | Conventions (formatting, testing, git, LiveView patterns) | [`.agents/conventions.md`](.agents/conventions.md) |
+| Import + Prepare a game end to end (Claude-authored, no paid LLM) | [`.claude/skills/import-prepare/SKILL.md`](.claude/skills/import-prepare/SKILL.md) — skill `/import-prepare` |
 
 ## How to Use
 
