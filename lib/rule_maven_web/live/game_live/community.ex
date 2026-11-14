@@ -521,6 +521,7 @@ defmodule RuleMavenWeb.GameLive.Community do
         <div style="display:flex;flex-direction:column;gap:0.6rem">
           <%= for {q, status} <- results do %>
             <.question_card
+              symbol_marks={@symbol_marks}
               q={q}
               status={status}
               show_status_badge={true}
@@ -624,6 +625,7 @@ defmodule RuleMavenWeb.GameLive.Community do
             <div style="display:flex;flex-direction:column;gap:0.6rem">
               <%= for q <- filtered do %>
                 <.question_card
+                  symbol_marks={@symbol_marks}
                   q={q}
                   status={status}
                   show_status_badge={false}
@@ -659,6 +661,7 @@ defmodule RuleMavenWeb.GameLive.Community do
                   <div style="display:flex;flex-direction:column;gap:0.6rem">
                     <%= for q <- cat_qs do %>
                       <.question_card
+                        symbol_marks={@symbol_marks}
                         q={q}
                         status={status}
                         show_status_badge={false}
@@ -688,6 +691,7 @@ defmodule RuleMavenWeb.GameLive.Community do
                 <div style="display:flex;flex-direction:column;gap:0.6rem">
                   <%= for q <- untagged do %>
                     <.question_card
+                      symbol_marks={@symbol_marks}
                       q={q}
                       status={status}
                       show_status_badge={false}
@@ -754,10 +758,12 @@ defmodule RuleMavenWeb.GameLive.Community do
     |> String.trim()
   end
 
-  defp render_markdown(text) do
+  # Known symbol tokens become icon chips (RuleMavenWeb.SymbolMarkup).
+  defp render_markdown(text, symbol_marks) do
     case MDEx.to_html(text) do
       {:ok, html} ->
         html
+        |> RuleMavenWeb.SymbolMarkup.decorate(symbol_marks)
         |> then(&"<div class=\"md-answer\" style=\"line-height:1.4;margin:0\">#{&1}</div>")
         |> Phoenix.HTML.raw()
 
@@ -804,7 +810,7 @@ defmodule RuleMavenWeb.GameLive.Community do
           </div>
           <%= if MapSet.member?(@expanded, @q.id) do %>
             <div style="font-size:0.75rem;color:var(--text);word-break:break-word">
-              {render_markdown(@q.canonical_answer || @q.answer || "")}
+              {render_markdown(@q.canonical_answer || @q.answer || "", @symbol_marks)}
             </div>
             <.citation_cards q={@q} />
             <%!-- Plain-styled toggle: the generic `button` reset (nowrap,

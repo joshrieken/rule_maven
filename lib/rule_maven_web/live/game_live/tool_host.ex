@@ -111,6 +111,11 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
     own_house_rules = load_own_house_rules(game, user)
 
     socket
+    |> assign_symbols(
+      game,
+      socket.assigns[:expansions] || [],
+      socket.assigns[:included_expansions] || %{}
+    )
     |> assign(
       sources: sources,
       dyk_facts: dyk_facts,
@@ -120,12 +125,6 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
       fp_selectors: load_first_player(game),
       fp_pick: nil,
       common_mistakes: load_common_mistakes(game),
-      symbol_groups:
-        load_symbols(
-          game,
-          socket.assigns[:expansions] || [],
-          socket.assigns[:included_expansions] || %{}
-        ),
       teach_pitch: load_teach_pitch(game),
       score_categories: load_score_categories(game),
       turn_flow: load_turn_flow(game),
@@ -644,15 +643,20 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
     end
   end
 
+  # `symbol_marks` = the same key as inline-chip matchers for answer and
+  # citation HTML (`RuleMavenWeb.SymbolMarkup`), kept in step with the tool.
+  defp assign_symbols(socket, game, expansions, included) do
+    groups = load_symbols(game, expansions, included)
+    assign(socket, symbol_groups: groups, symbol_marks: RuleMavenWeb.SymbolMarkup.marks(groups))
+  end
+
   defp refresh_symbols(socket) do
     if Map.has_key?(socket.assigns, :symbol_groups) do
-      assign(socket,
-        symbol_groups:
-          load_symbols(
-            socket.assigns.game,
-            socket.assigns.expansions,
-            socket.assigns.included_expansions
-          )
+      assign_symbols(
+        socket,
+        socket.assigns.game,
+        socket.assigns.expansions,
+        socket.assigns.included_expansions
       )
     else
       socket

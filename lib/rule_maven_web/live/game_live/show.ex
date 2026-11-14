@@ -4086,7 +4086,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </summary>
                   <div style="margin-top:0.25rem;padding:0.5rem;border-left:2px solid var(--border-subtle);opacity:0.8">
                     <div style="font-size:0.82rem;color:var(--text)">
-                      {render_markdown(msg.content)}
+                      {render_markdown(msg.content, @symbol_marks)}
                     </div>
                   </div>
                 </details>
@@ -4259,7 +4259,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <%= cond do %>
                         <% thinking? && stream_text -> %>
                           <div class="answer-in" id={answer_dom_id}>
-                            {render_markdown(stream_text)}
+                            {render_markdown(stream_text, @symbol_marks)}
                             <span :if={!stream_done} class="stream-cursor" aria-hidden="true"></span>
                           </div>
                           <%!-- Answer text is final but citations + verdict are
@@ -4316,7 +4316,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                               below still render for the asker. --%>
                           <%= unless msg.role == :user do %>
                             <div class="answer-in" id={answer_dom_id}>
-                              {render_markdown(v_content || msg.content)}
+                              {render_markdown(v_content || msg.content, @symbol_marks)}
                             </div>
                           <% end %>
                           <%!-- The question, the "you asked" original-vs-normalized
@@ -4344,7 +4344,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                             </figcaption>
                           <% end %>
                           <blockquote style={"margin:0;padding:0.55rem 0.7rem 0.55rem 0.85rem;border-left:3px solid #{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 50%,transparent)", else: "var(--accent)"};font-style:italic;font-size:0.78rem;line-height:1.5;word-break:break-word;color:#{if on_user, do: "color-mix(in srgb,var(--accent-text,#fff) 92%,transparent)", else: "var(--text)"}"}>
-                            {render_markdown(String.trim(c["quote"] || ""))}
+                            {render_markdown(String.trim(c["quote"] || ""), @symbol_marks)}
                           </blockquote>
                         </figure>
                       <% end %>
@@ -5893,10 +5893,12 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   # ── Markdown rendering ──
 
-  defp render_markdown(text) do
+  # Known symbol tokens become icon chips (RuleMavenWeb.SymbolMarkup).
+  defp render_markdown(text, symbol_marks) do
     case MDEx.to_html(text) do
       {:ok, html} ->
         html
+        |> RuleMavenWeb.SymbolMarkup.decorate(symbol_marks)
         |> then(&"<div class=\"md-answer\" style=\"line-height:1.4;margin:0\">#{&1}</div>")
         |> Phoenix.HTML.raw()
 

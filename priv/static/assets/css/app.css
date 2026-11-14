@@ -4091,6 +4091,14 @@ body:has([data-phx-main].phx-connected)::after {
 .md-answer p:has(> strong:only-child) { margin-top: 0.85rem; margin-bottom: 0.1rem; }
 .md-answer p:first-child:has(> strong:only-child) { margin-top: 0; }
 
+/* Inline symbol chips (RuleMavenWeb.SymbolMarkup): the book's icon + name in
+   place of a "[purple hammer symbol]" token. The image keeps its own colors;
+   the label inherits the surrounding text color (so contrast follows it). */
+.sym-mark { display: inline-flex; align-items: center; gap: 0.2em; vertical-align: -0.2em; white-space: nowrap; font-style: normal; }
+.sym-icon { height: 1.25em; width: auto; max-width: 2.5em; object-fit: contain; }
+.sym-label { font-weight: 600; }
+.sym-mark-text { text-decoration: underline dotted; text-underline-offset: 0.15em; cursor: help; }
+
 /* ===== Question sidebar ===== */
 .sidebar-toggle { display: none; }
 .sidebar-close-btn { display: none; }

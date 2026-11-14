@@ -189,4 +189,6 @@ transcription writes icons as neutral bracket tokens ("[purple hammer symbol]")
   → ask: LLM.build_context_block appends Symbols.prompt_block(base + expansions) inside the cached prefix
   → Symbols tool (base + toggled expansions); icons via SymbolController only while
      :symbol_images flag on AND per-game toggle on (Prepare page) AND game Ready/admin
+  → answers + citation quotes (Q&A, Community): SymbolMarkup.decorate swaps known tokens in rendered
+     HTML text for icon + name chips (icons off → token text keeps a name tooltip); copy/share text stays plain
 ```

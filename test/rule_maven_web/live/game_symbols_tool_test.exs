@@ -115,4 +115,29 @@ defmodule RuleMavenWeb.GameSymbolsToolTest do
     assert html =~ "Blacksmith"
     refute html =~ "/image\""
   end
+
+  test "answers render known tokens as the book's icon + name", %{
+    conn: conn,
+    base: base,
+    hammer: hammer
+  } do
+    {:ok, q} =
+      Games.log_question(%{
+        game_id: base.id,
+        question: "What does the hammer do?",
+        cleaned_question: "What does the hammer do?",
+        answer: "Each [purple hammer symbol] lets you forge.",
+        promoted: true,
+        verified: true,
+        browsable: true
+      })
+
+    {:ok, view, _} = live(conn, ~p"/games/#{base}/community")
+    html = render_click(view, "toggle_expand", %{"id" => to_string(q.id)})
+
+    assert html =~ ~p"/symbols/#{Hashid.encode(hammer.id)}/image"
+    assert html =~ ~s(<span class="sym-label">Blacksmith</span>)
+    # (The copy/share data-attributes keep the plain-text token.)
+    assert html =~ ~s(Each <span class="sym-mark")
+  end
 end
