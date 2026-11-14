@@ -17,19 +17,20 @@ defmodule RuleMaven.ManualImport do
         "label" => "Core Rulebook",
         "kind" => "rulebook",                 # optional, default "rulebook"
         "pdf" => "/abs/or/relative/path.pdf",  # optional; copied into uploads
+        "pdf_url" => "https://…/rules.pdf",    # optional alternative; downloaded
         "source_url" => "https://…",           # optional
         "pages" => [%{"sheet" => 1, "printed" => 1, "text" => "…"}, …]
       }
   """
 
-  alias RuleMaven.{Games, Readiness, Uploads}
+  alias RuleMaven.{Games, Readiness, RulebookDownloader, Uploads}
   alias RuleMaven.Games.Game
 
   @lane "manual"
 
   @doc "Import one transcribed document for `game`. Returns `{:ok, doc}` or `{:error, reason}`."
   def import(%Game{} = game, %{"pages" => [_ | _] = pages} = attrs) do
-    with {:ok, pdf_path, file_hash} <- store_pdf(attrs["pdf"]),
+    with {:ok, pdf_path, file_hash} <- store_pdf(attrs),
          {:ok, pages} <- build_pages(pages) do
       result =
         Games.create_document(%{
@@ -54,21 +55,23 @@ defmodule RuleMaven.ManualImport do
 
   # Copies the source PDF into the uploads dir under the same timestamped naming
   # the upload form uses, so the edit page's page viewer and re-extract work.
-  defp store_pdf(nil), do: {:ok, nil, nil}
+  defp store_pdf(%{"pdf_url" => url}) when is_binary(url) and url != "" do
+    with {:ok, bin} <- RulebookDownloader.fetch_validated_pdf(url),
+         do: write_pdf(bin, url |> URI.parse() |> Map.get(:path, "") |> Path.basename())
+  end
 
-  defp store_pdf(src) do
-    with {:ok, bin} <- File.read(src) do
-      File.mkdir_p!(Uploads.resolve("uploads/rulebooks"))
+  defp store_pdf(%{"pdf" => src}) when is_binary(src) and src != "" do
+    with {:ok, bin} <- File.read(src), do: write_pdf(bin, Path.basename(src))
+  end
 
-      pdf_path =
-        Path.join(
-          "uploads/rulebooks",
-          "#{System.system_time(:millisecond)}_#{Path.basename(src)}"
-        )
+  defp store_pdf(_attrs), do: {:ok, nil, nil}
 
-      File.write!(Uploads.resolve(pdf_path), bin)
-      {:ok, pdf_path, :crypto.hash(:sha256, bin) |> Base.encode16(case: :lower)}
-    end
+  defp write_pdf(bin, name) do
+    name = if name in ["", "/"], do: "rulebook.pdf", else: name
+    File.mkdir_p!(Uploads.resolve("uploads/rulebooks"))
+    pdf_path = Path.join("uploads/rulebooks", "#{System.system_time(:millisecond)}_#{name}")
+    File.write!(Uploads.resolve(pdf_path), bin)
+    {:ok, pdf_path, :crypto.hash(:sha256, bin) |> Base.encode16(case: :lower)}
   end
 
   defp build_pages(pages) do

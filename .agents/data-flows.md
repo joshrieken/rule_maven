@@ -146,3 +146,15 @@ Mark reviewed advances to the next flagged page.
 Chunking: `Games.chunk_document/1` → `carry_scenario_headings/1` adds "(Continues: QUEST 0: …)" under
 `[Page N]` for chunks continuing a scenario (one page past the heading; decorated two-line headings joined; ToC lines ignored). Prepare embed step "⟳ Re-chunk" applies it to embedded docs. Re-chunk
 (re-embed) a doc to apply it to existing games.
+
+## Remote Prepare (Claude-authored, any environment)
+
+```
+Claude transcribes page PNGs → pages JSON; authors enrichments+answers JSON
+  → POST /api/admin/games/:token/documents   (ManualImport.import/2; pdf_url → RulebookDownloader.fetch_validated_pdf)
+      → create_document → chunks + EmbedChunksWorker (server runs it)
+  → POST /api/admin/games/:token/content     (Enrichments.import/2 + Answers.import/3, owner = token user)
+  → GET  /api/admin/games/:token             (Readiness.state — wait for embed done)
+  → POST /api/admin/games/:token/publish     (Readiness.approve_publish/2)
+```
+Auth: `ApiAuth` → `Users.get_api_user/1`. Every mutation is `Audit.log`ged (`api.*`). Same code path as the `mix rule_maven.import_*` tasks.

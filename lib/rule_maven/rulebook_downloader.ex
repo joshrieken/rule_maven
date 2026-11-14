@@ -541,6 +541,16 @@ defmodule RuleMaven.RulebookDownloader do
     ]
   end
 
+  @doc """
+  Downloads `url` (same SSRF guard, size cap and timeouts as `download/4`) and
+  checks the body really is a PDF. Returns `{:ok, binary}` or `{:error, reason}`.
+  """
+  def fetch_validated_pdf(url) do
+    with {:ok, bin} <- fetch_pdf(url),
+         :ok <- validate_pdf(bin),
+         do: {:ok, bin}
+  end
+
   defp fetch_pdf(url) do
     with :ok <- validate_fetch_url(url) do
       do_fetch_pdf(url)

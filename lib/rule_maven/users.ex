@@ -374,6 +374,47 @@ defmodule RuleMaven.Users do
     end
   end
 
+  # --- admin API bearer tokens --------------------------------------------------
+
+  @doc """
+  Mints a bearer token for the `/api/admin` endpoints. Super admins only — the
+  token carries their full authority off-box. Returns `{:ok, encoded}` (shown
+  once; only its hash is stored) or `{:error, :not_super_admin}`.
+  """
+  def create_api_token(%User{} = user) do
+    if User.super_admin?(user) do
+      {encoded, token} = UserToken.build_email_token(user, "api")
+      Repo.insert!(token)
+      {:ok, encoded}
+    else
+      {:error, :not_super_admin}
+    end
+  end
+
+  @doc "Revokes every API token the user holds. Returns the number deleted."
+  def revoke_api_tokens(%User{} = user) do
+    {n, _} = Repo.delete_all(UserToken.by_user_and_contexts_query(user, ["api"]))
+    n
+  end
+
+  @doc """
+  Resolves a bearer token to its user. Re-checks authority on every call, so a
+  demoted or suspended account's outstanding tokens stop working at once.
+  Returns `{:ok, user}` or `:error`.
+  """
+  def get_api_user(encoded_token) when is_binary(encoded_token) do
+    with {:ok, query} <- UserToken.verify_email_token_query(encoded_token, "api"),
+         %User{} = user <- Repo.one(query),
+         true <- User.super_admin?(user),
+         false <- User.suspended?(user) do
+      {:ok, user}
+    else
+      _ -> :error
+    end
+  end
+
+  def get_api_user(_), do: :error
+
   def authenticate(username, password) do
     user = get_user_by_username(username)
 

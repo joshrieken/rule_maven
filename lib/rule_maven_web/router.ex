@@ -26,6 +26,11 @@ defmodule RuleMavenWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :admin_api do
+    plug :accepts, ["json"]
+    plug RuleMavenWeb.ApiAuth
+  end
+
   scope "/", RuleMavenWeb do
     pipe_through :browser
 
@@ -129,6 +134,18 @@ defmodule RuleMavenWeb.Router do
     pipe_through [:browser]
 
     oban_dashboard("/oban", on_mount: [RuleMavenWeb.ObanAuthHook])
+  end
+
+  # Remote Prepare (super admin bearer token) — see AdminApiController.
+  scope "/api/admin", RuleMavenWeb do
+    pipe_through :admin_api
+
+    get "/games", AdminApiController, :index
+    get "/games/:game", AdminApiController, :show
+    post "/games/:game/documents", AdminApiController, :create_document
+    delete "/games/:game/documents/:doc", AdminApiController, :delete_document
+    post "/games/:game/content", AdminApiController, :create_content
+    post "/games/:game/publish", AdminApiController, :publish
   end
 
   # Preview sent emails in dev (Local adapter stores them in memory).

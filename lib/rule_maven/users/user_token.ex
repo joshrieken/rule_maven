@@ -5,7 +5,8 @@ defmodule RuleMaven.Users.UserToken do
   The raw token is mailed to the user; only its SHA-256 hash is stored. Validity
   depends on the context: `"confirm"` (email confirmation) lasts a week,
   `"reset"` (password reset) is a day, `"magic_link"` (passwordless sign-in) is
-  15 minutes.
+  15 minutes. `"api"` (a super admin's bearer token for `/api/admin`, minted by
+  `mix rule_maven.api_token`) lasts 90 days.
   """
   use Ecto.Schema
   import Ecto.Query
@@ -17,7 +18,8 @@ defmodule RuleMaven.Users.UserToken do
   @validity_seconds %{
     "confirm" => 7 * 24 * 3600,
     "reset" => 24 * 3600,
-    "magic_link" => 15 * 60
+    "magic_link" => 15 * 60,
+    "api" => 90 * 24 * 3600
   }
   @default_validity 24 * 3600
 

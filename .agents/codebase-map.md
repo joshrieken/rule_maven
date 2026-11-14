@@ -62,6 +62,8 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `SessionController` | `session_controller.ex` | Login form, password auth |
 | `AuthController` | `auth_controller.ex` | Logout |
 | `AuthPlug` | `auth_plug.ex` | Session-based auth plug, assigns `current_user` |
+| `ApiAuth` | `api_auth.ex` | Bearer-token plug for `/api/admin`: `Users.get_api_user/1` (super admin, unsuspended, 90-day `user_tokens` context "api"), else 401 JSON |
+| `AdminApiController` | `admin_api_controller.ex` | Remote Prepare JSON API (Hashid tokens): `index` (?q=), `show` (readiness+docs), `create_document` (ManualImport; drops `pdf`, accepts `pdf_url`), `delete_document`, `create_content`, `publish` |
 | `CheatSheetController` | `cheat_sheet_controller.ex` | Serve cheatsheet HTML page + versioned pages |
 
 ## Components (`lib/rule_maven_web/components/`)
@@ -110,6 +112,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | Add new background job | `workers/` (new file), `application.ex` (maybe), config |
 | Prepare pipeline stuck / Run remaining | `readiness.ex` (`next_action/1` pure decision, `drive/1` executes, `step_complete?/3`), `workers/readiness_worker.ex`, `game_live/prepare.ex` ("resume") |
 | Import hand-authored enrichments / answers | `manual_import/enrichments.ex` (per-step validation mirroring the LLM parsers, same storage calls as the workers), `manual_import/answers.ex` (every citation must pass `Citations.valid_citations/2`, embeds question, `force_publish_question`), `mix rule_maven.import_content GAME_ID USERNAME FILE.json` |
+| Remote Prepare (prod) via API | `curl -H "Authorization: Bearer $TOKEN"` against `/api/admin/games[/:token[/documents|/content|/publish]]` (router `:admin_api` scope); mint with `mix rule_maven.api_token USERNAME [--revoke]` or `Users.create_api_token/1` in a release |
 | Rebuild a game from hand-transcribed pages | `manual_import.ex` (`ManualImport.import/2`: JSON pages → create_document, lane "manual"), `mix rule_maven.import_pages GAME_ID FILE.json`, `mix rule_maven.reset_prepared GAME_ID --yes` (Q&A + reset_preparation; DELETES PDFs — back up). Both start Oban with queues OFF so the dev server runs the jobs |
 | Page review flags | `games.ex` (`page_needs_review?/1` UI flag, `page_blocks_review?/1` pipeline gate, `mark_page_reviewed/2`), `games/document.ex` (Page `reviewed`), `game_live/form.ex` (`review_flag`, "mark_reviewed") |
 | Change page layout | `components/layouts/` (root shell), `components/core_components.ex` (shared UI) |
