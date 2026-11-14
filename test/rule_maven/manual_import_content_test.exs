@@ -122,6 +122,74 @@ defmodule RuleMaven.ManualImportContentTest do
     end
   end
 
+  describe "answers for a game played with an expansion" do
+    setup %{game: game} do
+      {:ok, exp} = Games.create_game(%{name: "Exp #{System.unique_integer([:positive])}"})
+      Games.link_expansion(exp.id, game.id)
+
+      {:ok, exp_doc} =
+        ManualImport.import(exp, %{
+          "label" => "Expansion Rulebook",
+          "pages" => [
+            %{
+              "sheet" => 2,
+              "text" => "A Ladder may only be Erected outside the building for 2 AP."
+            }
+          ]
+        })
+
+      # Citations resolve to a document_id only for published books.
+      exp_doc = Repo.update!(Ecto.Changeset.change(exp_doc, status: "published"))
+      %{exp: exp, exp_doc: exp_doc}
+    end
+
+    @ladder %{
+      "question" => "Where can a Ladder be Erected?",
+      "answer" => "Only outside the building, for 2 AP.",
+      "verdict" => "info",
+      "citations" => [%{"quote" => "only be Erected outside the building for 2 AP", "page" => 2}]
+    }
+
+    test "cites the expansion's book and carries the expansion set", %{
+      game: game,
+      exp: exp,
+      exp_doc: exp_doc
+    } do
+      assert {:ok, %{imported: 1, errors: []}} =
+               Answers.import(game, nil, [@ladder], expansion_ids: [exp.id])
+
+      [row] = Repo.all(from q in QuestionLog, where: q.game_id == ^game.id)
+      assert row.expansion_ids == [exp.id]
+      assert row.document_id == exp_doc.id
+      assert row.cited_source == "Expansion Rulebook"
+    end
+
+    test "the expansion's book is not citable without the expansion", %{game: game} do
+      assert {:ok, %{imported: 0, errors: [{_, {:ungrounded, _}}]}} =
+               Answers.import(game, nil, [@ladder])
+    end
+
+    test "dedupe is per expansion set", %{game: game, exp: exp} do
+      mimic = %{
+        "question" => "How do I defeat the Mimic?",
+        "answer" => "Discard a blue 6+ token at its location.",
+        "verdict" => "info",
+        "citations" => [%{"quote" => "At Mimic's location, discard", "page" => 10}]
+      }
+
+      assert {:ok, %{imported: 1}} = Answers.import(game, nil, [mimic])
+      assert {:ok, %{imported: 1}} = Answers.import(game, nil, [mimic], expansion_ids: [exp.id])
+      assert {:ok, %{skipped: 1}} = Answers.import(game, nil, [mimic], expansion_ids: [exp.id])
+    end
+
+    test "refuses a game that isn't a linked expansion", %{game: game} do
+      {:ok, other} = Games.create_game(%{name: "Other #{System.unique_integer([:positive])}"})
+
+      assert {:error, :not_an_expansion} =
+               Answers.import(game, nil, [@ladder], expansion_ids: [other.id])
+    end
+  end
+
   test "a grounded answer is published and pooled; an ungrounded one is rejected", %{game: game} do
     admin = %{id: nil}
 

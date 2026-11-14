@@ -309,6 +309,23 @@ defmodule RuleMaven.Games do
     |> Map.new()
   end
 
+  @doc """
+  An expansion's name without its base game's prefix, for tight UI spots:
+  "Flash Point: Fire Rescue – 2nd Story" under "Flash Point: Fire Rescue" →
+  "2nd Story". Falls back to the full name when it doesn't share the prefix.
+  """
+  def expansion_short_name(%{name: name}, %{name: base}) when is_binary(base) do
+    short =
+      name
+      |> String.replace_prefix(base, "")
+      |> String.replace(~r/^\s*[–—:\-]?\s*/u, "")
+      |> String.trim()
+
+    if short == "" or short == name, do: name, else: short
+  end
+
+  def expansion_short_name(%{name: name}, _base), do: name
+
   @doc "Map of base game_id => count of expansions that have published documents."
   def expansion_with_doc_counts(game_ids) do
     Repo.all(

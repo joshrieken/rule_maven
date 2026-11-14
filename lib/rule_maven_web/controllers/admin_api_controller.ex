@@ -69,14 +69,18 @@ defmodule RuleMavenWeb.AdminApiController do
   end
 
   @doc """
-  POST /api/admin/games/:game/content — `{"enrichments": …, "answers": […]}`.
-  Answers are owned by the token's user and rejected unless every citation
-  verifies against the game's chunks.
+  POST /api/admin/games/:game/content — `{"enrichments": …, "answers": […],
+  "expansions": [expansion game token, …]}`. Answers are owned by the token's
+  user and rejected unless every citation verifies against the game's chunks.
+  With `expansions`, the answers are for the game played with those
+  expansions (citations may quote their rulebooks too).
   """
   def create_content(conn, %{"game" => token} = params) do
     with_game(conn, token, fn game ->
-      with {:ok, steps} <- import_enrichments(game, params["enrichments"]),
-           {:ok, answers} <- import_answers(game, conn.assigns.current_user, params["answers"]) do
+      with {:ok, expansion_ids} <- decode_tokens(params["expansions"] || []),
+           {:ok, steps} <- import_enrichments(game, params["enrichments"]),
+           {:ok, answers} <-
+             import_answers(game, conn.assigns.current_user, params["answers"], expansion_ids) do
         audit(conn, "api.import_content", game, %{steps: steps, answers: answers[:imported]})
         json(conn, %{enrichments: steps, answers: answers, status: status_payload(game)})
       else
@@ -96,20 +100,31 @@ defmodule RuleMavenWeb.AdminApiController do
   defp import_enrichments(_game, nil), do: {:ok, []}
   defp import_enrichments(game, data), do: Enrichments.import(game, data)
 
-  defp import_answers(_game, _user, nil), do: {:ok, %{}}
+  defp import_answers(_game, _user, nil, _expansion_ids), do: {:ok, %{}}
 
-  defp import_answers(game, user, entries) when is_list(entries) do
-    {:ok, r} = Answers.import(game, user, entries)
-
-    {:ok,
-     %{
-       imported: r.imported,
-       skipped: r.skipped,
-       errors: for({q, reason} <- r.errors, do: %{question: q, reason: inspect(reason)})
-     }}
+  defp import_answers(game, user, entries, expansion_ids) when is_list(entries) do
+    with {:ok, r} <- Answers.import(game, user, entries, expansion_ids: expansion_ids) do
+      {:ok,
+       %{
+         imported: r.imported,
+         skipped: r.skipped,
+         errors: for({q, reason} <- r.errors, do: %{question: q, reason: inspect(reason)})
+       }}
+    end
   end
 
-  defp import_answers(_game, _user, _), do: {:error, :answers_must_be_a_list}
+  defp import_answers(_game, _user, _, _), do: {:error, :answers_must_be_a_list}
+
+  defp decode_tokens(tokens) when is_list(tokens) do
+    Enum.reduce_while(tokens, {:ok, []}, fn token, {:ok, acc} ->
+      case Hashid.decode(token) do
+        {:ok, id} -> {:cont, {:ok, [id | acc]}}
+        :error -> {:halt, {:error, {:bad_expansion_token, token}}}
+      end
+    end)
+  end
+
+  defp decode_tokens(_), do: {:error, :expansions_must_be_a_list}
 
   defp with_game(conn, token, fun) do
     case Games.get_game_by_token(token) do

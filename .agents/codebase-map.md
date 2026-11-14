@@ -9,7 +9,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 
 | Module | File | Lines | Responsibility | Key Functions |
 |--------|------|-------|----------------|---------------|
-| `Games` | `games.ex` | 783 | Game/Document CRUD, questions, followup chains, chunk retrieval, community pool | `get_game!/1`, `create_game/1`, `create_document/1`, `log_question/1`, `log_question_update/2`, `grouped_questions/1`, `find_parent_question_id/3`, `community_questions/2`, `find_similar_question_in_pool/3`, `question_threads/1`, `retrieve_chunks/3`, `chunk_document/1` |
+| `Games` | `games.ex` | 783 | Game/Document CRUD, questions, followup chains, chunk retrieval, community pool | `get_game!/1`, `create_game/1`, `create_document/1`, `log_question/1`, `log_question_update/2`, `grouped_questions/1`, `find_parent_question_id/3`, `community_questions/2`, `find_similar_question_in_pool/3`, `question_threads/1`, `retrieve_chunks/3`, `chunk_document/1`, `expansion_short_name/2` ("Base – X" → "X") |
 | `LLM` | `llm.ex` | 513 | LLM API calls (multi-provider), chat, question generation, community pool cache | `ask/5`, `chat/3`, `suggest_questions/3`, `provider/0`, `model/0`, `stats/1` |
 | `LLM.Log` | `llm/log.ex` | — | LLM request/response logging | `log_llm/4` |
 | `LLMProxy` | `llm_proxy.ex` | 33 | Routes LLM/embed calls through proxy when `llm_proxy_url` DB setting is configured | `chat_url/0`, `embed_url/0`, `enabled?/0` |
@@ -108,10 +108,11 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | Add field to Game | `games/game.ex` (schema), `games.ex` (context), test |
 | Change LLM prompt | `llm.ex` → `ask/5` or `chat/3` or `suggest_questions/3` |
 | Fix conversation UI | `game_live/show.ex` (LiveView + template), `games.ex` (`grouped_questions/2`) |
+| Expansion cues on Q&A | `game_live/show.ex`: composer chip (`data-testid=composer-expansions`), `ask_placeholder/2`, `suggestion_groups/4` (toggled expansions' `suggestions_<exp_id>` first, `.expansion-tag`); CSS `.composer-expansions` in priv/static/assets/css/app.css |
 | Fix rulebook upload | `game_live/form.ex` (LiveView), `games.ex` (`create_document/1`) |
 | Add new background job | `workers/` (new file), `application.ex` (maybe), config |
 | Prepare pipeline stuck / Run remaining | `readiness.ex` (`next_action/1` pure decision, `drive/1` executes, `step_complete?/3`), `workers/readiness_worker.ex`, `game_live/prepare.ex` ("resume") |
-| Import hand-authored enrichments / answers | `manual_import/enrichments.ex` (per-step validation mirroring the LLM parsers, same storage calls as the workers; `expansion_delta` step for expansions = ExpansionDeltaWorker's delta_* keys), `manual_import/answers.ex` (every citation must pass `Citations.valid_citations/2`, embeds question, `force_publish_question`), `mix rule_maven.import_content GAME_ID USERNAME FILE.json` |
+| Import hand-authored enrichments / answers | `manual_import/enrichments.ex` (per-step validation mirroring the LLM parsers, same storage calls as the workers; `expansion_delta` step for expansions = ExpansionDeltaWorker's delta_* keys), `manual_import/answers.ex` (every citation must pass `Citations.valid_citations/2`, embeds question, `force_publish_question`; `import/4` `expansion_ids:` = answers for base+those expansions, cites any of their books, rows carry the set → pool hits when toggled; content JSON key `"expansions"`), `mix rule_maven.import_content GAME_ID USERNAME FILE.json` |
 | Remote Prepare (prod) via API | `curl -H "Authorization: Bearer $TOKEN"` against `/api/admin/games[/:token[/documents|/content|/publish]]` (router `:admin_api` scope); mint with `mix rule_maven.api_token USERNAME [--revoke]` or `Users.create_api_token/1` in a release |
 | Rebuild a game from hand-transcribed pages | `manual_import.ex` (`ManualImport.import/2`: JSON pages → create_document, lane "manual"), `mix rule_maven.import_pages GAME_ID FILE.json`, `mix rule_maven.reset_prepared GAME_ID --yes` (Q&A + reset_preparation; DELETES PDFs — back up). Both start Oban with queues OFF so the dev server runs the jobs |
 | Page review flags | `games.ex` (`page_needs_review?/1` UI flag, `page_blocks_review?/1` pipeline gate, `mark_page_reviewed/2`), `games/document.ex` (Page `reviewed`), `game_live/form.ex` (`review_flag`, "mark_reviewed") |

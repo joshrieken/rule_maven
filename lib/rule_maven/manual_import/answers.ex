@@ -15,8 +15,13 @@ defmodule RuleMaven.ManualImport.Answers do
       %{"question", "answer", "verdict" (legal|illegal|silent|info),
         "citations" => [%{"quote", "page"}]}
 
-  Already-answered questions (same text, same game) are skipped, so a re-run
-  only adds what's missing.
+  Already-answered questions (same text, same game, same expansion set) are
+  skipped, so a re-run only adds what's missing.
+
+  `expansion_ids:` imports the answers for the base game played WITH those
+  (linked) expansions: citations may quote any of their rulebooks, and the
+  rows carry the expansion set, so an ask with exactly those expansions
+  toggled on is served from the pool.
   """
 
   import Ecto.Query
@@ -28,33 +33,45 @@ defmodule RuleMaven.ManualImport.Answers do
   @provider "manual"
   @model "claude-code"
 
-  @doc "Import answers for `game` as `user`. Returns `{:ok, %{imported:, skipped:, errors:}}`."
-  def import(%Game{} = game, user, entries) when is_list(entries) do
-    chunks = source_chunks(game)
+  @doc """
+  Import answers for `game` as `user`. Returns
+  `{:ok, %{imported:, skipped:, errors:}}`, or `{:error, :not_an_expansion}`
+  when `expansion_ids` names a game that isn't one of `game`'s expansions.
+  """
+  def import(%Game{} = game, user, entries, opts \\ []) when is_list(entries) do
+    expansion_ids = opts |> Keyword.get(:expansion_ids, []) |> Enum.uniq() |> Enum.sort()
+    linked = MapSet.new(Games.expansions_for(game), & &1.id)
+
+    if Enum.all?(expansion_ids, &MapSet.member?(linked, &1)),
+      do: {:ok, import_all(game, user, entries, [game.id | expansion_ids])},
+      else: {:error, :not_an_expansion}
+  end
+
+  defp import_all(game, user, entries, [_ | expansion_ids] = game_ids) do
+    ctx = %{chunks: source_chunks(game_ids), game_ids: game_ids, expansion_ids: expansion_ids}
 
     Enum.reduce(entries, %{imported: 0, skipped: 0, errors: []}, fn entry, acc ->
-      case import_one(game, user, entry, chunks) do
+      case import_one(game, user, entry, ctx) do
         {:ok, _} -> %{acc | imported: acc.imported + 1}
         :skipped -> %{acc | skipped: acc.skipped + 1}
         {:error, reason} -> %{acc | errors: acc.errors ++ [{entry["question"], reason}]}
       end
     end)
-    |> then(&{:ok, &1})
   end
 
-  defp import_one(game, user, %{"question" => q, "answer" => a} = entry, chunks)
+  defp import_one(game, user, %{"question" => q, "answer" => a} = entry, ctx)
        when is_binary(q) and is_binary(a) do
     cond do
       entry["verdict"] not in @verdicts ->
         {:error, :bad_verdict}
 
-      answered?(game, q) ->
+      answered?(game, q, ctx.expansion_ids) ->
         :skipped
 
       true ->
-        with {:ok, citations} <- validate_citations(entry["citations"], chunks, game),
+        with {:ok, citations} <- validate_citations(entry["citations"], ctx),
              {:ok, vec} <- Embed.embed(q),
-             {:ok, row} <- insert(game, user, entry, citations, vec),
+             {:ok, row} <- insert(game, user, entry, citations, vec, ctx.expansion_ids),
              {:ok, row} <- Games.force_publish_question(row) do
           Games.tag_question(row.id, game.id)
           Coverage.record_citations(row)
@@ -63,37 +80,47 @@ defmodule RuleMaven.ManualImport.Answers do
     end
   end
 
-  defp import_one(_game, _user, _entry, _chunks), do: {:error, :shape}
+  defp import_one(_game, _user, _entry, _ctx), do: {:error, :shape}
 
-  defp answered?(game, q) do
+  defp answered?(game, q, expansion_ids) do
     Repo.exists?(
       from r in QuestionLog,
-        where: r.game_id == ^game.id and (r.question == ^q or r.cleaned_question == ^q)
+        where:
+          r.game_id == ^game.id and r.expansion_ids == ^expansion_ids and
+            (r.question == ^q or r.cleaned_question == ^q)
     )
   end
 
   # Every citation must be grounded. `source` is the document label, which is
-  # also what the chunk maps carry, so valid? scopes each quote to its book.
-  defp validate_citations([_ | _] = cites, chunks, game) do
-    label = chunks |> List.first() |> Map.get(:label)
+  # also what the chunk maps carry, so valid? scopes each quote to its book. A
+  # citation without one is attributed to the book that contains the quote.
+  defp validate_citations([_ | _] = cites, %{chunks: chunks, game_ids: game_ids}) do
+    labels = chunks |> Enum.map(& &1.label) |> Enum.uniq()
 
     normalized =
       Enum.map(cites, fn c ->
-        %{"quote" => c["quote"], "page" => c["page"], "source" => c["source"] || label}
+        c = %{"quote" => c["quote"], "page" => c["page"], "source" => c["source"]}
+        if c["source"], do: c, else: Map.put(c, "source", quoting_label(c, labels, chunks))
       end)
 
     valid = Citations.valid_citations(normalized, chunks)
 
     if length(valid) == length(normalized) do
-      {:ok, Coverage.resolve_document_ids(valid, [game.id])}
+      {:ok, Coverage.resolve_document_ids(valid, game_ids)}
     else
       {:error, {:ungrounded, Enum.map(normalized -- valid, & &1["quote"])}}
     end
   end
 
-  defp validate_citations(_cites, _chunks, _game), do: {:error, :no_citations}
+  defp validate_citations(_cites, _ctx), do: {:error, :no_citations}
 
-  defp insert(game, user, entry, [first | _] = citations, vec) do
+  defp quoting_label(cite, labels, chunks) do
+    Enum.find(labels, List.first(labels), fn label ->
+      Citations.valid_citations([Map.put(cite, "source", label)], chunks) != []
+    end)
+  end
+
+  defp insert(game, user, entry, [first | _] = citations, vec, expansion_ids) do
     Games.log_question(%{
       game_id: game.id,
       user_id: user && user.id,
@@ -110,19 +137,19 @@ defmodule RuleMaven.ManualImport.Answers do
       cited_source: first["source"],
       document_id: first["document_id"],
       question_embedding: Pgvector.new(vec),
-      expansion_ids: [],
+      expansion_ids: expansion_ids,
       llm_provider: @provider,
       llm_model: @model,
       browsable: true
     })
   end
 
-  defp source_chunks(game) do
+  defp source_chunks(game_ids) do
     Repo.all(
       from c in Chunk,
         join: d in Document,
         on: c.document_id == d.id,
-        where: d.game_id == ^game.id,
+        where: d.game_id in ^game_ids,
         order_by: [d.id, c.chunk_index],
         select: %{label: d.label, content: c.content}
     )

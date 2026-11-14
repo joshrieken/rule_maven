@@ -581,6 +581,41 @@ defmodule RuleMavenWeb.GameLive.Show do
      |> arm_stale_timer(pending_count)}
   end
 
+  # Suggested questions for the current table: each toggled-on expansion's own
+  # suggestions first (tagged with its short name — they are what's new), then
+  # the base game's. Asking one runs with the toggled set, so the expansion
+  # answers imported for that set are served straight from the pool.
+  defp suggestion_groups(suggestions, expansions, included, game) do
+    expansion_groups =
+      for exp <- expansions,
+          included[exp.id],
+          json = RuleMaven.Settings.get("suggestions_#{exp.id}"),
+          is_binary(json),
+          %{"category" => c, "questions" => qs} <- Jason.decode!(json) do
+        %{category: c, questions: qs, expansion: Games.expansion_short_name(exp, game)}
+      end
+
+    expansion_groups ++ Enum.map(suggestions, &Map.put(&1, :expansion, nil))
+  end
+
+  defp included_expansion_names(expansions, included, game) do
+    for exp <- expansions, included[exp.id], do: Games.expansion_short_name(exp, game)
+  end
+
+  defp ask_placeholder(0, _names), do: "Add rulebook text to start asking..."
+  defp ask_placeholder(_count, []), do: "Ask a rules question…"
+
+  defp ask_placeholder(_count, names),
+    do: "Ask a rules question (with #{Enum.join(names, ", ")})…"
+
+  attr :name, :string, required: true
+
+  defp expansion_tag(assigns) do
+    ~H"""
+    <span class="expansion-tag"><span aria-hidden="true">📦</span>{@name}</span>
+    """
+  end
+
   # Cancel any armed stale-check timer and re-arm it iff questions are pending.
   defp arm_stale_timer(socket, pending_count) do
     if socket.assigns.stale_timer, do: Process.cancel_timer(socket.assigns.stale_timer)
@@ -4020,9 +4055,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <div style="font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:0.75rem">
                       Suggested questions
                     </div>
-                    <%= for cat <- @suggestions do %>
+                    <%= for cat <- suggestion_groups(@suggestions, @expansions, @included_expansions, @game) do %>
                       <div style="margin-bottom:1rem">
                         <div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:0.3rem">
+                          <.expansion_tag :if={cat.expansion} name={cat.expansion} />
                           {cat.category}
                         </div>
                         <%= for q <- cat.questions do %>
@@ -5028,6 +5064,25 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </button>
                 </div>
               </details>
+              <%!-- Expansions in play for every ask, right where you type —
+                    the sub-bar strip alone was easy to miss. Opens the picker. --%>
+              <button
+                :if={@included_expansions != %{}}
+                type="button"
+                data-testid="composer-expansions"
+                phx-click="open_tool"
+                phx-value-tool="expansions"
+                title={"Answers include: " <> Enum.join(included_expansion_names(@expansions, @included_expansions, @game), ", ")}
+                class="composer-expansions"
+              >
+                <span aria-hidden="true">📦</span>
+                <span class="composer-expansions__label">
+                  + {Enum.join(
+                    included_expansion_names(@expansions, @included_expansions, @game),
+                    ", "
+                  )}
+                </span>
+              </button>
               <div
                 data-tour="voices"
                 class="composer-controls__voice hide-mobile"
@@ -5065,9 +5120,10 @@ defmodule RuleMavenWeb.GameLive.Show do
               name="question"
               value={@question}
               placeholder={
-                if @source_count > 0,
-                  do: "Ask a rules question…",
-                  else: "Add rulebook text to start asking..."
+                ask_placeholder(
+                  @source_count,
+                  included_expansion_names(@expansions, @included_expansions, @game)
+                )
               }
               maxlength={600}
               class="flex-1 border rounded-full px-4 py-2.5 text-sm"
@@ -5129,9 +5185,10 @@ defmodule RuleMavenWeb.GameLive.Show do
             >✕</button>
           </div>
           <div style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:1rem">
-            <%= for cat <- @suggestions do %>
+            <%= for cat <- suggestion_groups(@suggestions, @expansions, @included_expansions, @game) do %>
               <div>
                 <div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:0.35rem">
+                  <.expansion_tag :if={cat.expansion} name={cat.expansion} />
                   {cat.category}
                 </div>
                 <div style="display:flex;flex-direction:column;gap:0.3rem">

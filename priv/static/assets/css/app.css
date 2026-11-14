@@ -4318,6 +4318,39 @@ body:has([data-phx-main].phx-connected)::after {
   min-width: 0;
 }
 
+/* Expansions in play, beside Ideas: accent-outlined so "these answers include
+   2nd Story" is unmissable where you type. Opens the expansions picker. */
+.composer-expansions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  max-width: 16rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent-ink, var(--accent));
+  background: var(--bg-surface);
+  border: 1.5px solid var(--accent);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  cursor: pointer;
+}
+.composer-expansions__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Marks an expansion's group in the suggested-questions lists. */
+.expansion-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-right: 0.35rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent-ink, var(--accent));
+  text-transform: none;
+  font-weight: 700;
+}
+
 /* Q&A page on phones: the chrome (site header + game toolbar + composer)
    already eats most of a small viewport, so trim everything non-essential.
    Budget at 390x844 after this block: 40px game header + ~80px composer, both
@@ -4372,6 +4405,10 @@ body:has([data-phx-main].phx-connected)::after {
     font-size: 0.85rem !important;
   }
   .composer-controls__ideas .pill-label { display: none; }
+  /* Rides the crowded ask row on phones: icon-only, touch-sized; the input's
+     placeholder still names the expansions. */
+  .composer-expansions { min-height: 34px; padding: 0 0.55rem; font-size: 0.85rem; }
+  .composer-expansions__label { display: none; }
   /* The menu is anchored to a 51px-wide button, so it inherits a narrow
      min-width and every label wraps onto two lines. Widening it leaves the
      shrink-to-fit items ragged, hence the full-width row. */

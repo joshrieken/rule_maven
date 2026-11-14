@@ -5,7 +5,9 @@ defmodule Mix.Tasks.RuleMaven.ImportContent do
       mix rule_maven.import_content GAME_ID USERNAME path/to/content.json
 
       {"enrichments": {…see RuleMaven.ManualImport.Enrichments…},
-       "answers":     [{…see RuleMaven.ManualImport.Answers…}]}
+       "answers":     [{…see RuleMaven.ManualImport.Answers…}],
+       "expansions":  [EXPANSION_GAME_ID, …]}   # optional: answers are for
+                                                # the game WITH these expansions
 
   Answers are imported as ordinary answers owned by USERNAME. Like
   import_pages, runs with Oban queues OFF so the dev server executes any jobs.
@@ -37,7 +39,11 @@ defmodule Mix.Tasks.RuleMaven.ImportContent do
     end
 
     if answers = data["answers"] do
-      {:ok, r} = Answers.import(game, user, answers)
+      r =
+        case Answers.import(game, user, answers, expansion_ids: data["expansions"] || []) do
+          {:ok, r} -> r
+          {:error, reason} -> Mix.raise("answers: #{inspect(reason)}")
+        end
 
       Mix.shell().info(
         "#{game.name}: answers imported=#{r.imported} skipped=#{r.skipped} errors=#{length(r.errors)}"
