@@ -100,6 +100,54 @@ defmodule RuleMaven.ManualImportContentTest do
     refute Settings.get("suggestions_#{game.id}")
   end
 
+  describe "theme" do
+    @anchors %{
+      "sets" => [
+        %{
+          "light" => %{
+            "accent" => "#B5651D",
+            "bg" => "#FAF6EF",
+            "surface" => "#FFFFFF",
+            "text" => "#2A2118"
+          },
+          "dark" => %{
+            "accent" => "#E8A04A",
+            "bg" => "#1B1712",
+            "surface" => "#2A231B",
+            "text" => "#F2EBDD"
+          },
+          "names" => %{"light" => "Tavern Day", "dark" => "Forge Night"}
+        }
+      ]
+    }
+
+    test "builds and stores the palette like the theme worker", %{game: game} do
+      assert {:ok, ["theme"]} = Enrichments.import(game, %{"theme" => @anchors})
+
+      game = Games.get_game!(game.id)
+      assert [%{"light" => %{"--accent" => _}, "dark" => _}] = game.theme_palette["sets"]
+
+      assert game.theme_names == %{
+               "sets" => [%{"light" => "Tavern Day", "dark" => "Forge Night"}]
+             }
+
+      assert Readiness.step_complete?(:theme, game, [])
+    end
+
+    test "rejects malformed anchors before writing", %{game: game} do
+      assert {:error, {"theme", _}} = Enrichments.import(game, %{"theme" => %{"sets" => [%{}]}})
+      assert is_nil(Games.get_game!(game.id).theme_palette)
+    end
+
+    test "is refused on an expansion", %{game: game} do
+      {:ok, base} = Games.create_game(%{name: "Base #{System.unique_integer([:positive])}"})
+      Games.link_expansion(game.id, base.id)
+
+      assert {:error, {"theme", :expansions_inherit_theme}} =
+               Enrichments.import(game, %{"theme" => @anchors})
+    end
+  end
+
   describe "expansion_delta" do
     @delta %{
       "components" => ["4 Hazmat markers"],

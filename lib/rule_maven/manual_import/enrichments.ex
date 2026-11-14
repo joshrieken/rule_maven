@@ -21,12 +21,16 @@ defmodule RuleMaven.ManualImport.Enrichments do
       "turn"            [%{"name", "note", "actions" => [%{"label", "rule"}]}]
       "expansion_delta" %{"components" => [str], "setup" => [%{"title", "detail"}],
                           "rules" => [str]}           # expansions only
+      "theme"           %{"sets" => [%{"light" => anchors, "dark" => anchors,
+                          "names" => %{"light", "dark"}}]}  # base games only;
+                          # anchors = %{"accent", "bg", "surface", "text"} hex,
+                          # picked from the cover (ThemePalette derives the rest)
 
   Every step is validated before anything is written; one bad step aborts the
   whole import with `{:error, {step, reason}}`.
   """
 
-  alias RuleMaven.{CheatSheet, Games, Readiness, Settings, Voices}
+  alias RuleMaven.{CheatSheet, Games, Readiness, Settings, ThemePalette, Voices}
   alias RuleMaven.Games.Game
 
   @settings_steps %{
@@ -41,7 +45,7 @@ defmodule RuleMaven.ManualImport.Enrichments do
   }
 
   @steps ~w(suggestions categories cheat_sheet setup did_you_know voices first_player
-            common_mistakes quiz teach score turn expansion_delta)
+            common_mistakes quiz teach score turn expansion_delta theme)
 
   @doc "Validate and import every step present in `data`. Returns `{:ok, [step]}`."
   def import(%Game{} = game, data) when is_map(data) do
@@ -57,10 +61,20 @@ defmodule RuleMaven.ManualImport.Enrichments do
 
   # A delta is only ever composed into a base game's views via its expansion
   # link; on a base game it would be silently dead content.
+  # Expansions inherit the base game's palette, so a theme on one is dead too.
   defp expansion_only(steps, game) do
-    if "expansion_delta" in steps and not Games.expansion?(game.id),
-      do: {:error, {"expansion_delta", :not_an_expansion}},
-      else: :ok
+    expansion? = Games.expansion?(game.id)
+
+    cond do
+      "expansion_delta" in steps and not expansion? ->
+        {:error, {"expansion_delta", :not_an_expansion}}
+
+      "theme" in steps and expansion? ->
+        {:error, {"theme", :expansions_inherit_theme}}
+
+      true ->
+        :ok
+    end
   end
 
   defp validate_all(steps, data) do
@@ -148,6 +162,13 @@ defmodule RuleMaven.ManualImport.Enrichments do
     end
   end
 
+  defp validate("theme", anchors) do
+    case ThemePalette.build_sets(anchors) do
+      {:ok, _sets} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp validate(_step, _value), do: {:error, :shape}
 
   defp all(list, fun), do: if(Enum.all?(list, fun), do: :ok, else: {:error, :shape})
@@ -204,6 +225,18 @@ defmodule RuleMaven.ManualImport.Enrichments do
     )
 
     put!("delta_status_#{game.id}", "done")
+  end
+
+  # Same write ThemePaletteWorker makes: palette and names together, so the
+  # index-aligned palette_sets/1 and name_sets/1 readers stay in step.
+  defp put_step("theme", anchors, game) do
+    {:ok, sets} = ThemePalette.build_sets(anchors)
+
+    {:ok, _} =
+      Games.update_game(game, %{
+        theme_palette: %{"sets" => Enum.map(sets, & &1.palette)},
+        theme_names: %{"sets" => Enum.map(sets, & &1.names)}
+      })
   end
 
   # Hand-authored, invented personas are trusted (vetted: true): the style string
