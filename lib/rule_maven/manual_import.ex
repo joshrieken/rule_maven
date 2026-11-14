@@ -5,11 +5,13 @@ defmodule RuleMaven.ManualImport do
   extraction pipeline.
 
   Everything past the transcription goes through the normal app path —
-  `Games.create_document/1` chunks it, enqueues embedding, invalidates the
-  answer pool and queues the cheat sheet — so the result is indistinguishable
+  `Games.create_document/2` chunks it, enqueues embedding and invalidates the
+  answer pool — so the result is indistinguishable
   from a pipeline-extracted source, except that its pages are marked
   `lane: "manual"` with full confidence and already cleaned (the transcription
   IS the clean copy), so the prepare pipeline goes straight to embedding.
+  The LLM cheat sheet is NOT queued: a manual import's cheat sheet is
+  hand-authored (`ManualImport.Enrichments`).
 
   Input (`import/2`):
 
@@ -33,18 +35,21 @@ defmodule RuleMaven.ManualImport do
     with {:ok, pdf_path, file_hash} <- store_pdf(attrs),
          {:ok, pages} <- build_pages(pages) do
       result =
-        Games.create_document(%{
-          game_id: game.id,
-          label: attrs["label"] || "Rulebook",
-          kind: attrs["kind"] || "rulebook",
-          source_url: attrs["source_url"],
-          pdf_path: pdf_path,
-          file_hash: file_hash,
-          pages: pages,
-          page_count: length(pages),
-          full_text: Games.rebuild_full_text(pages),
-          extracted_at: DateTime.utc_now() |> DateTime.truncate(:second)
-        })
+        Games.create_document(
+          %{
+            game_id: game.id,
+            label: attrs["label"] || "Rulebook",
+            kind: attrs["kind"] || "rulebook",
+            source_url: attrs["source_url"],
+            pdf_path: pdf_path,
+            file_hash: file_hash,
+            pages: pages,
+            page_count: length(pages),
+            full_text: Games.rebuild_full_text(pages),
+            extracted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+          },
+          cheat_sheet: false
+        )
 
       with {:ok, _doc} <- result, do: Readiness.recompute(game)
       result

@@ -798,7 +798,12 @@ defmodule RuleMaven.Games do
     )
   end
 
-  def create_document(attrs) do
+  @doc """
+  Inserts a document (deduped by content hash), chunks it and invalidates the
+  answer pool. Opts: `cheat_sheet: false` skips queueing the LLM cheat sheet —
+  for sources whose cheat sheet is hand-authored (`ManualImport`).
+  """
+  def create_document(attrs, opts \\ []) do
     attrs = derive_pages(attrs)
 
     # Content-hash idempotency: a retried DownloadWorker attempt (or an identical
@@ -811,7 +816,7 @@ defmodule RuleMaven.Games do
         {:ok, existing}
 
       nil ->
-        insert_document(attrs)
+        insert_document(attrs, Keyword.get(opts, :cheat_sheet, true))
     end
   end
 
@@ -828,7 +833,7 @@ defmodule RuleMaven.Games do
     end
   end
 
-  defp insert_document(attrs) do
+  defp insert_document(attrs, cheat_sheet?) do
     # A source saved before extraction carries no page text. It can't be chunked,
     # cheat-sheeted, or auto-published yet — those wait for ExtractWorker to fill
     # the pages (extraction runs on demand from the prepare page). Detect it by
@@ -861,7 +866,7 @@ defmodule RuleMaven.Games do
         invalidate_pool(doc.game_id)
 
         # Enqueue cheatsheet generation (skip in test)
-        unless testing?() do
+        if cheat_sheet? and not testing?() do
           %{document_id: doc.id}
           |> RuleMaven.Workers.CheatSheetWorker.new()
           |> Oban.insert()
