@@ -55,3 +55,6 @@ boardgame-*.tar
 # Node deps (symlinked into worktrees)
 /node_modules
 /assets/node_modules
+
+# Playwright MCP browser snapshots/console logs
+/.playwright-mcp/
