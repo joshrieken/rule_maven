@@ -177,3 +177,16 @@ After the refusal escalations, `LLM.maybe_recheck_unsupported_negation/6`: an
 answer asserting do not/cannot/instead/skip/never with NO restrictive word in
 any cited quote gets one escalate-model re-ask (`negation_recheck_nudge`),
 re-grounded; a refusal/blank recheck keeps the original.
+
+## Symbol key (rulebook icons)
+
+```
+transcription writes icons as neutral bracket tokens ("[purple hammer symbol]")
+  → key per game: game_symbols (token → book name/meaning/aliases/page + optional icon)
+     Claude: tmp/rebuild/SYMBOLS.md → Enrichments "symbols" (image_base64 | local image_path)
+     in-app: Readiness :symbols → SymbolKeyWorker (candidates extracted in code; none → mark_none, no LLM)
+     every token must occur in the book text (Symbols.tokens_in_text/2)
+  → ask: LLM.build_context_block appends Symbols.prompt_block(base + expansions) inside the cached prefix
+  → Symbols tool (base + toggled expansions); icons via SymbolController only while
+     :symbol_images flag on AND per-game toggle on (Prepare page) AND game Ready/admin
+```
