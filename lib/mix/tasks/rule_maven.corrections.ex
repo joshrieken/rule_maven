@@ -22,6 +22,8 @@ defmodule Mix.Tasks.RuleMaven.Corrections do
 
   @impl Mix.Task
   def run(["list" | rest]) do
+    # Dev logs SQL to stdout; keep it out of the JSON this prints.
+    Logger.configure(level: :warning)
     ResetPrepared.start_without_queues()
     opts = if rest == [], do: [], else: [game_id: String.to_integer(hd(rest))]
     queue = Corrections.queue(opts)
