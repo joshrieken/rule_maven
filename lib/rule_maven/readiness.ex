@@ -31,10 +31,10 @@ defmodule RuleMaven.Readiness do
   alias RuleMaven.Games.{Game, Document, Chunk}
 
   @required ~w(bgg source extract review cleanup embed)a
-  @enrichment ~w(theme suggestions categories cheat_sheet setup did_you_know voices first_player common_mistakes quiz teach score turn)a
+  @enrichment ~w(theme suggestions categories cheat_sheet setup did_you_know voices first_player common_mistakes quiz teach score turn symbols)a
 
   # Steps that spend LLM/embedding budget — the ones we estimate + total cost for.
-  @llm_steps ~w(extract cleanup embed suggestions categories cheat_sheet setup did_you_know voices theme first_player common_mistakes quiz teach score turn)a
+  @llm_steps ~w(extract cleanup embed suggestions categories cheat_sheet setup did_you_know voices theme first_player common_mistakes quiz teach score turn symbols)a
 
   @doc "Ordered required steps (the ones that gate `playable`)."
   def required_steps, do: @required
@@ -76,6 +76,7 @@ defmodule RuleMaven.Readiness do
   def label(:teach), do: "60-second teach"
   def label(:score), do: "Score pad"
   def label(:turn), do: "Turn wizard"
+  def label(:symbols), do: "Symbol key"
 
   ## State -------------------------------------------------------------------
 
@@ -207,6 +208,7 @@ defmodule RuleMaven.Readiness do
 
   def step_complete?(:did_you_know, %Game{id: id}, _docs), do: present?("did_you_know_#{id}")
   def step_complete?(:first_player, %Game{id: id}, _docs), do: present?("first_player_#{id}")
+  def step_complete?(:symbols, %Game{id: id}, _docs), do: RuleMaven.Symbols.done?(id)
 
   def step_complete?(:common_mistakes, %Game{id: id}, _docs),
     do: present?("common_mistakes_#{id}")

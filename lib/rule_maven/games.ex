@@ -1253,6 +1253,7 @@ defmodule RuleMaven.Games do
       RuleMaven.Setup.clear(game.id)
       RuleMaven.Voices.clear_generated_for_game(game.id)
       RuleMaven.ExpansionDelta.clear(game.id)
+      RuleMaven.Symbols.clear(game.id)
       Repo.delete_all(from c in GameCategory, where: c.game_id == ^game.id)
 
       Enum.each(

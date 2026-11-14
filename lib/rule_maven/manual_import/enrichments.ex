@@ -25,6 +25,10 @@ defmodule RuleMaven.ManualImport.Enrichments do
                           "names" => %{"light", "dark"}}]}  # base games only;
                           # anchors = %{"accent", "bg", "surface", "text"} hex,
                           # picked from the cover (ThemePalette derives the rest)
+      "symbols"         [%{"token", "name", "meaning", "aliases" => [str], "page",
+                           "image_base64" | "image_path"}]   # [] = book has none
+                          # every token must occur in the game's rulebook text;
+                          # image_path (a local file) is for the mix task only
 
   Every step is validated before anything is written; one bad step aborts the
   whole import with `{:error, {step, reason}}`.
@@ -45,14 +49,15 @@ defmodule RuleMaven.ManualImport.Enrichments do
   }
 
   @steps ~w(suggestions categories cheat_sheet setup did_you_know voices first_player
-            common_mistakes quiz teach score turn expansion_delta theme)
+            common_mistakes quiz teach score turn expansion_delta theme symbols)
 
   @doc "Validate and import every step present in `data`. Returns `{:ok, [step]}`."
   def import(%Game{} = game, data) when is_map(data) do
     steps = Enum.filter(@steps, &Map.has_key?(data, &1))
 
     with :ok <- expansion_only(steps, game),
-         :ok <- validate_all(steps, data) do
+         :ok <- validate_all(steps, data),
+         :ok <- symbol_tokens_in_book(steps, data, game) do
       Enum.each(steps, &put_step(&1, data[&1], game))
       Readiness.recompute(game)
       {:ok, steps}
@@ -74,6 +79,19 @@ defmodule RuleMaven.ManualImport.Enrichments do
 
       true ->
         :ok
+    end
+  end
+
+  defp symbol_tokens_in_book(steps, data, game) do
+    if "symbols" in steps do
+      tokens = Enum.map(data["symbols"], & &1["token"])
+
+      case RuleMaven.Symbols.tokens_in_text(tokens, Games.document_full_text(game)) do
+        {_, []} -> :ok
+        {_, missing} -> {:error, {"symbols", {:tokens_not_in_book, missing}}}
+      end
+    else
+      :ok
     end
   end
 
@@ -169,7 +187,31 @@ defmodule RuleMaven.ManualImport.Enrichments do
     end
   end
 
+  defp validate("symbols", syms) when is_list(syms) and length(syms) <= 120 do
+    tokens = Enum.map(syms, & &1["token"])
+
+    cond do
+      length(Enum.uniq(tokens)) != length(tokens) ->
+        {:error, :duplicate_tokens}
+
+      true ->
+        all(syms, fn s ->
+          str?(s["token"]) and String.length(s["token"]) <= 120 and
+            (is_nil(s["name"]) or str?(s["name"])) and
+            (is_nil(s["aliases"]) or
+               (is_list(s["aliases"]) and Enum.all?(s["aliases"], &is_binary/1))) and
+            valid_symbol_image?(s)
+        end)
+    end
+  end
+
   defp validate(_step, _value), do: {:error, :shape}
+
+  defp valid_symbol_image?(%{"image_base64" => b64}) when is_binary(b64),
+    do: match?({:ok, _}, Base.decode64(b64, ignore: :whitespace))
+
+  defp valid_symbol_image?(%{"image_path" => path}) when is_binary(path), do: File.regular?(path)
+  defp valid_symbol_image?(_), do: true
 
   defp all(list, fun), do: if(Enum.all?(list, fun), do: :ok, else: {:error, :shape})
   defp strs_min([_ | _] = xs, n), do: all(xs, &str_min?(&1, n))
@@ -227,6 +269,38 @@ defmodule RuleMaven.ManualImport.Enrichments do
     put!("delta_status_#{game.id}", "done")
   end
 
+  # The key replaces the game's whole key. Images are written first; an
+  # unreadable/oversized one fails the import loudly rather than silently
+  # dropping the icon. An empty list records "this book has no symbols" so the
+  # step reads complete without the LLM worker ever running.
+  defp put_step("symbols", syms, game) do
+    entries =
+      Enum.map(syms, fn s ->
+        image =
+          case symbol_image_binary(s) do
+            nil ->
+              nil
+
+            bin ->
+              {:ok, rel} = RuleMaven.Symbols.store_image(game.id, bin, s["name"] || s["token"])
+              rel
+          end
+
+        %{
+          token: s["token"],
+          name: s["name"],
+          meaning: s["meaning"],
+          aliases: s["aliases"] || [],
+          page: s["page"],
+          image_path: image,
+          image_note: s["image_note"]
+        }
+      end)
+
+    {:ok, _} = RuleMaven.Symbols.replace(game.id, entries)
+    RuleMaven.Symbols.mark_none(game.id, entries == [])
+  end
+
   # Same write ThemePaletteWorker makes: palette and names together, so the
   # index-aligned palette_sets/1 and name_sets/1 readers stay in step.
   defp put_step("theme", anchors, game) do
@@ -270,6 +344,12 @@ defmodule RuleMaven.ManualImport.Enrichments do
       error -> raise "Settings.put #{key} failed: #{inspect(error)}"
     end
   end
+
+  defp symbol_image_binary(%{"image_base64" => b64}) when is_binary(b64),
+    do: Base.decode64!(b64, ignore: :whitespace)
+
+  defp symbol_image_binary(%{"image_path" => path}) when is_binary(path), do: File.read!(path)
+  defp symbol_image_binary(_), do: nil
 
   defp slugify(label) do
     label

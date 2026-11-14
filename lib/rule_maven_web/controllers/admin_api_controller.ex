@@ -154,7 +154,24 @@ defmodule RuleMavenWeb.AdminApiController do
   defp error_text({:error, reason}), do: inspect(reason)
 
   defp import_enrichments(_game, nil), do: {:ok, []}
-  defp import_enrichments(game, data), do: Enrichments.import(game, data)
+
+  defp import_enrichments(game, data) when is_map(data),
+    do: Enrichments.import(game, drop_symbol_image_paths(data))
+
+  defp import_enrichments(_game, _), do: {:error, :enrichments_must_be_an_object}
+
+  # A symbol's "image_path" is a server-local file for the mix task; from the
+  # network it would read any server file into the public icon store. The API
+  # takes images as "image_base64" only.
+  defp drop_symbol_image_paths(%{"symbols" => syms} = data) when is_list(syms),
+    do:
+      Map.put(
+        data,
+        "symbols",
+        Enum.map(syms, &if(is_map(&1), do: Map.delete(&1, "image_path"), else: &1))
+      )
+
+  defp drop_symbol_image_paths(data), do: data
 
   defp import_answers(_game, _user, nil, _expansion_ids), do: {:ok, %{}}
 

@@ -141,6 +141,9 @@ defmodule RuleMaven.Readiness.Estimator do
 
   defp do_step_cost(:quiz, _game, docs), do: sampled_chat_cost(docs, @quiz_io)
 
+  # Symbols are scattered through the whole book, so the key reads all of it.
+  defp do_step_cost(:symbols, _game, docs), do: chat_cost(docs, 4000)
+
   defp do_step_cost(_step, _game, _docs), do: 0.0
 
   # A sampled-rulebook chat call on the cheap model: capped text in + a fixed

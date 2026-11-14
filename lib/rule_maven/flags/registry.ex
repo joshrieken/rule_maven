@@ -10,7 +10,7 @@ defmodule RuleMaven.Flags.Registry do
     * `:experiment` — a percentage rollout. Deleted when the experiment concludes.
   """
 
-  @tools ~w(turn first_player checklist scorepad timer expansions teach quiz mistakes dyk house_rules group_feed)a
+  @tools ~w(turn first_player checklist scorepad timer expansions teach quiz mistakes dyk house_rules group_feed symbols)a
 
   @tool_labels %{
     turn: "Turn Wizard",
@@ -24,7 +24,8 @@ defmodule RuleMaven.Flags.Registry do
     mistakes: "Rules tables get wrong",
     dyk: "Did you know",
     house_rules: "House rules",
-    group_feed: "Group feed"
+    group_feed: "Group feed",
+    symbols: "Symbols"
   }
 
   @tool_flags for t <- @tools,
@@ -52,7 +53,16 @@ defmodule RuleMaven.Flags.Registry do
     # Off hides the coverage meter, gap list and personal rulebook title.
     # Coverage rows keep being recorded, so the meter is already current the
     # moment it is turned back on.
-    %{id: :rulebook_coverage, label: "Rulebook coverage & titles", kind: :ops, default: true}
+    %{id: :rulebook_coverage, label: "Rulebook coverage & titles", kind: :ops, default: true},
+    # Off hides every cropped rulebook icon (Symbols tool + inline) app-wide and
+    # 404s the image route — the global lever for a takedown request. The text
+    # key (names/meanings) keeps working. Per-game off: Symbols.set_images/3.
+    %{
+      id: :symbol_images,
+      label: "Symbol icon images (cropped rulebook art)",
+      kind: :ops,
+      default: true
+    }
   ]
 
   @experiments [
