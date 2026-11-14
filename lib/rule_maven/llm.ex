@@ -1989,6 +1989,22 @@ defmodule RuleMaven.LLM do
       header = ~s(=== #{scope} — #{String.upcase(first.kind)} "#{first.label}" ===)
       header <> "\n" <> Enum.map_join(group, "\n\n", & &1.content)
     end)
+    |> append_symbol_key(chunks, base_game_id)
+  end
+
+  # The books' symbol keys ride at the end of the context block — inside the
+  # cached prefix (cache_block IS this block) and deterministic per key — so
+  # "[purple hammer symbol]" in a quote and "the purple hammer" in a question
+  # both resolve to the Blacksmith. Games without a key add nothing.
+  defp append_symbol_key(block, chunks, base_game_id) do
+    game_ids =
+      [base_game_id | chunks |> Enum.map(& &1.game_id) |> Enum.reject(&is_nil/1) |> Enum.sort()]
+      |> Enum.uniq()
+
+    case RuleMaven.Symbols.prompt_block(game_ids) do
+      "" -> block
+      key -> block <> "\n\n" <> key
+    end
   end
 
   @doc """
