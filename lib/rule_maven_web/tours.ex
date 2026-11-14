@@ -92,7 +92,7 @@ defmodule RuleMavenWeb.Tours do
         sel: "[data-tour='tools-subbar']",
         title: "Every table tool lives here",
         body:
-          "Tap 🎲 Play or 📚 Learn to open Turn Wizard, Quiz, Setup checklist, Score pad, and more — they open as movable panels you can minimize to the dock, and they remember where you left off."
+          "Tap 🎲 Play or 📚 Learn to open Turn Wizard, Quiz, Setup checklist, Score pad, Symbols, and more — they open as movable panels you can minimize to the dock, and they remember where you left off."
       },
       %{
         # Anchored to the sidebar coverage meter. present() skips this step

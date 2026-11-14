@@ -20,6 +20,7 @@ defmodule RuleMavenWeb.GameLive.ToolRegistry do
     %{id: :quiz, emoji: "🎓", label: "Rules quiz", group: :learn},
     %{id: :mistakes, emoji: "⚠️", label: "Rules tables get wrong", group: :learn},
     %{id: :dyk, emoji: "💡", label: "Did you know", group: :learn},
+    %{id: :symbols, emoji: "🔣", label: "Symbols", group: :learn},
     %{id: :house_rules, emoji: "🏠", label: "House rules", group: :learn},
     # The group question feed: not listed in the Play/Learn menus (`group:
     # :group_feed` matches no `group/2` call in SubBar) — its toggle is a

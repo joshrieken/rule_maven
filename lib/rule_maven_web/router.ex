@@ -54,6 +54,8 @@ defmodule RuleMavenWeb.Router do
     get "/rulebooks/:id/html", RulebookController, :html
     # Original PDF, same admin gate — rendered inline in the browser's viewer.
     get "/rulebooks/:id/pdf", RulebookController, :pdf
+    # Cropped rulebook icons for the Symbols tool — gated, never static.
+    get "/symbols/:id/image", SymbolController, :image
     # Theme picker pings this on change so we can track theme usage.
     post "/theme-events", MetricsController, :theme
 

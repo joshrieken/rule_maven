@@ -120,6 +120,12 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
       fp_selectors: load_first_player(game),
       fp_pick: nil,
       common_mistakes: load_common_mistakes(game),
+      symbol_groups:
+        load_symbols(
+          game,
+          socket.assigns[:expansions] || [],
+          socket.assigns[:included_expansions] || %{}
+        ),
       teach_pitch: load_teach_pitch(game),
       score_categories: load_score_categories(game),
       turn_flow: load_turn_flow(game),
@@ -524,6 +530,8 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
   # rule change this answer?" overlay there). Community has no such assign,
   # and recomputing it unconditionally would raise on that page.
   defp refresh_expansion_deltas(socket) do
+    socket = refresh_symbols(socket)
+
     if Map.has_key?(socket.assigns, :expansion_deltas) do
       assign(socket,
         expansion_deltas:
@@ -611,6 +619,43 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
     case RuleMaven.Settings.get("first_player_#{game.id}") do
       nil -> []
       json -> Jason.decode!(json)
+    end
+  end
+
+  @doc """
+  Symbol-key groups for the Symbols tool: the base game, then each toggled-on
+  expansion that has a key. Each group: `%{name, images?, symbols}`; `images?`
+  folds in both icon switches so the template never renders a dead image.
+  """
+  def load_symbols(game, expansions, included) do
+    games = [game | Enum.filter(expansions, &included[&1.id])]
+    names = Map.new(games, &{&1.id, &1.name})
+
+    for {gid, symbols} <- RuleMaven.Symbols.list_for_games(Enum.map(games, & &1.id)) do
+      %{
+        name:
+          if(gid == game.id,
+            do: game.name,
+            else: RuleMaven.Games.expansion_short_name(%{name: names[gid]}, game)
+          ),
+        images?: RuleMaven.Symbols.images_enabled?(gid),
+        symbols: symbols
+      }
+    end
+  end
+
+  defp refresh_symbols(socket) do
+    if Map.has_key?(socket.assigns, :symbol_groups) do
+      assign(socket,
+        symbol_groups:
+          load_symbols(
+            socket.assigns.game,
+            socket.assigns.expansions,
+            socket.assigns.included_expansions
+          )
+      )
+    else
+      socket
     end
   end
 

@@ -332,6 +332,47 @@ defmodule RuleMavenWeb.GameLive.ToolPanel do
     """
   end
 
+  defp render_tool(%{tool: :symbols} = assigns) do
+    ~H"""
+    <%= if @symbol_groups == [] do %>
+      <.tool_unavailable />
+    <% else %>
+      <div style="display:flex;flex-direction:column;gap:0.85rem">
+        <section :for={g <- @symbol_groups}>
+          <div
+            :if={length(@symbol_groups) > 1}
+            style="font-size:0.7rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;margin-bottom:0.35rem"
+          >
+            {g.name}
+          </div>
+          <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0.4rem">
+            <li
+              :for={s <- g.symbols}
+              data-testid="symbol-entry"
+              style="display:flex;gap:0.55rem;align-items:flex-start;font-size:0.8rem;line-height:1.45;background:var(--bg-subtle);border:1px solid var(--border);border-radius:0.4rem;padding:0.45rem 0.55rem"
+            >
+              <img
+                :if={g.images? and s.image_path}
+                src={~p"/symbols/#{RuleMaven.Hashid.encode(s.id)}/image"}
+                alt={s.name || s.token}
+                loading="lazy"
+                style="width:2.25rem;height:2.25rem;object-fit:contain;flex-shrink:0;border-radius:0.25rem;background:var(--bg-surface)"
+              />
+              <div style="min-width:0">
+                <div style="font-weight:700;color:var(--text)">{s.name || "Unnamed symbol"}</div>
+                <div style="font-size:0.7rem;color:var(--text-muted);overflow-wrap:anywhere">
+                  {String.replace(s.token, "{n}", "N")}{if s.page, do: " · p. #{s.page}"}
+                </div>
+                <div :if={s.meaning} style="color:var(--text);margin-top:0.15rem">{s.meaning}</div>
+              </div>
+            </li>
+          </ul>
+        </section>
+      </div>
+    <% end %>
+    """
+  end
+
   defp render_tool(%{tool: :quiz} = assigns) do
     ~H"""
     <%= if @quiz == [] do %>

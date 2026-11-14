@@ -158,6 +158,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
     assign(socket,
       steps: steps,
+      has_symbols?: RuleMaven.Symbols.any?(game.id),
+      symbol_images_on?: RuleMaven.Symbols.game_images_on?(game.id),
       # First pending step — the PrepareCollapse hook auto-expands its row.
       next_step_id: next_step && next_step.id,
       step_logs: step_logs,
@@ -275,6 +277,26 @@ defmodule RuleMavenWeb.GameLive.Prepare do
        socket
        |> load()
        |> put_flash(:info, "Published — the game is now ready.")}
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
+    end
+  end
+
+  # Per-game icon switch for the symbol key (the global one is the
+  # :symbol_images flag on the Flags admin page) — the lever for a takedown
+  # request scoped to one publisher. Audited in Symbols.set_images/3.
+  def handle_event("toggle_symbol_images", _params, socket) do
+    if Users.can?(socket.assigns.current_user, :admin) do
+      on? = !socket.assigns.symbol_images_on?
+      RuleMaven.Symbols.set_images(socket.assigns.game.id, on?, socket.assigns.current_user)
+
+      {:noreply,
+       socket
+       |> load()
+       |> put_flash(
+         :info,
+         if(on?, do: "Symbol icons shown.", else: "Symbol icons hidden for this game.")
+       )}
     else
       {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
     end
@@ -999,6 +1021,15 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           data-confirm="Unpublish this game? Users won't be able to ask questions until you re-publish."
         >
           Unpublish
+        </button>
+        <button
+          :if={@has_symbols?}
+          phx-click="toggle_symbol_images"
+          class="btn-sm"
+          data-testid="toggle-symbol-images"
+          title="Show or hide the cropped rulebook icons in this game's Symbols tool. The text key keeps working either way."
+        >
+          🔣 Icons: {if @symbol_images_on?, do: "shown", else: "hidden"}
         </button>
 
         <%!-- Danger zone: wipe the whole pipeline. Only offered while no questions
