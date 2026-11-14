@@ -158,3 +158,22 @@ Claude transcribes page PNGs → pages JSON; authors enrichments+answers JSON
   → POST /api/admin/games/:token/publish     (Readiness.approve_publish/2)
 ```
 Auth: `ApiAuth` → `Users.get_api_user/1`. Every mutation is `Audit.log`ged (`api.*`). Same code path as the `mix rule_maven.import_*` tasks.
+
+## Wrong-answer review (Claude-operated)
+
+```
+player 🚩 report (QuestionFlag) / 👎 (questions_log.feedback="down")
+  → Corrections.queue/1  (mix rule_maven.corrections list | GET /api/admin/corrections)
+  → Claude checks the answer against the rulebook transcription
+  → correct: Answers.ground_citations/3 → log_question_update → force_publish_question (pooled)
+             → resolve_flags → Audit "answer.manual_correction"
+    uphold:  resolve_flags → Audit "answer.review_upheld"
+  (mix rule_maven.corrections apply USER FILE | POST /api/admin/corrections)
+```
+
+## Ask pipeline — unsupported-negation recheck
+
+After the refusal escalations, `LLM.maybe_recheck_unsupported_negation/6`: an
+answer asserting do not/cannot/instead/skip/never with NO restrictive word in
+any cited quote gets one escalate-model re-ask (`negation_recheck_nudge`),
+re-grounded; a refusal/blank recheck keeps the original.

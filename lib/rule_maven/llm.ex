@@ -606,6 +606,9 @@ defmodule RuleMaven.LLM do
             ctx
           )
 
+        llm_result =
+          maybe_recheck_unsupported_negation(llm_result, chunks, game, recent_context, voice, ctx)
+
         {:ok,
          %{
            answer: llm_result[:answer],
@@ -825,6 +828,72 @@ defmodule RuleMaven.LLM do
     else
       _ -> {llm_result, chunks}
     end
+  end
+
+  # An answer that asserts a prohibition or a replacement ("you do not take a
+  # card. Instead, you trade…") while NONE of its quotes says anything
+  # restrictive is the grounding critic's blind spot: it hunts contradictions,
+  # and an invented "no" contradicts nothing it is shown. Real failure
+  # (Nidavellir, 2026-11-13): the turn list said choose a card → recruit a
+  # Hero → trade if you bid 0; the model cited the trade step and claimed the
+  # card pick doesn't happen, and the critic passed it. Decided in code, like
+  # the other polarity guards: such an answer gets ONE stronger-model recheck.
+  # The recheck passes the same grounding gate; a refusal or blank keeps the
+  # original (the recheck must improve the answer, not delete it).
+  defp maybe_recheck_unsupported_negation(llm_result, chunks, game, recent_context, voice, ctx) do
+    if unsupported_negation?(llm_result) do
+      escalate_model = model(:escalate)
+      context = build_context_block(chunks, game.id, stable: ctx.stable_corpus)
+      cache_block = if ctx.stable_corpus, do: context
+
+      system_prompt =
+        build_system_prompt(game.name, game.category, context, recent_context, voice, game) <>
+          RuleMaven.Prompts.render("negation_recheck_nudge", %{
+            previous_answer: to_string(llm_result[:answer])
+          })
+
+      esc_ctx = %{ctx | model_name: escalate_model, fresh: true}
+
+      with {:ok, retried} <-
+             request_answer(
+               system_prompt,
+               ctx.question,
+               escalate_model,
+               ctx.game_id,
+               ctx.user_id,
+               true,
+               cache_block
+             ),
+           retried = maybe_reground(retried, system_prompt, esc_ctx, chunks),
+           false <- refused_answer?(retried),
+           false <- String.trim(to_string(retried[:answer])) == "" do
+        retried
+      else
+        _ -> llm_result
+      end
+    else
+      llm_result
+    end
+  end
+
+  @negative_claim ~r/\b(do not|don't|does not|doesn't|did not|didn't|cannot|can't|can not|may not|must not|never|instead|skips?|skipped|not allowed|no longer|isn't allowed|aren't allowed)\b/iu
+  @restrictive_quote ~r/\b(not|no|never|cannot|can't|only|instead|except|unless|must|nor|neither|without|forbidden|prohibited|unable)\b/iu
+
+  @doc """
+  True when an answer asserts a negative/replacement claim but none of its
+  cited quotes contains any restrictive wording that could support it.
+  Refusals and uncited answers are left to their own gates.
+  """
+  def unsupported_negation?(llm_result) do
+    quotes =
+      for c <- List.wrap(llm_result[:citations]),
+          q = c[:quote] || c["quote"],
+          is_binary(q),
+          do: q
+
+    not refused_answer?(llm_result) and quotes != [] and
+      Regex.match?(@negative_claim, to_string(llm_result[:answer])) and
+      not Enum.any?(quotes, &Regex.match?(@restrictive_quote, &1))
   end
 
   # Cheap gate on a refused question: answerable purely by COMBINING rules

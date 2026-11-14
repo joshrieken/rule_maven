@@ -6,10 +6,12 @@ defmodule RuleMaven.LLMGroundingNarrowingTest do
 
   @question "What are the ways to counter a monster attack?"
 
-  @grounded_quote "You may discard one Item for each Hit symbol rolled to defend."
+  @grounded_quote "You may discard only one Item for each Hit symbol rolled to defend."
 
   # "cannot" (a trigger word) is absent from the quote, so the suspicion
-  # heuristic fires and the critic runs.
+  # heuristic fires and the critic runs. The quote's "only" is restrictive, so
+  # the unsupported-negation recheck (llm_negation_recheck_test.exs) stays out
+  # of these critic-narrowing call counts.
   @suspicious_answer "You may discard one Item per Hit symbol rolled. " <>
                        "Perk cards cannot be played during the Monster Phase."
 

@@ -146,6 +146,8 @@ defmodule RuleMavenWeb.Router do
     delete "/games/:game/documents/:doc", AdminApiController, :delete_document
     post "/games/:game/content", AdminApiController, :create_content
     post "/games/:game/publish", AdminApiController, :publish
+    get "/corrections", AdminApiController, :corrections
+    post "/corrections", AdminApiController, :apply_corrections
   end
 
   # Preview sent emails in dev (Local adapter stores them in memory).

@@ -12,7 +12,7 @@ defmodule RuleMavenWeb.AdminApiController do
 
   alias RuleMaven.{Audit, Games, Hashid, ManualImport, Readiness, Repo}
   alias RuleMaven.Games.Document
-  alias RuleMaven.ManualImport.{Answers, Enrichments}
+  alias RuleMaven.ManualImport.{Answers, Corrections, Enrichments}
 
   @doc "GET /api/admin/games?q=name — find a game's token."
   def index(conn, params) do
@@ -96,6 +96,62 @@ defmodule RuleMavenWeb.AdminApiController do
       json(conn, Map.put(status_payload(game), :playable, playable))
     end)
   end
+
+  @doc """
+  GET /api/admin/corrections[?game=token] — answers players reported or
+  thumbed down that nobody has reviewed yet (`ManualImport.Corrections`).
+  """
+  def corrections(conn, params) do
+    with {:ok, opts} <- game_filter(params["game"]) do
+      queue = Corrections.queue(opts)
+      names = Corrections.game_names(queue)
+
+      json(conn, %{
+        queue:
+          Enum.map(queue, &Corrections.entry_payload(&1, names, fn id -> Hashid.encode(id) end))
+      })
+    else
+      _ -> error(conn, 404, :not_found)
+    end
+  end
+
+  @doc """
+  POST /api/admin/corrections — `{"corrections": [{"question": token,
+  "action": "correct", "answer", "verdict", "citations", "note"} |
+  {"question": token, "action": "uphold", "note"}]}`. Corrections must cite
+  verifiable quotes; results come back per question token.
+  """
+  def apply_corrections(conn, %{"corrections" => entries}) when is_list(entries) do
+    results =
+      for entry <- entries do
+        case Hashid.decode(to_string(entry["question"])) do
+          {:ok, id} ->
+            [{_id, result}] =
+              Corrections.apply_all([Map.put(entry, "question", id)], conn.assigns.current_user)
+
+            %{question: entry["question"], ok: result == :ok, error: error_text(result)}
+
+          :error ->
+            %{question: entry["question"], ok: false, error: "bad token"}
+        end
+      end
+
+    json(conn, %{results: results})
+  end
+
+  def apply_corrections(conn, _), do: error(conn, 422, :corrections_must_be_a_list)
+
+  defp game_filter(nil), do: {:ok, []}
+
+  defp game_filter(token) do
+    case Hashid.decode(token) do
+      {:ok, id} -> {:ok, [game_id: id]}
+      :error -> :error
+    end
+  end
+
+  defp error_text(:ok), do: nil
+  defp error_text({:error, reason}), do: inspect(reason)
 
   defp import_enrichments(_game, nil), do: {:ok, []}
   defp import_enrichments(game, data), do: Enrichments.import(game, data)

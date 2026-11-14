@@ -47,6 +47,18 @@ defmodule RuleMaven.ManualImport.Answers do
       else: {:error, :not_an_expansion}
   end
 
+  @doc """
+  Grounds hand-written citations for `game` played with `expansion_ids`: every
+  quote must pass `Citations.valid_citations/2` against those books' chunks.
+  Returns `{:ok, citations}` (source + document_id resolved) or
+  `{:error, :no_citations | {:ungrounded, quotes}}`. Shared with
+  `ManualImport.Corrections`.
+  """
+  def ground_citations(%Game{} = game, expansion_ids, cites) do
+    game_ids = [game.id | Enum.sort(expansion_ids)]
+    validate_citations(cites, %{chunks: source_chunks(game_ids), game_ids: game_ids})
+  end
+
   defp import_all(game, user, entries, [_ | expansion_ids] = game_ids) do
     ctx = %{chunks: source_chunks(game_ids), game_ids: game_ids, expansion_ids: expansion_ids}
 

@@ -167,6 +167,55 @@ defmodule RuleMavenWeb.AdminApiControllerTest do
            |> json_response(422)
   end
 
+  test "corrections: lists the review queue and applies a fix by token", %{
+    conn: conn,
+    token: token,
+    gtok: gtok,
+    admin: admin
+  } do
+    import_pages(conn, token, gtok) |> json_response(201)
+    {:ok, game_id} = Hashid.decode(gtok)
+
+    {:ok, row} =
+      Games.log_question(%{
+        game_id: game_id,
+        question: "How do I beat the Mimic?",
+        answer: "You can't.",
+        verdict: "info",
+        expansion_ids: [],
+        feedback: "down"
+      })
+
+    qtok = Hashid.encode(row.id)
+
+    %{"queue" => [%{"question" => ^qtok, "game" => ^gtok, "thumbs_down" => true}]} =
+      build_conn()
+      |> authed(token)
+      |> get(~p"/api/admin/corrections?game=#{gtok}")
+      |> json_response(200)
+
+    fix = %{
+      "question" => qtok,
+      "action" => "correct",
+      "answer" => "Discard a blue 6+ token at Mimic's location.",
+      "verdict" => "info",
+      "citations" => [
+        %{"quote" => "discard [blue circle token: 6+] to battle Mimic", "page" => 1}
+      ]
+    }
+
+    %{"results" => [%{"ok" => true}, %{"ok" => false, "error" => "bad token"}]} =
+      build_conn()
+      |> authed(token)
+      |> post(~p"/api/admin/corrections", %{
+        "corrections" => [fix, %{"question" => "!!", "action" => "uphold"}]
+      })
+      |> json_response(200)
+
+    assert Repo.get!(RuleMaven.Games.QuestionLog, row.id).llm_provider == "manual"
+    assert admin.id
+  end
+
   test "deletes a document only through its own game", %{conn: conn, token: token, gtok: gtok} do
     %{"document" => %{"token" => dtok}} = conn |> import_pages(token, gtok) |> json_response(201)
 

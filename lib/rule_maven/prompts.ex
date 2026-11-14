@@ -496,6 +496,12 @@ defmodule RuleMaven.Prompts do
   ESCALATION NOTICE: A first pass refused this question. Before refusing again, apply COMBINING RULES strictly — if the answer follows from putting together two or more rules stated explicitly above (e.g. a stated phase/timing or restriction that rules the asked action in or out), you MUST answer it: give the derivation and cite each combined rule verbatim. Refuse ONLY if no such chain of explicitly stated rules exists. Do not use outside knowledge; "the text does not mention X" is never a valid step.{{rules_hint}}
   """
 
+  @negation_recheck_nudge """
+
+
+  RECHECK NOTICE: A first pass answered this question with a negative or replacement claim ("you do not…", "cannot…", "instead…", "skip…") that none of its cited quotes states. Re-read the relevant rules above in full. When a rule is one step in a sequence (a turn order, a list of steps), read the WHOLE sequence and say where that step falls instead of treating it as the only thing that happens. State a restriction or a replacement ONLY if a rule above states it, and cite that rule verbatim. First-pass answer, for reference only (it may be wrong): {{previous_answer}}
+  """
+
   @house_rule_check_system """
   You are a board-game rules referee. You are given official RULEBOOK TEXT for a
   game and one HOUSE RULE a player group uses. Classify how the house rule
@@ -1448,6 +1454,15 @@ defmodule RuleMaven.Prompts do
         "Appended to the answer system prompt on the stronger-model recheck of a refused question the classifier judged combinable. {{rules_hint}} carries the classifier's verified rule quotes (or empty).",
       vars: ~w(rules_hint),
       default: @combine_nudge
+    },
+    %{
+      key: "negation_recheck_nudge",
+      group: "Q&A",
+      label: "Unsupported-negation recheck nudge",
+      description:
+        "Appended to the answer system prompt on the stronger-model recheck of an answer that asserted a negative/replacement claim (\"do not\", \"cannot\", \"instead\") none of its citations states. {{previous_answer}} carries the first-pass answer.",
+      vars: ~w(previous_answer),
+      default: @negation_recheck_nudge
     },
     %{
       key: "vision_transcribe",
