@@ -19,6 +19,8 @@ defmodule RuleMaven.ManualImport.Enrichments do
       "teach"           %{"goal", "loop", "win", "trap"}
       "score"           [%{"label", "hint"}]                # [] = not a points game
       "turn"            [%{"name", "note", "actions" => [%{"label", "rule"}]}]
+      "expansion_delta" %{"components" => [str], "setup" => [%{"title", "detail"}],
+                          "rules" => [str]}           # expansions only
 
   Every step is validated before anything is written; one bad step aborts the
   whole import with `{:error, {step, reason}}`.
@@ -39,17 +41,26 @@ defmodule RuleMaven.ManualImport.Enrichments do
   }
 
   @steps ~w(suggestions categories cheat_sheet setup did_you_know voices first_player
-            common_mistakes quiz teach score turn)
+            common_mistakes quiz teach score turn expansion_delta)
 
   @doc "Validate and import every step present in `data`. Returns `{:ok, [step]}`."
   def import(%Game{} = game, data) when is_map(data) do
     steps = Enum.filter(@steps, &Map.has_key?(data, &1))
 
-    with :ok <- validate_all(steps, data) do
+    with :ok <- expansion_only(steps, game),
+         :ok <- validate_all(steps, data) do
       Enum.each(steps, &put_step(&1, data[&1], game))
       Readiness.recompute(game)
       {:ok, steps}
     end
+  end
+
+  # A delta is only ever composed into a base game's views via its expansion
+  # link; on a base game it would be silently dead content.
+  defp expansion_only(steps, game) do
+    if "expansion_delta" in steps and not Games.expansion?(game.id),
+      do: {:error, {"expansion_delta", :not_an_expansion}},
+      else: :ok
   end
 
   defp validate_all(steps, data) do
@@ -122,6 +133,21 @@ defmodule RuleMaven.ManualImport.Enrichments do
           Enum.all?(actions, &(str?(&1["label"]) and str?(&1["rule"])))
       end)
 
+  defp validate("expansion_delta", %{} = d) do
+    comps = d["components"] || []
+    setup = d["setup"] || []
+    rules = d["rules"] || []
+
+    cond do
+      Map.keys(d) -- ~w(components setup rules) != [] -> {:error, :shape}
+      comps == [] and setup == [] and rules == [] -> {:error, :empty}
+      not (is_list(comps) and Enum.all?(comps, &str?/1)) -> {:error, :components}
+      not (is_list(rules) and Enum.all?(rules, &str?/1)) -> {:error, :rules}
+      not is_list(setup) -> {:error, :setup}
+      true -> all(setup, &(str?(&1["title"]) and str?(&1["detail"])))
+    end
+  end
+
   defp validate(_step, _value), do: {:error, :shape}
 
   defp all(list, fun), do: if(Enum.all?(list, fun), do: :ok, else: {:error, :shape})
@@ -161,6 +187,23 @@ defmodule RuleMaven.ManualImport.Enrichments do
     Settings.delete("setup_error_#{game.id}")
     put!("setup_content_#{game.id}", Jason.encode!(checklist))
     put!("setup_status_#{game.id}", "done")
+  end
+
+  # Same keys ExpansionDeltaWorker writes; a non-nil status also stops
+  # Readiness.ensure_enrichments from firing the LLM generation.
+  defp put_step("expansion_delta", delta, game) do
+    Settings.delete("delta_error_#{game.id}")
+
+    put!(
+      "delta_content_#{game.id}",
+      Jason.encode!(%{
+        "components" => delta["components"] || [],
+        "setup" => delta["setup"] || [],
+        "rules" => delta["rules"] || []
+      })
+    )
+
+    put!("delta_status_#{game.id}", "done")
   end
 
   # Hand-authored, invented personas are trusted (vetted: true): the style string

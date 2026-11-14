@@ -100,6 +100,28 @@ defmodule RuleMaven.ManualImportContentTest do
     refute Settings.get("suggestions_#{game.id}")
   end
 
+  describe "expansion_delta" do
+    @delta %{
+      "components" => ["4 Hazmat markers"],
+      "setup" => [%{"title" => "Boards", "detail" => "Place both floors."}],
+      "rules" => ["Victims cannot be thrown from the second floor."]
+    }
+
+    test "stores the delta for an expansion, so the LLM job never fires", %{game: game} do
+      {:ok, base} = Games.create_game(%{name: "Base #{System.unique_integer([:positive])}"})
+      Repo.insert!(%RuleMaven.Games.ExpansionLink{base_game_id: base.id, expansion_id: game.id})
+
+      assert {:ok, ["expansion_delta"]} = Enrichments.import(game, %{"expansion_delta" => @delta})
+      assert RuleMaven.ExpansionDelta.stored(game.id) == @delta
+      assert RuleMaven.ExpansionDelta.status(game.id) == "done"
+    end
+
+    test "is refused on a base game", %{game: game} do
+      assert {:error, {"expansion_delta", :not_an_expansion}} =
+               Enrichments.import(game, %{"expansion_delta" => @delta})
+    end
+  end
+
   test "a grounded answer is published and pooled; an ungrounded one is rejected", %{game: game} do
     admin = %{id: nil}
 
