@@ -473,6 +473,9 @@ defmodule RuleMaven.Readiness do
     unless step_complete?(:first_player, game, []),
       do: RuleMaven.Workers.FirstPlayerWorker.enqueue(game.id)
 
+    unless step_complete?(:symbols, game, []),
+      do: RuleMaven.Workers.SymbolKeyWorker.enqueue(game.id)
+
     unless step_complete?(:common_mistakes, game, []),
       do: RuleMaven.Workers.CommonMistakesWorker.enqueue(game.id)
 

@@ -900,6 +900,32 @@ defmodule RuleMaven.Prompts do
   {{rulebook}}
   """
 
+  # Vars: game_name, tokens, rulebook
+  @symbol_key """
+  For the board game "{{game_name}}": the rulebook text below writes inline
+  icons as bracketed neutral descriptions. Build its SYMBOL KEY.
+
+  CANDIDATE TOKENS (copy each token EXACTLY as listed; "{n}" stands for a
+  number):
+  {{tokens}}
+
+  For each candidate that is a real inline symbol, give:
+  - "token": exactly as listed
+  - "name": what the BOOK calls it (from a legend, component list or a label
+    next to it), or null if the book never names it. Never name it from
+    general knowledge of the game.
+  - "meaning": one or two sentences of what it means in play, ONLY as the book
+    states it; if the book never explains it, say where it appears.
+  - "aliases": up to 4 short words a player might use for it
+  - "page": the page number where the book defines it, or null
+
+  Skip candidates that are not symbols (placeholders, labels). Respond with a
+  JSON array only.
+
+  RULEBOOK TEXT:
+  {{rulebook}}
+  """
+
   # ── System primers (the `system:` role string paired with the user prompts
   # above). Short steering strings; kept as their own editable templates. ──
   @suggest_questions_system "You generate categorized board game rules questions. Group by topic. Be specific. #{@english_output}"
@@ -911,6 +937,7 @@ defmodule RuleMaven.Prompts do
   @turn_flow_system "You map a board game's turn structure into ordered phases and the actions available in each, for a 'what can I do now?' helper. Never invent rules; only use the provided text. Output only JSON. #{@english_output}"
   @quiz_generate_system "You write fun, accurate multiple-choice quizzes about board game rules. Correct answers come only from the provided text; never invent rules. Output only the requested JSON. #{@english_output}"
   @did_you_know_verify_system "You are a strict board-game rulebook fact-checker. Pass only fully, accurately supported facts; reject anything misleading or unconfirmed. Output only the numbers in the requested format — never prose in any language."
+  @symbol_key_system "You build a board game's symbol key from its rulebook text: what each inline icon is called and means, exactly as the book defines it. Never name or explain a symbol from outside knowledge. Output only the requested JSON. #{@english_output}"
   @categories_system "You generate topic categories for board game rulebooks. Be concise and specific. #{@english_output}"
 
   # ── Setup checklist generation (the verify step is registered separately). ──
@@ -1496,6 +1523,23 @@ defmodule RuleMaven.Prompts do
       description: "Generates the short rule facts shown on a game's page.",
       vars: ~w(game_name rulebook),
       default: @did_you_know
+    },
+    %{
+      key: "symbol_key",
+      group: "Content generation",
+      label: "Symbol key",
+      description:
+        "Names each inline symbol token in a rulebook (\"[purple hammer symbol]\" → Blacksmith) from the book's own legend. {{tokens}} is the code-extracted candidate list; returned tokens are verified against it and the book text.",
+      vars: ~w(game_name tokens rulebook),
+      default: @symbol_key
+    },
+    %{
+      key: "symbol_key_system",
+      group: "Content generation",
+      label: "Symbol key — system",
+      description: "System primer for symbol-key generation.",
+      vars: [],
+      default: @symbol_key_system
     },
     %{
       key: "first_player_picks",

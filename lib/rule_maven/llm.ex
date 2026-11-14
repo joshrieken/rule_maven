@@ -4154,6 +4154,22 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  # Parse a JSON array, tolerating ```json fences or stray prose around it.
+  defp json_array(content) do
+    case Jason.decode(content) do
+      {:ok, list} when is_list(list) ->
+        {:ok, list}
+
+      _ ->
+        with [candidate] <- Regex.run(~r/\[.*\]/s, content),
+             {:ok, list} when is_list(list) <- Jason.decode(candidate) do
+          {:ok, list}
+        else
+          _ -> :error
+        end
+    end
+  end
+
   defp trimmed_string(v) when is_binary(v), do: String.trim(v)
   defp trimmed_string(_), do: ""
 
@@ -5071,6 +5087,68 @@ defmodule RuleMaven.LLM do
         []
     end
   end
+
+  @doc """
+  Builds a symbol key for `candidates` (code-extracted tokens) from the
+  rulebook text. Returns `{:ok, [entry]}` — only entries whose token is one of
+  the candidates, as maps with atom keys — or `{:error, reason}`.
+  """
+  def generate_symbol_key(game_name, rulebook_text, candidates, game_id \\ nil) do
+    prompt =
+      RuleMaven.Prompts.render("symbol_key", %{
+        game_name: game_name,
+        tokens: Enum.map_join(candidates, "\n", &("- " <> &1)),
+        rulebook: sample_across(rulebook_text, 60_000, 4000)
+      })
+
+    allowed = Map.new(candidates, &{String.downcase(&1), &1})
+
+    case chat(prompt, "symbol_key",
+           model: model(:cheap),
+           operation: "symbol_key",
+           game_id: game_id,
+           system: RuleMaven.Prompts.template("symbol_key_system"),
+           max_tokens: 8000,
+           raw: true
+         ) do
+      {:ok, text} ->
+        entries =
+          case json_array(to_string(text)) do
+            {:ok, list} ->
+              for %{"token" => t} = e <- list,
+                  is_binary(t),
+                  token = allowed[String.downcase(t)],
+                  token != nil do
+                %{
+                  token: token,
+                  name: str_or_nil(e["name"]),
+                  meaning: str_or_nil(e["meaning"]),
+                  aliases:
+                    e["aliases"] |> List.wrap() |> Enum.filter(&is_binary/1) |> Enum.take(4),
+                  page: if(is_integer(e["page"]), do: e["page"])
+                }
+              end
+              |> Enum.uniq_by(& &1.token)
+
+            _ ->
+              []
+          end
+
+        {:ok, entries}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp str_or_nil(s) when is_binary(s) do
+    case String.trim(s) do
+      "" -> nil
+      t -> String.slice(t, 0, 600)
+    end
+  end
+
+  defp str_or_nil(_), do: nil
 
   @doc """
   Generates themed "who goes first" table rituals for a game — flavor drawn

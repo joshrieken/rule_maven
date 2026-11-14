@@ -42,13 +42,14 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     quiz: ["quiz_generate"],
     teach: ["teach_pitch"],
     score: ["score_categories"],
-    turn: ["turn_flow"]
+    turn: ["turn_flow"],
+    symbols: ["symbol_key"]
   }
 
   # Enrichment steps that can be re-run in place from this page (each maps to a
   # durable Oban worker), and the subset whose cached output can be cleared.
-  @regen_steps ~w(suggestions categories cheat_sheet setup did_you_know voices theme bgg first_player common_mistakes quiz teach score turn)a
-  @clear_steps ~w(suggestions cheat_sheet setup did_you_know theme first_player common_mistakes quiz teach score turn)a
+  @regen_steps ~w(suggestions categories cheat_sheet setup did_you_know voices theme bgg first_player common_mistakes quiz teach score turn symbols)a
+  @clear_steps ~w(suggestions cheat_sheet setup did_you_know theme first_player common_mistakes quiz teach score turn symbols)a
 
   # JobRun.kind → step id, so a game-scoped running run lights up its step's
   # "Running…" indicator while the worker is in flight.
@@ -67,7 +68,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     "quiz" => :quiz,
     "teach_pitch" => :teach,
     "score_categories" => :score,
-    "turn_flow" => :turn
+    "turn_flow" => :turn,
+    "symbol_key" => :symbols
   }
 
   # JobRun.kind → step id for the inline per-step job log. Superset of
@@ -92,7 +94,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     "quiz" => :quiz,
     "teach_pitch" => :teach,
     "score_categories" => :score,
-    "turn_flow" => :turn
+    "turn_flow" => :turn,
+    "symbol_key" => :symbols
   }
 
   @impl true
@@ -722,6 +725,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
     Workers.TurnFlowWorker.enqueue(g.id)
   end
 
+  defp regen_step(:symbols, g), do: Workers.SymbolKeyWorker.enqueue(g.id)
   defp regen_step(:theme, g), do: Workers.ThemePaletteWorker.enqueue(g)
   defp regen_step(:bgg, g), do: %{game_id: g.id} |> Workers.BggEnrichWorker.new() |> Oban.insert()
   defp regen_step(_, _), do: :ok
@@ -737,6 +741,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   defp clear_step(:teach, g), do: Settings.delete("teach_pitch_#{g.id}")
   defp clear_step(:score, g), do: Settings.delete("score_categories_#{g.id}")
   defp clear_step(:turn, g), do: Settings.delete("turn_flow_#{g.id}")
+  defp clear_step(:symbols, g), do: RuleMaven.Symbols.clear(g.id)
   defp clear_step(_, _), do: :ok
 
   # True when any of the game's sources has a cleanup job queued/running. Cleanup

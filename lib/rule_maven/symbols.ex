@@ -118,6 +118,24 @@ defmodule RuleMaven.Symbols do
     Regex.compile!(pattern, "iu")
   end
 
+  # Bracketed transcription notes that are structure, not inline symbols.
+  @structural ~r/^\[(caption|map legend|cover|diagram|board diagram|example|card illustration|printed page|illegible|setup|flavor|hero tile|reference card)\b/iu
+
+  @doc """
+  Candidate symbol tokens in a rulebook text: distinct bracketed inline
+  descriptions, minus structural notes and bare callout letters/numbers.
+  Numeric families collapse to one `{n}` token. Free (no LLM) — a book with
+  no candidates needs no symbol-key generation at all.
+  """
+  def candidate_tokens(text) do
+    Regex.scan(~r/\[[^\[\]\n]{2,100}\]/u, text)
+    |> Enum.map(fn [t] -> t end)
+    |> Enum.reject(&Regex.match?(@structural, &1))
+    |> Enum.reject(&Regex.match?(~r/^\[(\w|\d+|callout .*)\]$/u, &1))
+    |> Enum.map(&String.replace(&1, ~r/\d+/, "{n}"))
+    |> Enum.uniq_by(&String.downcase/1)
+  end
+
   @doc "Splits tokens into `{found, missing}` against the rulebook text."
   def tokens_in_text(tokens, text) do
     Enum.split_with(tokens, &Regex.match?(token_regex(&1), text))
