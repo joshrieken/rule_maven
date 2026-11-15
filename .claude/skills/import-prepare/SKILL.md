@@ -49,8 +49,8 @@ Answers/content are owned by an EXISTING username (default `jrieken`).
 - Allowed spend: embeddings only (queued by import tasks; player asks are the players').
 
 **Guides** (give subagents the PATH, never paste): `references/TRANSCRIBE.md`,
-`references/AUTHOR.md`, `references/SYMBOLS.md`, `references/PREFILL.md`.
-**Scripts**: `scripts/new_game.exs` (catalog row + BGG, no workers), `scripts/audit.py` (completeness gate), `scripts/tokens.py`, `scripts/check_content.py`, `scripts/merge_prefill.py`,
+`references/AUTHOR.md`, `references/SYMBOLS.md`, `references/PREFILL.md`, `references/SOURCES.md`.
+**Scripts**: `scripts/new_game.exs` (catalog row + BGG, no workers), `scripts/add_source.exs` (new doc on a Ready game, no paid rebuild), `scripts/audit.py` (completeness gate), `scripts/tokens.py`, `scripts/check_content.py`, `scripts/merge_prefill.py`,
 `scripts/import_prefill.sh`, `scripts/publish.exs`.
 **Templates**: `templates/merge.py`, `templates/GLOSSARY.example.md`,
 `templates/theme.example.json`, `templates/expansion_delta.example.json`.
@@ -85,6 +85,17 @@ Also: no mix, no DB, no commits; report counts + unsure items only, never paste 
   A non-null `theme_palette` is NOT enough: legacy single palettes (no `theme_names.sets`)
   need the 3-5 hand-picked sets of step 9. Zero links with BGG data present → step 9 relink.
   Non-empty docs/answers → ASK before `mix rule_maven.reset_prepared N --yes` (deletes Q&A AND PDFs; back up first).
+
+## 1a. Hunt for more sources (1 agent, parallel with step 1-3)
+Every import: one general-purpose agent per game following `references/SOURCES.md`
+(official FAQ / errata / living rules / designer rulings for the EXACT edition) →
+`tmp/rebuild/sources/<slug>.json` + downloads in `tmp/rebuild/backup/pdfs/candidates/<slug>/`.
+Give it the game, edition/year/publisher/BGG id and the current docs. Each `recommend:
+import` candidate becomes its own document (kind faq/errata/reference; rulings → kind
+"notes" or "faq" with the URL as source_url) transcribed in step 3 alongside the
+rulebook. HTML rulings saved as .txt: transcribe as pages of ~400 words each,
+printed=null, one ruling per paragraph with its URL. Skip `community` tier unless the
+user agrees. Mention every candidate (imported or skipped) in the final report.
 
 ## 1. Back up + split sources (inline)
 - `cp PDF tmp/rebuild/backup/pdfs/<slug>_full.pdf`.
@@ -223,7 +234,19 @@ kind of miss the audit didn't flag, add a check for it to audit.py in the same s
   file both ways — only when its citations are all expansion pages.
 - Audit both games: `audit.py EXP_ID` and `audit.py BASE_ID`.
 
-## Re-prepare / add a source to an already-Ready game
+## Add a source (FAQ/errata) to an already-Ready game — no re-prepare needed
+1. Transcribe the new source (steps 2-4) → `tmp/rebuild/out/<slug>_<kind>.json` with page keys
+   that don't collide with the existing docs (check `select label from documents where game_id=N`).
+2. `mix run --no-start .claude/skills/import-prepare/scripts/add_source.exs GAME_ID tmp/rebuild/out/<slug>_<kind>.json`
+   — disables pool rebuild for the window, imports, approves if pending_review, cancels the
+   scheduled paid PoolRebuildWorker, re-pools the imported answers, restores the setting.
+3. The new source may OVERRULE existing answers: one agent compares every existing answer
+   (`psql -At -c "select id, question, answer from questions_log where game_id=N and llm_provider='manual'"`)
+   against the new text and lists contradictions with replacement answer + citations; apply via
+   `mix rule_maven.corrections` (see its moduledoc). Then a prefill agent adds Q&As for what the
+   new source adds (dedupe with merge_prefill.py), import, audit.
+
+## Re-prepare (replace a source / rebuild from scratch)
 All source JSON lives in `tmp/rebuild/`, so a rebuild costs only embeddings:
 1. `cp` any new PDF to `backup/pdfs/`; transcribe the new source (step 3-4).
 2. `mix rule_maven.reset_prepared GAME_ID --yes` (deletes Q&A + docs + PDFs from uploads;
