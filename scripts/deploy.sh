@@ -40,10 +40,12 @@ main() {
 
   echo "== Backing up the database"
   mkdir -p data/backups data/files
+  chmod 700 data/backups
   local stamp
   stamp=$(date +%Y%m%d-%H%M%S)
   if [ -n "$("${COMPOSE[@]}" ps -q db 2>/dev/null || true)" ]; then
-    "${COMPOSE[@]}" exec -T db pg_dump -U rulemaven -Fc rulemaven > "data/backups/rulemaven-$stamp.dump"
+    # Backups hold every account and the LLM API keys: owner-only.
+    (umask 077 && "${COMPOSE[@]}" exec -T db pg_dump -U rulemaven -Fc rulemaven > "data/backups/rulemaven-$stamp.dump")
     echo "saved data/backups/rulemaven-$stamp.dump"
   else
     echo "(not running yet; skipped)"

@@ -37,6 +37,7 @@ defmodule RuleMavenWeb.Endpoint do
   end
 
   plug RuleMavenWeb.Plugs.Health
+  plug RuleMavenWeb.Plugs.ClientIp
 
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]

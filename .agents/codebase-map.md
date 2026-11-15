@@ -67,6 +67,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `ApiAuth` | `api_auth.ex` | Bearer-token plug for `/api/admin`: `Users.get_api_user/1` (super admin, unsuspended, 90-day `user_tokens` context "api"), else 401 JSON |
 | `AdminApiController` | `admin_api_controller.ex` | Remote Prepare JSON API (Hashid tokens): `index` (?q=), `show` (readiness+docs), `create_document` (ManualImport; drops `pdf`, accepts `pdf_url`), `delete_document`, `create_content`, `publish` |
 | `Plugs.Health` | `plugs/health.ex` (in `rule_maven_web/`) | `GET /health` → `{"version":…}` before session/router/DB; Docker healthcheck + `scripts/deploy.sh` poll it |
+| `Plugs.ClientIp` | `plugs/client_ip.ex` (in `rule_maven_web/`) | Real client `remote_ip` behind Cloudflare→Traefik: last XFF hop from a private peer; `cf-connecting-ip` only if that hop is a Cloudflare range. LoginThrottle depends on it |
 | `CheatSheetController` | `cheat_sheet_controller.ex` | Serve cheatsheet HTML page + versioned pages |
 
 ## Components (`lib/rule_maven_web/components/`)
