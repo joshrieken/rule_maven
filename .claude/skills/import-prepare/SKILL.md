@@ -38,7 +38,10 @@ Also: no mix, no DB, no commits; report counts + unsure items only, never paste 
   — pick the edition by year/BGG id (base vs 2nd edition vs expansions). State:
   `select id,label,kind from documents where game_id=N` ·
   `select count(*) from questions_log where game_id=N` ·
-  `select bgg_data is not null, theme_palette is not null from games where id=N`.
+  `select bgg_data is not null, theme_names->'sets' is not null as theme_sets from games where id=N` ·
+  `select count(*) from game_expansion_links where base_game_id=N or expansion_id=N`.
+  A non-null `theme_palette` is NOT enough: legacy single palettes (no `theme_names.sets`)
+  need the 3-5 hand-picked sets of step 9. Zero links with BGG data present → step 9 relink.
   Non-empty docs/answers → ASK before `mix rule_maven.reset_prepared N --yes` (deletes Q&A AND PDFs; back up first).
 
 ## 1. Back up + split sources (inline)
@@ -123,11 +126,17 @@ Resolve WARN near-dups by hand (keep one per ruling; also scan Jaccard ≥0.6 by
 Gloomhaven had 12 same-ruling pairs across agents), re-run `check_content.py --prefill`,
 then `zsh scripts/import_prefill.sh <slug> GAME_ID [BASE_ID]`.
 
-## 9. Game metadata (only if missing)
+## 9. Game metadata (check EVERY time — Gloomhaven shipped without both)
+- Expansion links missing (BGG lists some but `game_expansion_links` empty — happens when
+  the base was enriched before its expansion rows existed): free, DB-only:
+  `mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); g = RuleMaven.Games.get_game!(N); IO.inspect RuleMaven.BGG.relink_from_cache(g)'`
+  Linked expansions still need their own rulebook import to become Ready (see Expansions).
 - No BGG data: `RuleMaven.BGG.enrich_game(game, force: true)` in `mix run --no-start`
   after `Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues()` (BggEnrichWorker would queue the LLM ThemePaletteWorker).
-- No theme: view the BGG cover, hand-pick 3-4 light+dark anchor sets → `"theme"`
-  enrichment; keep accents far apart (dedupe merges accent <45 RGB AND bg <30).
+- No theme SETS: download the BGG cover (`games.image_url`, `sips -Z 700`), Read it, hand-pick 3-4
+  sets `{light:{accent,bg,surface,text}, dark:{…}, names:{light,dark}}` → `{"enrichments":{"theme":{"sets":[…]}}}`
+  → import_content. Keep accents far apart (dedupe merges accent <45 RGB AND bg <30); light accents
+  dark enough for white text. Example: `tmp/rebuild/content/gloomhaven_theme.json`.
 
 ## 10. Publish + verify
 `mix run --no-start scripts/publish.exs GAME_ID` → every `STEP … done`, `PLAYABLE true`.
