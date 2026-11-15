@@ -245,6 +245,11 @@ kind of miss the audit didn't flag, add a check for it to audit.py in the same s
    against the new text and lists contradictions with replacement answer + citations; apply via
    `mix rule_maven.corrections` (see its moduledoc). Then a prefill agent adds Q&As for what the
    new source adds (dedupe with merge_prefill.py), import, audit.
+4. If the new source SUPERSEDES an older doc of the same kind (e.g. FAQ 2022 vs FAQ v0.2),
+   demote the old one so it can't tie on authority in the answer prompt (sources are ordered by
+   kind): `mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); d = RuleMaven.Repo.get!(RuleMaven.Games.Document, DOC_ID); RuleMaven.Games.update_document(d, %{kind: "notes"})'`
+   (no text change → no pool invalidation). Keep it rather than delete: existing answers cite it.
+   Designer/forum rulings go in as kind "notes" too (below the rulebook) when any conflict with print.
 
 ## Re-prepare (replace a source / rebuild from scratch)
 All source JSON lives in `tmp/rebuild/`, so a rebuild costs only embeddings:
