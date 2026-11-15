@@ -31,7 +31,7 @@ NEG = re.compile(r"\b(do not|don't|does not|doesn't|cannot|can't|never|instead|s
 RESTR = re.compile(r"\b(not|no|never|cannot|only|instead|except|unless|must|may not)\b", re.I)
 
 seen = set()
-for a in c["answers"]:
+for a in c.get("answers", []):
     q = n(a["question"])
     if q in seen: fail("DUP QUESTION", a["question"])
     seen.add(q)
@@ -47,7 +47,7 @@ for a in c["answers"]:
 if not prefill and "enrichments" in c:
     e = c["enrichments"]
     qs = [q for s in e["suggestions"] for q in s["questions"]]
-    aq = [a["question"] for a in c["answers"]]
+    aq = [a["question"] for a in c.get("answers", [])]
     for q in qs:
         if aq.count(q) != 1: fail("ANSWER COUNT", aq.count(q), q)
     if len(e["cheat_sheet"]) > 8000: fail("CHEAT SHEET TOO LONG", len(e["cheat_sheet"]))
@@ -57,5 +57,29 @@ if not prefill and "enrichments" in c:
     for qz in e["quiz"]:
         if not 0 <= qz["answer"] < 3: fail("QUIZ ANSWER", qz["q"])
     print({k: (len(v) if not isinstance(v, (int, float)) else v) for k, v in e.items()})
-print("answers", len(c["answers"]), "bad", bad)
+
+# importer limits (lib/rule_maven/manual_import/enrichments.ex) — for any keys present
+e = c.get("enrichments", {})
+str_ = lambda x: isinstance(x, str) and x.strip() != ""
+if "score" in e and (len(e["score"]) > 12 or any(len(x.get("label", "")) > 40 or not str_(x.get("hint")) for x in e["score"])):
+    fail("SCORE: <=12 entries, label <=40 chars, hint required")
+if "turn" in e and (not 1 <= len(e["turn"]) <= 10 or any(not 1 <= len(ph.get("actions", [])) <= 12 for ph in e["turn"])):
+    fail("TURN: 1-10 phases, each 1-12 actions")
+if "teach" in e and (set(e["teach"]) - {"goal", "loop", "win", "trap"} or any(len(v) < 8 for v in e["teach"].values())):
+    fail("TEACH: keys goal/loop/win/trap only, each >=8 chars")
+if "voices" in e and len(e["voices"]) > 12: fail("VOICES: <=12")
+if "symbols" in e and len(e["symbols"]) > 120: fail("SYMBOLS: <=120")
+if "expansion_delta" in e:
+    d = e["expansion_delta"]
+    if set(d) - {"components", "setup", "rules"}: fail("DELTA: only components/setup/rules keys")
+    if not any(d.get(k) for k in ("components", "setup", "rules")): fail("DELTA: all empty")
+    if not all(str_(x) for x in d.get("components", []) + d.get("rules", [])): fail("DELTA: components/rules must be non-empty strings")
+    if not all(str_(x.get("title")) and str_(x.get("detail")) for x in d.get("setup", [])): fail("DELTA: setup items need title+detail")
+if "theme" in e:
+    for st in e["theme"].get("sets", []):
+        for mode in ("light", "dark"):
+            if set(st.get(mode, {})) != {"accent", "bg", "surface", "text"}: fail(f"THEME: {mode} needs accent/bg/surface/text")
+        if not (str_(st.get("names", {}).get("light")) and str_(st.get("names", {}).get("dark"))): fail("THEME: names.light/dark")
+    if not 3 <= len(e["theme"].get("sets", [])) <= 5: fail("THEME: 3-5 sets")
+print("answers", len(c.get("answers", [])), "bad", bad)
 sys.exit(1 if bad else 0)

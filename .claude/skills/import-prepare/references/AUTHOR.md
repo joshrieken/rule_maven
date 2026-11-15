@@ -2,7 +2,7 @@
 
 Source of truth: the transcription JSON file(s) given in your task (pages with
 "sheet", "printed", "text"). Use ONLY that text. Never add rules from memory of
-the game, other editions, expansions or the internet. If the book doesn't say
+the game, other editions, OTHER expansions or the internet. If the book doesn't say
 it, don't write it.
 When an official FAQ/errata file is given, it outranks the rulebook: if it
 clarifies or changes a rule, answer per the FAQ and cite the FAQ page (cite the
@@ -70,3 +70,21 @@ normalized text of the page whose printed (or sheet) == "page". Every
 suggestion question must have exactly one answer. Fix anything that fails.
 Also json.load the file. Report: counts per section + any answer you were
 unsure of. Do not paste the content in your reply.
+
+## Limits the importer enforces
+cheat_sheet 1-10000 chars (aim ≤ 8000) · voices ≤ 12 (style ≤ 300 here) · score ≤ 12
+(label ≤ 40) · turn ≤ 10 phases, 1-12 actions each · teach keys goal/loop/win/trap
+only, each ≥ 8 chars · symbols ≤ 120 · verdicts legal/illegal/info (the importer also
+accepts "silent"; don't use it).
+
+## Expansion games (when your task says the game is an expansion)
+- Write the FULL enrichment set above for the expansion's own book, PLUS
+  "expansion_delta": {"components": [str], "setup": [{"title","detail"}],
+  "rules": [str]} — what the expansion ADDS or CHANGES vs the base game, each item
+  from the expansion book. Only those three keys; not all empty. Example:
+  templates/expansion_delta.example.json. Never write "theme" for an expansion
+  (it inherits the base game's; the importer rejects it).
+- Answers imported ON the expansion game may cite ONLY the expansion's own pages.
+  Rulings that need base + expansion text together go in a separate file imported
+  onto the BASE game with "expansions": [EXPANSION_GAME_ID]; those citations may
+  quote either book (give the author both page files; page keys must not collide).

@@ -38,13 +38,15 @@ Transcription rules:
 8. Do not summarise, fix, reword, or add anything. If a word is truly illegible,
    write [illegible].
 
-Output: write a JSON file (exact path given in your task) of the form
+Output: write a JSON file (exact path given in your task). A part of a book:
+  {"pages": [ ... ]}; a whole single-agent document:
   {"label": ..., "kind": "rulebook", "pdf": ..., "source_url": ..., "pages": [ ... ]}
-with pages in sheet order. Validate it parses (python3 -c 'import json; json.load(open(F))').
+with pages in sheet order. Write files with Bash (heredoc/python), not the Write tool. Validate it parses (python3 -c 'import json; json.load(open(F))').
 Report back only: pages written, and a list of any pages/spots you were unsure
 about (page + what + why). Do not paste the transcription into your reply.
 
 Symbol consistency: write each inline icon with ONE bracket token used
 identically everywhere in the book (same colour/shape words every time), and
-numbers as digits ("[black triangle: 3]") so families key as "{n}". After
-transcribing, build the symbol key per tmp/rebuild/SYMBOLS.md.
+numbers as digits ("[black triangle: 3]") so families key as "{n}". If your task
+gives an icon glossary, its tokens are mandatory. (The symbol key is built
+separately per SYMBOLS.md — not part of transcription.)

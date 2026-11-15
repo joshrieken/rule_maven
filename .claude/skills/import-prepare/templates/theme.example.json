@@ -1,0 +1,80 @@
+{
+ "enrichments": {
+  "theme": {
+   "sets": [
+    {
+     "light": {
+      "accent": "#A3261C",
+      "bg": "#F8F1EC",
+      "surface": "#FFFFFF",
+      "text": "#2A1E1A"
+     },
+     "dark": {
+      "accent": "#E2574A",
+      "bg": "#1E1614",
+      "surface": "#2C211E",
+      "text": "#F2E7DF"
+     },
+     "names": {
+      "light": "Red Cloak",
+      "dark": "Burning Sky"
+     }
+    },
+    {
+     "light": {
+      "accent": "#94551A",
+      "bg": "#F7F2E8",
+      "surface": "#FFFFFF",
+      "text": "#2A2118"
+     },
+     "dark": {
+      "accent": "#E8A33D",
+      "bg": "#1C1812",
+      "surface": "#2A241B",
+      "text": "#F1E8D8"
+     },
+     "names": {
+      "light": "Lantern Market",
+      "dark": "Tavern Glow"
+     }
+    },
+    {
+     "light": {
+      "accent": "#3B7A2A",
+      "bg": "#F1F5EE",
+      "surface": "#FFFFFF",
+      "text": "#1E261B"
+     },
+     "dark": {
+      "accent": "#7FD35A",
+      "bg": "#141A14",
+      "surface": "#1F2820",
+      "text": "#E6EEE2"
+     },
+     "names": {
+      "light": "Alchemist's Vial",
+      "dark": "Shadow Blade"
+     }
+    },
+    {
+     "light": {
+      "accent": "#4F5D6E",
+      "bg": "#F2F3F5",
+      "surface": "#FFFFFF",
+      "text": "#20252B"
+     },
+     "dark": {
+      "accent": "#9AAAC0",
+      "bg": "#16191D",
+      "surface": "#23282E",
+      "text": "#E7EAEE"
+     },
+     "names": {
+      "light": "Cobblestone",
+      "dark": "Iron Night"
+     }
+    }
+   ]
+  }
+ }
+}

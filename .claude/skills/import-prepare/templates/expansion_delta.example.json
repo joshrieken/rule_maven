@@ -1,0 +1,27 @@
+{
+ "enrichments": {
+  "expansion_delta": {
+   "components": [
+    "2 Double-sided Game Boards (Villa A1/A2, Hotel B1/B2)",
+    "Portable Ladders Markers: 4 Upper Segments",
+    "Portable Ladders Markers: 4 Lower Segments",
+    "12 Open Window Markers"
+   ],
+   "setup": [
+    {
+     "title": "Family game",
+     "detail": "Roll and resolve three Explosions without placing any Damage Markers, then roll and place three starting POI."
+    },
+    {
+     "title": "Experienced game: first Explosion",
+     "detail": "Roll and resolve an Explosion in the Target space; the initial Explosions should leave at least one Explosion on each level of the house."
+    }
+   ],
+   "rules": [
+    "Each building has two floors on separate boards: Villa A1/A2, Hotel B1/B2.",
+    "Victims, Hazmats, etc can not be thrown from the second floor.",
+    "Upper and Lower Staircase spaces are Adjacent; Firefighters and Fire move between them at normal movement cost."
+   ]
+  }
+ }
+}

@@ -29,10 +29,29 @@ Reference run: Gloomhaven (game 349, 2026-11-14) — 82-page PDF, ~1.5h wall clo
 · `symbols/<slug>.json` + `symbols/<slug>/*.png` · `prefill/<slug>.json` · `<slug>/`
 scratch (GLOSSARY.md, parts/, merge.py). Gloomhaven used `gh/`.
 
+**Run every command from the repo root.** `scripts/X` / `templates/X` / `references/X`
+below mean `.claude/skills/import-prepare/scripts/X` etc. — type the full path
+(`mix run` resolves paths from the repo root; there is no top-level `scripts/`).
+Answers/content are owned by an EXISTING username (default `jrieken`).
+
+## NEVER (these spend the app's paid AI — Claude does that work instead)
+- Never click Prepare-page step buttons, never switch a game's Prepare **Auto** on, never
+  use the game form's "Refresh BGG" / catalog "Pull BGG": they enqueue LLM workers
+  (BggEnrichWorker → ThemePaletteWorker, plus extract/cleanup/cheat-sheet/suggestion…
+  workers). Use the mix tasks + `scripts/new_game.exs` instead.
+- Never `import_pages` into a game that already has pooled answers: a new/changed
+  document calls `Games.invalidate_pool/1`, which demotes the pool AND schedules
+  PoolRebuildWorker (5 min later) to RE-ASK every pooled question with the paid
+  model. To add/replace a source on a Ready game: re-prepare (see "Re-prepare").
+- Never ask questions in the app to test; never run `mix rule_maven.eval`.
+- Allowed spend: embeddings only (queued by import tasks; player asks are the players').
+
 **Guides** (give subagents the PATH, never paste): `references/TRANSCRIBE.md`,
 `references/AUTHOR.md`, `references/SYMBOLS.md`, `references/PREFILL.md`.
-**Scripts**: `scripts/audit.py` (completeness gate), `scripts/tokens.py`, `scripts/check_content.py`, `scripts/merge_prefill.py`,
+**Scripts**: `scripts/new_game.exs` (catalog row + BGG, no workers), `scripts/audit.py` (completeness gate), `scripts/tokens.py`, `scripts/check_content.py`, `scripts/merge_prefill.py`,
 `scripts/import_prefill.sh`, `scripts/publish.exs`.
+**Templates**: `templates/merge.py`, `templates/GLOSSARY.example.md`,
+`templates/theme.example.json`, `templates/expansion_delta.example.json`.
 (all under `.claude/skills/import-prepare/`; run python with `python3 -I`)
 
 **Every subagent prompt must say:** write output files with Bash (heredoc / python),
@@ -42,11 +61,16 @@ Also: no mix, no DB, no commits; report counts + unsure items only, never paste 
 (zsh here has `noclobber`: overwrite with `>|`, not `>`.)
 
 ## 0. Preflight (5 min, inline)
-- `python3 -I scripts/audit.py GAME_ID` first — every pre-existing GAP becomes a task.
+- `python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` first — every pre-existing GAP becomes a task.
 - Dev server on :4000? `lsof -iTCP:4000 -sTCP:LISTEN`. Mix tasks run with Oban queues
   OFF and only insert jobs; never start a 2nd server / live-queue BEAM.
 - `pdfinfo PDF` (title, pages, size); `pdftotext -f N -l N PDF -` on 4-6 pages:
   born-digital? appended FAQ/errata/back cover? 2-page spreads (landscape ~2x width)?
+- Game not in the catalog (or unsure which row):
+  `mix run --no-start .claude/skills/import-prepare/scripts/new_game.exs search "Name"` →
+  `… new_game.exs add BGG_ID ["Name"] [--expansion-of BASE_GAME_ID]` (creates/reuses the
+  row, fetches BGG directly, links). BGG data is a REQUIRED readiness step — a game
+  without a bgg_id can never become playable.
 - Game row: `psql -d rule_maven_dev -c "select id,name,bgg_id,playable,year_published from games where name ilike '%x%' order by id"`
   — pick the edition by year/BGG id (base vs 2nd edition vs expansions). State:
   `select id,label,kind from documents where game_id=N` ·
@@ -73,7 +97,7 @@ look → exact token. Book labels the icon → token may carry the label (`[Move
 `[POISON icon]`); unlabeled → neutral look (`[purple hammer symbol]`). Number
 families with digits (`[black triangle: 3]`). Tell agents: printed words stay words
 (write both: `Move [Move icon] 3`); invented tokens must be reported.
-Example: `tmp/rebuild/gh/GLOSSARY.md`.
+Example: `templates/GLOSSARY.example.md`.
 
 ## 3. Transcribe (parallel)
 One general-purpose agent per ~9 dense pages / ~15 prose FAQ pages, ALL in one message.
@@ -85,13 +109,13 @@ as `{"pages":[{sheet,printed,text}]}` · report invented tokens + unsure spots.
 ~2-6 min each. Hidden text layers (cropped card art, blank pages) — agents rightly omit.
 
 ## 4. Merge + normalize (inline — the step that needs YOU)
-- `python3 -I scripts/tokens.py tmp/rebuild/<slug>/parts/*.json` → drift
+- `python3 -I .claude/skills/import-prepare/scripts/tokens.py tmp/rebuild/<slug>/parts/*.json` → drift
   (`[small dot]`/`[small round dot]`, class icons as look vs name) and COLLISIONS
   (Gloomhaven: `[black circle: N]` was deck-type on p11 but standee numbers on p29;
   `[white circle: 2]` perk value vs scenario number; `[Heal icon]` used for hit points).
-- Write `tmp/rebuild/<slug>/merge.py`: replacement map + per-page fixes → `out/<slug>.json`
-  `{"label","kind","pdf","source_url":null,"pages"}`; assert every sheet present, text
-  non-empty, unique page keys. Template: `tmp/rebuild/gh/merge.py`.
+- `cp .claude/skills/import-prepare/templates/merge.py tmp/rebuild/<slug>/merge.py`, fill CONFIG (docs, parts, REPLACE
+  map, PRINTED overrides, narrow page_fix collisions) and run it → `out/<slug>.json` per doc;
+  it asserts every sheet present, text non-empty, page keys unique across docs.
 - Act on agents' unsure lists: trim anything INFERRED from art beyond printed labels
   (per-hex colour readings, partial-sheet numbers); verify any table read only from
   art with a 300dpi crop yourself.
@@ -100,7 +124,7 @@ as `{"pages":[{sheet,printed,text}]}` · report invented tokens + unsure spots.
 `mix rule_maven.import_pages GAME_ID tmp/rebuild/out/<slug>.json [tmp/rebuild/out/<slug>_faq.json]`
 (lane "manual", no LLM cheat sheet). Embeddings run on the server (~minutes).
 
-## 6. Author, symbols, pre-fill — ONE parallel wave (7 agents)
+## 6. Author, symbols, pre-fill — ONE parallel wave (6-7 agents)
 All need only the page files; launch together:
 - **Content part 1** (AUTHOR.md): suggestions (6-7 × 5-6), categories, cheat_sheet,
   setup + one answer per suggestion → `content/<slug>_part1.json`; self-check with
@@ -122,7 +146,7 @@ python3 -I - <<'E'   # merge parts
 import json; a=json.load(open("tmp/rebuild/content/<slug>_part1.json")); b=json.load(open("tmp/rebuild/content/<slug>_part2.json"))
 a["enrichments"].update(b["enrichments"]); json.dump(a,open("tmp/rebuild/content/<slug>.json","w"),indent=1,ensure_ascii=False)
 E
-python3 -I scripts/check_content.py tmp/rebuild/content/<slug>.json tmp/rebuild/out/<slug>.json [..._faq.json]   # must print bad 0
+python3 -I .claude/skills/import-prepare/scripts/check_content.py tmp/rebuild/content/<slug>.json tmp/rebuild/out/<slug>.json [..._faq.json]   # must print bad 0
 mix rule_maven.import_content GAME_ID jrieken tmp/rebuild/content/<slug>.json
 python3 -I -c "import json;s=json.load(open('tmp/rebuild/symbols/<slug>.json'))['symbols'];json.dump({'enrichments':{'symbols':s}},open('tmp/rebuild/symbols/<slug>.import.json','w'),ensure_ascii=False)"
 mix rule_maven.import_content GAME_ID jrieken tmp/rebuild/symbols/<slug>.import.json
@@ -133,11 +157,11 @@ Read every ✗ line (citation rejects). Spot-check 1-2 crops with Read.
 ## 8. Pre-fill import
 ```
 psql -At -d rule_maven_dev -c "select question from questions_log where game_id=N" >| tmp/rebuild/prefill/existing/<slug>.txt
-python3 -I scripts/merge_prefill.py tmp/rebuild/prefill/<slug>.json tmp/rebuild/prefill/<slug>_{a,b,c,d}.json --content tmp/rebuild/content/<slug>.json --existing tmp/rebuild/prefill/existing/<slug>.txt
+python3 -I .claude/skills/import-prepare/scripts/merge_prefill.py tmp/rebuild/prefill/<slug>.json tmp/rebuild/prefill/<slug>_{a,b,c,d}.json --content tmp/rebuild/content/<slug>.json --existing tmp/rebuild/prefill/existing/<slug>.txt
 ```
 Resolve WARN near-dups by hand (keep one per ruling; also scan Jaccard ≥0.6 by eye —
 Gloomhaven had 12 same-ruling pairs across agents), re-run `check_content.py --prefill`,
-then `zsh scripts/import_prefill.sh <slug> GAME_ID [BASE_ID]`.
+then `zsh .claude/skills/import-prepare/scripts/import_prefill.sh <slug> GAME_ID [BASE_ID]`.
 
 ## 9. Game metadata (check EVERY time — Gloomhaven shipped without both)
 - Expansion links missing (BGG lists some but `game_expansion_links` empty — happens when
@@ -149,15 +173,17 @@ then `zsh scripts/import_prefill.sh <slug> GAME_ID [BASE_ID]`.
 - No theme SETS: download the BGG cover (`games.image_url`, `sips -Z 700`), Read it, hand-pick 3-4
   sets `{light:{accent,bg,surface,text}, dark:{…}, names:{light,dark}}` → `{"enrichments":{"theme":{"sets":[…]}}}`
   → import_content. Keep accents far apart (dedupe merges accent <45 RGB AND bg <30); light accents
-  dark enough for white text. Example: `tmp/rebuild/content/gloomhaven_theme.json`.
+  dark enough for white text. Example: `templates/theme.example.json`. BASE games only —
+  the importer rejects a theme on an expansion (it inherits the base's).
 
 ## 10. Publish + verify + AUDIT (gate)
-`mix run --no-start scripts/publish.exs GAME_ID` → every `STEP … done`, `PLAYABLE true`.
+`mix run --no-start .claude/skills/import-prepare/scripts/publish.exs GAME_ID` → every `STEP … done`,
+`PLAYABLE true` (on false it prints which steps are pending).
 ```
 select pooled, citation_valid, refused, audience, count(*), count(question_embedding) from questions_log where game_id=N group by 1,2,3,4;  -- all t,t,f,public
 select operation, model, count(*) from llm_logs where game_id=N and inserted_at > now() - interval '3 hours' group by 1,2;  -- expect none
 ```
-Then `python3 -I scripts/audit.py GAME_ID` → must print `0 GAP(s)`. Fix every GAP/FAIL;
+Then `python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` → must print `0 GAP(s)`. Fix every GAP/FAIL;
 `info  live ask refused` lines are coverage leads (add prefill answers when the book
 covers them); `LOW` lines are worth a look but not blocking. If you discover a NEW
 kind of miss the audit didn't flag, add a check for it to audit.py in the same session.
@@ -171,10 +197,25 @@ kind of miss the audit didn't flag, add a check for it to audit.py in the same s
   a `cd … && rm -rf rel/*` is blocked by the safety check.
 
 ## Expansions
-Full enrichment set PLUS `expansion_delta` ({components, setup, rules}) — else the
-app's LLM ExpansionDeltaWorker generates it. Import the expansion's answers onto the
-BASE too with `"expansions": [exp_id]` (import_prefill.sh does this with BASE_ID).
-Publish the expansion after its pages embed.
+- Row + link: `new_game.exs add EXP_BGG_ID --expansion-of BASE_ID` (or `BGG.relink_from_cache(base)`
+  when the row exists). The BASE should be Ready first.
+- Same pipeline on the expansion game (its own book), with these differences:
+  full enrichment set PLUS `expansion_delta` (spec in references/AUTHOR.md "Expansion
+  games", example `templates/expansion_delta.example.json`) — else the app's LLM
+  ExpansionDeltaWorker would generate it; NO `theme` (rejected; inherited).
+- Answers ON the expansion cite only its own pages. Combined base+expansion rulings →
+  a second file imported onto the BASE with `"expansions": [EXP_ID]` (pool hits when the
+  expansion is toggled on). `import_prefill.sh SLUG EXP_ID BASE_ID` imports a prefill
+  file both ways — only when its citations are all expansion pages.
+- Audit both games: `audit.py EXP_ID` and `audit.py BASE_ID`.
+
+## Re-prepare / add a source to an already-Ready game
+All source JSON lives in `tmp/rebuild/`, so a rebuild costs only embeddings:
+1. `cp` any new PDF to `backup/pdfs/`; transcribe the new source (step 3-4).
+2. `mix rule_maven.reset_prepared GAME_ID --yes` (deletes Q&A + docs + PDFs from uploads;
+   keeps game row, BGG, theme, links). With no pooled answers left, PoolRebuildWorker no-ops.
+3. Re-run steps 5-8 from the saved files (`out/`, `content/`, `symbols/`, `prefill/`),
+   re-checking citations against the new pages; then publish + audit.
 
 ## Remote / prod path
 Same over HTTP: `mix rule_maven.api_token jrieken` (90-day bearer; scratchpad only,

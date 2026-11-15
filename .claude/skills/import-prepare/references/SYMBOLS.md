@@ -57,6 +57,10 @@ die with 3 pips) and say which in "image_note". If you cannot find a clean
 instance, set "image_path": null. Keep crops small (≤ 160 px either side —
 downscale with `sips -Z 160 file.png` if needed). Delete scratch renders.
 
+Limits: ≤ 120 entries, token ≤ 120 chars, every token must occur in the imported
+book text (the importer checks). `{n}` matches digits only: signed values need
+separate `+{n}` / `-{n}` tokens.
+
 ## Output
 
 `tmp/rebuild/symbols/<slug>.json`:
