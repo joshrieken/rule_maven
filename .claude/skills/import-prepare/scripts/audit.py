@@ -2,7 +2,7 @@
 """Completeness audit: diff one game against its Ready peers across EVERYTHING
 the database stores for a game, so an import can't silently miss an artifact.
 
-usage: python3 -I audit.py GAME_ID [--db rule_maven_dev]
+usage: python3 -I audit.py GAME_ID [--db rule_maven_dev] [--na "LABEL=reason" ...]
 
 Peers = other playable games of the same kind (base vs expansion). Auto-discovers:
   * every column of games (null/empty here, filled on most peers)
@@ -19,6 +19,9 @@ args = sys.argv[1:]
 db = "rule_maven_dev"
 if "--db" in args:
     i = args.index("--db"); db = args[i + 1]; del args[i:i + 2]
+na_cli = {}
+while "--na" in args:   # --na "symbols with icons=icon-free book"
+    i = args.index("--na"); lab, _, why = args[i + 1].partition("="); na_cli[lab] = why or "N/A per operator"; del args[i:i + 2]
 gid = int(args[0])
 
 def q(sql):
@@ -51,6 +54,7 @@ KNOWN_NA = {
     "app_settings prep_reset_at_{id}": "history stamp written by reset_prepared",
     "game_symbols.image_note fill": "only written for {n}-family tokens",
 }
+KNOWN_NA.update(na_cli)
 
 def gap(label, msg):
     if label in KNOWN_NA: print(f"N/A   {label}: {KNOWN_NA[label]}")
@@ -126,10 +130,17 @@ for n, ps in sorted(pk.items()):
 import re as _re
 print("\ninvariants:")
 def inv(label, ok, detail=""):
+    if not ok and label in KNOWN_NA:
+        print(f"N/A   {label}: {KNOWN_NA[label]}"); return
     print(f"{'ok   ' if ok else 'FAIL '} {label}{(' — ' + detail) if detail else ''}")
     if not ok: gaps.append(label)
 one = lambda sql: q(sql)[0][0] if q(sql) else None
 inv("playable", one(f"select playable from games where id={gid}") == "t")
+inv("Prepare auto-pilot OFF", one(f"select count(*) from app_settings where key='readiness_auto_{gid}' and value::text like '%on%'") == "0",
+    "auto-pilot would run the app's paid enrichment workers — Readiness.stop_auto / Prepare page Auto off")
+r = q(f"select count(*), count(*) filter (where status='published') from documents where game_id={gid}")[0]
+inv("all documents published", int(r[0]) > 0 and r[0] == r[1],
+    f"{r[1]}/{r[0]} — pending_review docs (short/low-prose text) are invisible to retrieval; publish them")
 if kind != "t":
     n = int(one(f"select coalesce(jsonb_array_length(theme_names::jsonb->'sets'),0) from games where id={gid}") or 0)
     inv("theme sets >= 3", n >= 3, f"{n} sets (legacy single palette has 0) — hand-pick from BGG cover")

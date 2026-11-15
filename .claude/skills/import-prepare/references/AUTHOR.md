@@ -72,7 +72,9 @@ Also json.load the file. Report: counts per section + any answer you were
 unsure of. Do not paste the content in your reply.
 
 ## Limits the importer enforces
-cheat_sheet 1-10000 chars (aim ≤ 8000) · voices ≤ 12 (style ≤ 300 here) · score ≤ 12
+cheat_sheet 1-10000 chars (aim ≤ 8000) · voices ≤ 12 (style ≤ 300 here) · common_mistakes ≤ 8 ·
+quiz ≤ 20 · each of suggestions/did_you_know/first_player/common_mistakes/quiz/teach/
+score/turn/setup/expansion_delta ≤ 10000 chars as compact JSON (stored in one setting) · score ≤ 12
 (label ≤ 40) · turn ≤ 10 phases, 1-12 actions each · teach keys goal/loop/win/trap
 only, each ≥ 8 chars · symbols ≤ 120 · verdicts legal/illegal/info (the importer also
 accepts "silent"; don't use it).

@@ -43,6 +43,8 @@ Answers/content are owned by an EXISTING username (default `jrieken`).
   document calls `Games.invalidate_pool/1`, which demotes the pool AND schedules
   PoolRebuildWorker (5 min later) to RE-ASK every pooled question with the paid
   model. To add/replace a source on a Ready game: re-prepare (see "Re-prepare").
+- Never leave Prepare **auto-pilot** on: when an embed job finishes, `Readiness.advance`
+  drives every missing enrichment through the paid workers. Preflight checks it.
 - Never ask questions in the app to test; never run `mix rule_maven.eval`.
 - Allowed spend: embeddings only (queued by import tasks; player asks are the players').
 
@@ -61,6 +63,9 @@ Also: no mix, no DB, no commits; report counts + unsure items only, never paste 
 (zsh here has `noclobber`: overwrite with `>|`, not `>`.)
 
 ## 0. Preflight (5 min, inline)
+- Fresh checkout: `mkdir -p tmp/rebuild/{backup/pdfs,out,content,symbols,prefill/existing}`.
+- Auto-pilot must be off: `psql -d rule_maven_dev -At -c "select value from app_settings where key='readiness_auto_N'"`
+  → anything but `on` is fine; if `on`: `mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); RuleMaven.Readiness.stop_auto(N)'`.
 - `python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` first — every pre-existing GAP becomes a task.
 - Dev server on :4000? `lsof -iTCP:4000 -sTCP:LISTEN`. Mix tasks run with Oban queues
   OFF and only insert jobs; never start a 2nd server / live-queue BEAM.
@@ -123,6 +128,10 @@ as `{"pages":[{sheet,printed,text}]}` · report invented tokens + unsure spots.
 ## 5. Import pages
 `mix rule_maven.import_pages GAME_ID tmp/rebuild/out/<slug>.json [tmp/rebuild/out/<slug>_faq.json]`
 (lane "manual", no LLM cheat sheet). Embeddings run on the server (~minutes).
+Then IMMEDIATELY: `psql -d rule_maven_dev -c "select id,label,status from documents where game_id=N"` —
+every doc must be `published`. Short / icon-heavy / low-prose text lands `pending_review`
+(invisible to retrieval, coverage and citations). Publish it NOW, while the game has no
+answers (approval invalidates the pool): `mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); RuleMaven.Games.approve_document(RuleMaven.Repo.get!(RuleMaven.Games.Document, DOC_ID))'`.
 
 ## 6. Author, symbols, pre-fill — ONE parallel wave (6-7 agents)
 All need only the page files; launch together:
@@ -183,7 +192,9 @@ then `zsh .claude/skills/import-prepare/scripts/import_prefill.sh <slug> GAME_ID
 select pooled, citation_valid, refused, audience, count(*), count(question_embedding) from questions_log where game_id=N group by 1,2,3,4;  -- all t,t,f,public
 select operation, model, count(*) from llm_logs where game_id=N and inserted_at > now() - interval '3 hours' group by 1,2;  -- expect none
 ```
-Then `python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` → must print `0 GAP(s)`. Fix every GAP/FAIL;
+Then `python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` → must print `0 GAP(s)`.
+Legit exceptions are passed explicitly, e.g. an icon-free book:
+`… audit.py GAME_ID --na "symbols with icons=book has no inline icons"`. Fix every GAP/FAIL;
 `info  live ask refused` lines are coverage leads (add prefill answers when the book
 covers them); `LOW` lines are worth a look but not blocking. If you discover a NEW
 kind of miss the audit didn't flag, add a check for it to audit.py in the same session.
@@ -204,8 +215,11 @@ kind of miss the audit didn't flag, add a check for it to audit.py in the same s
   games", example `templates/expansion_delta.example.json`) — else the app's LLM
   ExpansionDeltaWorker would generate it; NO `theme` (rejected; inherited).
 - Answers ON the expansion cite only its own pages. Combined base+expansion rulings →
-  a second file imported onto the BASE with `"expansions": [EXP_ID]` (pool hits when the
-  expansion is toggled on). `import_prefill.sh SLUG EXP_ID BASE_ID` imports a prefill
+  a second file `content/<base>_with_<exp>.json` = `{"expansions":[EXP_ID],"answers":[…]}`
+  (pool hits when the expansion is toggled on). Check it against BOTH page files —
+  `python3 -I .claude/skills/import-prepare/scripts/check_content.py content/<base>_with_<exp>.json out/<base>.json out/<exp>.json --prefill`
+  (overlapping page numbers are fine; the importer finds the quoting book itself) — then
+  `mix rule_maven.import_content BASE_ID jrieken tmp/rebuild/content/<base>_with_<exp>.json`. `import_prefill.sh SLUG EXP_ID BASE_ID` imports a prefill
   file both ways — only when its citations are all expansion pages.
 - Audit both games: `audit.py EXP_ID` and `audit.py BASE_ID`.
 
@@ -216,6 +230,10 @@ All source JSON lives in `tmp/rebuild/`, so a rebuild costs only embeddings:
    keeps game row, BGG, theme, links). With no pooled answers left, PoolRebuildWorker no-ops.
 3. Re-run steps 5-8 from the saved files (`out/`, `content/`, `symbols/`, `prefill/`),
    re-checking citations against the new pages; then publish + audit.
+- **Re-preparing an EXPANSION strands the base's combined rows** (invalidate marks base rows
+  whose expansion set contains it stale; re-import skips them as already answered).
+  So re-prepare BASE and EXPANSION together: `reset_prepared BASE EXP --yes`, rebuild base,
+  then expansion, then re-import the `<base>_with_<exp>` files; audit both.
 
 ## Remote / prod path
 Same over HTTP: `mix rule_maven.api_token jrieken` (90-day bearer; scratchpad only,

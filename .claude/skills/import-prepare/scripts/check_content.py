@@ -13,13 +13,11 @@ args = [a for a in sys.argv[1:] if not a.startswith("--")]
 prefill = "--prefill" in sys.argv
 c = json.load(open(args[0]))
 n = lambda s: re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
-pages = {}
+pages = {}   # page key -> [normalized texts]; base+expansion books may share numbers
 for f in args[1:]:
     for p in json.load(open(f))["pages"]:
         k = p["printed"] if p["printed"] is not None else p["sheet"]
-        if k in pages:
-            print("PAGE KEY COLLISION", k, f)
-        pages[k] = n(p["text"])
+        pages.setdefault(k, []).append(n(p["text"]))
 
 bad = 0
 def fail(*m):
@@ -40,7 +38,7 @@ for a in c.get("answers", []):
     for ct in a["citations"]:
         w = len(n(ct["quote"]).split())
         if not 10 <= w <= 30: fail("WORDS", w, ct["quote"][:60])
-        if n(ct["quote"]) not in pages.get(ct["page"], ""): fail("MISS p", ct["page"], ct["quote"][:70])
+        if not any(n(ct["quote"]) in t for t in pages.get(ct["page"], [])): fail("MISS p", ct["page"], ct["quote"][:70])
     if NEG.search(a["answer"]) and not any(RESTR.search(ct["quote"]) for ct in a["citations"]):
         fail("UNSUPPORTED NEGATIVE", a["question"])
 
@@ -68,6 +66,12 @@ if "turn" in e and (not 1 <= len(e["turn"]) <= 10 or any(not 1 <= len(ph.get("ac
 if "teach" in e and (set(e["teach"]) - {"goal", "loop", "win", "trap"} or any(len(v) < 8 for v in e["teach"].values())):
     fail("TEACH: keys goal/loop/win/trap only, each >=8 chars")
 if "voices" in e and len(e["voices"]) > 12: fail("VOICES: <=12")
+if "common_mistakes" in e and len(e["common_mistakes"]) > 8: fail("COMMON_MISTAKES: <=8")
+if "quiz" in e and len(e["quiz"]) > 20: fail("QUIZ: <=20")
+for k in ("suggestions", "did_you_know", "first_player", "common_mistakes", "quiz", "teach", "score", "turn", "setup", "expansion_delta"):
+    if k in e and len(json.dumps(e[k], ensure_ascii=False, separators=(",", ":"))) > 10000:
+        fail(f"{k.upper()}: stored JSON > 10000 chars (app_settings cap) — trim")
+if "cheat_sheet" in e and len(e["cheat_sheet"]) > 10000: fail("CHEAT SHEET > 10000 (hard cap)")
 if "symbols" in e and len(e["symbols"]) > 120: fail("SYMBOLS: <=120")
 if "expansion_delta" in e:
     d = e["expansion_delta"]

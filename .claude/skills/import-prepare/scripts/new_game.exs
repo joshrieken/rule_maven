@@ -1,7 +1,7 @@
 # Find or create a catalog game WITHOUT the in-app BGG worker (which would queue
 # the paid ThemePaletteWorker). Run from the repo root:
 #   mix run --no-start .claude/skills/import-prepare/scripts/new_game.exs search "Gloomhaven"
-#   mix run --no-start .claude/skills/import-prepare/scripts/new_game.exs add BGG_ID ["Name"] [--expansion-of BASE_GAME_ID]
+#   mix run --no-start .claude/skills/import-prepare/scripts/new_game.exs add BGG_ID "Name" [--expansion-of BASE_GAME_ID]   (Name required when creating)
 # `add` reuses an existing row with that bgg_id, fetches BGG data directly
 # (weight, players, image, expansion links) and, for an expansion, links it.
 Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues()
@@ -28,7 +28,8 @@ case System.argv() do
     game =
       Repo.get_by(Games.Game, bgg_id: bgg_id) ||
         (fn ->
-           {:ok, g} = Games.create_game(%{name: List.first(rest) || "BGG #{bgg_id}", bgg_id: bgg_id})
+           name = List.first(rest) || raise("NAME is required for a new game (BGG parse doesn't set it): add BGG_ID \"Exact BGG name\"")
+           {:ok, g} = Games.create_game(%{name: name, bgg_id: bgg_id})
            g
          end).()
 
