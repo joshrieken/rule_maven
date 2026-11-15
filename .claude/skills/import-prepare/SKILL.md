@@ -5,6 +5,18 @@ description: End-to-end import + Prepare of a board-game rulebook PDF (plus FAQ/
 
 # Import + Prepare a game (Claude-authored)
 
+**DEFINITION OF DONE (hard gate — never report an import finished without it):**
+`python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` prints `0 GAP(s)`.
+The audit diffs the game against every other Ready game across ALL game data
+(every `games` column, every game-keyed table, everything hanging off its documents
+and questions, column fill rates, per-game settings) plus invariants (playable,
+≥3 theme sets, BGG weight, every catalog expansion linked, imported answers pooled/
+valid/embedded, chunks embedded, symbols with icons, expansion delta). Each GAP is
+either FIXED or added to `KNOWN_NA` in audit.py with a reason verified in code —
+never waved off. Run it ALSO at preflight: it shows what the game already lacks.
+Gloomhaven first shipped with a legacy single theme, no expansion links and no
+BGG weight — all invisible to the step list, all caught by the audit.
+
 Claude is the processor (HARD RULE, memory `claude-primary-processor`): never trigger
 the app's paid LLM steps; never ask live questions to test. Only embeddings hit
 OpenRouter (the import tasks queue them; the dev server runs them).
@@ -19,7 +31,7 @@ scratch (GLOSSARY.md, parts/, merge.py). Gloomhaven used `gh/`.
 
 **Guides** (give subagents the PATH, never paste): `references/TRANSCRIBE.md`,
 `references/AUTHOR.md`, `references/SYMBOLS.md`, `references/PREFILL.md`.
-**Scripts**: `scripts/tokens.py`, `scripts/check_content.py`, `scripts/merge_prefill.py`,
+**Scripts**: `scripts/audit.py` (completeness gate), `scripts/tokens.py`, `scripts/check_content.py`, `scripts/merge_prefill.py`,
 `scripts/import_prefill.sh`, `scripts/publish.exs`.
 (all under `.claude/skills/import-prepare/`; run python with `python3 -I`)
 
@@ -30,6 +42,7 @@ Also: no mix, no DB, no commits; report counts + unsure items only, never paste 
 (zsh here has `noclobber`: overwrite with `>|`, not `>`.)
 
 ## 0. Preflight (5 min, inline)
+- `python3 -I scripts/audit.py GAME_ID` first — every pre-existing GAP becomes a task.
 - Dev server on :4000? `lsof -iTCP:4000 -sTCP:LISTEN`. Mix tasks run with Oban queues
   OFF and only insert jobs; never start a 2nd server / live-queue BEAM.
 - `pdfinfo PDF` (title, pages, size); `pdftotext -f N -l N PDF -` on 4-6 pages:
@@ -138,17 +151,21 @@ then `zsh scripts/import_prefill.sh <slug> GAME_ID [BASE_ID]`.
   → import_content. Keep accents far apart (dedupe merges accent <45 RGB AND bg <30); light accents
   dark enough for white text. Example: `tmp/rebuild/content/gloomhaven_theme.json`.
 
-## 10. Publish + verify
+## 10. Publish + verify + AUDIT (gate)
 `mix run --no-start scripts/publish.exs GAME_ID` → every `STEP … done`, `PLAYABLE true`.
 ```
 select pooled, citation_valid, refused, audience, count(*), count(question_embedding) from questions_log where game_id=N group by 1,2,3,4;  -- all t,t,f,public
 select operation, model, count(*) from llm_logs where game_id=N and inserted_at > now() - interval '3 hours' group by 1,2;  -- expect none
 ```
+Then `python3 -I scripts/audit.py GAME_ID` → must print `0 GAP(s)`. Fix every GAP/FAIL;
+`info  live ask refused` lines are coverage leads (add prefill answers when the book
+covers them); `LOW` lines are worth a look but not blocking. If you discover a NEW
+kind of miss the audit didn't flag, add a check for it to audit.py in the same session.
 
 ## 11. Wrap up
 - Update memory `claude-authored-prepare` (game id, slug, counts, new gotchas) and
   THIS skill if a step changed. Commit skill changes.
-- Report: docs/pages, suggested + prefill answers, symbols, rejects, things flagged
+- Report must include the audit result line. Report: docs/pages, suggested + prefill answers, symbols, rejects, things flagged
   for the user (card text read only from art, inferred items trimmed), PDF backup path.
 - Scratch cleanup: delete with explicit absolute paths (`rm -r /abs/.../scratch/r1`);
   a `cd … && rm -rf rel/*` is blocked by the safety check.
