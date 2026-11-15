@@ -11,8 +11,8 @@ defmodule RuleMaven.Flags do
 
   import Ecto.Query, only: [from: 2]
 
-  alias RuleMaven.Flags.Registry
   alias RuleMaven.Flags.ExperimentAssignment
+  alias RuleMaven.Flags.Registry
 
   @doc "Whether `flag` is enabled, optionally for a specific user (nil = anonymous)."
   def enabled?(flag, user \\ nil) do
@@ -152,6 +152,28 @@ defmodule RuleMaven.Flags do
       |> Map.new()
 
     %{control: Map.get(rows, "control", 0), treatment: Map.get(rows, "treatment", 0)}
+  end
+
+  @doc """
+  Persists every registry flag that has no row yet, at its declared default,
+  and (re)grants the admin group on `admin_bypass` flags. Never overwrites an
+  existing flag. Returns the flags it seeded. Shared by `mix rule_maven.flags.sync`
+  and `RuleMaven.Release.migrate/0` (releases have no mix tasks).
+  """
+  def seed_missing do
+    {:ok, persisted} = FunWithFlags.all_flag_names()
+    persisted = MapSet.new(persisted)
+    seeded = Registry.all() |> Enum.reject(&MapSet.member?(persisted, &1.id))
+
+    Enum.each(seeded, fn flag ->
+      if flag.default, do: FunWithFlags.enable(flag.id), else: FunWithFlags.disable(flag.id)
+    end)
+
+    Registry.all()
+    |> Enum.filter(&Map.get(&1, :admin_bypass, false))
+    |> Enum.each(&FunWithFlags.enable(&1.id, for_group: "admin"))
+
+    seeded
   end
 
   defp ensure_experiment!(flag) do

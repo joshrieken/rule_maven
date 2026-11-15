@@ -18,6 +18,7 @@ import Config
 # script that automatically sets the env var above.
 if config_env() != :test and System.get_env("PHX_SERVER") do
   config :rule_maven, RuleMavenWeb.Endpoint,
+    server: true,
     http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 end
 

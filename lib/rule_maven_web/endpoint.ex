@@ -36,6 +36,8 @@ defmodule RuleMavenWeb.Endpoint do
     plug Phoenix.Ecto.CheckRepoStatus, otp_app: :rule_maven
   end
 
+  plug RuleMavenWeb.Plugs.Health
+
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 

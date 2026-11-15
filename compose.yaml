@@ -1,0 +1,57 @@
+# Production stack, behind the server's Traefik (network "web", entrypoint "websecure", resolver "le").
+#   docker compose up -d --build     (scripts/deploy.sh does this)
+# The server's .env (next to this file, never committed) needs:
+#   RULEMAVEN_HOST=rulemaven.com
+#   SECRET_KEY_BASE=<mix phx.gen.secret>
+#   POSTGRES_PASSWORD=<random>
+# Data lives in bind mounts under ./data: postgres/ (database), files/ (uploaded rulebooks,
+# symbol crops; UPLOADS_DIR), backups/ (pg_dump files written by scripts/deploy.sh).
+services:
+  rulemaven:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PHX_HOST: ${RULEMAVEN_HOST:?set RULEMAVEN_HOST in .env}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE in .env}
+      DATABASE_URL: ecto://rulemaven:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db/rulemaven
+      POOL_SIZE: ${POOL_SIZE:-20}
+    # The container runs as uid 1000 (the deploy user): ./data/files must be owned by it.
+    volumes:
+      - ./data/files:/data/files
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    networks: [default, web]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=web
+      - traefik.http.routers.rulemaven.rule=Host(`${RULEMAVEN_HOST}`)
+      - traefik.http.routers.rulemaven.entrypoints=websecure
+      - traefik.http.routers.rulemaven.tls.certresolver=le
+      - traefik.http.routers.rulemaven.service=rulemaven
+      - traefik.http.services.rulemaven.loadbalancer.server.port=4000
+
+  db:
+    image: pgvector/pgvector:0.8.7-pg18-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rulemaven
+      POSTGRES_DB: rulemaven
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # pg18 images keep PGDATA under /var/lib/postgresql/18/docker; mount the parent.
+    volumes:
+      - ./data/postgres:/var/lib/postgresql
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rulemaven -d rulemaven"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # Only the app reaches it: no published port, not on the Traefik network.
+    networks: [default]
+
+networks:
+  web:
+    external: true

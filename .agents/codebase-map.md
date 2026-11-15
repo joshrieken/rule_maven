@@ -26,6 +26,8 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `Users.User` | `users/user.ex` | — | User schema | — |
 | `PostgresTypes` | `postgres_types.ex` | — | Custom Ecto types (e.g. `Ltree`) | — |
 | `Repo` | `repo.ex` | 5 | Ecto repo module | — |
+| `Release` | `release.ex` | 31 | Release-time tasks (no Mix in prod); run by `rel/overlays/bin/migrate` before every container start | `migrate/0`, `rollback/2` |
+| `Flags` | `flags.ex` | ~195 | fun_with_flags facade (registry-validated) | `enabled?/2`, `seed_missing/0` (seed unsynced flags at defaults + admin bypass; used by `mix rule_maven.flags.sync` and prod deploy via `bin/rule_maven rpc`) |
 
 ## Schemas (data shape + changesets only — `lib/rule_maven/games/`)
 
@@ -64,6 +66,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `AuthPlug` | `auth_plug.ex` | Session-based auth plug, assigns `current_user` |
 | `ApiAuth` | `api_auth.ex` | Bearer-token plug for `/api/admin`: `Users.get_api_user/1` (super admin, unsuspended, 90-day `user_tokens` context "api"), else 401 JSON |
 | `AdminApiController` | `admin_api_controller.ex` | Remote Prepare JSON API (Hashid tokens): `index` (?q=), `show` (readiness+docs), `create_document` (ManualImport; drops `pdf`, accepts `pdf_url`), `delete_document`, `create_content`, `publish` |
+| `Plugs.Health` | `plugs/health.ex` (in `rule_maven_web/`) | `GET /health` → `{"version":…}` before session/router/DB; Docker healthcheck + `scripts/deploy.sh` poll it |
 | `CheatSheetController` | `cheat_sheet_controller.ex` | Serve cheatsheet HTML page + versioned pages |
 
 ## Components (`lib/rule_maven_web/components/`)

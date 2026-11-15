@@ -58,3 +58,7 @@ boardgame-*.tar
 
 # Playwright MCP browser snapshots/console logs
 /.playwright-mcp/
+
+# Production server state (scripts/deploy.sh, compose.yaml)
+/data/
+/.env
