@@ -16,8 +16,18 @@ defmodule RuleMavenWeb.GameLive.Community do
 
   alias RuleMaven.Games
   alias RuleMaven.Games.QuestionLog
+
   alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
   alias RuleMavenWeb.{AuditModal, ReportModal}
+
+  # Load every answer: counts, search and category filters all run over the
+  # loaded list, so a cap silently hides answers (Claude pre-fills put 700+ on
+  # one game; the old 200 made the tab disagree with the sub-bar count). The
+  # bound is only a safety net. Rendering is what's capped instead: a few cards
+  # per category (expand in place) and the first N search hits.
+  @browse_limit 5000
+  @per_group 10
+  @max_search_cards 100
 
   # Table-tool events (sub-bar Play/Learn, window chrome) are shared with the
   # game page via ToolHost.
@@ -52,6 +62,8 @@ defmodule RuleMavenWeb.GameLive.Community do
         tab: nil,
         # Question ids whose full answer is expanded inline on the card.
         expanded: MapSet.new(),
+        # Category groups (id string, or "general") showing all cards, not @per_group.
+        expanded_groups: MapSet.new(),
         page_title: "Community Q&A — #{game.name}"
       )
 
@@ -65,7 +77,7 @@ defmodule RuleMavenWeb.GameLive.Community do
     game = socket.assigns.game
     user_id = socket.assigns.current_user.id
 
-    community_all = Games.faq_questions(game)
+    community_all = Games.faq_questions(game, @browse_limit)
     {verified, community} = Enum.split_with(community_all, & &1.verified)
 
     community_texts =
@@ -75,7 +87,7 @@ defmodule RuleMavenWeb.GameLive.Community do
     # promoted copy is the one that should surface.
     unverified =
       game
-      |> Games.unverified_pool_questions()
+      |> Games.unverified_pool_questions(@browse_limit)
       |> Enum.reject(fn q ->
         MapSet.member?(community_texts, String.downcase(QuestionLog.display_question(q)))
       end)
@@ -216,6 +228,10 @@ defmodule RuleMavenWeb.GameLive.Community do
   end
 
   @impl true
+  def handle_event("show_all_group", %{"group" => group}, socket) do
+    {:noreply, update(socket, :expanded_groups, &MapSet.put(&1, group))}
+  end
+
   def handle_event("filter_category", %{"id" => id_str}, socket) do
     case Integer.parse(id_str) do
       {cat_id, ""} ->
@@ -516,10 +532,12 @@ defmodule RuleMavenWeb.GameLive.Community do
         <%!-- Universal search results: all tabs, status-badged --%>
         <% results = search_results(assigns) %>
         <p style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.6rem">
-          {length(results)} match{if length(results) == 1, do: "", else: "es"} across all tabs
+          {length(results)} match{if length(results) == 1, do: "", else: "es"} across all tabs<span :if={
+            length(results) > max_search_cards()
+          }> — showing the first {max_search_cards()}; refine your search to narrow it down</span>
         </p>
         <div style="display:flex;flex-direction:column;gap:0.6rem">
-          <%= for {q, status} <- results do %>
+          <%= for {q, status} <- Enum.take(results, max_search_cards()) do %>
             <.question_card
               symbol_marks={@symbol_marks}
               q={q}
@@ -658,8 +676,9 @@ defmodule RuleMavenWeb.GameLive.Community do
                       cat_qs
                     )})</span>
                   </h2>
+                  <% shown = group_slice(cat_qs, @expanded_groups, to_string(cat.id)) %>
                   <div style="display:flex;flex-direction:column;gap:0.6rem">
-                    <%= for q <- cat_qs do %>
+                    <%= for q <- shown do %>
                       <.question_card
                         symbol_marks={@symbol_marks}
                         q={q}
@@ -677,6 +696,16 @@ defmodule RuleMavenWeb.GameLive.Community do
                         current_user={@current_user}
                       />
                     <% end %>
+                    <button
+                      :if={length(cat_qs) > length(shown)}
+                      type="button"
+                      class="btn-outline btn-sm"
+                      phx-click="show_all_group"
+                      phx-value-group={to_string(cat.id)}
+                      style="align-self:flex-start"
+                    >
+                      Show all {length(cat_qs)}
+                    </button>
                   </div>
                 </div>
               <% end %>
@@ -688,8 +717,9 @@ defmodule RuleMavenWeb.GameLive.Community do
                 <h2 style="font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-secondary);margin-bottom:0.5rem">
                   General
                 </h2>
+                <% shown = group_slice(untagged, @expanded_groups, "general") %>
                 <div style="display:flex;flex-direction:column;gap:0.6rem">
-                  <%= for q <- untagged do %>
+                  <%= for q <- shown do %>
                     <.question_card
                       symbol_marks={@symbol_marks}
                       q={q}
@@ -707,6 +737,16 @@ defmodule RuleMavenWeb.GameLive.Community do
                       current_user={@current_user}
                     />
                   <% end %>
+                  <button
+                    :if={length(untagged) > length(shown)}
+                    type="button"
+                    class="btn-outline btn-sm"
+                    phx-click="show_all_group"
+                    phx-value-group="general"
+                    style="align-self:flex-start"
+                  >
+                    Show all {length(untagged)}
+                  </button>
                 </div>
               </div>
             <% end %>
@@ -783,9 +823,19 @@ defmodule RuleMavenWeb.GameLive.Community do
   # here so a future caller can't accidentally leak raw text.
   defp listed_question(q), do: QuestionLog.listed_question(q)
 
+  # The first @per_group cards of a category group, or all once expanded.
+  defp group_slice(qs, expanded_groups, group) do
+    if MapSet.member?(expanded_groups, group), do: qs, else: Enum.take(qs, @per_group)
+  end
+
+  defp max_search_cards, do: @max_search_cards
+
   defp question_card(assigns) do
     ~H"""
-    <div style="padding:0.75rem;border:1px solid var(--border);border-radius:0.45rem;background:var(--bg-surface)">
+    <div
+      data-question-card
+      style="padding:0.75rem;border:1px solid var(--border);border-radius:0.45rem;background:var(--bg-surface)"
+    >
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem">
         <div style="flex:1;min-width:0">
           <%!-- The whole question row (full card width) toggles the inline
