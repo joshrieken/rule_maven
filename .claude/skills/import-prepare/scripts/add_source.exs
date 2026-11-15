@@ -58,6 +58,23 @@ try do
     end)
 
   IO.puts("REPOOLED #{repooled}/#{length(rows)} imported answers")
+
+  # Readiness recomputed while the new doc's chunks were still un-embedded, which
+  # drops a Ready game to not-playable; nothing re-checks when embedding finishes.
+  # Wait for the server's EmbedChunksWorker, then recompute (publish approval stays on).
+  pending = fn ->
+    Repo.aggregate(from(c in RuleMaven.Games.Chunk, where: c.document_id == ^doc.id and is_nil(c.embedding)), :count)
+  end
+
+  waited =
+    Enum.reduce_while(1..120, 0, fn i, _ ->
+      if pending.() == 0, do: {:halt, i}, else: (Process.sleep(5000); {:cont, i})
+    end)
+
+  RuleMaven.Readiness.recompute(game)
+  game = Games.get_game!(game.id)
+  IO.puts("EMBEDDED after ~#{waited * 5}s (pending now #{pending.()}); PLAYABLE #{game.playable}")
+  if not game.playable, do: IO.puts("WARNING not playable — run publish.exs GAME_ID to see the pending step")
 after
   Settings.put("pool_rebuild_enabled", prev || "")
   IO.puts("pool_rebuild_enabled restored to #{inspect(prev)}")
