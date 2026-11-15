@@ -207,6 +207,18 @@ defmodule RuleMaven.Games.QuestionLog do
   defp bool(_), do: false
 
   @doc """
+  True for answers Claude imported or corrected outside the app
+  (`ManualImport.Answers` / `ManualImport.Corrections` stamp `llm_provider:
+  "manual"` — nothing else does): every citation was verified verbatim against
+  the cited page. Shown to players as "Rulebook-checked". Deliberately NOT a
+  trust tier: these rows stay provisional, so one player flag still pulls a bad
+  one (unlike `verified`, which users can never undo). Pool copies carry
+  provider "pool" — see `RuleMaven.Games.answer_rulebook_checked?/1`.
+  """
+  def rulebook_checked?(%{llm_provider: "manual"}), do: true
+  def rulebook_checked?(_), do: false
+
+  @doc """
   Answer text safe to render on an admin/list surface — the companion to
   `listed_question/1`.
 

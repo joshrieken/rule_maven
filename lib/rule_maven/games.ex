@@ -3045,6 +3045,17 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
+  `QuestionLog.rulebook_checked?/1` for a row as shown to its asker: a pool copy
+  (provider "pool") inherits the status of the source row it was served from.
+  """
+  def answer_rulebook_checked?(%QuestionLog{llm_provider: "pool", pool_source_id: id})
+      when is_integer(id) do
+    Repo.one(from q in QuestionLog, where: q.id == ^id, select: q.llm_provider) == "manual"
+  end
+
+  def answer_rulebook_checked?(%QuestionLog{} = q), do: QuestionLog.rulebook_checked?(q)
+
+  @doc """
   For a pooled question, the source row whose answer it was served from
   (`pool_source_id`). `nil` when the row was not pooled or the source is gone.
   """

@@ -641,6 +641,41 @@ defmodule RuleMavenWeb.CoreComponents do
     |> Enum.uniq()
   end
 
+  @doc """
+  Compact "where it's cited" label: each cited source with its pages, sources
+  in citation order, pages ascending — "Rulebook p.4, 9 · Official FAQ p.2".
+  Games now carry several sources (FAQ, errata, rulings), so the chip names
+  the source instead of assuming the rulebook. A missing source reads
+  "Rulebook"; long labels are shortened. `nil` when nothing has a page.
+  """
+  def citation_chip(q) do
+    raw =
+      case Map.get(q, :citations) do
+        list when is_list(list) and list != [] -> list
+        _ -> [%{"page" => Map.get(q, :cited_page), "source" => Map.get(q, :cited_source)}]
+      end
+
+    chips =
+      raw
+      |> Enum.reject(&is_nil(&1["page"]))
+      |> Enum.group_by(&(&1["source"] || "Rulebook"))
+      |> Enum.sort_by(fn {src, _} ->
+        Enum.find_index(raw, &((&1["source"] || "Rulebook") == src))
+      end)
+      |> Enum.map(fn {src, cs} ->
+        pages = cs |> Enum.map(& &1["page"]) |> Enum.uniq() |> Enum.sort() |> Enum.join(", ")
+        "#{short_source(src)} p.#{pages}"
+      end)
+
+    if chips == [], do: nil, else: Enum.join(chips, " · ")
+  end
+
+  defp short_source(src) when byte_size(src) > 24,
+    do:
+      (src |> String.slice(0, 24) |> String.split(" ") |> Enum.drop(-1) |> Enum.join(" ")) <> "…"
+
+  defp short_source(src), do: src
+
   defp grouped_citations(q) do
     case Map.get(q, :citations) do
       list when is_list(list) and list != [] ->

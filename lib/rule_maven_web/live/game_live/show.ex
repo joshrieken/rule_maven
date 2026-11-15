@@ -1130,6 +1130,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         llm_provider: g.primary.llm_provider,
         llm_model: g.primary.llm_model,
         verified: g.primary.verified,
+        rulebook_checked: Games.answer_rulebook_checked?(g.primary),
         faq_hit: false,
         pool_hit: g.primary.llm_provider == "pool",
         pool_provisional: g.primary.llm_model == "cached-unverified",
@@ -1161,6 +1162,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             llm_provider: h.llm_provider,
             llm_model: h.llm_model,
             verified: h.verified,
+            rulebook_checked: Games.answer_rulebook_checked?(h),
             refused: h.refused,
             raw_response: own_raw_response(h, current_user_id),
             followups: shown_followups(h, current_user_id),
@@ -2961,6 +2963,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 |> Map.put(:pool_hit, ql.llm_provider == "pool")
                 |> Map.put(:pool_provisional, ql.llm_model == "cached-unverified")
                 |> Map.put(:pool_source_id, ql.pool_source_id)
+                |> Map.put(:rulebook_checked, Games.answer_rulebook_checked?(ql))
                 |> Map.put(:promoted, ql.promoted)
                 |> Map.put(:error_kind, ql.error_kind)
                 |> Map.put(:error_retries, ql.error_retries)
@@ -4486,7 +4489,13 @@ defmodule RuleMavenWeb.GameLive.Show do
                       💬 Community answer &mdash; from question pool
                     </div>
                     <div
-                      :if={msg[:pool_hit] && msg[:pool_provisional]}
+                      :if={msg[:pool_hit] && msg[:pool_provisional] && msg[:rulebook_checked]}
+                      style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:var(--green)"
+                    >
+                      📖 Rulebook-checked answer &mdash; quotes verified against the rulebook, not yet community-reviewed.
+                    </div>
+                    <div
+                      :if={msg[:pool_hit] && msg[:pool_provisional] && !msg[:rulebook_checked]}
                       style="margin-top:0.5rem;font-size:0.7rem;font-weight:600;color:var(--text-muted)"
                     >
                       🔎 Unverified answer &mdash; single source, not yet community-reviewed.
@@ -5755,48 +5764,65 @@ defmodule RuleMavenWeb.GameLive.Show do
   # and drives a segmented meter (a coarse tier reads more honestly than a fake
   # exact percentage). next_step is nil at the top level (Community-verified);
   # otherwise it tells the user how to reach the next, more-trusted level.
+  @confidence_levels %{
+    admin:
+      {"Admin-verified", 6, "var(--green)",
+       "An admin reviewed and confirmed this answer against the rulebook — the highest level of trust.",
+       nil},
+    community:
+      {"Community-verified", 5, "var(--green)",
+       "Other players upvoted this same answer, so it's been confirmed by the community.",
+       "Admin-verified — when an admin reviews and confirms this answer."},
+    rulebook_checked:
+      {"Rulebook-checked", 4, "var(--green)",
+       "Every quote in this answer was checked word-for-word against the rulebook page it cites. It hasn't been reviewed by an admin or confirmed by other players yet — flag it if it looks wrong.",
+       "Community-verified — when other players ask the same thing and upvote this answer."},
+    cited_page:
+      {"Cited from rulebook", 4, "var(--green)",
+       "The answer quotes exact rulebook text and points to the page it came from — strong support straight from the rules.",
+       "Community-verified — when other players ask the same thing and upvote this answer."},
+    cited:
+      {"Cited passage, page unconfirmed", 3, "var(--blue)",
+       "The answer quotes rulebook text, but the exact page number couldn't be confirmed.",
+       "Cited from rulebook — regenerate to try to pin the exact page."},
+    provisional:
+      {"Unverified — single source", 2, "var(--yellow)",
+       "An earlier answer to a similar question with no rulebook citation. It hasn't been confirmed by other players yet.",
+       "Community-verified — once other players upvote this answer too."},
+    none:
+      {"No direct citation", 1, "var(--yellow)",
+       "No exact rulebook passage matched. This is the model's best read of the rules — double-check anything important.",
+       "Cited from rulebook — regenerate to pull a direct rulebook citation."}
+  }
+
   @conf_max 6
   defp conf_max, do: @conf_max
 
-  defp answer_confidence(msg) do
+  defp answer_confidence(msg), do: Map.fetch!(@confidence_levels, confidence_key(msg))
+
+  # Highest applicable level wins, top down. Admin-verified is the ceiling (an
+  # admin signed off on this exact answer). A trusted pool hit is
+  # Community-verified; a PROVISIONAL pool hit is not — it carries the source
+  # row's citation, so it reads at its citation strength, same as when freshly
+  # asked. Rulebook-checked (a Claude-imported/corrected answer, or a pool copy
+  # of one: every quote checked verbatim against its page outside the app) sits
+  # at citation strength — NOT a sign-off, so it never outranks the
+  # community/admin tiers and the row stays flaggable.
+  defp confidence_key(msg) do
     cond do
-      # Admin-verified is the absolute ceiling: an admin explicitly signed off on
-      # this exact answer. Checked first so it outranks community votes.
-      msg[:verified] ->
-        {"Admin-verified", 6, "var(--green)",
-         "An admin reviewed and confirmed this answer against the rulebook — the highest level of trust.",
-         nil}
-
-      # Community-verified (trusted pool hit). A provisional pool hit is *not*
-      # checked here — it carries the source row's citation, so it should read at
-      # its citation strength, the same as when freshly asked, rather than
-      # dropping a level just because it was served from the pool.
-      msg[:pool_hit] && !msg[:pool_provisional] ->
-        {"Community-verified", 5, "var(--green)",
-         "Other players upvoted this same answer, so it's been confirmed by the community.",
-         "Admin-verified — when an admin reviews and confirms this answer."}
-
-      present?(msg[:cited_passage]) && msg[:cited_page] ->
-        {"Cited from rulebook", 4, "var(--green)",
-         "The answer quotes exact rulebook text and points to the page it came from — strong support straight from the rules.",
-         "Community-verified — when other players ask the same thing and upvote this answer."}
-
-      present?(msg[:cited_passage]) ->
-        {"Cited passage, page unconfirmed", 3, "var(--blue)",
-         "The answer quotes rulebook text, but the exact page number couldn't be confirmed.",
-         "Cited from rulebook — regenerate to try to pin the exact page."}
-
-      msg[:pool_hit] && msg[:pool_provisional] ->
-        {"Unverified — single source", 2, "var(--yellow)",
-         "An earlier answer to a similar question with no rulebook citation. It hasn't been confirmed by other players yet.",
-         "Community-verified — once other players upvote this answer too."}
-
-      true ->
-        {"No direct citation", 1, "var(--yellow)",
-         "No exact rulebook passage matched. This is the model's best read of the rules — double-check anything important.",
-         "Cited from rulebook — regenerate to pull a direct rulebook citation."}
+      msg[:verified] -> :admin
+      trusted_pool_hit?(msg) -> :community
+      msg[:rulebook_checked] -> :rulebook_checked
+      page_cited?(msg) -> :cited_page
+      present?(msg[:cited_passage]) -> :cited
+      provisional_pool_hit?(msg) -> :provisional
+      true -> :none
     end
   end
+
+  defp trusted_pool_hit?(msg), do: msg[:pool_hit] && !msg[:pool_provisional]
+  defp provisional_pool_hit?(msg), do: msg[:pool_hit] && msg[:pool_provisional]
+  defp page_cited?(msg), do: present?(msg[:cited_passage]) && msg[:cited_page]
 
   # Short tier word for a confidence level, shown beside the segmented meter.
   defp conf_word(1), do: "Low"

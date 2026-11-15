@@ -9,7 +9,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 
 | Module | File | Lines | Responsibility | Key Functions |
 |--------|------|-------|----------------|---------------|
-| `Games` | `games.ex` | 783 | Game/Document CRUD, questions, followup chains, chunk retrieval, community pool | `get_game!/1`, `create_game/1`, `create_document/1`, `log_question/1`, `log_question_update/2`, `grouped_questions/1`, `find_parent_question_id/3`, `community_questions/2`, `find_similar_question_in_pool/3`, `question_threads/1`, `retrieve_chunks/3`, `chunk_document/1`, `expansion_short_name/2` ("Base – X" → "X") |
+| `Games` | `games.ex` | 783 | Game/Document CRUD, questions, followup chains, chunk retrieval, community pool | `get_game!/1`, `create_game/1`, `create_document/1`, `log_question/1`, `log_question_update/2`, `grouped_questions/1`, `find_parent_question_id/3`, `community_questions/2`, `find_similar_question_in_pool/3`, `question_threads/1`, `retrieve_chunks/3`, `chunk_document/1`, `expansion_short_name/2` ("Base – X" → "X"), `answer_rulebook_checked?/1` (pool copies inherit the source row's status) |
 | `LLM` | `llm.ex` | 513 | LLM API calls (multi-provider), chat, question generation, community pool cache | `ask/5`, `chat/3`, `suggest_questions/3`, `provider/0`, `model/0`, `stats/1` |
 | `LLM.Log` | `llm/log.ex` | — | LLM request/response logging | `log_llm/4` |
 | `LLMProxy` | `llm_proxy.ex` | 33 | Routes LLM/embed calls through proxy when `llm_proxy_url` DB setting is configured | `chat_url/0`, `embed_url/0`, `enabled?/0` |
@@ -34,7 +34,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `Game` | `games/game.ex` | Game name, BGG linkage, expansion relationships (`parent_id`) |
 | `Document` | `games/document.ex` | Rulebook text (`full_text`), label, status, PDF/HTML paths |
 | `Chunk` | `games/chunk.ex` | Text chunks with embeddings, linked to Document. `page_number` from PDF page. |
-| `QuestionLog` | `games/question_log.ex` | Asked questions, answers, citations, pinned status, history chain, refused flag, cleaned_question |
+| `QuestionLog` | `games/question_log.ex` | Asked questions, answers, citations, pinned status, history chain, refused flag, cleaned_question; `rulebook_checked?/1` = llm_provider "manual" (Claude-imported/corrected → "📖 Rulebook-checked" badge, NOT a trust tier) |
 
 ## LiveViews (UI pages — `lib/rule_maven_web/live/`)
 
@@ -70,7 +70,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 
 | Module | File | Responsibility |
 |--------|------|----------------|
-| `CoreComponents` | `core_components.ex` | Shared UI: buttons, modals, forms, icons |
+| `CoreComponents` | `core_components.ex` | Shared UI: buttons, modals, forms, icons; `citation_pages/1`, `citation_chip/1` ("Rulebook p.4 · Official FAQ p.2" — names the source) |
 | `Layouts` | `layouts.ex` + `layouts/` | Root layout, app shell |
 
 ## Workers — Oban (`lib/rule_maven/workers/`)

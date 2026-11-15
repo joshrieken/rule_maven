@@ -133,7 +133,7 @@ defmodule RuleMavenWeb.Tours do
         sel: ".chat-msg .conf-pill",
         title: "Confidence meter",
         body:
-          "How solid this answer is. Full marks means strong rulebook backing; lower means double-check the cited passage at the table."
+          "How solid this answer is. Full marks means strong rulebook backing; \"Rulebook-checked\" means every quote was matched to its page; lower means double-check the cited passage at the table."
       },
       %{
         sel: "[data-tour='citation']",

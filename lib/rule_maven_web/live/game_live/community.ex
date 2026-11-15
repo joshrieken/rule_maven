@@ -870,10 +870,19 @@ defmodule RuleMavenWeb.GameLive.Community do
               >✓ asker</span>
             </span>
             <span
-              :if={@show_status_badge && @status == "unverified"}
+              :if={
+                @show_status_badge && @status == "unverified" && !QuestionLog.rulebook_checked?(@q)
+              }
               style="font-size:0.6rem;font-weight:600;color:var(--orange,orange);background:color-mix(in srgb, orange 14%, var(--bg-surface));padding:0.1rem 0.4rem;border-radius:1rem"
             >
               🧪 Unverified
+            </span>
+            <span
+              :if={@show_status_badge && @status == "unverified" && QuestionLog.rulebook_checked?(@q)}
+              style="font-size:0.6rem;font-weight:600;color:var(--green);background:color-mix(in srgb, var(--green) 14%, var(--bg-surface));padding:0.1rem 0.4rem;border-radius:1rem"
+              title="Every quote was checked word-for-word against the cited rulebook page. Not yet reviewed by an admin or confirmed by players."
+            >
+              📖 Rulebook-checked
             </span>
             <span
               :if={@show_status_badge && @status == "community"}
@@ -896,8 +905,9 @@ defmodule RuleMavenWeb.GameLive.Community do
             <span
               :if={citation_pages(@q) != []}
               style="font-size:0.6rem;font-weight:600;color:var(--text-secondary);background:var(--bg-subtle);padding:0.1rem 0.4rem;border-radius:1rem"
+              title={citation_chip(@q)}
             >
-              📖 Rulebook p.{Enum.join(citation_pages(@q), ", ")}
+              📖 {citation_chip(@q)}
             </span>
             <span
               :if={citation_pages(@q) == [] && @q.citation_valid}
