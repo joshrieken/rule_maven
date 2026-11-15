@@ -594,6 +594,10 @@ defmodule RuleMavenWeb.CoreComponents do
   """
   attr :q, :map, required: true, doc: "question-log row (or map) with citation fields"
 
+  attr :symbol_marks, :list,
+    default: [],
+    doc: "SymbolMarkup.marks/1 matchers: symbol tokens in quotes render as icon chips"
+
   def citation_cards(assigns) do
     assigns = assign(assigns, :citations, grouped_citations(assigns.q))
 
@@ -622,12 +626,23 @@ defmodule RuleMavenWeb.CoreComponents do
           <strong
             :if={parts.heading}
             style="display:block;font-size:0.85rem;margin-bottom:0.15rem;color:var(--text)"
-          >{parts.heading}</strong>
-          <span style="white-space:pre-line">{parts.body}</span>
+          >{quote_html(parts.heading, @symbol_marks)}</strong>
+          <span style="white-space:pre-line">{quote_html(parts.body, @symbol_marks)}</span>
         </blockquote>
       </div>
     </figure>
     """
+  end
+
+  # Quote text → escaped HTML with symbol tokens turned into icon chips (the same
+  # SymbolMarkup pass the answer text gets). Escaping first keeps a quote's own
+  # "<" literal; decorate/2 only rewrites text between tags.
+  defp quote_html(text, marks) do
+    text
+    |> Phoenix.HTML.html_escape()
+    |> Phoenix.HTML.safe_to_string()
+    |> RuleMavenWeb.SymbolMarkup.decorate(marks)
+    |> Phoenix.HTML.raw()
   end
 
   @doc """

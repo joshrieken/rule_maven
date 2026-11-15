@@ -70,7 +70,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 
 | Module | File | Responsibility |
 |--------|------|----------------|
-| `CoreComponents` | `core_components.ex` | Shared UI: buttons, modals, forms, icons; `citation_pages/1`, `citation_chip/1` ("Rulebook p.4 · Official FAQ p.2" — names the source) |
+| `CoreComponents` | `core_components.ex` | Shared UI: buttons, modals, forms, icons; `citation_pages/1`, `citation_chip/1` ("Rulebook p.4 · Official FAQ p.2" — names the source), `citation_cards` (optional `symbol_marks` → icon chips in quotes) |
 | `Layouts` | `layouts.ex` + `layouts/` | Root layout, app shell |
 
 ## Workers — Oban (`lib/rule_maven/workers/`)

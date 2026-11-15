@@ -9,6 +9,9 @@ defmodule RuleMavenWeb.CoreComponents.CitationCardsTest do
   import Phoenix.LiveViewTest
   import RuleMavenWeb.CoreComponents, only: [citation_cards: 1]
 
+  alias RuleMaven.Symbols.Symbol
+  alias RuleMavenWeb.SymbolMarkup
+
   defp cards(q), do: render_component(&citation_cards/1, q: q)
 
   test "no whitespace-preserving element starts with a newline" do
@@ -30,9 +33,69 @@ defmodule RuleMavenWeb.CoreComponents.CitationCardsTest do
   test "line breaks inside a quote are still preserved" do
     html =
       cards(%{
-        citations: [%{"quote" => "Roll both dice at the start of your turn.\nThen move your pawn that many spaces.", "page" => 3, "source" => "Rulebook"}]
+        citations: [
+          %{
+            "quote" =>
+              "Roll both dice at the start of your turn.\nThen move your pawn that many spaces.",
+            "page" => 3,
+            "source" => "Rulebook"
+          }
+        ]
       })
 
-    assert html =~ ~r/pre-line[^>]*>Roll both dice at the start of your turn.\nThen move your pawn/
+    assert html =~
+             ~r/pre-line[^>]*>Roll both dice at the start of your turn.\nThen move your pawn/
+  end
+
+  describe "symbol chips" do
+    defp marks do
+      SymbolMarkup.marks([
+        %{
+          name: "G",
+          images?: true,
+          symbols: [
+            %Symbol{
+              id: 7,
+              token: "[black crescent moon symbol]",
+              name: "Open box",
+              meaning: nil,
+              image_path: "symbols/x.png"
+            }
+          ]
+        }
+      ])
+    end
+
+    @quote "Have a party reputation of -10 or lower – open box [black crescent moon symbol] now.\nThen read on."
+
+    test "tokens in a quote become chips when marks are given" do
+      html =
+        render_component(&citation_cards/1,
+          q: %{citations: [%{"quote" => @quote, "page" => 49, "source" => "Rulebook"}]},
+          symbol_marks: marks()
+        )
+
+      assert html =~ ~s(<span class="sym-label">Open box</span>)
+      refute html =~ "[black crescent moon symbol]"
+      assert html =~ "now.\nThen read on."
+    end
+
+    test "without marks the token text is left as is (and still escaped)" do
+      html =
+        render_component(&citation_cards/1,
+          q: %{
+            citations: [
+              %{
+                "quote" => "A <b> [black crescent moon symbol]",
+                "page" => 1,
+                "source" => "Rulebook"
+              }
+            ]
+          }
+        )
+
+      assert html =~ "[black crescent moon symbol]"
+      assert html =~ "A &lt;b&gt;"
+    end
   end
 end

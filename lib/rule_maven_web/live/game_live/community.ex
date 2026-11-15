@@ -862,7 +862,7 @@ defmodule RuleMavenWeb.GameLive.Community do
             <div style="font-size:0.75rem;color:var(--text);word-break:break-word">
               {render_markdown(@q.canonical_answer || @q.answer || "", @symbol_marks)}
             </div>
-            <.citation_cards q={@q} />
+            <.citation_cards q={@q} symbol_marks={@symbol_marks} />
             <%!-- Plain-styled toggle: the generic `button` reset (nowrap,
                 inline-flex, hover lift) fights text-like buttons, so use a
                 clickable span with a button role instead. --%>
