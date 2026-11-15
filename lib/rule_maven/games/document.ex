@@ -125,6 +125,9 @@ defmodule RuleMaven.Games.Document do
     # Typed source kind (authority order defined by `kinds/0`). Drives label
     # inference and retrieval weighting across multi-source games.
     field :kind, :string, default: "rulebook"
+    # Spoils campaign/unlock content (locked classes, scenarios, items): answers
+    # citing it render behind a spoiler warning (`Games.spoiler_index/1`).
+    field :spoiler, :boolean, default: false
     # Durable cleanup progress: pages persisted so far in the active run (nil
     # when idle). Updated incrementally by CleanupWorker so the UI counter is
     # reliable and survives refreshes.
@@ -158,6 +161,7 @@ defmodule RuleMaven.Games.Document do
       :status,
       :file_hash,
       :kind,
+      :spoiler,
       :reviewed_by_id,
       :reviewed_at
     ])

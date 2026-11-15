@@ -3045,6 +3045,25 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
+  Spoiler sources for these games (base + expansions): `%{ids: MapSet, labels:
+  MapSet of lowercased labels}`, for `QuestionLog.spoiler?/2`. One query per
+  page load; cheap (documents only).
+  """
+  def spoiler_index(game_ids) when is_list(game_ids) do
+    rows =
+      Repo.all(
+        from d in Document,
+          where: d.game_id in ^game_ids and d.spoiler == true,
+          select: {d.id, d.label}
+      )
+
+    %{
+      ids: MapSet.new(rows, &elem(&1, 0)),
+      labels: MapSet.new(rows, fn {_, l} -> String.downcase(l || "") end)
+    }
+  end
+
+  @doc """
   `QuestionLog.rulebook_checked?/1` for a row as shown to its asker: a pool copy
   (provider "pool") inherits the status of the source row it was served from.
   """

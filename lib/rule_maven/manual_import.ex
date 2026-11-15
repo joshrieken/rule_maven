@@ -40,6 +40,7 @@ defmodule RuleMaven.ManualImport do
             game_id: game.id,
             label: attrs["label"] || "Rulebook",
             kind: attrs["kind"] || "rulebook",
+            spoiler: attrs["spoiler"] == true,
             source_url: attrs["source_url"],
             pdf_path: pdf_path,
             file_hash: file_hash,

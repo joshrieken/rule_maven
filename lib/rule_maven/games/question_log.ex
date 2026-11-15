@@ -219,6 +219,23 @@ defmodule RuleMaven.Games.QuestionLog do
   def rulebook_checked?(_), do: false
 
   @doc """
+  True when the answer cites a spoiler source (see `RuleMaven.Games.spoiler_index/1`):
+  any citation's `document_id`, the row's own `document_id`, or — for citations
+  saved before document ids were resolved — a citation `source` matching a
+  spoiler document's label (case-insensitive).
+  """
+  def spoiler?(%{} = q, %{ids: ids, labels: labels}) do
+    cites = if is_list(Map.get(q, :citations)), do: q.citations, else: []
+
+    MapSet.size(ids) > 0 and
+      (MapSet.member?(ids, Map.get(q, :document_id)) or
+         Enum.any?(cites, fn c ->
+           MapSet.member?(ids, c["document_id"]) or
+             (is_binary(c["source"]) and MapSet.member?(labels, String.downcase(c["source"])))
+         end))
+  end
+
+  @doc """
   Answer text safe to render on an admin/list surface — the companion to
   `listed_question/1`.
 
