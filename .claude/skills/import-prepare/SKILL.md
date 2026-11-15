@@ -106,6 +106,11 @@ user agrees. Mention every candidate (imported or skipped) in the final report.
 - Page keys (printed, else sheet) must be unique ACROSS docs: unnumbered trailing
   pages of doc 2 collide with doc 1's low numbers → give them positional numbers.
 - 2-page spreads: split each sheet into two pages with real printed numbers.
+- Spoiler material (campaign unlocks, locked classes, scenario/legacy reveals, a FAQ's
+  spoiler section) → its OWN document with `"spoiler": true` in the pages JSON. Answers
+  citing it render behind a warning and stay hidden until a player reveals them; Q&As
+  written from it must NAME the card/scenario/item so they only match players who have it.
+  Existing doc: `update documents set spoiler=true where id=N` (no re-import needed).
 
 ## 2. Icon glossary (inline; skip for icon-free books)
 Render the book's iconography/reference page; write `tmp/rebuild/<slug>/GLOSSARY.md`:
