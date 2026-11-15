@@ -689,7 +689,7 @@ defmodule RuleMavenWeb.AdminLive.Questions do
                   type="button"
                   phx-click="demote_question"
                   phx-value-id={q.id}
-                  title="Pull this row out of the community FAQ, back to private."
+                  title="Pull this row out of the Rules Q&A, back to private."
                   class="btn-xs"
                 >Demote</button>
                 <%= if @confirm_delete_id == q.id do %>

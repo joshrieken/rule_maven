@@ -9,15 +9,15 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   stay one tap away. Mobile-first: at 390px the pills hide and the three short
   menu pills fit one row.
 
-  The pills (Rulebooks, Community Q&A, Cheat Sheet) duplicate More-menu items on
+  The pills (Rulebooks, Rules Q&A, Cheat Sheet) duplicate More-menu items on
   purpose: they are `hide-mobile` desktop shortcuts, and More is the mobile path
   to the same destinations. Anything reachable from the bar belongs in the More
   menu; not everything in the More menu earns a pill.
 
   Pages pass `current` — the page they are on. It decides whether Overview
   patches (`:show`) or navigates (everywhere else; patching across LiveViews
-  crashes), and swaps the Community pill for a `My Q&A` link back to the game
-  page when you are already on Community.
+  crashes), and swaps the Rules Q&A pill for an `Ask` link back to the game
+  page when you are already on Rules Q&A (`:community`).
   """
   use RuleMavenWeb, :html
   alias RuleMavenWeb.GameLive.ToolRegistry
@@ -151,8 +151,8 @@ defmodule RuleMavenWeb.GameLive.SubBar do
   attr :has_cheatsheet, :boolean, default: false
   # Which page the bar is being rendered on. Drives two things: the Overview
   # link patches on :show and navigates elsewhere (patching across LiveViews
-  # crashes), and the Community pill becomes a `My Q&A` link back to the game
-  # page when rendered on Community.
+  # crashes), and the Rules Q&A pill becomes an `Ask` link back to the game
+  # page when rendered on Rules Q&A (`:community`).
   attr :current, :atom, default: :show, values: [:show, :community, :prepare, :review, :edit]
   attr :expansions, :list, default: []
   attr :included_expansions, :map, default: %{}
@@ -230,19 +230,19 @@ defmodule RuleMavenWeb.GameLive.SubBar do
 
   # The right-hand shortcuts. Every destination here is also a More-menu item —
   # deliberately: these are `hide-mobile` desktop shortcuts and the More menu is
-  # the mobile path to the same places. The Community pill points back at the
-  # game page when you are on Community, so its slot never empties.
+  # the mobile path to the same places. The Rules Q&A pill points back at the
+  # game page (where you ask) when you are on Rules Q&A, so its slot never empties.
   defp header_pills(assigns) do
     ~H"""
-    <%!-- On the Community page this pill is the way back to your own Q&A. It
-          keeps the slot a Community pill would occupy, so the bar's shape holds. --%>
+    <%!-- On the Rules Q&A page this pill is the way back to asking. It keeps
+          the slot the Rules Q&A pill would occupy, so the bar's shape holds. --%>
     <.link
       :if={@current == :community}
       navigate={~p"/games/#{@game}"}
       class="btn btn-primary btn-xs hide-mobile"
       style="flex-shrink:0"
     >
-      <span aria-hidden="true">💬</span> My Q&amp;A
+      <span aria-hidden="true">💬</span> Ask
     </.link>
 
     <.link
@@ -251,7 +251,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       class="btn btn-primary btn-xs hide-mobile"
       style="flex-shrink:0"
     >
-      <span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})
+      <span aria-hidden="true">💬</span> Rules Q&amp;A ({@community_count})
     </.link>
 
     <%!-- The cheat sheet is a standalone printable document, never "the current
@@ -675,7 +675,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       :if={@community_count > 0}
       navigate={~p"/games/#{@game}/community"}
       class="card-menu__item"
-    ><span aria-hidden="true">💬</span> Community Q&amp;A ({@community_count})</.link>
+    ><span aria-hidden="true">💬</span> Rules Q&amp;A ({@community_count})</.link>
     <%= if @has_cheatsheet do %>
       <.link href={~p"/games/#{@game}/cheatsheet"} target="_blank" class="card-menu__item">
         <span aria-hidden="true">📋</span> Cheat Sheet

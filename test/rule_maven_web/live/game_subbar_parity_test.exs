@@ -74,7 +74,7 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
     assert ToolHost.has_cheatsheet?([doc_without_version, doc_with_version])
   end
 
-  test "every game page renders the Community pill", %{conn: conn, game: game} do
+  test "every game page renders the Rules Q&A pill", %{conn: conn, game: game} do
     # The pill only appears once the game has a community question to point at.
     {:ok, _q} =
       RuleMaven.Games.log_question(%{
@@ -93,18 +93,18 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
         ] do
       {:ok, _view, html} = live(conn, path)
 
-      # `more_menu/1` also renders the text "Community Q&amp;A (...)" on every
+      # `more_menu/1` also renders the text "Rules Q&amp;A (...)" on every
       # page under the same @community_count > 0 gate, so a bare text
       # assertion would still pass with `header_pills/1`'s <.pill_link> call
       # deleted outright. Narrow to markup only the pill emits: its
       # `btn btn-primary btn-xs hide-mobile` class list (the More-menu item
       # carries `card-menu__item` instead).
       assert html =~ ~s(class="btn btn-primary btn-xs hide-mobile"),
-             "no Community pill on #{path}"
+             "no Rules Q&A pill on #{path}"
     end
   end
 
-  test "on the Community page the pill becomes My Q&A, pointing back at the game page",
+  test "on the Rules Q&A page the pill becomes Ask, pointing back at the game page",
        %{conn: conn, game: game} do
     {:ok, _q} =
       RuleMaven.Games.log_question(%{
@@ -125,21 +125,21 @@ defmodule RuleMavenWeb.GameSubBarParityTest do
     {:ok, _view, community_html} = live(conn, ~p"/games/#{game}/community")
     on_community = pill.(community_html)
 
-    assert LazyHTML.text(on_community) =~ "My Q&A",
-           "the pill on the Community page must offer the way back to your own Q&A"
+    assert LazyHTML.text(on_community) =~ "Ask",
+           "the pill on the Rules Q&A page must offer the way back to asking"
 
-    refute LazyHTML.text(on_community) =~ "Community Q&A",
+    refute LazyHTML.text(on_community) =~ "Rules Q&A",
            "the pill must not still advertise the page you are already on"
 
     assert LazyHTML.attribute(on_community, "href") == [~p"/games/#{game}"],
-           "My Q&A must link to the game page, not to Community"
+           "Ask must link to the game page, not to Rules Q&A"
 
-    # ...and the same slot still reads "Community Q&A" everywhere else.
+    # ...and the same slot still reads "Rules Q&A" everywhere else.
     {:ok, _view, show_html} = live(conn, ~p"/games/#{game}")
     on_show = pill.(show_html)
 
-    assert LazyHTML.text(on_show) =~ "Community Q&A",
-           "the game page keeps the Community Q&A pill"
+    assert LazyHTML.text(on_show) =~ "Rules Q&A",
+           "the game page keeps the Rules Q&A pill"
 
     assert LazyHTML.attribute(on_show, "href") == [~p"/games/#{game}/community"]
   end

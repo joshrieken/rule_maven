@@ -1,6 +1,6 @@
 defmodule RuleMavenWeb.CommunityAdminAuditTest do
   @moduledoc """
-  Admin audit trail on the Community Q&A page. Guards the regression where a
+  Admin audit trail on the Rules Q&A page. Guards the regression where a
   stateful component per card collided on id when one question rendered in two
   category sections at once.
   """

@@ -15,7 +15,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `LLMProxy` | `llm_proxy.ex` | 33 | Routes LLM/embed calls through proxy when `llm_proxy_url` DB setting is configured | `chat_url/0`, `embed_url/0`, `enabled?/0` |
 | `CheatSheet` | `cheat_sheet.ex` | 711 | Cheatsheet generation (async Oban), versions, HTML wrapping | `save_version/3`, `generate_async/5`, `generate_content/3`, `status/1`, `wrap_html_for_serve/2` |
 | `CheatSheet.CheatSheetVersion` | `cheat_sheet/cheat_sheet_version.ex` | — | Schema for stored cheatsheet versions | — |
-| `Faq` | `faq.ex` | 24 | Community Q&A counts/stats. (FAQ collapsed onto QuestionLog `visibility`/`canonical_*`; FaqEntry/FaqCandidate tables removed.) | `community_count/1`, `stats/0` |
+| `Faq` | `faq.ex` | 24 | Rules Q&A (ex-Community Q&A) counts/stats. (FAQ collapsed onto QuestionLog `visibility`/`canonical_*`; FaqEntry/FaqCandidate tables removed.) | `community_count/1`, `stats/0` |
 | `BGG` | `bgg.ex` | 368 | BoardGameGeek API integration, game search/enrich | `search/1`, `fetch_and_enrich/2` |
 | `BggRefresher` | `bgg_refresher.ex` | — | GenServer for BGG refresh polling | `subscribe/1` |
 | `Embed` | `embed.ex` | 83 | Text embedding via OpenRouter API | `embed/1` |
@@ -34,7 +34,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `Game` | `games/game.ex` | Game name, BGG linkage, expansion relationships (`parent_id`) |
 | `Document` | `games/document.ex` | Rulebook text (`full_text`), label, status, PDF/HTML paths |
 | `Chunk` | `games/chunk.ex` | Text chunks with embeddings, linked to Document. `page_number` from PDF page. |
-| `QuestionLog` | `games/question_log.ex` | Asked questions, answers, citations, pinned status, history chain, refused flag, cleaned_question; `rulebook_checked?/1` = llm_provider "manual" (Claude-imported/corrected → "📖 Rulebook-checked" badge, NOT a trust tier) |
+| `QuestionLog` | `games/question_log.ex` | Asked questions, answers, citations, pinned status, history chain, refused flag, cleaned_question; `rulebook_checked?/1` = llm_provider "manual" (Claude-imported/corrected → "📖 Rulebook-checked" badge, NOT a trust tier) ; `spoiler?/2` (cites a `documents.spoiler` source, index via `Games.spoiler_index/1`): Rules Q&A hides/masks them, chat gates the answer behind "Show answer" |
 
 ## LiveViews (UI pages — `lib/rule_maven_web/live/`)
 
@@ -92,7 +92,8 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `test/rule_maven/games_document_test.exs` | Document auto-publish, quality checks |
 | `test/rule_maven/games_chunk_test.exs` | Document chunking, chunk retrieval |
 | `test/rule_maven/llm_test.exs` | LLM.ask response parsing, system prompts, mock injection |
-| `test/rule_maven/faq_test.exs` | Community Q&A counts/stats |
+| `test/rule_maven/faq_test.exs` | Rules Q&A counts/stats |
+| `test/rule_maven_web/live/rules_qa_tabs_spoilers_test.exs` | Rules Q&A tabs (Prepared vs Player-asked) + spoiler hide/mask/reveal |
 | `test/rule_maven/refusal_test.exs` | LLM refusal detection |
 | `test/rule_maven_web/feature/flow_test.exs` | E2E: login, game list, auth visibility |
 | `test/rule_maven_web/feature/smoke_test.exs` | Smoke: pages load, no crashes |
@@ -121,6 +122,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | Page review flags | `games.ex` (`page_needs_review?/1` UI flag, `page_blocks_review?/1` pipeline gate, `mark_page_reviewed/2`), `games/document.ex` (Page `reviewed`), `game_live/form.ex` (`review_flag`, "mark_reviewed") |
 | Change page layout | `components/layouts/` (root shell), `components/core_components.ex` (shared UI) |
 | Add new LiveView page | `live/` (new file), `router.ex` (route), test |
+| Rules Q&A page (`/games/:id/community`, ex-"Community Q&A") | `game_live/community.ex`: tabs verified/community/prepared (`QuestionLog.rulebook_checked?/1`)/unverified (=Player-asked); spoilers via `Games.spoiler_index/1` + `QuestionLog.spoiler?/2` → `spoiler_ids`, `hide_spoilers` (default on, omits), `revealed_spoilers` (masked card until Reveal); unrevealed spoilers never match search. Sub-bar pill there = "💬 Ask" (`sub_bar.ex header_pills`) |
 | Debug community pool cache | `llm.ex` (`ask/5`), `games.ex` (`find_similar_question_in_pool/3`, community-only) |
 | Debug LLM output parsing | `llm.ex` (`parse_response/1`, `decode_answer/1` — JSON `json_object`) |
 | Debug followup chains | `games/question_log.ex` (schema), `games.ex` (`grouped_questions/1`, `find_parent_question_id/3`), `workers/ask_worker.ex` |

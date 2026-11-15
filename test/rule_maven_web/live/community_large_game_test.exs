@@ -1,6 +1,6 @@
 defmodule RuleMavenWeb.CommunityLargeGameTest do
   @moduledoc """
-  Games with hundreds of answers (Claude-imported pre-fills): the Community Q&A
+  Games with hundreds of answers (Claude-imported pre-fills): the Rules Q&A
   page used to load only the newest 200 per tab, so its counts disagreed with
   the sub-bar button and answers past #200 were unsearchable. Now everything
   loads; the grouped view renders a few cards per category with "Show all".
@@ -46,19 +46,19 @@ defmodule RuleMavenWeb.CommunityLargeGameTest do
   end
 
   test "tab count covers every answer, not just 200", %{conn: conn, viewer: v, game: game} do
-    {:ok, _view, html} = conn |> login(v) |> live(~p"/games/#{game}/community?tab=unverified")
+    {:ok, _view, html} = conn |> login(v) |> live(~p"/games/#{game}/community?tab=prepared")
 
     labels =
       html
       |> LazyHTML.from_document()
-      |> LazyHTML.query("button[phx-value-tab=unverified]")
+      |> LazyHTML.query("button[phx-value-tab=prepared]")
       |> LazyHTML.attribute("aria-label")
 
     assert Enum.any?(labels, &(&1 =~ "(205)"))
   end
 
   test "search reaches answers past the 200th", %{conn: conn, viewer: v, game: game} do
-    {:ok, view, _html} = conn |> login(v) |> live(~p"/games/#{game}/community?tab=unverified")
+    {:ok, view, _html} = conn |> login(v) |> live(~p"/games/#{game}/community?tab=prepared")
     # every one of the 205 is searchable (with a 200 cap at most 200 could match)
     html = render_change(view, "search", %{"q" => "Big question"})
     assert html =~ "205 matches"
@@ -66,7 +66,7 @@ defmodule RuleMavenWeb.CommunityLargeGameTest do
 
   test "grouped view shows 10 per category with a Show all button that expands it",
        %{conn: conn, viewer: v, game: game, cat: cat} do
-    {:ok, view, html} = conn |> login(v) |> live(~p"/games/#{game}/community?tab=unverified")
+    {:ok, view, html} = conn |> login(v) |> live(~p"/games/#{game}/community?tab=prepared")
 
     cards = fn h ->
       h
@@ -84,7 +84,7 @@ defmodule RuleMavenWeb.CommunityLargeGameTest do
   end
 
   test "search renders at most 100 cards and says so", %{conn: conn, viewer: v, game: game} do
-    {:ok, view, _html} = conn |> login(v) |> live(~p"/games/#{game}/community?tab=unverified")
+    {:ok, view, _html} = conn |> login(v) |> live(~p"/games/#{game}/community?tab=prepared")
     html = render_change(view, "search", %{"q" => "Big question"})
     assert html =~ "205 matches"
     assert html =~ "showing the first 100"

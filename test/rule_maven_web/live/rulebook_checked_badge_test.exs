@@ -119,7 +119,7 @@ defmodule RuleMavenWeb.RulebookCheckedBadgeTest do
   end
 
   describe "community page" do
-    test "manual rows carry a Rulebook-checked pill instead of Unverified", %{conn: conn} do
+    test "manual rows carry a Rulebook-checked pill instead of Player-asked", %{conn: conn} do
       viewer = user("rbc_viewer")
       game = published_game_fixture(%{name: "RBC Community Game"})
 
@@ -143,9 +143,9 @@ defmodule RuleMavenWeb.RulebookCheckedBadgeTest do
       html = render_change(view, "search", %{"q" => "question about"})
 
       assert html =~ "📖 Rulebook-checked"
-      assert html =~ "🧪 Unverified"
-      # exactly one of each: the manual row is not ALSO labelled unverified
-      assert length(String.split(html, "🧪 Unverified")) == 2
+      assert html =~ "🧪 Player-asked"
+      # exactly one of each: the manual row is not ALSO labelled player-asked
+      assert length(String.split(html, "🧪 Player-asked")) == 2
     end
   end
 end

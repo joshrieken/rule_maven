@@ -1,16 +1,27 @@
 defmodule RuleMavenWeb.GameLive.Community do
   @moduledoc """
-  Community Q&A browse page (formerly the FAQ page). Three disjoint tabs:
+  Rules Q&A browse page (route `/games/:id/community`; formerly "Community
+  Q&A", before that the FAQ page). Four disjoint tabs:
 
-    * **Verified** — admin-verified community answers.
-    * **Community** — crowd-promoted answers awaiting admin sign-off.
-    * **Unverified** — answered, pool-shared questions from other players that
-      haven't reached community status yet. Browsing these is the discovery
-      surface that feeds promotion quorum: upvotes here both count toward
-      promotion and add the question to the voter's own list.
+    * **Admin-verified** (`"verified"`) — admin-verified answers.
+    * **Community** (`"community"`) — crowd-promoted answers awaiting admin sign-off.
+    * **Prepared** (`"prepared"`) — Claude-imported answers from the rulebooks
+      (`QuestionLog.rulebook_checked?/1`), not yet promoted.
+    * **Player-asked** (`"unverified"`, key kept for old links) — answered,
+      pool-shared questions from real players that haven't reached community
+      status yet.
+
+  Prepared + Player-asked are the discovery surface that feeds promotion
+  quorum: upvotes there both count toward promotion and add the question to the
+  voter's own list.
 
   A non-empty search always runs across **all** tabs at once; results carry a
   status badge instead of relying on the selected tab.
+
+  Spoilers: answers citing a spoiler source (`QuestionLog.spoiler?/2`) are
+  omitted while "Hide spoilers" is on (default); with it off they render as a
+  masked card until individually revealed. An unrevealed spoiler never matches
+  a search, so its text can't be probed.
   """
   use RuleMavenWeb, :live_view
 
@@ -32,6 +43,8 @@ defmodule RuleMavenWeb.GameLive.Community do
   # Table-tool events (sub-bar Play/Learn, window chrome) are shared with the
   # game page via ToolHost.
   @tool_events RuleMavenWeb.GameLive.ToolHost.events()
+
+  @tabs ["verified", "community", "prepared", "unverified"]
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -64,7 +77,10 @@ defmodule RuleMavenWeb.GameLive.Community do
         expanded: MapSet.new(),
         # Category groups (id string, or "general") showing all cards, not @per_group.
         expanded_groups: MapSet.new(),
-        page_title: "Community Q&A — #{game.name}"
+        # Spoiler answers: omitted while true; masked (reveal one by one) when false.
+        hide_spoilers: true,
+        revealed_spoilers: MapSet.new(),
+        page_title: "Rules Q&A — #{game.name}"
       )
 
     socket = ToolHost.mount_header(socket, game)
@@ -85,14 +101,28 @@ defmodule RuleMavenWeb.GameLive.Community do
 
     # Drop unverified rows that duplicate a community question's text — the
     # promoted copy is the one that should surface.
-    unverified =
+    pool =
       game
       |> Games.unverified_pool_questions(@browse_limit)
       |> Enum.reject(fn q ->
         MapSet.member?(community_texts, String.downcase(QuestionLog.display_question(q)))
       end)
 
-    question_ids = Enum.map(community_all ++ unverified, & &1.id)
+    # Claude-prepared (rulebook-checked) rows vs questions real players asked.
+    {prepared, unverified} = Enum.split_with(pool, &QuestionLog.rulebook_checked?/1)
+
+    question_ids = Enum.map(community_all ++ pool, & &1.id)
+
+    spoiler_index =
+      Games.spoiler_index([game.id | Enum.map(Games.expansions_for(game), & &1.id)])
+
+    spoiler_ids =
+      for q <- community_all ++ pool,
+          QuestionLog.spoiler?(q, spoiler_index),
+          into: MapSet.new() do
+        q.id
+      end
+
     favorited_ids = Games.favorited_answer_ids(user_id, question_ids)
 
     {vote_counts, user_votes, asker_confirmed} =
@@ -101,7 +131,9 @@ defmodule RuleMavenWeb.GameLive.Community do
     assign(socket,
       verified_questions: sort_favorited_first(verified, favorited_ids),
       community_questions: sort_favorited_first(community, favorited_ids),
+      prepared_questions: prepared,
       unverified_questions: unverified,
+      spoiler_ids: spoiler_ids,
       favorited_ids: favorited_ids,
       vote_counts: vote_counts,
       user_votes: user_votes,
@@ -113,12 +145,7 @@ defmodule RuleMavenWeb.GameLive.Community do
 
   # Only vote tallies changed — skip the heavier question/category reload.
   defp reload_votes(socket) do
-    question_ids =
-      Enum.map(
-        socket.assigns.verified_questions ++
-          socket.assigns.community_questions ++ socket.assigns.unverified_questions,
-        & &1.id
-      )
+    question_ids = Enum.map(all_questions(socket), & &1.id)
 
     {vote_counts, user_votes, asker_confirmed} =
       Games.community_vote_maps(question_ids, socket.assigns.current_user.id)
@@ -130,27 +157,57 @@ defmodule RuleMavenWeb.GameLive.Community do
     )
   end
 
-  # First non-empty tab, left to right (matching the button order);
-  # "community" when everything is empty.
+  # First non-empty tab (as listed — hidden spoilers don't count), left to
+  # right matching the button order; "community" when everything is empty.
   defp default_tab(socket) do
-    [
-      {"verified", socket.assigns.verified_questions},
-      {"community", socket.assigns.community_questions},
-      {"unverified", socket.assigns.unverified_questions}
-    ]
-    |> Enum.find_value("community", fn {tab, qs} -> qs != [] && tab end)
+    Enum.find_value(@tabs, "community", fn tab ->
+      listed(socket.assigns, tab) != [] && tab
+    end)
   end
 
-  defp all_questions(socket) do
-    socket.assigns.verified_questions ++
-      socket.assigns.community_questions ++ socket.assigns.unverified_questions
+  defp all_questions(%{assigns: assigns}), do: all_questions(assigns)
+
+  defp all_questions(assigns) do
+    assigns.verified_questions ++
+      assigns.community_questions ++ assigns.prepared_questions ++ assigns.unverified_questions
   end
+
+  defp tab_list(assigns, "verified"), do: assigns.verified_questions
+  defp tab_list(assigns, "prepared"), do: assigns.prepared_questions
+  defp tab_list(assigns, "unverified"), do: assigns.unverified_questions
+  defp tab_list(assigns, _), do: assigns.community_questions
+
+  # A tab's rows as listed: spoilers drop out entirely while hide_spoilers is on.
+  defp listed(assigns, tab), do: assigns |> tab_list(tab) |> drop_hidden_spoilers(assigns)
+
+  defp drop_hidden_spoilers(qs, %{hide_spoilers: false}), do: qs
+
+  defp drop_hidden_spoilers(qs, assigns),
+    do: Enum.reject(qs, &MapSet.member?(assigns.spoiler_ids, &1.id))
+
+  # Spoilers withheld from the current view: this tab's, or every tab's while
+  # searching (never the matching count — that would confirm the search term).
+  defp hidden_spoiler_count(%{hide_spoilers: false}), do: 0
+
+  defp hidden_spoiler_count(assigns) do
+    qs =
+      if assigns.search_query == "",
+        do: tab_list(assigns, assigns.tab),
+        else: all_questions(assigns)
+
+    Enum.count(qs, &MapSet.member?(assigns.spoiler_ids, &1.id))
+  end
+
+  defp masked?(q, assigns),
+    do:
+      MapSet.member?(assigns.spoiler_ids, q.id) and
+        not MapSet.member?(assigns.revealed_spoilers, q.id)
 
   @impl true
   def handle_params(params, _uri, socket) do
     tab =
       case params["tab"] do
-        t when t in ["verified", "community", "unverified"] -> t
+        t when t in @tabs -> t
         _ -> socket.assigns.tab || default_tab(socket)
       end
 
@@ -176,10 +233,25 @@ defmodule RuleMavenWeb.GameLive.Community do
     do: {:noreply, assign(socket, audit: nil)}
 
   def handle_event("switch_tab", %{"tab" => tab}, socket)
-      when tab in ["verified", "community", "unverified"] do
+      when tab in @tabs do
     # Patch ?tab= so the explicit choice survives refresh/back; also drops any
     # ?category= param (handle_params resets filter_category).
     {:noreply, push_patch(socket, to: ~p"/games/#{socket.assigns.game}/community?tab=#{tab}")}
+  end
+
+  def handle_event("toggle_hide_spoilers", _params, socket),
+    do: {:noreply, update(socket, :hide_spoilers, &(!&1))}
+
+  def handle_event("show_spoilers", _params, socket),
+    do: {:noreply, assign(socket, hide_spoilers: false)}
+
+  def handle_event("reveal_spoiler", %{"id" => id_str}, socket) do
+    with {id, ""} <- Integer.parse(id_str),
+         true <- MapSet.member?(socket.assigns.spoiler_ids, id) do
+      {:noreply, update(socket, :revealed_spoilers, &MapSet.put(&1, id))}
+    else
+      _ -> {:noreply, socket}
+    end
   end
 
   @impl true
@@ -327,7 +399,7 @@ defmodule RuleMavenWeb.GameLive.Community do
         {:ok, _} ->
           {:noreply,
            socket
-           |> put_flash(:info, "Pulled from the Community Q&A — it's in the moderation queue.")
+           |> put_flash(:info, "Pulled from the Rules Q&A — it's in the moderation queue.")
            |> load_questions()}
 
         {:error, message} ->
@@ -338,7 +410,7 @@ defmodule RuleMavenWeb.GameLive.Community do
     end
   end
 
-  defp report_flash(true), do: "Reported and pulled from the Community Q&A for review. Thanks!"
+  defp report_flash(true), do: "Reported and pulled from the Rules Q&A for review. Thanks!"
   defp report_flash(false), do: "Reported — thanks. A moderator will take a look."
 
   defp vote_error_message(:self_vote), do: "You can't downvote your own answer."
@@ -415,25 +487,23 @@ defmodule RuleMavenWeb.GameLive.Community do
   end
 
   # Universal search: every tab at once, tagged with the tab it came from so
-  # the card can show a status badge.
+  # the card can show a status badge. An unrevealed spoiler never matches:
+  # even a masked card would confirm what the search term asked about.
   defp search_results(assigns) do
     query = assigns.search_query
 
-    Enum.filter(
-      Enum.map(assigns.verified_questions, &{&1, "verified"}) ++
-        Enum.map(assigns.community_questions, &{&1, "community"}) ++
-        Enum.map(assigns.unverified_questions, &{&1, "unverified"}),
-      fn {q, _status} -> matches_search?(q, query) end
-    )
+    for tab <- @tabs,
+        q <- listed(assigns, tab),
+        not masked?(q, assigns),
+        matches_search?(q, query),
+        do: {q, tab}
   end
 
-  defp tab_questions(assigns) do
-    case assigns.tab do
-      "verified" -> assigns.verified_questions
-      "unverified" -> assigns.unverified_questions
-      _ -> assigns.community_questions
-    end
-  end
+  defp tab_questions(assigns), do: listed(assigns, assigns.tab)
+
+  # Prepared + Player-asked rows are pool answers not yet promoted: no chat
+  # thread to open, no admin reject (nothing to demote).
+  defp pending?(status), do: status in ["prepared", "unverified"]
 
   @impl true
   def render(assigns) do
@@ -467,10 +537,10 @@ defmodule RuleMavenWeb.GameLive.Community do
             syncHeaderHeight, same mechanism as --header-height. --%>
       <div class="community-head">
         <h1 style="font-size:1.25rem;font-weight:700;margin-bottom:0.1rem">
-          {@game.name} — Community Q&amp;A
+          {@game.name} — Rules Q&amp;A
         </h1>
         <p style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.6rem">
-          Questions players have asked, with answers drawn from the rulebook.
+          Rules questions with answers drawn from the rulebook — prepared from the rulebooks or asked by players.
         </p>
 
         <%!-- Search across all tabs at once --%>
@@ -505,27 +575,36 @@ defmodule RuleMavenWeb.GameLive.Community do
           style="display:flex;gap:0.35rem;margin-top:0.6rem;overflow-x:auto;scrollbar-width:none"
         >
           <.tab_button
-            tab="verified"
-            active={@tab == "verified"}
-            emoji="✅"
-            word="Verified"
-            count={length(@verified_questions)}
-          />
-          <.tab_button
-            tab="community"
-            active={@tab == "community"}
-            emoji="🌐"
-            word="Community"
-            count={length(@community_questions)}
-          />
-          <.tab_button
-            tab="unverified"
-            active={@tab == "unverified"}
-            emoji="🧪"
-            word="Unverified"
-            count={length(@unverified_questions)}
+            :for={{tab, emoji, word} <- tab_defs()}
+            tab={tab}
+            active={@tab == tab}
+            emoji={emoji}
+            word={word}
+            count={length(listed(assigns, tab))}
           />
         </div>
+      </div>
+
+      <%!-- Spoiler toggle: only on games with spoiler-flagged answers. --%>
+      <div
+        :if={MapSet.size(@spoiler_ids) > 0}
+        id="spoiler-controls"
+        style="display:flex;flex-wrap:wrap;align-items:center;gap:0.4rem 0.75rem;margin:0.5rem 0 0.75rem;font-size:0.72rem;color:var(--text-secondary)"
+      >
+        <label style="display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer">
+          <input
+            type="checkbox"
+            phx-click="toggle_hide_spoilers"
+            checked={@hide_spoilers}
+          /> Hide spoilers
+        </label>
+        <% hidden = hidden_spoiler_count(assigns) %>
+        <span :if={hidden > 0} style="display:inline-flex;align-items:center;gap:0.35rem">
+          {hidden} spoiler {if hidden == 1, do: "answer", else: "answers"} hidden ·
+          <button type="button" class="btn-outline btn-xs" phx-click="show_spoilers">
+            Show
+          </button>
+        </span>
       </div>
 
       <%= if @search_query != "" do %>
@@ -541,6 +620,8 @@ defmodule RuleMavenWeb.GameLive.Community do
             <.question_card
               symbol_marks={@symbol_marks}
               q={q}
+              masked={masked?(q, assigns)}
+              spoiler={MapSet.member?(@spoiler_ids, q.id)}
               status={status}
               show_status_badge={true}
               is_admin={@is_admin}
@@ -568,15 +649,28 @@ defmodule RuleMavenWeb.GameLive.Community do
              browsable-by-category as verified/community ones. Not gated on the
              tab having questions: the banner is what tells a visitor what the
              tab IS, which matters most when there's nothing else to look at. --%>
+        <%= if @tab == "prepared" do %>
+          <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:0.4rem">
+            <span style="font-size:1.1rem;line-height:1">📖</span>
+            <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
+              <strong>Prepared from this game's rulebooks.</strong>
+              Every quoted citation was checked word-for-word against the cited page, but these answers are
+              <strong>not yet reviewed</strong>
+              by players or admins. Upvoting one that helped counts toward community promotion and adds it to your own questions list.
+            </p>
+          </div>
+        <% end %>
         <%= if @tab == "unverified" do %>
           <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--orange,orange);border-radius:0.4rem">
             <span style="font-size:1.1rem;line-height:1">🧪</span>
             <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
-              Questions other players asked, <strong>not yet reviewed</strong>
-              by the community. Answers cite the rulebook but haven't been vetted — double-check before relying on one. Upvoting an answer counts toward community promotion and adds it to your own questions list.
+              Questions real players asked, answered by the AI from the rulebook and
+              <strong>not yet reviewed</strong>
+              by the community. Double-check before relying on one. Upvoting an answer counts toward community promotion and adds it to your own questions list.
             </p>
           </div>
-        <% else %>
+        <% end %>
+        <%= if @tab in ["verified", "community"] do %>
           <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem;margin-bottom:1.25rem;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0.4rem">
             <span style="font-size:1.1rem;line-height:1">📖</span>
             <p style="font-size:0.72rem;color:var(--text-secondary);line-height:1.45;margin:0">
@@ -618,8 +712,10 @@ defmodule RuleMavenWeb.GameLive.Community do
             <%= case @tab do %>
               <% "verified" -> %>
                 No admin-verified answers yet for this game.
+              <% "prepared" -> %>
+                No prepared answers waiting for review for this game.
               <% "unverified" -> %>
-                Nothing waiting for review — every answered question has been promoted or verified.
+                No player questions waiting for review — every answered question has been promoted or verified.
               <% _ -> %>
                 No community answers yet for this game.
             <% end %>
@@ -645,6 +741,8 @@ defmodule RuleMavenWeb.GameLive.Community do
                 <.question_card
                   symbol_marks={@symbol_marks}
                   q={q}
+                  masked={masked?(q, assigns)}
+                  spoiler={MapSet.member?(@spoiler_ids, q.id)}
                   status={status}
                   show_status_badge={false}
                   is_admin={@is_admin}
@@ -682,6 +780,8 @@ defmodule RuleMavenWeb.GameLive.Community do
                       <.question_card
                         symbol_marks={@symbol_marks}
                         q={q}
+                        masked={masked?(q, assigns)}
+                        spoiler={MapSet.member?(@spoiler_ids, q.id)}
                         status={status}
                         show_status_badge={false}
                         is_admin={@is_admin}
@@ -723,6 +823,8 @@ defmodule RuleMavenWeb.GameLive.Community do
                     <.question_card
                       symbol_marks={@symbol_marks}
                       q={q}
+                      masked={masked?(q, assigns)}
+                      spoiler={MapSet.member?(@spoiler_ids, q.id)}
                       status={status}
                       show_status_badge={false}
                       is_admin={@is_admin}
@@ -760,6 +862,15 @@ defmodule RuleMavenWeb.GameLive.Community do
           trap — but keep them at the root for symmetry. --%>
     <ToolPanel.tool_panel {assigns} />
     """
+  end
+
+  defp tab_defs do
+    [
+      {"verified", "✅", "Admin-verified"},
+      {"community", "🌐", "Community"},
+      {"prepared", "📖", "Prepared"},
+      {"unverified", "🧪", "Player-asked"}
+    ]
   end
 
   defp tab_button(assigns) do
@@ -829,6 +940,30 @@ defmodule RuleMavenWeb.GameLive.Community do
   end
 
   defp max_search_cards, do: @max_search_cards
+
+  # A masked spoiler: nothing about the question — not its text, answer,
+  # citations or copy/share payloads — reaches the DOM until revealed.
+  defp question_card(%{masked: true} = assigns) do
+    ~H"""
+    <div
+      data-question-card
+      data-spoiler-masked
+      style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.75rem;border:1px dashed var(--border);border-radius:0.45rem;background:var(--bg-surface)"
+    >
+      <span style="font-size:0.75rem;color:var(--text-secondary);min-width:0">
+        ⚠️ Spoiler — campaign content (classes, scenarios, items)
+      </span>
+      <button
+        type="button"
+        class="btn-outline btn-sm"
+        phx-click="reveal_spoiler"
+        phx-value-id={@q.id}
+      >
+        Reveal
+      </button>
+    </div>
+    """
+  end
 
   defp question_card(assigns) do
     ~H"""
@@ -908,7 +1043,7 @@ defmodule RuleMavenWeb.GameLive.Community do
                   cond do
                     cv == "up" -> "Remove vote"
                     @q.user_id == @current_user_id -> "Confirm this answered your question"
-                    @status == "unverified" -> "Helpful — also adds it to your questions list"
+                    pending?(@status) -> "Helpful — also adds it to your questions list"
                     true -> "Helpful"
                   end
                 }
@@ -920,15 +1055,19 @@ defmodule RuleMavenWeb.GameLive.Community do
               >✓ asker</span>
             </span>
             <span
-              :if={
-                @show_status_badge && @status == "unverified" && !QuestionLog.rulebook_checked?(@q)
-              }
+              :if={@spoiler}
               style="font-size:0.6rem;font-weight:600;color:var(--orange,orange);background:color-mix(in srgb, orange 14%, var(--bg-surface));padding:0.1rem 0.4rem;border-radius:1rem"
             >
-              🧪 Unverified
+              ⚠️ Spoiler
             </span>
             <span
-              :if={@show_status_badge && @status == "unverified" && QuestionLog.rulebook_checked?(@q)}
+              :if={@show_status_badge && @status == "unverified"}
+              style="font-size:0.6rem;font-weight:600;color:var(--orange,orange);background:color-mix(in srgb, orange 14%, var(--bg-surface));padding:0.1rem 0.4rem;border-radius:1rem"
+            >
+              🧪 Player-asked
+            </span>
+            <span
+              :if={@show_status_badge && @status == "prepared"}
               style="font-size:0.6rem;font-weight:600;color:var(--green);background:color-mix(in srgb, var(--green) 14%, var(--bg-surface));padding:0.1rem 0.4rem;border-radius:1rem"
               title="Every quote was checked word-for-word against the cited rulebook page. Not yet reviewed by an admin or confirmed by players."
             >
@@ -1005,13 +1144,13 @@ defmodule RuleMavenWeb.GameLive.Community do
                 title="Download this Q&A as an image for the group chat"
               >🖼 Share as image</button>
               <.link
-                :if={@status != "unverified"}
+                :if={!pending?(@status)}
                 navigate={~p"/games/#{@game}?t=#{RuleMaven.Hashid.encode(@q.id)}"}
                 class="card-menu__item"
                 title="Open this answer as a chat thread"
               >💬 Open in chat</.link>
               <.link
-                :if={@status != "unverified"}
+                :if={!pending?(@status)}
                 navigate={~p"/games/#{@game}?t=#{RuleMaven.Hashid.encode(@q.id)}"}
                 class="card-menu__item"
                 title="Open this answer in the chat to generate a fresh version"
@@ -1024,7 +1163,7 @@ defmodule RuleMavenWeb.GameLive.Community do
                   type="button"
                   phx-click="pull_for_review"
                   phx-value-id={@q.id}
-                  data-confirm="Pull this answer from the Community Q&A for review? It stays out until re-approved."
+                  data-confirm="Pull this answer from the Rules Q&A for review? It stays out until re-approved."
                   class="card-menu__item"
                   title="Pull into the moderation queue"
                 >⏸ Pull for review</button>
@@ -1053,12 +1192,12 @@ defmodule RuleMavenWeb.GameLive.Community do
             </div>
           </details>
 
-          <%= if @is_admin && @status != "unverified" do %>
+          <%= if @is_admin && !pending?(@status) do %>
             <button
               phx-click="reject"
               phx-value-id={@q.id}
               class="btn-icon btn-xs"
-              title="Remove from community"
+              title="Remove from the Community tab"
             >✕</button>
           <% end %>
         </div>

@@ -17,6 +17,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   import RuleMavenWeb.GameLive.ToolHelpers
 
   @max_concurrent 5
+  @no_spoilers %{ids: MapSet.new(), labels: MapSet.new()}
 
   # A restyle finishes with a `{:voice_ready, ...}` broadcast, but Phoenix.PubSub
   # only reaches subscribers on the node that ran the job. Any second BEAM
@@ -92,6 +93,10 @@ defmodule RuleMavenWeb.GameLive.Show do
        asks_disabled: false,
        included_expansions: %{},
        expansions_seeded: false,
+       # Spoiler-flagged source documents for this game + its expansions (see
+       # Games.spoiler_index/1), and the answers this viewer chose to reveal.
+       spoiler_index: @no_spoilers,
+       revealed_spoilers: MapSet.new(),
        # PubSub bookkeeping: which game this mount is subscribed for, and the
        # exact topic list (incl. per-expansion delta topics) so a same-mount
        # switch to a different game can unsubscribe them. handle_params reruns
@@ -313,7 +318,14 @@ defmodule RuleMavenWeb.GameLive.Show do
     {grouped, threads, active_thread_id} =
       resolve_active_thread(params, game, socket, socket.assigns.grouped, threads_before)
 
-    conversation = build_conversation_for_thread(grouped, active_thread_id, uid, is_admin)
+    conversation =
+      build_conversation_for_thread(
+        grouped,
+        active_thread_id,
+        uid,
+        is_admin,
+        socket.assigns.spoiler_index
+      )
 
     # Community rail refresh — see the module note above. Newly visible
     # community ids join the vote/favorite top-up below so their state loads
@@ -396,10 +408,25 @@ defmodule RuleMavenWeb.GameLive.Show do
     expansions = Games.expansions_with_documents(game)
     socket = ensure_game_subscriptions(socket, game, expansions)
 
+    # Every linked expansion, not just the selected ones: a citation only ever
+    # names a document the answer actually used, so the wider set is harmless
+    # and survives expansion toggles without a recompute.
+    socket =
+      assign(
+        socket,
+        :spoiler_index,
+        Games.spoiler_index([game.id | Enum.map(expansions, & &1.id)])
+      )
+
     grouped = Games.grouped_questions(game, question_group_opts(socket))
 
     threads =
-      build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
+      build_thread_summaries(
+        grouped,
+        socket.assigns.current_user.id,
+        socket.assigns.is_admin,
+        socket.assigns.spoiler_index
+      )
 
     {grouped, threads, active_thread_id} =
       resolve_active_thread(params, game, socket, grouped, threads)
@@ -409,7 +436,8 @@ defmodule RuleMavenWeb.GameLive.Show do
         grouped,
         active_thread_id,
         socket.assigns.current_user.id,
-        socket.assigns.is_admin
+        socket.assigns.is_admin,
+        socket.assigns.spoiler_index
       )
 
     # Compute pending count from threads list
@@ -738,7 +766,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   # Build thread summary list from grouped questions (one per root).
-  defp build_thread_summaries(grouped, current_user_id, is_admin) do
+  defp build_thread_summaries(grouped, current_user_id, is_admin, spoilers) do
     recent = DateTime.utc_now() |> DateTime.add(-120, :second)
 
     grouped
@@ -756,10 +784,31 @@ defmodule RuleMavenWeb.GameLive.Show do
         refused: g.primary.refused,
         favorited: g.primary.favorited,
         inserted_at: g.primary.inserted_at,
-        asker: asker_label(g.primary, current_user_id)
+        asker: asker_label(g.primary, current_user_id),
+        # Rows the viewer did NOT ask carry a provenance marker so they read
+        # apart from the viewer's own; a spoiler among them is masked in the
+        # sidebar (the open thread hides its answer until revealed).
+        marker: thread_marker(g.primary, current_user_id, is_admin),
+        spoiler_masked:
+          g.primary.user_id != current_user_id and QuestionLog.spoiler?(g.primary, spoilers)
       }
     end)
     |> sort_thread_summaries()
+  end
+
+  # Provenance of a sidebar row the viewer didn't ask. Rows reach a player's
+  # list only as their own, promoted, or upvoted (Games.recent_questions/3),
+  # so an unpromoted other-player row IS an upvote. Admins see every row, so
+  # the inference doesn't hold for them — no markers.
+  defp thread_marker(_q, _current_user_id, true), do: nil
+  defp thread_marker(%{user_id: uid}, uid, _is_admin), do: nil
+
+  defp thread_marker(q, _current_user_id, _is_admin) do
+    cond do
+      QuestionLog.rulebook_checked?(q) -> :prepared
+      q.promoted -> :community
+      true -> :saved
+    end
   end
 
   # Sidebar order: favorites first, then recency-desc within each half. Every
@@ -836,7 +885,11 @@ defmodule RuleMavenWeb.GameLive.Show do
 
         t =
           [g]
-          |> build_thread_summaries(socket.assigns.current_user.id, socket.assigns.is_admin)
+          |> build_thread_summaries(
+            socket.assigns.current_user.id,
+            socket.assigns.is_admin,
+            socket.assigns.spoiler_index
+          )
           |> List.first()
 
         {[g | grouped], sort_thread_summaries([t | threads]), tid}
@@ -1083,14 +1136,14 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp answer_visible?(q, _current_user_id), do: q.browsable == true
 
   # Build flat conversation for a single thread (root + regen history).
-  defp build_conversation_for_thread(grouped, thread_id, current_user_id, is_admin) do
+  defp build_conversation_for_thread(grouped, thread_id, current_user_id, is_admin, spoilers) do
     case Enum.find(grouped, &(&1.primary.id == thread_id)) do
       nil -> []
-      g -> build_conversation([g], current_user_id, is_admin)
+      g -> build_conversation([g], current_user_id, is_admin, spoilers)
     end
   end
 
-  defp build_conversation(grouped, current_user_id, is_admin) do
+  defp build_conversation(grouped, current_user_id, is_admin, spoilers) do
     grouped
     |> Enum.flat_map(fn g ->
       user_msg = %{
@@ -1131,6 +1184,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         llm_model: g.primary.llm_model,
         verified: g.primary.verified,
         rulebook_checked: Games.answer_rulebook_checked?(g.primary),
+        spoiler: QuestionLog.spoiler?(g.primary, spoilers),
         faq_hit: false,
         pool_hit: g.primary.llm_provider == "pool",
         pool_provisional: g.primary.llm_model == "cached-unverified",
@@ -1163,6 +1217,7 @@ defmodule RuleMavenWeb.GameLive.Show do
             llm_model: h.llm_model,
             verified: h.verified,
             rulebook_checked: Games.answer_rulebook_checked?(h),
+            spoiler: QuestionLog.spoiler?(h, spoilers),
             refused: h.refused,
             raw_response: own_raw_response(h, current_user_id),
             followups: shown_followups(h, current_user_id),
@@ -1378,6 +1433,23 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   @impl true
+  # Reveal one spoiler-flagged answer. Only ids of answers on screen are
+  # accepted — anything else is a no-op, never a crash on a forged value.
+  def handle_event("reveal_spoiler", %{"id" => id_str}, socket) do
+    on_screen =
+      Enum.find(socket.assigns.conversation, fn m ->
+        m.role == :assistant and to_string(m.id) == to_string(id_str)
+      end)
+
+    case on_screen do
+      %{id: id} ->
+        {:noreply, update(socket, :revealed_spoilers, &MapSet.put(&1, id))}
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("qa_hide_question", _params, socket) do
     {:noreply, assign(socket, :qa_show_question, false)}
   end
@@ -1976,7 +2048,12 @@ defmodule RuleMavenWeb.GameLive.Show do
     grouped = Games.grouped_questions(game, question_group_opts(socket))
 
     threads =
-      build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
+      build_thread_summaries(
+        grouped,
+        socket.assigns.current_user.id,
+        socket.assigns.is_admin,
+        socket.assigns.spoiler_index
+      )
 
     deleted_was_active = socket.assigns.active_thread_id == id
     pending_count = Enum.count(threads, & &1.pending)
@@ -2000,7 +2077,8 @@ defmodule RuleMavenWeb.GameLive.Show do
           grouped,
           socket.assigns.active_thread_id,
           socket.assigns.current_user.id,
-          socket.assigns.is_admin
+          socket.assigns.is_admin,
+          socket.assigns.spoiler_index
         )
 
       {:noreply,
@@ -2046,7 +2124,12 @@ defmodule RuleMavenWeb.GameLive.Show do
         grouped = Games.grouped_questions(socket.assigns.game, limit: nil)
 
         full =
-          build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
+          build_thread_summaries(
+            grouped,
+            socket.assigns.current_user.id,
+            socket.assigns.is_admin,
+            socket.assigns.spoiler_index
+          )
 
         assign(socket, search_full_threads: full)
       else
@@ -2192,11 +2275,17 @@ defmodule RuleMavenWeb.GameLive.Show do
         grouped,
         socket.assigns.active_thread_id,
         socket.assigns.current_user.id,
-        socket.assigns.is_admin
+        socket.assigns.is_admin,
+        socket.assigns.spoiler_index
       )
 
     threads =
-      build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
+      build_thread_summaries(
+        grouped,
+        socket.assigns.current_user.id,
+        socket.assigns.is_admin,
+        socket.assigns.spoiler_index
+      )
 
     {:noreply,
      assign(socket,
@@ -2381,11 +2470,17 @@ defmodule RuleMavenWeb.GameLive.Show do
             grouped,
             socket.assigns.active_thread_id,
             socket.assigns.current_user.id,
-            socket.assigns.is_admin
+            socket.assigns.is_admin,
+            socket.assigns.spoiler_index
           )
 
         threads =
-          build_thread_summaries(grouped, socket.assigns.current_user.id, socket.assigns.is_admin)
+          build_thread_summaries(
+            grouped,
+            socket.assigns.current_user.id,
+            socket.assigns.is_admin,
+            socket.assigns.spoiler_index
+          )
 
         community = Games.community_questions(game, socket.assigns.current_user.id)
 
@@ -2430,7 +2525,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   defp report_flash(true),
-    do: "Reported and pulled from the Community Q&A for review. Fetching you a fresh answer…"
+    do: "Reported and pulled from the Rules Q&A for review. Fetching you a fresh answer…"
 
   defp report_flash(false),
     do: "Reported — thanks. A moderator will take a look. Fetching you a fresh answer…"
@@ -2964,6 +3059,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 |> Map.put(:pool_provisional, ql.llm_model == "cached-unverified")
                 |> Map.put(:pool_source_id, ql.pool_source_id)
                 |> Map.put(:rulebook_checked, Games.answer_rulebook_checked?(ql))
+                |> Map.put(:spoiler, QuestionLog.spoiler?(ql, socket.assigns.spoiler_index))
                 |> Map.put(:promoted, ql.promoted)
                 |> Map.put(:error_kind, ql.error_kind)
                 |> Map.put(:error_retries, ql.error_retries)
@@ -3723,7 +3819,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           <!-- Community questions -->
           <%= if @community_questions != [] do %>
             <div style="padding:0.3rem 0.75rem 0.1rem;font-size:0.6rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">
-              Community
+              Community picks
             </div>
             <%= for q <- @community_questions do %>
               <%!-- listed_question, not the raw `question` column: searching a
@@ -3742,7 +3838,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <%= if MapSet.member?(@favorited_answer_ids, q.id) do %>
                       <span style="color:#e05c2a;font-size:0.55rem">♥</span>
                     <% end %>
-                    {QuestionLog.listed_question(q)}
+                    <%= if QuestionLog.spoiler?(q, @spoiler_index) do %>
+                      ⚠️ Spoiler question
+                    <% else %>
+                      {QuestionLog.listed_question(q)}
+                    <% end %>
                   </span>
                 </button>
               <% end %>
@@ -4089,7 +4189,11 @@ defmodule RuleMavenWeb.GameLive.Show do
                   </summary>
                   <div style="margin-top:0.25rem;padding:0.5rem;border-left:2px solid var(--border-subtle);opacity:0.8">
                     <div style="font-size:0.82rem;color:var(--text)">
-                      {render_markdown(msg.content, @symbol_marks)}
+                      <%= if msg[:spoiler] && !MapSet.member?(@revealed_spoilers, msg.id) do %>
+                        <.spoiler_gate id={msg.id} />
+                      <% else %>
+                        {render_markdown(msg.content, @symbol_marks)}
+                      <% end %>
                     </div>
                   </div>
                 </details>
@@ -4103,8 +4207,14 @@ defmodule RuleMavenWeb.GameLive.Show do
                   style="display:flex;flex-direction:column;align-items:stretch"
                 >
                   <div style={"#{if msg.role == :user, do: "width:100%", else: "width:100%;padding:0.9rem 1.05rem;border-radius:0.6rem;font-size:0.95rem;line-height:1.5;background:var(--bg-surface);border:1px solid var(--border);color:var(--text)"}#{if msg[:refused], do: ";opacity:0.72", else: ""}"}>
+                    <%!-- A spoiler-flagged answer renders NOTHING of itself (text,
+                        stamp, citations, copy/read-aloud payloads) until the
+                        viewer reveals it — not CSS-hidden, absent from the DOM. --%>
+                    <% spoiler_hidden =
+                      msg.role == :assistant && msg[:spoiler] == true &&
+                        !MapSet.member?(@revealed_spoilers, msg.id) %>
                     <% stamp =
-                      msg.role == :assistant && msg.content != "Thinking..." &&
+                      msg.role == :assistant && msg.content != "Thinking..." && !spoiler_hidden &&
                         verdict_stamp(msg[:verdict], @qa_active_question) %>
                     <% show_voice =
                       msg.role == :assistant && !msg[:refused] &&
@@ -4260,6 +4370,8 @@ defmodule RuleMavenWeb.GameLive.Show do
                           question and its answer share a question_log id. --%>
                       <% answer_dom_id = "ans-#{msg.role}-#{msg[:id]}-#{v_sel}" %>
                       <%= cond do %>
+                        <% spoiler_hidden -> %>
+                          <.spoiler_gate id={msg.id} />
                         <% thinking? && stream_text -> %>
                           <div class="answer-in" id={answer_dom_id}>
                             {render_markdown(stream_text, @symbol_marks)}
@@ -4330,7 +4442,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                       <% end %>
                     </div>
 
-                    <%= if msg.content != "Thinking..." do %>
+                    <%= if msg.content != "Thinking..." && !spoiler_hidden do %>
                       <%= for c <- citation_list(msg) do %>
                         <% on_user = msg.role == :user %>
                         <figure
@@ -4356,7 +4468,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <!-- House-rule overlay: the user's own checked rules that embed near
                        this question. The RAW answer above stays canonical (and cache-
                        shared); house-rule flavor renders per-user underneath. -->
-                    <%= if msg.role == :assistant && msg.id == @active_thread_id &&
+                    <%= if msg.role == :assistant && msg.id == @active_thread_id && !spoiler_hidden &&
                          @hr_overlay != [] && !msg[:refused] && !msg[:pending] &&
                          msg.content != "Thinking..." do %>
                       <.house_rule_overlay
@@ -4368,8 +4480,10 @@ defmodule RuleMavenWeb.GameLive.Show do
                     <% end %>
 
                     <!-- Related questions: followups (refine) + also-asked (separate) merged -->
-                    <% has_followups = msg.role == :assistant && msg[:followups] not in [nil, []] %>
-                    <% has_also = msg.role == :assistant && msg[:also_asked] not in [nil, []] %>
+                    <% has_followups =
+                      msg.role == :assistant && !spoiler_hidden && msg[:followups] not in [nil, []] %>
+                    <% has_also =
+                      msg.role == :assistant && !spoiler_hidden && msg[:also_asked] not in [nil, []] %>
                     <%= if has_followups || has_also do %>
                       <div
                         data-tour="related"
@@ -4558,7 +4672,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                        sibling independently. -->
                     <div
                       :if={
-                        msg.role == :assistant && !msg[:refused] &&
+                        msg.role == :assistant && !msg[:refused] && !spoiler_hidden &&
                           msg.content != "Thinking..." && !msg[:pending] &&
                           not String.starts_with?(msg.content, "⚠️")
                       }
@@ -4962,7 +5076,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                 <span style="text-decoration:underline;opacity:0.8">more</span>
               </summary>
               <div style="margin-top:0.2rem">
-                Answers use strict guardrails: grounded in the rulebook, citing their sources. Answered questions may be shared anonymously in the Community Q&A.
+                Answers use strict guardrails: grounded in the rulebook, citing their sources. Answered questions may be shared anonymously in the Rules Q&A.
               </div>
             </details>
           </div>
@@ -5541,10 +5655,42 @@ defmodule RuleMavenWeb.GameLive.Show do
           <span
             :if={@show_asker}
             style="color:var(--text-muted);font-weight:600;font-size:0.62rem;margin-right:0.25rem"
-          >{@t.asker}:</span>{@t.question}
+          >{@t.asker}:</span>{if @t[:spoiler_masked], do: "⚠️ Spoiler question", else: @t.question}
+          <span
+            :if={@t[:marker]}
+            class="thread-marker"
+            style="display:inline-block;margin-left:0.25rem;padding:0 0.35rem;border-radius:999px;font-size:0.6rem;line-height:1.5;white-space:nowrap;vertical-align:baseline;background:var(--bg-subtle);color:var(--text-muted);border:1px solid var(--border-subtle)"
+          >{thread_marker_label(@t[:marker])}</span>
         </span>
       </div>
     </button>
+    """
+  end
+
+  defp thread_marker_label(:prepared), do: "📖 prepared"
+  defp thread_marker_label(:saved), do: "👍 saved"
+  defp thread_marker_label(:community), do: "🌐 community"
+
+  # Stand-in for a spoiler-flagged answer until the viewer opts in. Renders
+  # none of the answer — the reveal re-renders the real body server-side.
+  attr :id, :any, required: true
+
+  defp spoiler_gate(assigns) do
+    ~H"""
+    <div
+      class="spoiler-gate"
+      style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;padding:0.5rem 0.65rem;border-radius:0.45rem;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text);font-size:0.8rem;line-height:1.4"
+    >
+      <span style="flex:1 1 12rem;min-width:0">
+        ⚠️ Spoiler — this answer draws on campaign content (classes, scenarios, items).
+      </span>
+      <button
+        type="button"
+        class="btn-outline btn-sm"
+        phx-click="reveal_spoiler"
+        phx-value-id={@id}
+      >Show answer</button>
+    </div>
     """
   end
 

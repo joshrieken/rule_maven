@@ -2731,7 +2731,7 @@ defmodule RuleMaven.Games do
   end
 
   @doc """
-  Answered-but-unvetted questions for the Community Q&A "Unverified" tab:
+  Answered-but-unvetted questions for the Rules Q&A Prepared / Player-asked tabs:
   pooled rows (already shareable via the answer cache) that haven't been
   promoted to community. Excludes anything a browser shouldn't see — refused,
   under review, blocked, stale, failed answers, pool-hit duplicates (only the
@@ -2896,7 +2896,7 @@ defmodule RuleMaven.Games do
       query =
         if user_id do
           # Own questions, community questions, plus other users' pooled answers
-          # this user upvoted from the Community Q&A browse page — an upvote is
+          # this user upvoted from the Rules Q&A browse page — an upvote is
           # the explicit "add this to my list" gesture (viewing alone never adds).
           #
           # The upvoted-pooled branch additionally requires `browsable`: a GROUP

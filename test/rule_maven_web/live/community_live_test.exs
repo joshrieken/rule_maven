@@ -88,19 +88,19 @@ defmodule RuleMavenWeb.CommunityLiveTest do
     }
   end
 
-  describe "Community Q&A page" do
+  describe "Rules Q&A page" do
     setup [:setup_game]
 
-    test "renames FAQ: page renders as Community Q&A on both routes",
+    test "renames FAQ: page renders as Rules Q&A on both routes",
          %{conn: conn, game: game, viewer: viewer} do
       conn = login(conn, viewer)
 
       {:ok, _view, html} = live(conn, ~p"/games/#{game}/community")
-      assert html =~ "Community Q&amp;A"
+      assert html =~ "Rules Q&amp;A"
 
       # Legacy /faq URL still serves the page.
       {:ok, _view, html} = live(conn, ~p"/games/#{game}/faq")
-      assert html =~ "Community Q&amp;A"
+      assert html =~ "Rules Q&amp;A"
     end
 
     test "tabs are disjoint: verified default (first non-empty), others behind their tabs",
@@ -189,7 +189,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
       # …and carry their status badges.
       assert html =~ "Admin-verified"
       assert html =~ "🌐 Community"
-      assert html =~ "🧪 Unverified"
+      assert html =~ "🧪 Player-asked"
 
       # Answer text matches too.
       html = render_change(view, "search", %{"q" => "move unverified"})

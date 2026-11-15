@@ -1,6 +1,6 @@
 defmodule RuleMaven.Faq do
   @moduledoc """
-  Community Q&A — counts and stats for admin-promoted QuestionLog entries.
+  Rules Q&A (formerly Community Q&A) — counts and stats for admin-promoted QuestionLog entries.
   FaqEntry/FaqCandidate tables removed; community visibility lives on QuestionLog.
   """
 
@@ -8,7 +8,7 @@ defmodule RuleMaven.Faq do
   alias RuleMaven.Games.QuestionLog
   alias RuleMaven.Repo
 
-  # Counts everything browsable on the Community Q&A page: promoted community
+  # Counts everything browsable on the Rules Q&A page: promoted community
   # rows plus unverified pooled rows (same filters as
   # Games.unverified_pool_questions/2), so the entry links appear whenever the
   # page has content.

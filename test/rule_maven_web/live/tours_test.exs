@@ -105,6 +105,23 @@ defmodule RuleMavenWeb.ToursTest do
     assert html =~ "AI can still be wrong"
   end
 
+  test "/help explains the Rules Q&A tabs and the spoiler toggle", %{conn: conn} do
+    html = conn |> get(~p"/help") |> html_response(200)
+
+    for label <- [
+          "Rules Q&amp;A",
+          "✅ Admin-verified",
+          "🌐 Community",
+          "📖 Prepared",
+          "🧪 Player-asked",
+          "Hide spoilers"
+        ] do
+      assert html =~ label
+    end
+
+    refute html =~ "community FAQ"
+  end
+
   describe "answer tour" do
     setup do
       start_supervised!(

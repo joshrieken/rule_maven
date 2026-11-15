@@ -132,8 +132,8 @@ defmodule RuleMavenWeb.GameLive.Review do
         </div>
       <% end %>
 
-      <!-- Community Q&A -->
-      <h2 class="text-lg font-semibold mb-3">Community Q&A</h2>
+      <!-- Rules Q&A -->
+      <h2 class="text-lg font-semibold mb-3">Rules Q&A</h2>
       <div style="display:flex;flex-direction:column;gap:0.75rem">
         <%= for q <- @community_questions do %>
           <div style="padding:0.75rem;border:1px solid var(--border);border-radius:0.5rem;background:var(--bg-surface)">
