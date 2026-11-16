@@ -74,6 +74,13 @@ main() {
     running=$("${COMPOSE[@]}" exec -T "$SVC" curl -fsS http://127.0.0.1:4000/health 2>/dev/null \
       | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' || true)
     if [ "$running" = "$version" ]; then
+      # Traefik routes only to a healthy container: until Docker says so, visitors get a 404.
+      local cid
+      cid=$("${COMPOSE[@]}" ps -q "$SVC")
+      for _ in $(seq 1 30); do
+        [ "$(docker inspect -f '{{.State.Health.Status}}' "$cid")" = healthy ] && break
+        sleep 1
+      done
       echo "== Seeding new feature flags"
       "${COMPOSE[@]}" exec -T "$SVC" bin/rule_maven rpc \
         'Enum.each(RuleMaven.Flags.seed_missing(), &IO.puts("seeded flag #{&1.id} = #{&1.default}"))'

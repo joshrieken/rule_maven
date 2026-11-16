@@ -55,6 +55,8 @@ WORKDIR /app
 COPY --from=build --chown=app:app /app/release ./
 USER app
 EXPOSE 4000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \
+# Traefik routes only to a healthy container, so the gap between "app answers" and "healthy"
+# is downtime on every deploy: probe every second while starting (Docker 25+), 30s after.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --start-interval=1s \
   CMD curl -fsS http://127.0.0.1:4000/health >/dev/null || exit 1
 CMD ["sh", "-c", "/app/bin/migrate && exec /app/bin/server"]
