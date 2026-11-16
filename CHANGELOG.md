@@ -17,6 +17,10 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## v0.1.7 (2026-11-15)
+### Admins
+- Updated the web server library (Bandit 1.14.1) for a security fix in its HTTP/2 handling.
+
 ## v0.1.6 (2026-11-15)
 ### Everyone
 - The version number now sits beside the Rule Maven name at the top of every page. Tap it to see
