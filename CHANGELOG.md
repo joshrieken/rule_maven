@@ -24,6 +24,13 @@ renames that heading to the new version and date.
   account" so your questions, groups and standing come with you. Signing out of Rule Maven also
   signs you out of that account.
 
+## v0.2.1 (2026-11-15)
+### Everyone
+- The version number and What's new now appear only once you're signed in.
+### Admins
+- The version shown always matches the release (a version-only release used to keep showing the
+  previous number). `/health` reports the version only from inside the server.
+
 ## v0.2.0 (2026-11-15)
 ### Admins
 - Single sign-on is built in, off until configured. Before turning it on, link every existing account to its Low-Cal Calzone Zone
