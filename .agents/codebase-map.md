@@ -27,7 +27,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `Auth.Oidc` | `auth/oidc.ex` | 285 | Single sign-on protocol (Assent OIDC): settings from `:oidc` env, PKCE+state+nonce, ID-token checks, end-session URL; discovery cached 1h | `settings/0`, `enabled?/0`, `begin_sign_in/2`, `finish_sign_in/4`, `end_session_url/1`, `redirect_uri/0`, `session_days/0` (7) |
 | `Auth.SignOn` | `auth/sign_on.ex` | 219 | Who a sign-on is: group check, find by `oidc_sub` / create (never by email/username), admin re-sync (super_admin untouched), linking | `sign_in/2`, `link/3`, `link_user/2`, `get_user_by_sub/1` |
 | `Hub` | `hub.ex` | 151 | Low-Cal Calzone Zone hub summary for one person by `oidc_sub` (questions asked → level/active/headline/detail, version, unseen notes) + bearer check | `summary/2`, `hub_request?/1`, `levels/0` ([1, 10, 50]) |
-| `Changelog` | `changelog.ex` | ~90 | App version + CHANGELOG.md (parsed at compile time, `@external_resource`); per-reader filtering and the What's new mark | `releases/0`, `app_version/0`, `reader_releases/2`, `visible_releases/2`, `unseen?/3`, `unseen_for?/2`, `mark_seen/2`, `parse/1` |
+| `Changelog` | `changelog.ex` | ~100 | App version (read from `VERSION` at compile time, `@external_resource` — never `Application.spec(:vsn)`, which goes stale on a VERSION-only bump) + CHANGELOG.md (parsed at compile time); per-reader filtering and the What's new mark | `releases/0`, `app_version/0`, `reader_releases/2`, `visible_releases/2`, `unseen?/3`, `unseen_for?/2`, `mark_seen/2`, `parse/1` |
 | `Changelog.Parser` / `Changelog.Release` | `changelog/parser.ex`, `changelog/release.ex` | ~100 | Lenient CHANGELOG.md parser (`## vX.Y.Z (date)`, `### Everyone`/`### Admins`, wrapped bullets; skips `## Unreleased`) and its struct | `Parser.parse/1` |
 | `PostgresTypes` | `postgres_types.ex` | — | Custom Ecto types (e.g. `Ltree`) | — |
 | `Repo` | `repo.ex` | 5 | Ecto repo module | — |
@@ -76,17 +76,17 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `AuthPlug` | `auth_plug.ex` | Session-based auth plug, assigns `current_user` |
 | `ApiAuth` | `api_auth.ex` | Bearer-token plug for `/api/admin`: `Users.get_api_user/1` (super admin, unsuspended, 90-day `user_tokens` context "api"), else 401 JSON |
 | `AdminApiController` | `admin_api_controller.ex` | Remote Prepare JSON API (Hashid tokens): `index` (?q=), `show` (readiness+docs), `create_document` (ManualImport; drops `pdf`, accepts `pdf_url`), `delete_document`, `create_content`, `publish` |
-| `Plugs.Health` | `plugs/health.ex` (in `rule_maven_web/`) | `GET /health` → `{"version":…}` before session/router/DB; Docker healthcheck + `scripts/deploy.sh` poll it |
+| `Plugs.Health` | `plugs/health.ex` (in `rule_maven_web/`) | `GET /health` before session/router/DB: loopback peer → `{"version":…}` (Docker healthcheck + `scripts/deploy.sh`), anyone else → `{"status":"ok"}` (version is signed-in only) |
 | `Plugs.ClientIp` | `plugs/client_ip.ex` (in `rule_maven_web/`) | Real client `remote_ip` behind Cloudflare→Traefik: last XFF hop from a private peer; `cf-connecting-ip` only if that hop is a Cloudflare range. LoginThrottle depends on it |
 | `CheatSheetController` | `cheat_sheet_controller.ex` | Serve cheatsheet HTML page + versioned pages |
-| `ChangelogController` + `ChangelogHTML` | `changelog_controller.ex`, `changelog_html.ex`, `changelog_html/show.html.heex` | Public `GET /changelog` "What's new": releases with notes for this reader (newest 3 open, older collapsed, admins' notes in a "For admins" block); marks seen before the layout renders so the header dot clears |
+| `ChangelogController` + `ChangelogHTML` | `changelog_controller.ex`, `changelog_html.ex`, `changelog_html/show.html.heex` | Signed-in-only `GET /changelog` "What's new" (signed out → /login): releases with notes for this reader (newest 3 open, older collapsed, admins' notes in a "For admins" block); marks seen before the layout renders so the header dot clears |
 
 ## Components (`lib/rule_maven_web/components/`)
 
 | Module | File | Responsibility |
 |--------|------|----------------|
 | `CoreComponents` | `core_components.ex` | Shared UI: buttons, modals, forms, icons; `citation_pages/1`, `citation_chip/1` ("Rulebook p.4 · Official FAQ p.2" — names the source), `citation_cards` (optional `symbol_marks` → icon chips in quotes) |
-| `Layouts` | `layouts.ex` + `layouts/` | Root layout, app shell; `version_link/1` (header "vX.Y.Z" → /changelog, red dot while `Changelog.unseen_for?/2`) |
+| `Layouts` | `layouts.ex` + `layouts/` | Root layout, app shell; `version_link/1` (signed-in only; header "vX.Y.Z" → /changelog, red dot while `Changelog.unseen_for?/2`) |
 
 ## Workers — Oban (`lib/rule_maven/workers/`)
 

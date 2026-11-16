@@ -99,7 +99,8 @@
                     theme picker beside it can show a full theme name. --%>
               <span class="header-title">Rule <span class="header-title-accent">Maven</span></span>
             </a>
-            <.version_link user={me} />
+            <%!-- Signed-in only: the running version isn't shown to the public. --%>
+            <.version_link :if={me} user={me} />
           </div>
 
           <!-- Desktop nav -->

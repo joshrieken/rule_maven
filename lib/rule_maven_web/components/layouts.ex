@@ -28,7 +28,9 @@ defmodule RuleMavenWeb.Layouts do
     """
   end
 
-  attr :user, :any, default: nil, doc: "the signed-in user, or nil (never a dot)"
+  attr :user, :any,
+    required: true,
+    doc: "the signed-in user (the badge is never shown signed out)"
 
   @doc """
   The app version beside the name in the header ("v0.1.5"), opening What's new. A red dot

@@ -15,6 +15,14 @@ defmodule RuleMaven.Changelog do
   @path Path.expand("../../CHANGELOG.md", __DIR__)
   @external_resource @path
 
+  # Read VERSION here rather than Application.spec(:rule_maven, :vsn): Mix rewrites the
+  # .app (and so :vsn) only when mix.exs changes, and a release bumps VERSION alone. As an
+  # external resource, VERSION changing recompiles this module, so the badge, /changelog
+  # and /health (which scripts/deploy.sh waits on) always say what VERSION says.
+  @version_path Path.expand("../../VERSION", __DIR__)
+  @external_resource @version_path
+  @version @version_path |> File.read!() |> String.trim()
+
   @releases (case File.read(@path) do
                {:ok, text} -> Parser.parse(text)
                {:error, _} -> []
@@ -30,7 +38,7 @@ defmodule RuleMaven.Changelog do
 
   @doc "The running app's version, e.g. \"0.1.5\"."
   @spec app_version() :: String.t()
-  def app_version, do: to_string(Application.spec(:rule_maven, :vsn))
+  def app_version, do: @version
 
   @doc "Every release as this reader may see it: admins' notes only for admins (so some may be empty)."
   @spec reader_releases(boolean(), [Release.t()]) :: [Release.t()]

@@ -45,6 +45,15 @@ defmodule RuleMaven.ChangelogTest do
     user
   end
 
+  describe "app_version/0" do
+    test "is the VERSION file, and the newest CHANGELOG entry is that release" do
+      version = "VERSION" |> File.read!() |> String.trim()
+      assert Changelog.app_version() == version
+      # A "Release vX.Y.Z" commit bumps VERSION and adds its entry together.
+      assert [%{version: ^version} | _] = Changelog.releases()
+    end
+  end
+
   describe "parse/1" do
     test "reads releases newest first with sections, dates and multi-line bullets" do
       assert [

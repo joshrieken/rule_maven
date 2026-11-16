@@ -19,14 +19,19 @@ defmodule RuleMavenWeb.ChangelogControllerTest do
 
   defp newest_version(admin?), do: hd(Changelog.visible_releases(admin?)).version
 
-  test "renders What's new with the current version for signed-out visitors, no dot", %{
-    conn: conn
-  } do
-    html = conn |> get(~p"/changelog") |> html_response(200)
+  test "signed-out visitors are sent to /login and never see the version", %{conn: conn} do
+    assert conn |> get(~p"/changelog") |> redirected_to() == ~p"/login"
+
+    help = build_conn() |> get(~p"/help") |> html_response(200)
+    refute help =~ ~s(id="header-version")
+    refute help =~ "v#{Changelog.app_version()}"
+  end
+
+  test "renders What's new with the current version for a signed-in user", %{conn: conn} do
+    html = conn |> login(create_user!("cl_reader")) |> get(~p"/changelog") |> html_response(200)
     assert html =~ "What&#39;s new"
     assert html =~ "You're on Rule Maven v#{Changelog.app_version()}"
     assert html =~ ~s(id="header-version")
-    refute html =~ "header-version-dot"
   end
 
   test "opening it marks the newest release as seen and clears the header dot", %{conn: conn} do
