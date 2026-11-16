@@ -10,7 +10,14 @@ worktree_name =
     _ -> nil
   end
 
-test_port = if worktree_name, do: 4010 + :erlang.phash2(worktree_name, 900), else: 4003
+# A checkout elsewhere (e.g. `git worktree add ../rule_maven-x`) can pick its own port with
+# RULEMAVEN_TEST_PORT, and its own database with MIX_TEST_PARTITION.
+test_port =
+  cond do
+    port = System.get_env("RULEMAVEN_TEST_PORT") -> String.to_integer(port)
+    worktree_name -> 4010 + :erlang.phash2(worktree_name, 900)
+    true -> 4003
+  end
 
 db_suffix =
   if worktree_name do
