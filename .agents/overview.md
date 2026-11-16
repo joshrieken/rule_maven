@@ -69,7 +69,7 @@ frequently real bugs (unused variables in pattern matches, unreachable clauses).
 
 Live at https://rulemaven.com on the shared server (`ssh deploy@207.244.249.148`, checkout `/opt/rulemaven`), alongside Drawburn / Stir & Fold behind the server's Traefik (Cloudflare in front; port 22 only via the raw IP).
 
-- Stack: `Dockerfile` (Elixir release, poppler + tesseract in runtime) + `compose.yaml` (app + `pgvector/pgvector:pg18` db, Traefik labels). Server `.env`: `RULEMAVEN_HOST`, `SECRET_KEY_BASE`, `POSTGRES_PASSWORD`.
+- Stack: `Dockerfile` (Elixir release, poppler + tesseract in runtime) + `compose.yaml` (app + `pgvector/pgvector:pg18` db, Traefik labels). Server `.env`: `RULEMAVEN_HOST`, `SECRET_KEY_BASE`, `POSTGRES_PASSWORD`, plus the sign-on/hub vars (see "Single sign-on" below).
 - Data: `/opt/rulemaven/data/{postgres,files,backups}`. `files/` = `UPLOADS_DIR` (holds `uploads/rulebooks`, `uploads/symbols`).
 - Deploy is release-only: commit `Release vX.Y.Z` (bump `VERSION` + `CHANGELOG.md` entry; never put the version back in `mix.exs`: any mix.exs change recompiles everything), push master, then `ssh deploy@207.244.249.148 'cd /opt/rulemaven && (nohup ./scripts/deploy.sh > data/deploy-last.log 2>&1 < /dev/null &)'` and poll `data/deploy-last.log` for `Up:` (a foreground ssh can hang after the remote finishes) (pg_dump backup → ff master → build → up → wait for `/health` to report the version → seed new flags).
 - Migrations run on container start (`bin/migrate`). Roll back: see header of `scripts/deploy.sh`.
@@ -77,6 +77,48 @@ Live at https://rulemaven.com on the shared server (`ssh deploy@207.244.249.148`
 - Console: `docker compose exec rulemaven bin/rule_maven remote`.
 - Build speed: `_build` is a BuildKit cache mount (`id=rulemaven-build`), and `deps/` are BuildKit cache mounts (`rulemaven-build`, `rulemaven-deps`), so a release recompiles only changed files (~15s build; whole deploy is mostly the restart). If a cache ever goes bad: `docker builder prune`.
 - PDFs are compressed after upload (`PdfCompressWorker`); recompress everything: `docker compose exec rulemaven bin/rule_maven rpc "RuleMaven.PdfCompress.backfill() |> IO.inspect()"`.
+
+## Single sign-on (shared Authentik)
+
+Rule Maven signs in through the Low-Cal Calzone Zone account (`../identity`, blueprint
+`blueprints/rulemaven.yaml`, issuer `https://id.lowcalcalzonezone.com/application/o/rulemaven/`),
+like Drawburn and Stir & Fold. Code: `Auth.Oidc` (protocol), `Auth.SignOn` (who), flow in
+`data-flows.md` "Sign-in". Rules: when configured it is the ONLY way in (password, registration,
+reset, sign-in links, confirmation all refuse); people are linked by `users.oidc_sub` only (never
+email/username); group check (`rulemaven-users` or `rulemaven-admins`) and admin re-sync at every
+sign-in (super_admin is server-only and never changed); sign-on sessions last 7 days; sign-out
+also ends the Authentik session (back to `/login`). Unset `RULEMAVEN_OIDC_ISSUER` = off (dev, tests).
+
+- Server `.env` (`/opt/rulemaven/.env`): `RULEMAVEN_OIDC_ISSUER`, `RULEMAVEN_OIDC_CLIENT_SECRET`
+  (same value as `RULEMAVEN_OIDC_CLIENT_SECRET` in `/opt/identity/.env`); optional
+  `RULEMAVEN_HUB_SECRET`. `compose.yaml` defaults client id `rulemaven`, groups, and the name
+  "Low-Cal Calzone Zone". The app refuses to start with an issuer but no secret, or a non-https issuer.
+- Redirect URIs come from `:public_url` (`PUBLIC_URL`, else `https://$PHX_HOST`), not the admin
+  "public URL" setting and never request headers.
+- Local: `cd ../identity && docker compose up -d` (http://localhost:9000, `RULEMAVEN_URL=http://localhost:4000`
+  in its `.env`), then start the dev server with `RULEMAVEN_OIDC_ISSUER=http://localhost:9000/application/o/rulemaven/`,
+  `RULEMAVEN_OIDC_CLIENT_ID`, `RULEMAVEN_OIDC_CLIENT_SECRET` (http issuers are allowed outside prod).
+
+**Migrating existing accounts (do this before turning it on):**
+1. identity: copy the `RULEMAVEN_*` block from `.env.example` into `/opt/identity/.env` (generate the
+   secret), `docker compose -f compose.yaml -f compose.prod.yaml up -d --force-recreate server worker`, then
+   `docker compose exec -T worker ak apply_blueprint /blueprints/apps/rulemaven.yaml`.
+2. Authentik admin (over the SSH tunnel, see identity README): make sure each Rule Maven person has an
+   account; add them to `rulemaven-users` (admins to `rulemaven-admins`).
+3. Deploy the release with sign-on still OFF (migration adds `users.oidc_sub`, makes email optional).
+4. Link each existing account to its Authentik account: `bin/prod mix rule_maven.link_sso --list`, then
+   `bin/prod mix rule_maven.link_sso USERNAME SUB` (SUB = the person's `sub`: Authentik's default
+   "hashed user ID", the UID on the user's page in the Authentik admin; the same value as their
+   `users.oidc_sub` in Drawburn / Stir & Fold / the hub if they already use those). Link your own
+   (super admin) account first.
+5. Set `RULEMAVEN_OIDC_ISSUER` + `RULEMAVEN_OIDC_CLIENT_SECRET` in `/opt/rulemaven/.env` and
+   `docker compose up -d`. Passwords stop working. Password sessions from before keep working 30
+   days from their sign-in, so anyone not linked yet can use Settings → "Link your Low-Cal Calzone
+   Zone account".
+6. If someone signed in with sign-on before being linked, they got a new empty account: unlink it
+   (`… link_sso NEWNAME --unlink`), link their old one (`… link_sso OLDNAME SUB`), and delete the empty one in /admin/users.
+- Admin changes: Promote/Demote in /admin/users only lasts until that person's next sign-in; use the
+  Authentik groups. Invite codes and "create user" are unused while sign-on is on.
 
 ## Safety Rails — Always Ask First
 

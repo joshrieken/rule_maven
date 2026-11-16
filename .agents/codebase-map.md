@@ -22,8 +22,11 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `RulebookDownloader` | `rulebook_downloader.ex` | 328 | Auto-download/OCR rulebooks from URLs | `download/3` |
 | `Settings` | `settings.ex` | 32 | KV settings store (ets-backed) | `get/1`, `put/2`, `delete/1` |
 | `Settings.AppSetting` | `settings/app_setting.ex` | — | Schema for persisted settings | — |
-| `Users` | `users.ex` | — | User CRUD, auth helpers | `get_user!/1`, `create_user/2`, `mark_version_seen/2` |
-| `Users.User` | `users/user.ex` | — | User schema (`seen_version`: last What's new release opened) | — |
+| `Users` | `users.ex` | — | User CRUD, auth helpers (password check refuses `password_hash ""` = sign-on account) | `get_user!/1`, `create_user/2`, `mark_version_seen/2`, `authenticate/2` |
+| `Users.User` | `users/user.ex` | — | User schema (`seen_version`: last What's new release opened; `oidc_sub`: sign-on subject, unique; email optional when linked) | `sign_on_changeset/1`, `oidc_link_changeset/2`, `oidc_linked?/1` |
+| `Auth.Oidc` | `auth/oidc.ex` | 285 | Single sign-on protocol (Assent OIDC): settings from `:oidc` env, PKCE+state+nonce, ID-token checks, end-session URL; discovery cached 1h | `settings/0`, `enabled?/0`, `begin_sign_in/2`, `finish_sign_in/4`, `end_session_url/1`, `redirect_uri/0`, `session_days/0` (7) |
+| `Auth.SignOn` | `auth/sign_on.ex` | 219 | Who a sign-on is: group check, find by `oidc_sub` / create (never by email/username), admin re-sync (super_admin untouched), linking | `sign_in/2`, `link/3`, `link_user/2`, `get_user_by_sub/1` |
+| `Hub` | `hub.ex` | 151 | Low-Cal Calzone Zone hub summary for one person by `oidc_sub` (questions asked → level/active/headline/detail, version, unseen notes) + bearer check | `summary/2`, `hub_request?/1`, `levels/0` ([1, 10, 50]) |
 | `Changelog` | `changelog.ex` | ~90 | App version + CHANGELOG.md (parsed at compile time, `@external_resource`); per-reader filtering and the What's new mark | `releases/0`, `app_version/0`, `reader_releases/2`, `visible_releases/2`, `unseen?/3`, `unseen_for?/2`, `mark_seen/2`, `parse/1` |
 | `Changelog.Parser` / `Changelog.Release` | `changelog/parser.ex`, `changelog/release.ex` | ~100 | Lenient CHANGELOG.md parser (`## vX.Y.Z (date)`, `### Everyone`/`### Admins`, wrapped bullets; skips `## Unreleased`) and its struct | `Parser.parse/1` |
 | `PostgresTypes` | `postgres_types.ex` | — | Custom Ecto types (e.g. `Ltree`) | — |
@@ -58,14 +61,18 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `AdminLive.Users` | `admin_live/users.ex` | 124 | `/admin/users` | User list with promote/demote role management |
 | `AdminLive.Invites` | `admin_live/invites.ex` | 139 | `/admin/invites` | Generate and deactivate invite codes |
 | `SettingsLive` | `settings_live.ex` | 605 | `/settings` | App settings: LLM keys, provider, models |
-| `UserLiveAuth` | `user_live_auth.ex` | — | (session helper) | LiveView session auth, assigns `current_user` |
+| `UserLiveAuth` | `user_live_auth.ex` | — | (session helper) | LiveView session auth, assigns `current_user`; public `active_user/1` (suspension, force-logout, `SessionLifetime`) |
 
 ## Controllers (`lib/rule_maven_web/controllers/`)
 
 | Module | File | Responsibility |
 |--------|------|----------------|
-| `SessionController` | `session_controller.ex` | Login form, password auth |
-| `AuthController` | `auth_controller.ex` | Logout |
+| `SessionController` | `session_controller.ex` | Login page (sign-on button only while `Oidc.enabled?`), password auth |
+| `AuthController` | `auth_controller.ex` | Logout (+ provider end-session redirect with the kept ID token), registration auto-login |
+| `OidcController` | `oidc_controller.ex` | `POST /auth/oidc` (start, mode login/link), `GET /auth/oidc/callback`; ID token cookie `_rule_maven_oidc_id` |
+| `HubController` | `hub_controller.ex` | `GET /api/hub/summary?sub=` (bearer `RULEMAVEN_HUB_SECRET`; 401/400/404; no-store) |
+| `Plugs.PasswordAuth` | `plugs/password_auth.ex` (in `rule_maven_web/`) | Router pipeline `:password_auth`: password routes refuse (flash → /login) while sign-on is on; `refusal/1` message |
+| `SessionLifetime` | `session_lifetime.ex` (in `rule_maven_web/`) | `valid?/3`: sign-on sessions end at `sso_until` (7d); password sessions 30d grace once sign-on is on; `sso_until/1` |
 | `AuthPlug` | `auth_plug.ex` | Session-based auth plug, assigns `current_user` |
 | `ApiAuth` | `api_auth.ex` | Bearer-token plug for `/api/admin`: `Users.get_api_user/1` (super admin, unsuspended, 90-day `user_tokens` context "api"), else 401 JSON |
 | `AdminApiController` | `admin_api_controller.ex` | Remote Prepare JSON API (Hashid tokens): `index` (?q=), `show` (readiness+docs), `create_document` (ManualImport; drops `pdf`, accepts `pdf_url`), `delete_document`, `create_content`, `publish` |
@@ -109,6 +116,11 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `test/rule_maven_web/live/game_live/refresh_test.exs` | BGG refresh LiveView test |
 | `test/rule_maven/changelog_test.exs` | CHANGELOG parser, admin filtering, unseen logic, mark_seen |
 | `test/rule_maven_web/controllers/changelog_controller_test.exs` | What's new page renders, marks seen, header dot, admin-only notes |
+| `test/rule_maven_web/controllers/oidc_controller_test.exs` | Sign-on: login page, start (PKCE/state/nonce, config redirect URI), callback refusals (state/nonce/PKCE/signature/exp/aud/iss/age), groups, create vs find, no email/username auto-link, admin sync, linking, sign-out, 7-day session |
+| `test/rule_maven_web/controllers/password_auth_test.exs` | Password routes, registration, change password, admin create refuse while sign-on is on; work when off |
+| `test/rule_maven/auth/sign_on_test.exs` | SignOn unit + `mix rule_maven.link_sso` |
+| `test/rule_maven/hub_test.exs`, `test/rule_maven_web/controllers/hub_controller_test.exs` | Hub summary + endpoint |
+| `test/support/fake_oidc.ex` | Fake OIDC provider (Assent HTTP adapter): discovery, JWKS, token endpoint with PKCE check; `configure/1`, `issue_code/2` |
 | `test/support/data_case.ex` | DB setup helpers, fixtures |
 | `test/support/feature_case.ex` | LiveView test helpers, auth |
 | `test/support/fixtures/` | Factory functions for Game, User, Document |
@@ -150,4 +162,6 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | Admin thread review | `admin_live/threads.ex` (`build_consolidated_answer/2`), `games.ex` (`question_threads/1`, `all_question_threads/0`) |
 | FAQ page | `game_live/faq.ex`, `faq.ex` |
 | Fix BGG import | `bgg.ex`, `game_live/import.ex` |
+| Sign-in / single sign-on / account linking | `auth/oidc.ex` (protocol), `auth/sign_on.ex` (who), `oidc_controller.ex`, `plugs/password_auth.ex`, `session_lifetime.ex`, `auth_controller.ex` (logout), `session_html/new.html.heex` (button), `settings_live.ex` (Link button), config/runtime.exs (`RULEMAVEN_OIDC_*`); flow in data-flows "Sign-in"; ops in overview "Single sign-on" |
+| Hub summary | `hub.ex`, `hub_controller.ex`, router `/api/hub`, prod.exs force_ssl exclude |
 | App version / What's new / changelog | `changelog.ex` (+ `changelog/parser.ex`), `changelog_controller.ex`, `layouts.ex` `version_link/1` (in root.html.heex `.header-brand-group`), CSS `.header-version*` / `.changelog*` in app.css; content in `CHANGELOG.md`, version in `VERSION` |

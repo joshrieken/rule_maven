@@ -50,6 +50,17 @@ the formatter does something undesirable, fix it via `.formatter.exs`.
 
 Never skip step 2 or 4. Regressions are unacceptable.
 
+## Single sign-on in tests
+
+Sign-on is off in tests unless a test turns it on with `RuleMaven.FakeOidc.configure/1`
+(test/support/fake_oidc.ex: a fake provider plugged in as Assent's HTTP adapter; it puts global
+Application env, so those tests are `async: false`). `FakeOidc.issue_code/2` registers what the
+token endpoint answers (PKCE challenge, nonce, claims, signing key). Runtime env
+`RULEMAVEN_OIDC_*` is never read in the test env.
+
+A checkout outside `.claude/worktrees/` (e.g. `git worktree add ../rule_maven-x`) runs tests beside
+the main one with `MIX_TEST_PARTITION=_x RULEMAVEN_TEST_PORT=<free port> mix test`.
+
 ## LLM Mocking
 
 For tests that call `RuleMaven.LLM.ask/5` or `RuleMaven.LLM.chat/3`, inject mock via:
