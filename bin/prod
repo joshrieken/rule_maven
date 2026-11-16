@@ -18,6 +18,7 @@ DIR=/opt/rulemaven
 cd "$(dirname "$0")/.."
 [ $# -gt 0 ] || { sed -n '2,15p' "$0"; exit 1; }
 if [ -d tmp/rebuild ]; then
+  ssh "$HOST" "mkdir -p $DIR/tmp/rebuild"
   rsync -a --exclude 'backup/' tmp/rebuild/ "$HOST:$DIR/tmp/rebuild/"
   # Source PDFs only when a command names one (they can be hundreds of MB).
   for arg in "$@"; do
