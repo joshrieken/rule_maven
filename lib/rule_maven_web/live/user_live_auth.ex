@@ -1,11 +1,16 @@
 defmodule RuleMavenWeb.UserLiveAuth do
+  @moduledoc """
+  LiveView sign-in hooks: `:app` (signed-in pages, plus the admin gate) and `:public`. A
+  signed-out first render of an `:app` page goes to `/login`, or to the silent sign-in
+  (`RuleMavenWeb.SilentSignIn`) when that page load qualifies.
+  """
   import Phoenix.Component, only: [assign: 3]
-  import Phoenix.LiveView, only: [redirect: 2, attach_hook: 4]
+  import Phoenix.LiveView, only: [redirect: 2, attach_hook: 4, connected?: 1]
   import Plug.Conn, only: [get_session: 2]
 
   alias RuleMaven.Users
   alias RuleMaven.Users.AuthCache
-  alias RuleMavenWeb.SessionLifetime
+  alias RuleMavenWeb.{SessionLifetime, SilentSignIn}
 
   # LiveViews that only an admin may mount. This list is the admin gate: it used
   # to be a separate `live_session :admin`, but a live_session boundary can't be
@@ -40,36 +45,40 @@ defmodule RuleMavenWeb.UserLiveAuth do
   def on_mount(:app, _params, session, socket) do
     case active_user(session) do
       nil ->
-        {:halt, redirect(socket, to: "/login")}
+        {:halt, redirect(socket, to: login_path(socket, session))}
 
       user ->
-        cond do
-          not admin_view?(socket.view) ->
-            {:cont, mount_user(socket, user, session)}
-
-          Users.can?(user, :admin) ->
-            # A LiveView socket outlives its mount: if an admin is demoted or
-            # suspended mid-session, the connection stays open and could keep
-            # firing mutating events. Re-verify standing before EVERY event so
-            # revocation takes effect on the next interaction, uniformly
-            # across all admin LiveViews without each having to remember its
-            # own per-event check. Pages gated to :superadmin at mount get the
-            # same bar re-checked here, not just :admin.
-            required = if superadmin_view?(socket.view), do: :superadmin, else: :admin
-
-            socket
-            |> mount_user(user, session)
-            |> attach_hook(:admin_reauth, :handle_event, &reauth_event(required, &1, &2, &3))
-            |> then(&{:cont, &1})
-
-          true ->
-            {:halt, redirect(socket, to: "/")}
-        end
+        mount_app(socket, user, session)
     end
   end
 
   def on_mount(:public, _params, session, socket) do
     {:cont, assign(socket, :current_user, active_user(session))}
+  end
+
+  defp mount_app(socket, user, session) do
+    cond do
+      not admin_view?(socket.view) ->
+        {:cont, mount_user(socket, user, session)}
+
+      Users.can?(user, :admin) ->
+        # A LiveView socket outlives its mount: if an admin is demoted or
+        # suspended mid-session, the connection stays open and could keep
+        # firing mutating events. Re-verify standing before EVERY event so
+        # revocation takes effect on the next interaction, uniformly
+        # across all admin LiveViews without each having to remember its
+        # own per-event check. Pages gated to :superadmin at mount get the
+        # same bar re-checked here, not just :admin.
+        required = if superadmin_view?(socket.view), do: :superadmin, else: :admin
+
+        socket
+        |> mount_user(user, session)
+        |> attach_hook(:admin_reauth, :handle_event, &reauth_event(required, &1, &2, &3))
+        |> then(&{:cont, &1})
+
+      true ->
+        {:halt, redirect(socket, to: "/")}
+    end
   end
 
   @doc """
@@ -183,12 +192,27 @@ defmodule RuleMavenWeb.UserLiveAuth do
     end
   end
 
+  # Signed out on the first (HTTP) render: the silent sign-in, when this page load qualifies
+  # (`get_session/1` worked that out from the request). Never on the connected socket.
+  defp login_path(socket, session) do
+    case session["silent_sign_in"] do
+      path when is_binary(path) -> if connected?(socket), do: "/login", else: path
+      _ -> "/login"
+    end
+  end
+
   def get_session(conn) do
-    %{
+    session = %{
       "user_id" => get_session(conn, :user_id),
       "logged_in_at" => get_session(conn, :logged_in_at),
       "sso_until" => get_session(conn, :sso_until)
     }
+
+    # Only signed-out page loads need it (`login_path/2`): those are redirected, not rendered.
+    case conn.assigns[:current_user] == nil and SilentSignIn.silent_path(conn) do
+      path when is_binary(path) -> Map.put(session, "silent_sign_in", path)
+      _ -> session
+    end
   end
 
   defp session_sso_until(session), do: session[:sso_until] || session["sso_until"]

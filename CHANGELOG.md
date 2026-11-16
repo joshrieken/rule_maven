@@ -17,6 +17,10 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## Unreleased
+### Everyone
+- Already signed in to your Low-Cal Calzone Zone account? Rule Maven signs you in by itself.
+
 ## v0.2.5 (2026-11-16)
 ### Everyone
 - Rule Maven now signs you in with your Low-Cal Calzone Zone account, the same one you use for

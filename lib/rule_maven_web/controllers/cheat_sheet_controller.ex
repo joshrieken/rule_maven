@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.CheatSheetController do
   use RuleMavenWeb, :controller
 
-  alias RuleMaven.{Games, CheatSheet}
+  alias RuleMaven.{CheatSheet, Games}
 
   # Cheatsheets are AI-derived summaries of copyrighted rules, so they're gated
   # to logged-in users (lighter than the admin-only rulebook HTML, but not open
@@ -32,8 +32,7 @@ defmodule RuleMavenWeb.CheatSheetController do
       conn
     else
       conn
-      |> put_flash(:error, "Please log in to view cheatsheets.")
-      |> redirect(to: ~p"/login")
+      |> RuleMavenWeb.SilentSignIn.send_to_login("Please log in to view cheatsheets.")
       |> halt()
     end
   end
@@ -73,25 +72,28 @@ defmodule RuleMavenWeb.CheatSheetController do
 
       sections =
         selected
-        |> Enum.flat_map(fn id ->
-          with %{} = exp <- by_id[id],
-               %{"rules" => rules, "setup" => setup} when rules != [] or setup != [] <-
-                 RuleMaven.ExpansionDelta.stored(id) do
-            bullets =
-              Enum.map(rules, &"- #{&1}") ++
-                Enum.map(setup, fn s ->
-                  detail = if s["detail"] in [nil, ""], do: "", else: " — #{s["detail"]}"
-                  "- *Setup:* #{s["title"]}#{detail}"
-                end)
-
-            ["\n\n---\n\n## What #{exp.name} changes\n\n" <> Enum.join(bullets, "\n")]
-          else
-            _ -> []
-          end
-        end)
+        |> Enum.flat_map(&delta_section(by_id[&1], &1))
 
       Enum.join(sections)
     end
+  end
+
+  defp delta_section(nil, _id), do: []
+
+  defp delta_section(exp, id) do
+    case RuleMaven.ExpansionDelta.stored(id) do
+      %{"rules" => rules, "setup" => setup} when rules != [] or setup != [] ->
+        bullets = Enum.map(rules, &"- #{&1}") ++ Enum.map(setup, &setup_bullet/1)
+        ["\n\n---\n\n## What #{exp.name} changes\n\n" <> Enum.join(bullets, "\n")]
+
+      _ ->
+        []
+    end
+  end
+
+  defp setup_bullet(s) do
+    detail = if s["detail"] in [nil, ""], do: "", else: " — #{s["detail"]}"
+    "- *Setup:* #{s["title"]}#{detail}"
   end
 
   defp serve_content(conn, game_name, markdown) do

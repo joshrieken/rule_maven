@@ -42,8 +42,10 @@ defmodule RuleMavenWeb.Router do
     get "/changelog", ChangelogController, :show
     get "/login", SessionController, :new
     get "/logout", AuthController, :logout
-    # Single sign-on (RuleMaven.Auth.Oidc): started by a CSRF-protected POST, never a GET.
+    # Single sign-on (RuleMaven.Auth.Oidc): the button's sign-in is a CSRF-protected POST.
     post "/auth/oidc", OidcController, :start
+    # Silent sign-in (prompt=none, RuleMavenWeb.SilentSignIn): a GET on purpose, see the action.
+    get "/auth/oidc/silent", OidcController, :silent
     get "/auth/oidc/callback", OidcController, :callback
     get "/games/:id/cheatsheet", CheatSheetController, :show
     get "/games/:id/cheatsheet/:version_id", CheatSheetController, :show_version

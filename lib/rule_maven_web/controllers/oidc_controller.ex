@@ -5,6 +5,8 @@ defmodule RuleMavenWeb.OidcController do
 
     * `POST /auth/oidc` (`mode` = "login" | "link", CSRF-protected): remembers the attempt in the
       session and sends the browser to the provider.
+    * `GET /auth/oidc/silent?next=<path>`: silent sign-in (`RuleMavenWeb.SilentSignIn`): the
+      same flow with `prompt=none`; any failure returns quietly to `/login`, success to `next`.
     * `GET /auth/oidc/callback`: the provider sends the browser back here. One use per attempt.
 
   The ID token is kept in a signed, httpOnly cookie (`id_token_cookie/0`) so signing out can end
@@ -16,7 +18,7 @@ defmodule RuleMavenWeb.OidcController do
 
   alias RuleMaven.Audit
   alias RuleMaven.Auth.{Oidc, SignOn}
-  alias RuleMavenWeb.SessionLifetime
+  alias RuleMavenWeb.{SessionLifetime, SilentSignIn}
 
   @pending_key :oidc_pending
   @id_token_cookie "_rule_maven_oidc_id"
@@ -51,6 +53,36 @@ defmodule RuleMavenWeb.OidcController do
     end
   end
 
+  @doc """
+  Silent sign-in. A GET (no CSRF token) is fine here: with `prompt=none` the provider never
+  shows a page and can only sign this browser in as the person already signed in there, so a
+  forged link can't sign anyone in as someone else. The tried cookie is set first, so whatever
+  happens the browser isn't sent round again for 10 minutes.
+  """
+  def silent(conn, params) do
+    conn = SilentSignIn.put_tried_cookie(conn)
+    next = SilentSignIn.safe_next(params["next"])
+
+    case {Oidc.settings(), conn.assigns[:current_user]} do
+      {_settings, %{}} ->
+        redirect(conn, to: next)
+
+      {nil, nil} ->
+        redirect(conn, to: ~p"/login")
+
+      {settings, nil} ->
+        case Oidc.begin_sign_in(settings, :login, silent: next) do
+          {:ok, url, pending} ->
+            conn
+            |> put_session(@pending_key, pending)
+            |> redirect(external: url)
+
+          {:error, _message} ->
+            redirect(conn, to: ~p"/login")
+        end
+    end
+  end
+
   def callback(conn, params) do
     pending = get_session(conn, @pending_key)
     conn = delete_session(conn, @pending_key)
@@ -62,15 +94,19 @@ defmodule RuleMavenWeb.OidcController do
       settings ->
         case Oidc.finish_sign_in(settings, pending, params) do
           {:ok, %{mode: mode} = done} ->
-            finish(conn, settings, mode, done)
+            finish(conn, settings, mode, done, silent_next(pending))
 
           {:error, message} ->
-            fail(conn, message, mode_of(pending))
+            fail(conn, message, mode_of(pending), silent_next(pending))
         end
     end
   end
 
-  defp finish(conn, settings, :login, %{claims: claims, id_token: id_token}) do
+  # A silent attempt's return address (nil for a normal one).
+  defp silent_next(%{"silent" => true, "next" => next}), do: SilentSignIn.safe_next(next)
+  defp silent_next(_pending), do: nil
+
+  defp finish(conn, settings, :login, %{claims: claims, id_token: id_token}, silent_next) do
     case SignOn.sign_in(claims, sign_on_opts(settings)) do
       {:ok, user} ->
         now = System.os_time(:second)
@@ -87,15 +123,14 @@ defmodule RuleMavenWeb.OidcController do
           secure: conn.scheme == :https,
           max_age: Oidc.session_days() * 86_400
         )
-        |> put_flash(:info, "Welcome back!")
-        |> redirect(to: ~p"/")
+        |> signed_in(silent_next)
 
       {:error, message} ->
-        fail(conn, message, :login)
+        fail(conn, message, :login, silent_next)
     end
   end
 
-  defp finish(conn, settings, :link, %{claims: claims}) do
+  defp finish(conn, settings, :link, %{claims: claims}, _silent_next) do
     case conn.assigns[:current_user] do
       nil ->
         fail(conn, "Sign in first, then link your account.", :login)
@@ -118,6 +153,14 @@ defmodule RuleMavenWeb.OidcController do
         end
     end
   end
+
+  defp signed_in(conn, nil), do: conn |> put_flash(:info, "Welcome back!") |> redirect(to: ~p"/")
+  defp signed_in(conn, next), do: redirect(conn, to: next)
+
+  # A silent attempt fails quietly (login_required, consent_required, access_denied, a refused
+  # group, …): the visitor lands where they'd have gone anyway, with no message.
+  defp fail(conn, _message, _mode, next) when is_binary(next), do: redirect(conn, to: ~p"/login")
+  defp fail(conn, message, mode, nil), do: fail(conn, message, mode)
 
   defp fail(conn, message, mode) do
     conn

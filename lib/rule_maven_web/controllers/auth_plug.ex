@@ -1,4 +1,8 @@
 defmodule RuleMavenWeb.AuthPlug do
+  @moduledoc """
+  Loads the session's user into `:current_user` (nil when signed out, suspended,
+  force-logged-out or past `RuleMavenWeb.SessionLifetime`). `require_admin/2` gates a route.
+  """
   import Plug.Conn
   import Phoenix.Controller
 
@@ -39,8 +43,7 @@ defmodule RuleMavenWeb.AuthPlug do
 
       true ->
         conn
-        |> put_flash(:error, "Please log in first.")
-        |> redirect(to: "/login")
+        |> RuleMavenWeb.SilentSignIn.send_to_login("Please log in first.")
         |> halt()
     end
   end

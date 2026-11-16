@@ -230,8 +230,18 @@ Auth.Oidc.settings/0 non-nil) = the ONLY way in:
   Password routes (POST /login, /reset-password*, /magic-link*, /confirm/:token, /auto-login)
      → Plugs.PasswordAuth refuses (flash → /login); RegistrationLive, Settings change_password,
      admin create_user refuse too
-  GET /logout → AuthController.logout: clears session + ID-token cookie → 302 to the provider's
-     end_session_endpoint?id_token_hint=…&post_logout_redirect_uri=<public_url>/login
+  GET /logout → AuthController.logout: clears session + ID-token cookie, sets rulemaven_sso_tried
+     → 302 to the provider's end_session_endpoint?id_token_hint=…&post_logout_redirect_uri=<public_url>/login
+  Silent sign-in (RuleMavenWeb.SilentSignIn): a signed-out visit that would go to /login
+     (UserLiveAuth :app on the dead render via get_session/1's "silent_sign_in"; send_to_login/2
+     in Changelog/CheatSheet require_login and AuthPlug.require_admin) goes instead to
+     GET /auth/oidc/silent?next=<path+query> when: SSO on, GET, sec-fetch-mode navigate (+ dest
+     document) or Accept text/html, not /auth/oidc|/login|/health|/live|/api|/assets, and no
+     rulemaven_sso_tried cookie. OidcController.silent: sets the cookie (10 min, httpOnly, Lax,
+     secure when public_url is https) → begin_sign_in(:login, silent: safe_next(next)) =
+     prompt=none, pending "silent"/"next" → provider. Callback of a silent attempt: any error
+     (login_required, consent_required, access_denied, refused group, bad state…) → /login with
+     no flash; success → normal sign-in, no flash, → next.
 Session lifetime (SessionLifetime.valid?/3, checked by AuthPlug, UserLiveAuth.active_user and its
   per-event re-check, ObanAuthHook): sso_until passed → signed out. Password sessions: forever
   while sign-on is off; once on, 30 days from their sign-in (time to link).

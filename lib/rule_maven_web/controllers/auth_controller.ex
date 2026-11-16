@@ -2,12 +2,13 @@ defmodule RuleMavenWeb.AuthController do
   use RuleMavenWeb, :controller
 
   alias RuleMaven.Auth.Oidc
-  alias RuleMavenWeb.OidcController
+  alias RuleMavenWeb.{OidcController, SilentSignIn}
 
   @doc """
   Signs out here and, after a single sign-on, at the provider too (its end-session address with
   the kept ID token; it returns people to /login). Without that, Sign in would go straight back
-  in as the same person.
+  in as the same person. Also marks silent sign-in as tried, so the next page doesn't sign
+  straight back in.
   """
   def logout(conn, _params) do
     cookie = OidcController.id_token_cookie()
@@ -20,6 +21,7 @@ defmodule RuleMavenWeb.AuthController do
       |> delete_session(:logged_in_at)
       |> delete_session(:sso_until)
       |> delete_resp_cookie(cookie, sign: true, http_only: true, same_site: "Lax")
+      |> SilentSignIn.put_tried_cookie()
       |> put_flash(:info, "Logged out.")
 
     case end_session do

@@ -87,7 +87,9 @@ like Drawburn and Stir & Fold. Code: `Auth.Oidc` (protocol), `Auth.SignOn` (who)
 reset, sign-in links, confirmation all refuse); people are linked by `users.oidc_sub` only (never
 email/username); group check (`rulemaven-users` or `rulemaven-admins`) and admin re-sync at every
 sign-in (super_admin is server-only and never changed); sign-on sessions last 7 days; sign-out
-also ends the Authentik session (back to `/login`). Unset `RULEMAVEN_OIDC_ISSUER` = off (dev, tests).
+also ends the Authentik session (back to `/login`). Someone already signed in to Authentik is
+signed in silently on their first page load (`RuleMavenWeb.SilentSignIn`, `prompt=none`, once per
+10 minutes via the `rulemaven_sso_tried` cookie). Unset `RULEMAVEN_OIDC_ISSUER` = off (dev, tests).
 
 - Server `.env` (`/opt/rulemaven/.env`): `RULEMAVEN_OIDC_ISSUER`, `RULEMAVEN_OIDC_CLIENT_SECRET`
   (same value as `RULEMAVEN_OIDC_CLIENT_SECRET` in `/opt/identity/.env`); optional

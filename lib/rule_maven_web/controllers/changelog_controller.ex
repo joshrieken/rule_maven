@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.ChangelogController do
   @moduledoc """
   "What's new" (/changelog): the release notes this reader may see. Signed-in users only (the
-  running version isn't shown to the public; signed-out visitors go to /login). Opening it marks the newest release with notes for them as seen, which clears the red
+  running version isn't shown to the public; signed-out visitors go to /login, or `RuleMavenWeb.SilentSignIn`). Opening it marks the newest release with notes for them as seen, which clears the red
   dot on the header's version link. A controller rather than a LiveView so the root layout (the
   header) renders after the mark is saved and shows the dot already gone.
   """
@@ -41,8 +41,7 @@ defmodule RuleMavenWeb.ChangelogController do
       conn
     else
       conn
-      |> put_flash(:error, "Please log in to see what's new.")
-      |> redirect(to: ~p"/login")
+      |> RuleMavenWeb.SilentSignIn.send_to_login("Please log in to see what's new.")
       |> halt()
     end
   end

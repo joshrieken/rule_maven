@@ -116,22 +116,33 @@ defmodule RuleMaven.Auth.Oidc do
   @doc """
   Starts a sign-in: returns the provider URL to send the browser to, and the pending attempt
   (state, PKCE verifier, nonce, mode, start time) to keep in the session until the callback.
+
+  `silent: next` (a path already checked by `RuleMavenWeb.SilentSignIn.safe_next/1`) asks the
+  provider with `prompt=none` (answer at once: signed in as whoever is signed in there, or an
+  error, never a page) and marks the attempt silent, returning to `next`.
   """
-  @spec begin_sign_in(Settings.t(), mode()) :: {:ok, String.t(), map()} | {:error, String.t()}
-  def begin_sign_in(%Settings{} = s, mode) when mode in [:login, :link] do
+  @spec begin_sign_in(Settings.t(), mode(), keyword()) ::
+          {:ok, String.t(), map()} | {:error, String.t()}
+  def begin_sign_in(%Settings{} = s, mode, opts \\ []) when mode in [:login, :link] do
     nonce = random_token()
+    silent = opts[:silent]
 
     with {:ok, config} <- assent_config(s),
+         config = if(silent, do: prompt_none(config), else: config),
          {:ok, %{url: url, session_params: params}} <-
            config |> Keyword.put(:nonce, nonce) |> OIDC.authorize_url() do
-      {:ok, url,
-       %{
-         "state" => params.state,
-         "verifier" => params.code_verifier,
-         "nonce" => params.nonce,
-         "mode" => Atom.to_string(mode),
-         "at" => System.os_time(:second)
-       }}
+      pending = %{
+        "state" => params.state,
+        "verifier" => params.code_verifier,
+        "nonce" => params.nonce,
+        "mode" => Atom.to_string(mode),
+        "at" => System.os_time(:second)
+      }
+
+      pending =
+        if silent, do: Map.merge(pending, %{"silent" => true, "next" => silent}), else: pending
+
+      {:ok, url, pending}
     else
       error ->
         Logger.warning("sign-on start failed: #{inspect(error)}")
@@ -189,6 +200,10 @@ defmodule RuleMaven.Auth.Oidc do
     do: {:error, {:show, "The sign-in service said no. Try again, or ask the admin."}}
 
   defp check_provider_error(_params), do: :ok
+
+  defp prompt_none(config) do
+    Keyword.update!(config, :authorization_params, &Keyword.put(&1, :prompt, "none"))
+  end
 
   defp mode("link"), do: :link
   defp mode(_), do: :login
