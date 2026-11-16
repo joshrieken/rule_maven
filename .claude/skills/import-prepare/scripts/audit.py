@@ -2,7 +2,7 @@
 """Completeness audit: diff one game against its Ready peers across EVERYTHING
 the database stores for a game, so an import can't silently miss an artifact.
 
-usage: python3 -I audit.py GAME_ID [--db rule_maven_dev] [--na "LABEL=reason" ...]
+usage: python3 -I audit.py GAME_ID [--db DB (default $PGDATABASE or rule_maven_dev)] [--na "LABEL=reason" ...]
 
 Peers = other playable games of the same kind (base vs expansion). Auto-discovers:
   * every column of games (null/empty here, filled on most peers)
@@ -13,10 +13,10 @@ Peers = other playable games of the same kind (base vs expansion). Auto-discover
 User-activity tables are skipped. Exit 1 if any GAP. A GAP is a lead, not proof:
 decide whether it's missing work (fix it) or legitimately N/A (say why).
 """
-import json, statistics, subprocess, sys
+import json, os, statistics, subprocess, sys
 
 args = sys.argv[1:]
-db = "rule_maven_dev"
+db = os.environ.get("PGDATABASE", "rule_maven_dev")  # "rulemaven" inside the prod tools container
 if "--db" in args:
     i = args.index("--db"); db = args[i + 1]; del args[i:i + 2]
 na_cli = {}

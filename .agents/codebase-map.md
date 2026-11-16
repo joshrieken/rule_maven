@@ -108,6 +108,16 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `test/support/feature_case.ex` | LiveView test helpers, auth |
 | `test/support/fixtures/` | Factory functions for Game, User, Document |
 
+## Ops scripts (repo root)
+
+| File | Purpose |
+|------|---------|
+| `bin/prod` | Run a command against PROD from the Mac: rsync `tmp/rebuild/` up, `docker compose run --rm -T tools <cmd>` (mix/psql/python at the deployed commit, Oban off) |
+| `bin/pull-prod` | Clone prod DB + uploads down into dev (`--db-only` skips uploads) |
+| `bin/tools-entrypoint` | Tools container entrypoint: `mix deps.get --only prod` when `mix.lock` changed, then exec |
+| `scripts/deploy.sh` | Server-side release-only deploy (backup → ff master → build → up → wait `/health` → seed flags) |
+| `compose.yaml` / `Dockerfile` | Prod stack (app, pgvector db, `tools` profile service = Dockerfile `build` stage) |
+
 ## Quick Reference: Where to Find
 
 | Task | Files to load |

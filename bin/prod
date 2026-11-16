@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Run a command against PRODUCTION (prod data is the source of truth) from your Mac.
+# Syncs tmp/rebuild/ (import inputs) up to the server, then runs the command in the
+# server's tools container: this repo at the deployed commit, MIX_ENV=prod, the prod
+# DB (psql needs no connection args), uploads mounted, Oban queues OFF (the live app
+# runs the jobs it inserts).
+#
+#   bin/prod mix rule_maven.import_pages 42 tmp/rebuild/out/catan.json
+#   bin/prod mix run --no-start .claude/skills/import-prepare/scripts/new_game.exs search "Catan"
+#   bin/prod python3 -I .claude/skills/import-prepare/scripts/audit.py 42
+#   bin/prod psql -At -c "select id, name from games where playable"
+#
+# First run compiles the app on the server (a few minutes); later runs are incremental.
+# Code runs at the DEPLOYED commit: ship task/script changes before using them here.
+set -euo pipefail
+HOST=${RULEMAVEN_SSH:-deploy@207.244.249.148}
+DIR=/opt/rulemaven
+cd "$(dirname "$0")/.."
+[ $# -gt 0 ] || { sed -n '2,15p' "$0"; exit 1; }
+if [ -d tmp/rebuild ]; then
+  rsync -a --exclude 'backup/' tmp/rebuild/ "$HOST:$DIR/tmp/rebuild/"
+  # Source PDFs only when a command names one (they can be hundreds of MB).
+  for arg in "$@"; do
+    case $arg in tmp/rebuild/backup/*) [ -f "$arg" ] && rsync -a -R "$arg" "$HOST:$DIR/" ;; esac
+  done
+fi
+ssh "$HOST" "cd $DIR && docker compose run --rm -T tools $(printf '%q ' "$@")"

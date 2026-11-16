@@ -33,6 +33,40 @@ services:
       - traefik.http.routers.rulemaven.service=rulemaven
       - traefik.http.services.rulemaven.loadbalancer.server.port=4000
 
+  # One-off commands against production (imports, audits, psql), run from a Mac via bin/prod:
+  #   docker compose run --rm -T tools mix rule_maven.import_pages ...
+  # The build-stage image (Elixir + mix, python3, psql) on this checkout, as the deploy user,
+  # with Oban queues OFF: it only inserts jobs; the running app executes them.
+  tools:
+    profiles: [tools]
+    build:
+      context: .
+      target: build
+    image: rulemaven-tools
+    user: "1000:1000"
+    working_dir: /src
+    entrypoint: ["/src/bin/tools-entrypoint"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MIX_ENV: prod
+      OBAN_QUEUES: "off"
+      HOME: /src/data/tools/home
+      HEX_HOME: /src/data/tools/hex
+      PHX_HOST: ${RULEMAVEN_HOST:?set RULEMAVEN_HOST in .env}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE in .env}
+      DATABASE_URL: ecto://rulemaven:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db/rulemaven
+      UPLOADS_DIR: /data/files
+      PGHOST: db
+      PGUSER: rulemaven
+      PGDATABASE: rulemaven
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./:/src
+      - ./data/files:/data/files
+    networks: [default]
+
   db:
     image: pgvector/pgvector:0.8.7-pg18-bookworm
     restart: unless-stopped

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Clone PRODUCTION down to dev. Prod data is the source of truth; dev is a disposable copy.
+#   bin/pull-prod            DB + uploads
+#   bin/pull-prod --db-only  skip the uploads sync
+# Replaces rule_maven_dev entirely (the old dev DB is saved to tmp/ first) and mirrors
+# prod's uploads into priv/static/uploads (local files it replaces or removes are moved to
+# tmp/uploads-before-pull-<stamp>/).
+# Stop the dev server first (dropdb needs no open connections).
+set -euo pipefail
+HOST=${RULEMAVEN_SSH:-deploy@207.244.249.148}
+DIR=/opt/rulemaven
+DEV_DB=rule_maven_dev
+cd "$(dirname "$0")/.."
+mkdir -p tmp
+stamp=$(date +%Y%m%d-%H%M%S)
+
+if lsof -iTCP:4000 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Dev server is running on :4000: stop it first." >&2
+  exit 1
+fi
+
+echo "== Dumping production"
+(umask 077 && ssh "$HOST" "cd $DIR && docker compose exec -T db pg_dump -U rulemaven -Fc rulemaven" >|"tmp/prod-$stamp.dump")
+ls -lh "tmp/prod-$stamp.dump" | awk '{print $5, $9}'
+
+echo "== Saving the current dev DB"
+if psql -d "$DEV_DB" -c 'select 1' >/dev/null 2>&1; then
+  (umask 077 && pg_dump -Fc -d "$DEV_DB" -f "tmp/dev-before-pull-$stamp.dump")
+  echo "tmp/dev-before-pull-$stamp.dump"
+fi
+
+echo "== Restoring into $DEV_DB"
+dropdb --if-exists "$DEV_DB"
+createdb "$DEV_DB"
+pg_restore --no-owner --no-acl -d "$DEV_DB" "tmp/prod-$stamp.dump"
+# Dev must never run prod's queued work (it would bill the LLM a second time), and it
+# talks to local services: the headroom proxy, localhost links.
+psql -q -d "$DEV_DB" -v ON_ERROR_STOP=1 <<'SQL'
+TRUNCATE oban_jobs;
+INSERT INTO app_settings (key, value, inserted_at, updated_at)
+  VALUES ('llm_proxy_url', 'http://localhost:8788', now(), now())
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+DELETE FROM app_settings WHERE key = 'public_url';
+SQL
+psql -At -d "$DEV_DB" -c "select 'users ' || count(*) from users union all select 'documents ' || count(*) from documents"
+
+if [ "${1:-}" != "--db-only" ]; then
+  echo "== Mirroring uploads"
+  # Anything replaced or deleted locally is moved aside, not lost (e.g. pre-compression originals).
+  rsync -a --delete --stats --backup --backup-dir="$PWD/tmp/uploads-before-pull-$stamp" \
+    "$HOST:$DIR/data/files/uploads/" priv/static/uploads/ |
+    grep -E "Number of (regular )?files transferred|Total transferred"
+fi
+rm -f "tmp/prod-$stamp.dump"
+echo "Dev now mirrors production ($stamp)."

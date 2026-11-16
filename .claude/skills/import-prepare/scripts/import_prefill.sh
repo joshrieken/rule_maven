@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # Usage (any dir): import_prefill.sh SLUG GAME_ID [BASE_GAME_ID] [USERNAME]
 # Imports tmp/rebuild/prefill/SLUG.json answers onto GAME_ID; with BASE_GAME_ID
 # (GAME_ID is an expansion) also onto the base game WITH that expansion set.

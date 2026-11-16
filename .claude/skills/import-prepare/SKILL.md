@@ -6,7 +6,7 @@ description: End-to-end import + Prepare of a board-game rulebook PDF (plus FAQ/
 # Import + Prepare a game (Claude-authored)
 
 **DEFINITION OF DONE (hard gate — never report an import finished without it):**
-`python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` prints `0 GAP(s)`.
+`bin/prod python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` prints `0 GAP(s)`.
 The audit diffs the game against every other Ready game across ALL game data
 (every `games` column, every game-keyed table, everything hanging off its documents
 and questions, column fill rates, per-game settings) plus invariants (playable,
@@ -19,7 +19,7 @@ BGG weight — all invisible to the step list, all caught by the audit.
 
 Claude is the processor (HARD RULE, memory `claude-primary-processor`): never trigger
 the app's paid LLM steps; never ask live questions to test. Only embeddings hit
-OpenRouter (the import tasks queue them; the dev server runs them).
+OpenRouter (the import tasks queue them; the production app runs them).
 You orchestrate + validate + import; subagents read and write.
 Reference run: Gloomhaven (game 349, 2026-11-14) — 82-page PDF, ~1.5h wall clock,
 15 agents, 424 answers, 100 symbols.
@@ -31,8 +31,19 @@ scratch (GLOSSARY.md, parts/, merge.py). Gloomhaven used `gh/`.
 
 **Run every command from the repo root.** `scripts/X` / `templates/X` / `references/X`
 below mean `.claude/skills/import-prepare/scripts/X` etc. — type the full path
-(`mix run` resolves paths from the repo root; there is no top-level `scripts/`).
+(`mix run` resolves paths from the repo root; the top-level `scripts/` is only `deploy.sh`).
 Answers/content are owned by an EXISTING username (default `jrieken`).
+
+## Target: production (prod data is the source of truth)
+Imports are processed **in production**, never in dev (user rule, 2026-11-15). `bin/prod`
+(repo root — not the skill's `scripts/`) rsyncs `tmp/rebuild/` to the server and runs the
+command in its tools container: this repo at the DEPLOYED commit, `MIX_ENV=prod`, the prod
+DB (`psql` needs no connection args), uploads mounted, Oban queues OFF. So:
+- Changed a mix task or skill script? Ship it (Release + deploy) before running it via `bin/prod`.
+- Source PDFs under `tmp/rebuild/backup/` upload only when a command names them.
+- Transcription, authoring, `tokens.py`, `check_content.py`, `merge_prefill.py` stay local (no DB).
+- Dev is a copy: refresh it with `bin/pull-prod` when you need to try something locally;
+  never import into dev and expect it to reach prod.
 
 ## NEVER (these spend the app's paid AI — Claude does that work instead)
 - Never click Prepare-page step buttons, never switch a game's Prepare **Auto** on, never
@@ -64,19 +75,19 @@ Also: no mix, no DB, no commits; report counts + unsure items only, never paste 
 
 ## 0. Preflight (5 min, inline)
 - Fresh checkout: `mkdir -p tmp/rebuild/{backup/pdfs,out,content,symbols,prefill/existing}`.
-- Auto-pilot must be off: `psql -d rule_maven_dev -At -c "select value from app_settings where key='readiness_auto_N'"`
-  → anything but `on` is fine; if `on`: `mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); RuleMaven.Readiness.stop_auto(N)'`.
-- `python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` first — every pre-existing GAP becomes a task.
-- Dev server on :4000? `lsof -iTCP:4000 -sTCP:LISTEN`. Mix tasks run with Oban queues
-  OFF and only insert jobs; never start a 2nd server / live-queue BEAM.
+- Auto-pilot must be off: `bin/prod psql -At -c "select value from app_settings where key='readiness_auto_N'"`
+  → anything but `on` is fine; if `on`: `bin/prod mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); RuleMaven.Readiness.stop_auto(N)'`.
+- `bin/prod python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` first — every pre-existing GAP becomes a task.
+- Every DB/mix step runs in PROD through `bin/prod` (see "Target: production"). Mix tasks run
+  with Oban queues OFF and only insert jobs; the live app runs them. Never start a server.
 - `pdfinfo PDF` (title, pages, size); `pdftotext -f N -l N PDF -` on 4-6 pages:
   born-digital? appended FAQ/errata/back cover? 2-page spreads (landscape ~2x width)?
 - Game not in the catalog (or unsure which row):
-  `mix run --no-start .claude/skills/import-prepare/scripts/new_game.exs search "Name"` →
+  `bin/prod mix run --no-start .claude/skills/import-prepare/scripts/new_game.exs search "Name"` →
   `… new_game.exs add BGG_ID ["Name"] [--expansion-of BASE_GAME_ID]` (creates/reuses the
   row, fetches BGG directly, links). BGG data is a REQUIRED readiness step — a game
   without a bgg_id can never become playable.
-- Game row: `psql -d rule_maven_dev -c "select id,name,bgg_id,playable,year_published from games where name ilike '%x%' order by id"`
+- Game row: `bin/prod psql -c "select id,name,bgg_id,playable,year_published from games where name ilike '%x%' order by id"`
   — pick the edition by year/BGG id (base vs 2nd edition vs expansions). State:
   `select id,label,kind from documents where game_id=N` ·
   `select count(*) from questions_log where game_id=N` ·
@@ -84,7 +95,7 @@ Also: no mix, no DB, no commits; report counts + unsure items only, never paste 
   `select count(*) from game_expansion_links where base_game_id=N or expansion_id=N`.
   A non-null `theme_palette` is NOT enough: legacy single palettes (no `theme_names.sets`)
   need the 3-5 hand-picked sets of step 9. Zero links with BGG data present → step 9 relink.
-  Non-empty docs/answers → ASK before `mix rule_maven.reset_prepared N --yes` (deletes Q&A AND PDFs; back up first).
+  Non-empty docs/answers → ASK before `bin/prod mix rule_maven.reset_prepared N --yes` (deletes Q&A AND PDFs; back up first).
 
 ## 1a. Hunt for more sources (1 agent, parallel with step 1-3)
 Every import: one general-purpose agent per game following `references/SOURCES.md`
@@ -142,12 +153,12 @@ as `{"pages":[{sheet,printed,text}]}` · report invented tokens + unsure spots.
   art with a 300dpi crop yourself.
 
 ## 5. Import pages
-`mix rule_maven.import_pages GAME_ID tmp/rebuild/out/<slug>.json [tmp/rebuild/out/<slug>_faq.json]`
+`bin/prod mix rule_maven.import_pages GAME_ID tmp/rebuild/out/<slug>.json [tmp/rebuild/out/<slug>_faq.json]`
 (lane "manual", no LLM cheat sheet). Embeddings run on the server (~minutes).
-Then IMMEDIATELY: `psql -d rule_maven_dev -c "select id,label,status from documents where game_id=N"` —
+Then IMMEDIATELY: `bin/prod psql -c "select id,label,status from documents where game_id=N"` —
 every doc must be `published`. Short / icon-heavy / low-prose text lands `pending_review`
 (invisible to retrieval, coverage and citations). Publish it NOW, while the game has no
-answers (approval invalidates the pool): `mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); RuleMaven.Games.approve_document(RuleMaven.Repo.get!(RuleMaven.Games.Document, DOC_ID))'`.
+answers (approval invalidates the pool): `bin/prod mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); RuleMaven.Games.approve_document(RuleMaven.Repo.get!(RuleMaven.Games.Document, DOC_ID))'`.
 
 ## 6. Author, symbols, pre-fill — ONE parallel wave (6-7 agents)
 All need only the page files; launch together:
@@ -172,28 +183,28 @@ import json; a=json.load(open("tmp/rebuild/content/<slug>_part1.json")); b=json.
 a["enrichments"].update(b["enrichments"]); json.dump(a,open("tmp/rebuild/content/<slug>.json","w"),indent=1,ensure_ascii=False)
 E
 python3 -I .claude/skills/import-prepare/scripts/check_content.py tmp/rebuild/content/<slug>.json tmp/rebuild/out/<slug>.json [..._faq.json]   # must print bad 0
-mix rule_maven.import_content GAME_ID jrieken tmp/rebuild/content/<slug>.json
+bin/prod mix rule_maven.import_content GAME_ID jrieken tmp/rebuild/content/<slug>.json
 python3 -I -c "import json;s=json.load(open('tmp/rebuild/symbols/<slug>.json'))['symbols'];json.dump({'enrichments':{'symbols':s}},open('tmp/rebuild/symbols/<slug>.import.json','w'),ensure_ascii=False)"
-mix rule_maven.import_content GAME_ID jrieken tmp/rebuild/symbols/<slug>.import.json
+bin/prod mix rule_maven.import_content GAME_ID jrieken tmp/rebuild/symbols/<slug>.import.json
 ```
 Filter mix output: `2>&1 | grep -E ": (enrichments|answers) |✗|\*\* \("`.
 Read every ✗ line (citation rejects). Spot-check 1-2 crops with Read.
 
 ## 8. Pre-fill import
 ```
-psql -At -d rule_maven_dev -c "select question from questions_log where game_id=N" >| tmp/rebuild/prefill/existing/<slug>.txt
+bin/prod psql -At -c "select question from questions_log where game_id=N" >| tmp/rebuild/prefill/existing/<slug>.txt
 python3 -I .claude/skills/import-prepare/scripts/merge_prefill.py tmp/rebuild/prefill/<slug>.json tmp/rebuild/prefill/<slug>_{a,b,c,d}.json --content tmp/rebuild/content/<slug>.json --existing tmp/rebuild/prefill/existing/<slug>.txt
 ```
 Resolve WARN near-dups by hand (keep one per ruling; also scan Jaccard ≥0.6 by eye —
 Gloomhaven had 12 same-ruling pairs across agents), re-run `check_content.py --prefill`,
-then `zsh .claude/skills/import-prepare/scripts/import_prefill.sh <slug> GAME_ID [BASE_ID]`.
+then `bin/prod bash .claude/skills/import-prepare/scripts/import_prefill.sh <slug> GAME_ID [BASE_ID]`.
 
 ## 9. Game metadata (check EVERY time — Gloomhaven shipped without both)
 - Expansion links missing (BGG lists some but `game_expansion_links` empty — happens when
   the base was enriched before its expansion rows existed): free, DB-only:
-  `mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); g = RuleMaven.Games.get_game!(N); IO.inspect RuleMaven.BGG.relink_from_cache(g)'`
+  `bin/prod mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); g = RuleMaven.Games.get_game!(N); IO.inspect RuleMaven.BGG.relink_from_cache(g)'`
   Linked expansions still need their own rulebook import to become Ready (see Expansions).
-- No BGG data: `RuleMaven.BGG.enrich_game(game, force: true)` in `mix run --no-start`
+- No BGG data: `RuleMaven.BGG.enrich_game(game, force: true)` in `bin/prod mix run --no-start`
   after `Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues()` (BggEnrichWorker would queue the LLM ThemePaletteWorker).
 - No theme SETS: download the BGG cover (`games.image_url`, `sips -Z 700`), Read it, hand-pick 3-4
   sets `{light:{accent,bg,surface,text}, dark:{…}, names:{light,dark}}` → `{"enrichments":{"theme":{"sets":[…]}}}`
@@ -202,13 +213,13 @@ then `zsh .claude/skills/import-prepare/scripts/import_prefill.sh <slug> GAME_ID
   the importer rejects a theme on an expansion (it inherits the base's).
 
 ## 10. Publish + verify + AUDIT (gate)
-`mix run --no-start .claude/skills/import-prepare/scripts/publish.exs GAME_ID` → every `STEP … done`,
+`bin/prod mix run --no-start .claude/skills/import-prepare/scripts/publish.exs GAME_ID` → every `STEP … done`,
 `PLAYABLE true` (on false it prints which steps are pending).
 ```
 select pooled, citation_valid, refused, audience, count(*), count(question_embedding) from questions_log where game_id=N group by 1,2,3,4;  -- all t,t,f,public
 select operation, model, count(*) from llm_logs where game_id=N and inserted_at > now() - interval '3 hours' group by 1,2;  -- expect none
 ```
-Then `python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` → must print `0 GAP(s)`.
+Then `bin/prod python3 -I .claude/skills/import-prepare/scripts/audit.py GAME_ID` → must print `0 GAP(s)`.
 Legit exceptions are passed explicitly, e.g. an icon-free book:
 `… audit.py GAME_ID --na "symbols with icons=book has no inline icons"`. Fix every GAP/FAIL;
 `info  live ask refused` lines are coverage leads (add prefill answers when the book
@@ -235,31 +246,31 @@ kind of miss the audit didn't flag, add a check for it to audit.py in the same s
   (pool hits when the expansion is toggled on). Check it against BOTH page files —
   `python3 -I .claude/skills/import-prepare/scripts/check_content.py content/<base>_with_<exp>.json out/<base>.json out/<exp>.json --prefill`
   (overlapping page numbers are fine; the importer finds the quoting book itself) — then
-  `mix rule_maven.import_content BASE_ID jrieken tmp/rebuild/content/<base>_with_<exp>.json`. `import_prefill.sh SLUG EXP_ID BASE_ID` imports a prefill
+  `bin/prod mix rule_maven.import_content BASE_ID jrieken tmp/rebuild/content/<base>_with_<exp>.json`. `import_prefill.sh SLUG EXP_ID BASE_ID` imports a prefill
   file both ways — only when its citations are all expansion pages.
 - Audit both games: `audit.py EXP_ID` and `audit.py BASE_ID`.
 
 ## Add a source (FAQ/errata) to an already-Ready game — no re-prepare needed
 1. Transcribe the new source (steps 2-4) → `tmp/rebuild/out/<slug>_<kind>.json` with page keys
    that don't collide with the existing docs (check `select label from documents where game_id=N`).
-2. `mix run --no-start .claude/skills/import-prepare/scripts/add_source.exs GAME_ID tmp/rebuild/out/<slug>_<kind>.json`
+2. `bin/prod mix run --no-start .claude/skills/import-prepare/scripts/add_source.exs GAME_ID tmp/rebuild/out/<slug>_<kind>.json`
    — disables pool rebuild for the window, imports, approves if pending_review, cancels the
    scheduled paid PoolRebuildWorker, re-pools the imported answers, restores the setting.
 3. The new source may OVERRULE existing answers: one agent compares every existing answer
-   (`psql -At -c "select id, question, answer from questions_log where game_id=N and llm_provider='manual'"`)
+   (`bin/prod psql -At -c "select id, question, answer from questions_log where game_id=N and llm_provider='manual'"`)
    against the new text and lists contradictions with replacement answer + citations; apply via
-   `mix rule_maven.corrections` (see its moduledoc). Then a prefill agent adds Q&As for what the
+   `bin/prod mix rule_maven.corrections` (see its moduledoc). Then a prefill agent adds Q&As for what the
    new source adds (dedupe with merge_prefill.py), import, audit.
 4. If the new source SUPERSEDES an older doc of the same kind (e.g. FAQ 2022 vs FAQ v0.2),
    demote the old one so it can't tie on authority in the answer prompt (sources are ordered by
-   kind): `mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); d = RuleMaven.Repo.get!(RuleMaven.Games.Document, DOC_ID); RuleMaven.Games.update_document(d, %{kind: "notes"})'`
+   kind): `bin/prod mix run --no-start -e 'Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues(); d = RuleMaven.Repo.get!(RuleMaven.Games.Document, DOC_ID); RuleMaven.Games.update_document(d, %{kind: "notes"})'`
    (no text change → no pool invalidation). Keep it rather than delete: existing answers cite it.
    Designer/forum rulings go in as kind "notes" too (below the rulebook) when any conflict with print.
 
 ## Re-prepare (replace a source / rebuild from scratch)
 All source JSON lives in `tmp/rebuild/`, so a rebuild costs only embeddings:
 1. `cp` any new PDF to `backup/pdfs/`; transcribe the new source (step 3-4).
-2. `mix rule_maven.reset_prepared GAME_ID --yes` (deletes Q&A + docs + PDFs from uploads;
+2. `bin/prod mix rule_maven.reset_prepared GAME_ID --yes` (deletes Q&A + docs + PDFs from uploads;
    keeps game row, BGG, theme, links). With no pooled answers left, PoolRebuildWorker no-ops.
 3. Re-run steps 5-8 from the saved files (`out/`, `content/`, `symbols/`, `prefill/`),
    re-checking citations against the new pages; then publish + audit.
@@ -269,7 +280,7 @@ All source JSON lives in `tmp/rebuild/`, so a rebuild costs only embeddings:
   then expansion, then re-import the `<base>_with_<exp>` files; audit both.
 
 ## Remote / prod path
-Same over HTTP: `mix rule_maven.api_token jrieken` (90-day bearer; scratchpad only,
+Same over HTTP: `bin/prod mix rule_maven.api_token jrieken` (90-day bearer; scratchpad only,
 never the repo) → `GET /api/admin/games?q=` · `POST /api/admin/games/:token/documents`
 (pages JSON + optional `pdf_url`) · `POST …/content` · `GET …/:token` (wait embed) ·
 `POST …/publish`. API strips `image_path` — send symbol crops as `image_base64`.
@@ -279,4 +290,4 @@ never the repo) → `GET /api/admin/games?q=` · `POST /api/admin/games/:token/d
 - Agents pad answers with diagram inferences → trim to printed text.
 - Card text printed only on art → `[Card illustration: …]`; flag to user; never a general rule.
 - Empty enrichment from the APP's workers = Pending forever + re-bill; manual `[]` score is fine.
-- Wrong answers later: `mix rule_maven.corrections list|apply`.
+- Wrong answers later: `bin/prod mix rule_maven.corrections list|apply`.

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Entrypoint of the server's tools container (compose service "tools"): make sure
+# prod deps are fetched for this checkout, then run the given command.
+set -euo pipefail
+mkdir -p "$HOME" "$HEX_HOME"
+if [ ! -f deps/.prod-fetched ] || [ mix.lock -nt deps/.prod-fetched ]; then
+  mix deps.get --only prod >&2 && touch deps/.prod-fetched
+fi
+exec "$@"

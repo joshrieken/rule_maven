@@ -22,6 +22,13 @@ if config_env() != :test and System.get_env("PHX_SERVER") do
     http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 end
 
+# The server's tools container (`bin/prod`, compose service "tools") runs mix
+# against the production DB beside the live app: it may insert jobs but must
+# never execute them (the app owns the queues, and PubSub is node-local).
+if System.get_env("OBAN_QUEUES") == "off" do
+  config :rule_maven, Oban, queues: false, plugins: false
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

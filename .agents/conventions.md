@@ -116,6 +116,12 @@ outermost wrapper div that always exists (even if hidden with `display:none`).
 - **Server logs are in `tmp/`**, not `log/`. Check `tmp/` for runtime output, crash dumps, or Erlang error logs.
 - The user's dev server runs in their terminal; yours would port-conflict and cause confusion.
 
+## Data: Production Is the Source of Truth
+
+- New content (imports, prepares, corrections, data fixes) is applied in production: `bin/prod <mix|psql|python3 …>`.
+- Dev data is a disposable copy. Refresh with `bin/pull-prod` (dev server stopped). Work done only in dev does not count.
+- `bin/prod` runs the DEPLOYED code: ship a changed task/script (Release + `scripts/deploy.sh`) before using it there.
+
 ## Running Tests
 
 - **HARD RULE: Never run the full test suite (`mix test`) unless:** (a) you are about to commit, or (b) changes span >3 files and targeted tests aren't practical. In all other cases, run only relevant tests.

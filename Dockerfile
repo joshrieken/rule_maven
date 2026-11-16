@@ -10,13 +10,16 @@ FROM hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSIO
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
-    apt-get update && apt-get install -y --no-install-recommends build-essential git ca-certificates
+    apt-get update && apt-get install -y --no-install-recommends build-essential git ca-certificates \
+      python3 postgresql-client poppler-utils rsync
 WORKDIR /app
-ENV MIX_ENV=prod
+# MIX_HOME outside /root: the tools container (compose service "tools") reuses this
+# stage as uid 1000. python3/psql/poppler are for the import scripts run there.
+ENV MIX_ENV=prod MIX_HOME=/opt/mix HEX_HOME=/opt/hex
 RUN mix local.hex --force && mix local.rebar --force
 
 COPY mix.exs mix.lock ./
-RUN --mount=type=cache,target=/root/.hex/packages,sharing=locked mix deps.get --only prod
+RUN --mount=type=cache,target=/opt/hex/packages,sharing=locked mix deps.get --only prod
 COPY config/config.exs config/prod.exs config/runtime.exs config/
 COPY priv priv
 COPY lib lib

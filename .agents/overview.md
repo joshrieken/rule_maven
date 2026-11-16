@@ -65,6 +65,8 @@ frequently real bugs (unused variables in pattern matches, unreachable clauses).
 
 ## Production
 
+**Prod data is the source of truth** (user rule, 2026-11-15). New content (imports, prepares, corrections) is processed IN PRODUCTION via `bin/prod <cmd>` (server tools container: deployed code, prod DB, Oban queues off). Dev is a disposable copy: `bin/pull-prod` replaces `rule_maven_dev` + `priv/static/uploads` with prod's (saves the old dev DB to `tmp/` first; truncates `oban_jobs`, restores the local `llm_proxy_url`). Never treat dev data as something to push up.
+
 Live at https://rulemaven.com on the shared server (`ssh deploy@207.244.249.148`, checkout `/opt/rulemaven`), alongside Drawburn / Stir & Fold behind the server's Traefik (Cloudflare in front; port 22 only via the raw IP).
 
 - Stack: `Dockerfile` (Elixir release, poppler + tesseract in runtime) + `compose.yaml` (app + `pgvector/pgvector:pg18` db, Traefik labels). Server `.env`: `RULEMAVEN_HOST`, `SECRET_KEY_BASE`, `POSTGRES_PASSWORD`.
