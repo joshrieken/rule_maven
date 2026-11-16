@@ -238,6 +238,10 @@ hub/ops/pull-prod-all.sh  # production data into dev (§8); the containers use t
   First start: a few minutes (installs, Rule Maven compiles); later starts: about a minute.
 - **Tests and tools still run natively by default** (fast). For exact parity, run them in the container:
   `docker compose -f hub/dev/compose.yaml exec <app> npm test` (or `mix test`).
+- **A Next.js app reloads itself in a loop** (its console says `HMR hash mismatch`): its build cache in the
+  container went stale (code changed a lot underneath it). Clear it and restart:
+  `docker compose -f hub/dev/compose.yaml rm -sf <app> && docker volume rm lccz-dev_<app>-next && hub/dev/up.sh <app>`,
+  then hard-refresh the browser (Cmd+Shift+R).
 - **`curl` inside a container can't test `*.localhost` names** (it always uses loopback for them); the apps
   (Node, Erlang) resolve them normally.
 - **Secrets:** `hub/dev/.env` (chmod 600, git-ignored) holds dev-only secrets, shared with the local
