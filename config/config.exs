@@ -41,9 +41,8 @@ config :rule_maven, env: config_env()
 # RESEND_API_KEY).
 config :rule_maven, RuleMaven.Mailer, adapter: Swoosh.Adapters.Local
 
-# Disable Swoosh's default API client (Local/Test adapters don't need one;
-# the Resend adapter brings its own HTTP client).
-config :swoosh, :api_client, false
+# Swoosh's Resend adapter sends over Req (already a dependency).
+config :swoosh, :api_client, Swoosh.ApiClient.Req
 
 # Configure Oban
 config :rule_maven, Oban,

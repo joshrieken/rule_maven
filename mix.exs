@@ -66,9 +66,8 @@ defmodule RuleMaven.MixProject do
       {:pgvector, "~> 0.3"},
       {:oban, "~> 2.18"},
       {:oban_web, "~> 2.11"},
-      {:mdex, "~> 0.1"},
+      {:mdex, "~> 0.13.5"},
       {:swoosh, "~> 1.16"},
-      {:resend, "~> 0.4.5"},
       {:finch, "~> 0.18"},
       {:phoenix_test_playwright, "~> 0.15", only: :test, runtime: false},
       {:fun_with_flags, "~> 1.13"}

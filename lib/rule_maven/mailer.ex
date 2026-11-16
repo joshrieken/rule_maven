@@ -57,7 +57,7 @@ defmodule RuleMaven.Mailer do
         deliver(email)
 
       api_key = Settings.resend_api_key() ->
-        deliver(email, adapter: Resend.Swoosh.Adapter, api_key: api_key)
+        deliver(email, adapter: Swoosh.Adapters.Resend, api_key: api_key)
 
       true ->
         Logger.warning(
