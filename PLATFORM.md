@@ -172,4 +172,31 @@ anyway, run the app's `scripts/deploy.sh`; to pause one app, `touch /opt/<app>/.
 3. Server: deploy key + `github-<app>` alias, `git clone` into `/opt/<app>`, `.env`, first `./scripts/deploy.sh`.
 4. Hub: entry in `src/apps.js` (+ illustration), summary endpoint + `HUB_<APP>_SUMMARY_*`, `<app>-requests`
    group in `identity/blueprints/hub-access.yaml`.
-5. Add it to the table in §1 and to `ops/autodeploy.sh`.
+5. Add it to the table in §1, to `ops/autodeploy.sh`, and to `ops/pull-prod-all.sh` with its own
+   `scripts/pull-prod.sh` (§8).
+
+## 8. Production data on dev
+
+**One command, from your Mac, with the dev servers stopped:** `hub/ops/pull-prod-all.sh` (or name apps:
+`hub/ops/pull-prod-all.sh drawburn`). It runs `identity/scripts/pull-prod.sh` first, then each app's
+`scripts/pull-prod.sh`. Each script can run alone (identity first, the first time).
+
+- **Why identity goes first:** apps link people by Authentik's `sub`, which depends on the installation. Copying
+  prod's Authentik database (it carries the installation id) makes local `sub`s equal prod's, so the apps' copied
+  accounts sign in locally. The script then re-applies every local app blueprint whose `<APP>_OIDC_CLIENT_SECRET`
+  is in the local `identity/.env`, so redirects point at localhost again (others keep prod's settings and won't
+  sign in locally), and re-applies branding. Prod passwords work locally.
+- **Never copied (or removed from the copy):** sign-in sessions, API/CLI tokens, and credential settings (email,
+  LLM, BGG keys, proxies, the app's public address). Nothing local can send email, spend, or act as prod. An app
+  that stores dev's own credentials in its database keeps them across the pull (Rule Maven's `app_settings`).
+- **Prod is read-only:** SQLite online backup in the running container / `pg_dump`, files by rsync (new and
+  changed only). **The local copy is kept first** (`data/backups/local-*`, or `identity/backups/`), and each
+  script prints how to go back. Prod dumps are deleted once restored.
+- **Each script refuses** if its dev server is running (port in use) or the database is open: swapping a database
+  under a running server corrupts it.
+- **Code ahead of prod:** migrations newer than prod run on the next dev start (Rule Maven's script runs them).
+- **What lands where:** identity → local Authentik's Postgres (docker compose); Drawburn → `data/drawburn.db`;
+  Stir & Fold → `data/stirandfold.db` + `data/images`, `data/inbox` (~2.4 GB the first time); Rule Maven →
+  `rule_maven_dev` on the local Postgres + `priv/static/uploads`. The hub keeps no data.
+- **SSH:** every script uses `deploy@207.244.249.148` (override with `LCCZ_SSH`; Stir & Fold also reads
+  `STIRANDFOLD_SSH` from `.env.prod`). Never a domain: Cloudflare's proxy doesn't carry SSH.
