@@ -17,12 +17,11 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
-## Unreleased
+## v0.2.5 (2026-11-16)
 ### Everyone
-- Sign in with your Low-Cal Calzone Zone account, the same one you use for Drawburn and Stir & Fold.
-  Already have a Rule Maven account? Open Settings and press "Link your Low-Cal Calzone Zone
-  account" so your questions, groups and standing come with you. Signing out of Rule Maven also
-  signs you out of that account.
+- Rule Maven now signs you in with your Low-Cal Calzone Zone account, the same one you use for
+  Drawburn, Stir & Fold and the hub at lowcalcalzonezone.com. Signing out of Rule Maven also signs
+  you out of that account.
 
 ## v0.2.4 (2026-11-16)
 ### Admins
