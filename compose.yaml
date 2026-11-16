@@ -51,7 +51,7 @@ services:
         condition: service_healthy
     environment:
       MIX_ENV: prod
-      OBAN_QUEUES: "off"
+      RULEMAVEN_TOOLS: "1"
       HOME: /src/data/tools/home
       HEX_HOME: /src/data/tools/hex
       PHX_HOST: ${RULEMAVEN_HOST:?set RULEMAVEN_HOST in .env}

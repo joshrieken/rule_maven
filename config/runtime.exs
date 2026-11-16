@@ -24,9 +24,11 @@ end
 
 # The server's tools container (`bin/prod`, compose service "tools") runs mix
 # against the production DB beside the live app: it may insert jobs but must
-# never execute them (the app owns the queues, and PubSub is node-local).
-if System.get_env("OBAN_QUEUES") == "off" do
+# never execute them (the app owns the queues, and PubSub is node-local). Its
+# checkout has no digested assets, so don't warm a static manifest either.
+if System.get_env("RULEMAVEN_TOOLS") == "1" do
   config :rule_maven, Oban, queues: false, plugins: false
+  config :rule_maven, RuleMavenWeb.Endpoint, cache_static_manifest: nil
 end
 
 if config_env() == :prod do
