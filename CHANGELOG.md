@@ -1,6 +1,6 @@
 # Changelog
 
-Each production deploy is a `Release vX.Y.Z` commit that bumps `version` in `mix.exs` and adds an entry here (`scripts/deploy.sh` refuses anything else).
+Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and adds an entry here (`scripts/deploy.sh` refuses anything else).
 
 ## v0.1.4 — 2026-11-15
 

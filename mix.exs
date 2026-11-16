@@ -4,7 +4,9 @@ defmodule RuleMaven.MixProject do
   def project do
     [
       app: :rule_maven,
-      version: "0.1.4",
+      # Bumped by each "Release vX.Y.Z" commit. Kept out of mix.exs so a release doesn't
+      # touch it: any mix.exs change makes Mix recompile the whole app (and the deps layer).
+      version: "VERSION" |> File.read!() |> String.trim(),
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,

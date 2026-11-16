@@ -3,7 +3,7 @@
 # Run on the server from the checkout (/opt/rulemaven):
 #   ./scripts/deploy.sh            latest master
 #   ./scripts/deploy.sh <commit>   a specific commit (rolling back)
-# Only releases deploy: the commit must be a "Release vX.Y.Z" commit whose mix.exs says that
+# Only releases deploy: the commit must be a "Release vX.Y.Z" commit whose VERSION file says that
 # version, so what runs always has a version and a changelog entry.
 # Migrations run when the new container starts; the backup taken first is the way back. To roll back:
 #   docker compose stop rulemaven
@@ -30,10 +30,10 @@ main() {
   local target subject version
   target=$(git rev-parse --verify --quiet "${target_ref:-origin/$BRANCH}^{commit}") || { echo "No such commit: ${target_ref:-origin/$BRANCH}" >&2; exit 1; }
   subject=$(git log -1 --format=%s "$target")
-  version=$(git show "$target:mix.exs" | sed -n 's/^ *version: "\([^"]*\)".*/\1/p' | head -1)
+  version=$(git show "$target:VERSION" 2>/dev/null | tr -d '[:space:]')
   if ! [[ "$subject" =~ ^Release\ v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || [ "${BASH_REMATCH[1]}" != "$version" ]; then
     echo "Not deploying $(git log -1 --format='%h %s' "$target")" >&2
-    echo "Only release commits deploy: \"Release vX.Y.Z\" with mix.exs at that version." >&2
+    echo "Only release commits deploy: \"Release vX.Y.Z\" with VERSION at that version." >&2
     exit 1
   fi
   echo "v$version ($(git log -1 --format=%h "$target"))"

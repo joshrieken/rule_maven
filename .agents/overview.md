@@ -71,11 +71,11 @@ Live at https://rulemaven.com on the shared server (`ssh deploy@207.244.249.148`
 
 - Stack: `Dockerfile` (Elixir release, poppler + tesseract in runtime) + `compose.yaml` (app + `pgvector/pgvector:pg18` db, Traefik labels). Server `.env`: `RULEMAVEN_HOST`, `SECRET_KEY_BASE`, `POSTGRES_PASSWORD`.
 - Data: `/opt/rulemaven/data/{postgres,files,backups}`. `files/` = `UPLOADS_DIR` (holds `uploads/rulebooks`, `uploads/symbols`).
-- Deploy is release-only: commit `Release vX.Y.Z` (bump `mix.exs` version + `CHANGELOG.md` entry), push master, then `ssh deploy@207.244.249.148 'cd /opt/rulemaven && ./scripts/deploy.sh'` (pg_dump backup → ff master → build → up → wait for `/health` to report the version → seed new flags).
+- Deploy is release-only: commit `Release vX.Y.Z` (bump `VERSION` + `CHANGELOG.md` entry; never put the version back in `mix.exs`: any mix.exs change recompiles everything), push master, then `ssh deploy@207.244.249.148 'cd /opt/rulemaven && (nohup ./scripts/deploy.sh > data/deploy-last.log 2>&1 < /dev/null &)'` and poll `data/deploy-last.log` for `Up:` (a foreground ssh can hang after the remote finishes) (pg_dump backup → ff master → build → up → wait for `/health` to report the version → seed new flags).
 - Migrations run on container start (`bin/migrate`). Roll back: see header of `scripts/deploy.sh`.
 - LLM provider/keys/models live in the DB (`app_settings`), not env. Prod must have `llm_proxy_url` unset (the headroom proxy is local-only).
 - Console: `docker compose exec rulemaven bin/rule_maven remote`.
-- Build speed: `_build` is a BuildKit cache mount (`id=rulemaven-build`), so a code-only deploy recompiles just the changed files (~15s build); apt/deps layers are cached. If the cache ever goes bad: `docker builder prune --filter id=rulemaven-build` (or `docker builder prune`).
+- Build speed: `_build` is a BuildKit cache mount (`id=rulemaven-build`), and `deps/` are BuildKit cache mounts (`rulemaven-build`, `rulemaven-deps`), so a release recompiles only changed files (~15s build; whole deploy is mostly the restart). If a cache ever goes bad: `docker builder prune`.
 - PDFs are compressed after upload (`PdfCompressWorker`); recompress everything: `docker compose exec rulemaven bin/rule_maven rpc "RuleMaven.PdfCompress.backfill() |> IO.inspect()"`.
 
 ## Safety Rails — Always Ask First
