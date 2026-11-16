@@ -73,6 +73,8 @@ Live at https://rulemaven.com on the shared server (`ssh deploy@207.244.249.148`
 - Migrations run on container start (`bin/migrate`). Roll back: see header of `scripts/deploy.sh`.
 - LLM provider/keys/models live in the DB (`app_settings`), not env. Prod must have `llm_proxy_url` unset (the headroom proxy is local-only).
 - Console: `docker compose exec rulemaven bin/rule_maven remote`.
+- Build speed: `_build` is a BuildKit cache mount (`id=rulemaven-build`), so a code-only deploy recompiles just the changed files (~15s build); apt/deps layers are cached. If the cache ever goes bad: `docker builder prune --filter id=rulemaven-build` (or `docker builder prune`).
+- PDFs are compressed after upload (`PdfCompressWorker`); recompress everything: `docker compose exec rulemaven bin/rule_maven rpc "RuleMaven.PdfCompress.backfill() |> IO.inspect()"`.
 
 ## Safety Rails — Always Ask First
 

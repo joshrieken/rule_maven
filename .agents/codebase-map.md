@@ -26,6 +26,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `Users.User` | `users/user.ex` | — | User schema | — |
 | `PostgresTypes` | `postgres_types.ex` | — | Custom Ecto types (e.g. `Ltree`) | — |
 | `Repo` | `repo.ex` | 5 | Ecto repo module | — |
+| `PdfCompress` | `pdf_compress.ex` | ~150 | Ghostscript downsample of stored PDFs to the 300 dpi render res (no auto-rotate; keep only if same page count + ≥10% smaller; atomic swap; skipped without gs). `file_hash` stays the original's (dedupe key) | `compress_document/1`, `compress_file/1`, `backfill/0` (prod: `bin/rule_maven rpc`) |
 | `Release` | `release.ex` | 31 | Release-time tasks (no Mix in prod); run by `rel/overlays/bin/migrate` before every container start | `migrate/0`, `rollback/2` |
 | `Flags` | `flags.ex` | ~195 | fun_with_flags facade (registry-validated) | `enabled?/2`, `seed_missing/0` (seed unsynced flags at defaults + admin bypass; used by `mix rule_maven.flags.sync` and prod deploy via `bin/rule_maven rpc`) |
 
@@ -81,6 +82,7 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 
 | Module | File | Responsibility |
 |--------|------|----------------|
+| `PdfCompressWorker` | `pdf_compress_worker.ex` | Shrink a new source's PDF via `PdfCompress` (queue `reextract`); enqueued by `Games.insert_document` for any doc with `pdf_path`; Jobs kind `pdf_compress` |
 | `AskWorker` | `ask_worker.ex` | Background LLM ask via Oban, PubSub result broadcast |
 | `CheatSheetWorker` | `cheat_sheet_worker.ex` | Async cheatsheet generation (called after document save) |
 | `EmbedChunksWorker` | `embed_chunks_worker.ex` | Embed document chunks (called after chunk creation) |

@@ -16,29 +16,28 @@ ENV MIX_ENV=prod
 RUN mix local.hex --force && mix local.rebar --force
 
 COPY mix.exs mix.lock ./
-RUN mix deps.get --only prod
-RUN mkdir config
-# Compile-time config first so deps compile once and cache.
-COPY config/config.exs config/prod.exs config/
-RUN mix deps.compile
-
+RUN --mount=type=cache,target=/root/.hex/packages,sharing=locked mix deps.get --only prod
+COPY config/config.exs config/prod.exs config/runtime.exs config/
 COPY priv priv
 COPY lib lib
-RUN mix compile
-# No bundler: assets are committed plain files; digesting is the whole build.
-RUN mix assets.deploy
-COPY config/runtime.exs config/
 COPY rel rel
-RUN mix release
+# _build lives in a BuildKit cache that survives between builds, so deps and app
+# recompile only what changed (a cold deps.compile alone is ~2 min). No bundler:
+# assets are committed plain files; digesting is the whole asset build.
+# The release is written outside the cache so the runtime stage can copy it.
+RUN --mount=type=cache,target=/app/_build,id=rulemaven-build,sharing=locked \
+    mix deps.compile && mix compile && mix assets.deploy && \
+    mix release --overwrite --path /app/release
 
 FROM debian:${DEBIAN_VERSION} AS runtime
-# poppler (pdfinfo/pdftoppm/pdftotext) + tesseract: rulebook extraction. curl: healthcheck.
+# poppler (pdfinfo/pdftoppm/pdftotext) + tesseract: rulebook extraction. ghostscript: PdfCompress.
+# curl: healthcheck.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     apt-get update && apt-get install -y --no-install-recommends \
       libstdc++6 openssl libncurses6 libsctp1 locales ca-certificates curl \
-      poppler-utils tesseract-ocr tesseract-ocr-eng && \
+      poppler-utils tesseract-ocr tesseract-ocr-eng ghostscript && \
     sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
 ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8 \
     MIX_ENV=prod PHX_SERVER=true PORT=4000 UPLOADS_DIR=/data/files
@@ -47,7 +46,7 @@ ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8 \
 RUN groupadd --gid 1000 app && useradd --uid 1000 --gid app --home /app app && \
     mkdir -p /data/files && chown app:app /data/files
 WORKDIR /app
-COPY --from=build --chown=app:app /app/_build/prod/rel/rule_maven ./
+COPY --from=build --chown=app:app /app/release ./
 USER app
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \

@@ -46,6 +46,7 @@ Key files:
 GameLive.Form (save_game/4)
   → Games.create_game/1 OR Games.update_game/2
   → Games.create_document/1 (attrs with full_text)
+    → (has pdf_path) PdfCompressWorker: downsample PDF images to 300 dpi in place, update file_size
     → insert Document
     → chunk_document/1 (split text, insert Chunks)
     → Oban.insert(EmbedChunksWorker) (embed chunks in background)

@@ -5,6 +5,7 @@ defmodule RuleMaven.Games do
 
   import Ecto.Query, warn: false
   alias RuleMaven.Repo
+  alias RuleMaven.Workers.PdfCompressWorker
 
   # See the note in `log_question_with_rate_limit/2`: advisory-lock class for
   # per-user locks. `RuleMaven.Groups` owns class 2 for per-group locks.
@@ -853,6 +854,11 @@ defmodule RuleMaven.Games do
       %Document{}
       |> Document.changeset(Map.put(attrs, :status, status))
       |> Repo.insert()
+
+    with {:ok, %Document{pdf_path: path} = doc} when is_binary(path) <- result,
+         false <- testing?() do
+      %{document_id: doc.id} |> PdfCompressWorker.new() |> Oban.insert()
+    end
 
     case result do
       {:ok, doc} when not extracted? ->
