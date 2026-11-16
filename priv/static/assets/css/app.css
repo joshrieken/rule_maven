@@ -1481,6 +1481,81 @@ button.qa-overlay__reask:disabled {
   color: transparent;
 }
 
+/* "v0.1.5" beside the wordmark, opening What's new (/changelog). Small and quiet
+   so it never competes with the brand. The red dot (with sr-only text) means
+   release notes this user hasn't opened. The group, like .header-brand, may
+   shrink on desktop (min-width:0) but not on mobile (768px block below). */
+.header-brand-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.header-version {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0.15rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.72);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.header-version:hover,
+.header-version:focus-visible { color: #FFFFFF; text-decoration: underline; }
+.header-version-dot {
+  position: absolute;
+  top: -0.1rem;
+  right: -0.15rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--red, #D22F2F);
+  box-shadow: 0 0 0 1.5px #FFFFFF;
+}
+@media (max-width: 768px) {
+  .header-brand-group { flex-shrink: 0; gap: 0.2rem; }
+  .header-version { padding: 0.15rem 0.2rem; font-size: 0.62rem; }
+}
+/* Narrow phones: the nowrap row (brand + hamburger + theme + account) has no
+   width to spare, so the version sits under the end of the wordmark, in the
+   header's bottom padding, instead of beside it. */
+@media (max-width: 400px) {
+  .header-brand-group { position: relative; }
+  .header-version {
+    position: absolute;
+    right: -0.2rem;
+    top: calc(100% - 0.15rem);
+    padding: 0.05rem 0.2rem;
+    font-size: 0.56rem;
+  }
+  .header-version-dot { top: -0.15rem; right: -0.2rem; width: 0.4rem; height: 0.4rem; }
+}
+/* Below 320px only the dice shows (wordmark visually hidden): anchor the
+   version under the dice's left edge instead, so it doesn't poke out left. */
+@media (max-width: 320px) {
+  .header-version { right: auto; left: 0; }
+}
+
+/* What's new page (ChangelogController). */
+.changelog { max-width: 44rem; margin: 0 auto; padding: 2rem 1rem 4rem; line-height: 1.6; color: var(--text); }
+.changelog-title { font-size: 1.6rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--text-heading, var(--text)); }
+.changelog-current { color: var(--text-muted); margin: 0 0 2rem; }
+.changelog-releases { list-style: none; margin: 0; padding: 0; display: grid; gap: 2rem; }
+.changelog-version { font-size: 1.15rem; font-weight: 800; margin: 0; }
+.changelog-date { margin-left: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--text-muted); }
+.changelog-list { list-style: disc; margin: 0.5rem 0 0; padding-left: 1.25rem; display: grid; gap: 0.25rem; }
+.changelog-empty { margin: 0.5rem 0 0; color: var(--text-muted); }
+.changelog-admins { margin-top: 0.75rem; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 10px; }
+.changelog-admins > summary { cursor: pointer; font-size: 0.85rem; font-weight: 700; color: var(--text-muted); }
+.changelog-older { margin-top: 2.5rem; }
+.changelog-older-title { font-size: 1.15rem; font-weight: 800; margin: 0 0 0.5rem; }
+.changelog-older-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+.changelog-older-list > li { padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+.changelog-older-list summary { cursor: pointer; font-size: 1rem; }
+
 /* Login-page hero brand — same identity as .header-brand (floating 🎲,
    gradient "Maven"), scaled up. Gradient anchors on --accent instead of the
    header's white midpoint because it sits on the page background. */

@@ -28,6 +28,35 @@ defmodule RuleMavenWeb.Layouts do
     """
   end
 
+  attr :user, :any, default: nil, doc: "the signed-in user, or nil (never a dot)"
+
+  @doc """
+  The app version beside the name in the header ("v0.1.5"), opening What's new. A red dot
+  (with screen-reader text) while this user has release notes they haven't opened. A sibling
+  of the brand link, not inside it: links can't nest. Plain href (full page load) so the
+  header re-renders on /changelog with the dot cleared.
+  """
+  def version_link(assigns) do
+    assigns =
+      assign(assigns,
+        version: RuleMaven.Changelog.app_version(),
+        news?: RuleMaven.Changelog.unseen_for?(assigns.user)
+      )
+
+    ~H"""
+    <a
+      href={~p"/changelog"}
+      class="header-version"
+      id="header-version"
+      title={if @news?, do: "What's new: Rule Maven was updated", else: "What's new"}
+    >
+      <span class="sr-only">What's new in Rule Maven, version</span> v{@version}
+      <span :if={@news?} class="header-version-dot" aria-hidden="true"></span>
+      <span :if={@news?} class="sr-only">(updated: see what's new)</span>
+    </a>
+    """
+  end
+
   attr :flash, :map, required: true
   attr :id, :string, default: "flash-group"
 

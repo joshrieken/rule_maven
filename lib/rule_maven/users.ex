@@ -237,6 +237,10 @@ defmodule RuleMaven.Users do
   def mark_tour_seen(%User{} = user, tour_id),
     do: user |> User.tour_seen_changeset(tour_id) |> Repo.update()
 
+  @doc "Records the release whose notes the user has now seen (see `RuleMaven.Changelog.mark_seen/2`)."
+  def mark_version_seen(%User{} = user, version),
+    do: user |> User.seen_version_changeset(version) |> Repo.update()
+
   @doc "True once the user has completed or skipped the given tour."
   def tour_seen?(user, tour_id), do: User.tour_seen?(user, tour_id)
 

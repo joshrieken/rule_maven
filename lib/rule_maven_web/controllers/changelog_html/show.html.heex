@@ -1,0 +1,29 @@
+<div class="changelog">
+  <h1 class="changelog-title">What's new</h1>
+  <p class="changelog-current">You're on Rule Maven v{@version}.</p>
+
+  <p :if={@recent == []} class="changelog-empty">No release notes yet.</p>
+
+  <ol :if={@recent != []} class="changelog-releases">
+    <li :for={release <- @recent} class="changelog-release">
+      <h2 class="changelog-version">
+        v{release.version} <.release_date date={release.date} />
+      </h2>
+      <.notes release={release} />
+    </li>
+  </ol>
+
+  <section :if={@older != []} class="changelog-older" aria-labelledby="changelog-older-title">
+    <h2 id="changelog-older-title" class="changelog-older-title">Older releases</h2>
+    <ol class="changelog-older-list">
+      <li :for={release <- @older}>
+        <details>
+          <summary class="changelog-version">
+            v{release.version} <.release_date date={release.date} />
+          </summary>
+          <.notes release={release} />
+        </details>
+      </li>
+    </ol>
+  </section>
+</div>

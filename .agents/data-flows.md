@@ -193,3 +193,16 @@ transcription writes icons as neutral bracket tokens ("[purple hammer symbol]")
   → answers + citation quotes (Q&A, Community): SymbolMarkup.decorate swaps known tokens in rendered
      HTML text for icon + name chips (icons off → token text keeps a name tooltip); copy/share text stays plain
 ```
+
+## What's new (version + changelog)
+
+```
+CHANGELOG.md (## vX.Y.Z (date) / ### Everyone / ### Admins; ## Unreleased ignored)
+  → parsed at compile time into Changelog.releases/0 (Dockerfile copies CHANGELOG.md for the build)
+  → header (root layout, every page): Layouts.version_link shows v<Application.spec vsn>;
+     red dot while Changelog.unseen_for?(user): newest release with notes for this reader
+     (admins also count Admins notes) != users.seen_version. Signed out: never.
+  → GET /changelog (ChangelogController, public): Changelog.mark_seen(user) writes seen_version,
+     reassigns current_user, then renders, so the header on that page already has no dot
+Release: rename "## Unreleased" to "## vX.Y.Z (YYYY-MM-DD)" in the Release vX.Y.Z commit.
+```

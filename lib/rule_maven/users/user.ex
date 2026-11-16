@@ -22,6 +22,9 @@ defmodule RuleMaven.Users.User do
     # Onboarding tours completed/skipped: tour id => ISO8601 timestamp. A tour
     # auto-starts on its page until its key appears here.
     field :tours_seen, :map, default: %{}
+    # The newest release ("0.1.5") with notes for this user that they've opened
+    # "What's new" (/changelog) since; nil = never. See RuleMaven.Changelog.
+    field :seen_version, :string
 
     timestamps(type: :utc_datetime)
   end
@@ -209,6 +212,10 @@ defmodule RuleMaven.Users.User do
     seen = Map.put(user.tours_seen || %{}, tour_id, DateTime.utc_now() |> DateTime.to_iso8601())
     change(user, tours_seen: seen)
   end
+
+  @doc "Records the release whose notes the user has now seen (What's new)."
+  def seen_version_changeset(user, version) when is_binary(version),
+    do: change(user, seen_version: version)
 
   @doc "True once the user has completed or skipped the given tour."
   def tour_seen?(%__MODULE__{tours_seen: seen}, tour_id) when is_map(seen),

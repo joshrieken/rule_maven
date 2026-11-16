@@ -19,6 +19,8 @@ ENV MIX_ENV=prod MIX_HOME=/opt/mix HEX_HOME=/opt/hex
 RUN mix local.hex --force && mix local.rebar --force
 
 COPY mix.exs mix.lock VERSION ./
+# Parsed into the app at compile time (RuleMaven.Changelog): What's new.
+COPY CHANGELOG.md ./
 COPY config/config.exs config/prod.exs config/runtime.exs config/
 COPY priv priv
 COPY lib lib

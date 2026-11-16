@@ -22,8 +22,10 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `RulebookDownloader` | `rulebook_downloader.ex` | 328 | Auto-download/OCR rulebooks from URLs | `download/3` |
 | `Settings` | `settings.ex` | 32 | KV settings store (ets-backed) | `get/1`, `put/2`, `delete/1` |
 | `Settings.AppSetting` | `settings/app_setting.ex` | — | Schema for persisted settings | — |
-| `Users` | `users.ex` | — | User CRUD, auth helpers | `get_user!/1`, `create_user/2` |
-| `Users.User` | `users/user.ex` | — | User schema | — |
+| `Users` | `users.ex` | — | User CRUD, auth helpers | `get_user!/1`, `create_user/2`, `mark_version_seen/2` |
+| `Users.User` | `users/user.ex` | — | User schema (`seen_version`: last What's new release opened) | — |
+| `Changelog` | `changelog.ex` | ~90 | App version + CHANGELOG.md (parsed at compile time, `@external_resource`); per-reader filtering and the What's new mark | `releases/0`, `app_version/0`, `reader_releases/2`, `visible_releases/2`, `unseen?/3`, `unseen_for?/2`, `mark_seen/2`, `parse/1` |
+| `Changelog.Parser` / `Changelog.Release` | `changelog/parser.ex`, `changelog/release.ex` | ~100 | Lenient CHANGELOG.md parser (`## vX.Y.Z (date)`, `### Everyone`/`### Admins`, wrapped bullets; skips `## Unreleased`) and its struct | `Parser.parse/1` |
 | `PostgresTypes` | `postgres_types.ex` | — | Custom Ecto types (e.g. `Ltree`) | — |
 | `Repo` | `repo.ex` | 5 | Ecto repo module | — |
 | `PdfCompress` | `pdf_compress.ex` | ~150 | Ghostscript downsample of stored PDFs to the 300 dpi render res (no auto-rotate; keep only if same page count + ≥10% smaller; atomic swap; skipped without gs). `file_hash` stays the original's (dedupe key) | `compress_document/1`, `compress_file/1`, `backfill/0` (prod: `bin/rule_maven rpc`) |
@@ -70,13 +72,14 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `Plugs.Health` | `plugs/health.ex` (in `rule_maven_web/`) | `GET /health` → `{"version":…}` before session/router/DB; Docker healthcheck + `scripts/deploy.sh` poll it |
 | `Plugs.ClientIp` | `plugs/client_ip.ex` (in `rule_maven_web/`) | Real client `remote_ip` behind Cloudflare→Traefik: last XFF hop from a private peer; `cf-connecting-ip` only if that hop is a Cloudflare range. LoginThrottle depends on it |
 | `CheatSheetController` | `cheat_sheet_controller.ex` | Serve cheatsheet HTML page + versioned pages |
+| `ChangelogController` + `ChangelogHTML` | `changelog_controller.ex`, `changelog_html.ex`, `changelog_html/show.html.heex` | Public `GET /changelog` "What's new": releases with notes for this reader (newest 3 open, older collapsed, admins' notes in a "For admins" block); marks seen before the layout renders so the header dot clears |
 
 ## Components (`lib/rule_maven_web/components/`)
 
 | Module | File | Responsibility |
 |--------|------|----------------|
 | `CoreComponents` | `core_components.ex` | Shared UI: buttons, modals, forms, icons; `citation_pages/1`, `citation_chip/1` ("Rulebook p.4 · Official FAQ p.2" — names the source), `citation_cards` (optional `symbol_marks` → icon chips in quotes) |
-| `Layouts` | `layouts.ex` + `layouts/` | Root layout, app shell |
+| `Layouts` | `layouts.ex` + `layouts/` | Root layout, app shell; `version_link/1` (header "vX.Y.Z" → /changelog, red dot while `Changelog.unseen_for?/2`) |
 
 ## Workers — Oban (`lib/rule_maven/workers/`)
 
@@ -104,6 +107,8 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | `test/rule_maven_web/feature/flow_test.exs` | E2E: login, game list, auth visibility |
 | `test/rule_maven_web/feature/smoke_test.exs` | Smoke: pages load, no crashes |
 | `test/rule_maven_web/live/game_live/refresh_test.exs` | BGG refresh LiveView test |
+| `test/rule_maven/changelog_test.exs` | CHANGELOG parser, admin filtering, unseen logic, mark_seen |
+| `test/rule_maven_web/controllers/changelog_controller_test.exs` | What's new page renders, marks seen, header dot, admin-only notes |
 | `test/support/data_case.ex` | DB setup helpers, fixtures |
 | `test/support/feature_case.ex` | LiveView test helpers, auth |
 | `test/support/fixtures/` | Factory functions for Game, User, Document |
@@ -145,3 +150,4 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 | Admin thread review | `admin_live/threads.ex` (`build_consolidated_answer/2`), `games.ex` (`question_threads/1`, `all_question_threads/0`) |
 | FAQ page | `game_live/faq.ex`, `faq.ex` |
 | Fix BGG import | `bgg.ex`, `game_live/import.ex` |
+| App version / What's new / changelog | `changelog.ex` (+ `changelog/parser.ex`), `changelog_controller.ex`, `layouts.ex` `version_link/1` (in root.html.heex `.header-brand-group`), CSS `.header-version*` / `.changelog*` in app.css; content in `CHANGELOG.md`, version in `VERSION` |
