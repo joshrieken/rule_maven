@@ -24,6 +24,12 @@ renames that heading to the new version and date.
   account" so your questions, groups and standing come with you. Signing out of Rule Maven also
   signs you out of that account.
 
+## v0.2.3 (2026-11-15)
+### Admins
+- Deploys no longer take the site down: the new version starts alongside the old one and takes
+  over once it's ready. A release that fails to start is removed and the old one keeps serving.
+  Database migrations must now work with the previous release too (add now, remove later).
+
 ## v0.2.2 (2026-11-15)
 ### Admins
 - Shorter blip during deploys: the new version is put back into service within a second or two
