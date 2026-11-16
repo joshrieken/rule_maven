@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Update the production server: back up the database, pull, rebuild, restart.
+# Update the production server: back up the database, pull, rebuild, swap containers with no gap.
 # Run on the server from the checkout (/opt/rulemaven):
 #   ./scripts/deploy.sh            latest master
 #   ./scripts/deploy.sh <commit>   a specific commit (rolling back)
@@ -64,36 +64,54 @@ main() {
   echo "== Building"
   "${COMPOSE[@]}" build
 
-  echo "== Restarting"
-  "${COMPOSE[@]}" up -d --remove-orphans
+  # Rolling swap: start the new container BESIDE the running one, wait until Traefik can route to
+  # it (Docker says healthy, and it reports the version just built), then retire the old one.
+  # Visitors never hit a gap. For those seconds both versions serve and the new one has already
+  # migrated, so migrations must stay backward-compatible (add, don't rename/drop, in one release).
+  echo "== Starting v$version beside the running version"
+  "${COMPOSE[@]}" up -d --remove-orphans db
+  local old new
+  old=$("${COMPOSE[@]}" ps -q "$SVC" 2>/dev/null || true)
+  if [ -z "$old" ]; then
+    "${COMPOSE[@]}" up -d --no-deps "$SVC"
+  else
+    "${COMPOSE[@]}" up -d --no-deps --no-recreate --scale "$SVC=2" "$SVC"
+  fi
+  new=$("${COMPOSE[@]}" ps -q "$SVC" | grep -vxF "${old:-none}" | head -1 || true)
+  [ -n "$new" ] || { echo "The new container didn't start." >&2; exit 1; }
 
-  echo "== Waiting for v$version to answer"
-  local running host
-  for _ in $(seq 1 90); do
-    # The new build, not the old container still answering: it must report the version just built.
-    running=$("${COMPOSE[@]}" exec -T "$SVC" curl -fsS http://127.0.0.1:4000/health 2>/dev/null \
+  echo "== Waiting for v$version to be healthy"
+  local running="" health=""
+  for _ in $(seq 1 180); do
+    running=$(docker exec "$new" curl -fsS http://127.0.0.1:4000/health 2>/dev/null \
       | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' || true)
-    if [ "$running" = "$version" ]; then
-      # Traefik routes only to a healthy container: until Docker says so, visitors get a 404.
-      local cid
-      cid=$("${COMPOSE[@]}" ps -q "$SVC")
-      for _ in $(seq 1 30); do
-        [ "$(docker inspect -f '{{.State.Health.Status}}' "$cid")" = healthy ] && break
-        sleep 1
-      done
-      echo "== Seeding new feature flags"
-      "${COMPOSE[@]}" exec -T "$SVC" bin/rule_maven rpc \
-        'Enum.each(RuleMaven.Flags.seed_missing(), &IO.puts("seeded flag #{&1.id} = #{&1.default}"))'
-      host=$({ grep -E '^RULEMAVEN_HOST=' .env || true; } | head -1 | cut -d= -f2-)
-      echo "Up: v$version at https://${host:-(set RULEMAVEN_HOST in .env)}"
-      docker image prune -f --filter "label=com.docker.compose.project=$(basename "$PWD")" >/dev/null
-      exit 0
-    fi
-    sleep 2
+    health=$(docker inspect -f '{{.State.Health.Status}}' "$new" 2>/dev/null || true)
+    [ "$running" = "$version" ] && [ "$health" = healthy ] && break
+    [ "$(docker inspect -f '{{.State.Running}}' "$new" 2>/dev/null)" = true ] || break
+    sleep 1
   done
-  echo "v$version didn't come up in 3 minutes (answering: ${running:-nothing}). Recent logs:" >&2
-  "${COMPOSE[@]}" logs --tail 60 "$SVC" >&2
-  exit 1
+  if [ "$running" != "$version" ] || [ "$health" != healthy ]; then
+    echo "v$version didn't become healthy (answering: ${running:-nothing}, health: ${health:-none})." >&2
+    echo "The previous version keeps serving. Logs of the new container:" >&2
+    docker logs --tail 60 "$new" >&2 || true
+    docker rm -f "$new" >/dev/null
+    exit 1
+  fi
+
+  if [ -n "$old" ]; then
+    echo "== Retiring the previous version"
+    # By id, never a compose scale-down: that removes the highest-numbered replica, which may
+    # be the new one.
+    docker stop -t 30 "$old" >/dev/null && docker rm "$old" >/dev/null
+  fi
+
+  echo "== Seeding new feature flags"
+  docker exec "$new" bin/rule_maven rpc \
+    'Enum.each(RuleMaven.Flags.seed_missing(), &IO.puts("seeded flag #{&1.id} = #{&1.default}"))'
+  local host
+  host=$({ grep -E '^RULEMAVEN_HOST=' .env || true; } | head -1 | cut -d= -f2-)
+  echo "Up: v$version at https://${host:-(set RULEMAVEN_HOST in .env)}"
+  docker image prune -f --filter "label=com.docker.compose.project=$(basename "$PWD")" >/dev/null
 }
 
 main "$@"

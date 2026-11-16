@@ -132,6 +132,7 @@ outermost wrapper div that always exists (even if hidden with `display:none`).
 - New content (imports, prepares, corrections, data fixes) is applied in production: `bin/prod <mix|psql|python3 …>`.
 - Dev data is a disposable copy. Refresh with `bin/pull-prod` (dev server stopped). Work done only in dev does not count.
 - `bin/prod` runs the DEPLOYED code: ship a changed task/script (Release + `scripts/deploy.sh`) before using it there.
+- Migrations must be backward-compatible with the previous release (rolling deploys run old and new code against the migrated DB for a few seconds): add first, rename/drop in a later release.
 
 ## Running Tests
 
