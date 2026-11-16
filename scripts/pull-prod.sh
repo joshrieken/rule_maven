@@ -23,6 +23,11 @@ LOCAL_ONLY="key ~ '(api_key|_pass\$|secret|token|password)' OR key IN ('llm_prox
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   echo "The dev server is running (port $PORT). Stop it first." >&2; exit 1
 fi
+# The dev zone's container (hub/dev) has the same database open: refuse while it runs.
+if docker ps -q --filter label=com.docker.compose.project=lccz-dev --filter label=com.docker.compose.service=rulemaven 2>/dev/null | grep -q .; then
+  echo "The dev zone's rulemaven container is running: hub/dev/down.sh (or docker compose -f ../hub/dev/compose.yaml stop rulemaven) first." >&2
+  exit 1
+fi
 psql -d postgres -Atqc "select 1" >/dev/null || { echo "Can't reach the local Postgres as $PGUSER@$PGHOST." >&2; exit 1; }
 
 SOCK="$HOME/.ssh/lccz-pull-%C"
