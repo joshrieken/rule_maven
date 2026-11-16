@@ -58,10 +58,10 @@ if [ -s "data/backups/local-settings-$stamp.tsv" ]; then
 fi
 rm -f "data/backups/local-settings-$stamp.tsv"
 
-echo "== Syncing uploaded files (new and changed only)"
+echo "== Mirroring uploaded files (only what changed travels; files prod no longer has are removed here)"
 RSYNC=$(command -v /opt/homebrew/bin/rsync /usr/local/bin/rsync rsync | head -1)
 mkdir -p priv/static/uploads
-"$RSYNC" -e "${SSH[*]}" -aW "$SSH_HOST:$REMOTE/data/files/uploads/" priv/static/uploads/
+"$RSYNC" -e "${SSH[*]}" -aW --delete "$SSH_HOST:$REMOTE/data/files/uploads/" priv/static/uploads/
 
 echo "== Running migrations newer than prod"
 mix ecto.migrate --quiet
