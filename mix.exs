@@ -59,6 +59,8 @@ defmodule RuleMaven.MixProject do
       {:bandit, "~> 1.5"},
       {:req, "~> 0.5"},
       {:bcrypt_elixir, "~> 3.0"},
+      # OpenID Connect sign-in (shared Authentik): discovery, PKCE, ID-token checks.
+      {:assent, "~> 0.3.1"},
       {:sweet_xml, "~> 0.7"},
       {:nimble_csv, "~> 1.2"},
       {:pgvector, "~> 0.3"},

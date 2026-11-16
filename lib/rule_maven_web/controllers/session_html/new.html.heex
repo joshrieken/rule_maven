@@ -106,7 +106,18 @@
   <%!-- Compact login bar, pinned to the bottom of the viewport while the pitch
         above scrolls past it. `position: sticky` (not fixed) keeps it in flow,
         so it can't overlap the pitch's last line and needs no viewport math. --%>
-  <div class="login-bar">
+  <%!-- Single sign-on configured: the only way in (no passwords, registration or resets
+        here; accounts and invitations live at the shared sign-in). --%>
+  <div :if={@sso} class="login-bar">
+    <.form for={%{}} action={~p"/auth/oidc"} class="login-bar-form">
+      <input type="hidden" name="mode" value="login" />
+      <button type="submit" class="btn-primary login-bar-submit" data-testid="sso-sign-in">
+        {@sso.button}
+      </button>
+    </.form>
+  </div>
+
+  <div :if={!@sso} class="login-bar">
     <.form for={%{}} action={~p"/login"} as={:session} class="login-bar-form">
       <div class="login-bar-field">
         <label for="session_username" class="login-bar-label">Username</label>

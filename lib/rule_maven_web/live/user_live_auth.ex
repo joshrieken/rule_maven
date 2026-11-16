@@ -5,6 +5,7 @@ defmodule RuleMavenWeb.UserLiveAuth do
 
   alias RuleMaven.Users
   alias RuleMaven.Users.AuthCache
+  alias RuleMavenWeb.SessionLifetime
 
   # LiveViews that only an admin may mount. This list is the admin gate: it used
   # to be a separate `live_session :admin`, but a live_session boundary can't be
@@ -94,6 +95,7 @@ defmodule RuleMavenWeb.UserLiveAuth do
 
     socket
     |> assign(:logged_in_at, logged_in_at)
+    |> assign(:sso_until, session_sso_until(session))
     |> assign(:current_user, user)
     |> attach_hook(:suspension_reauth, :handle_event, &default_reauth_event/3)
   end
@@ -132,7 +134,8 @@ defmodule RuleMavenWeb.UserLiveAuth do
     with %{id: id} <- user,
          {source, fresh} when not is_nil(fresh) <- standing_user(id),
          false <- Users.suspended?(fresh),
-         true <- Users.session_valid?(fresh, logged_in_at) do
+         true <- Users.session_valid?(fresh, logged_in_at),
+         true <- SessionLifetime.valid?(socket.assigns[:sso_until], logged_in_at) do
       {:cont, maybe_refresh_user(socket, source, fresh)}
     else
       _ -> {:halt, redirect(socket, to: "/login")}
@@ -162,34 +165,31 @@ defmodule RuleMavenWeb.UserLiveAuth do
   defp maybe_refresh_user(socket, :db, fresh), do: assign(socket, :current_user, fresh)
   defp maybe_refresh_user(socket, :cache, _fresh), do: socket
 
-  # Resolves the session's user, treating a suspended account or a session
-  # revoked by force-logout as logged out.
-  defp active_user(session) do
-    case session[:user_id] || session["user_id"] do
-      nil ->
-        nil
+  @doc """
+  The session's user, or nil when signed out, suspended, force-logged-out or past the
+  session's lifetime (`RuleMavenWeb.SessionLifetime`).
+  """
+  def active_user(session) do
+    logged_in_at = session[:logged_in_at] || session["logged_in_at"]
 
-      user_id ->
-        logged_in_at = session[:logged_in_at] || session["logged_in_at"]
-
-        case RuleMaven.Users.get_user(user_id) do
-          nil ->
-            nil
-
-          user ->
-            cond do
-              RuleMaven.Users.suspended?(user) -> nil
-              not RuleMaven.Users.session_valid?(user, logged_in_at) -> nil
-              true -> user
-            end
-        end
+    with user_id when not is_nil(user_id) <- session[:user_id] || session["user_id"],
+         %{} = user <- Users.get_user(user_id),
+         false <- Users.suspended?(user),
+         true <- Users.session_valid?(user, logged_in_at),
+         true <- SessionLifetime.valid?(session_sso_until(session), logged_in_at) do
+      user
+    else
+      _ -> nil
     end
   end
 
   def get_session(conn) do
     %{
       "user_id" => get_session(conn, :user_id),
-      "logged_in_at" => get_session(conn, :logged_in_at)
+      "logged_in_at" => get_session(conn, :logged_in_at),
+      "sso_until" => get_session(conn, :sso_until)
     }
   end
+
+  defp session_sso_until(session), do: session[:sso_until] || session["sso_until"]
 end

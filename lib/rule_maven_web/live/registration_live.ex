@@ -1,10 +1,33 @@
 defmodule RuleMavenWeb.RegistrationLive do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Users, InviteCodes}
+  alias RuleMaven.Auth.Oidc
+  alias RuleMaven.{InviteCodes, Users}
+  alias RuleMavenWeb.Plugs.PasswordAuth
 
+  # While single sign-on is on, accounts and invitations live at the shared sign-in: this page
+  # (and its submit, which a stale socket could still send) refuses.
   @impl true
-  def mount(%{"code" => code}, _session, socket) do
+  def mount(params, session, socket) do
+    case refuse_while_sign_on(socket) do
+      nil -> do_mount(params, session, socket)
+      refused -> {:ok, refused}
+    end
+  end
+
+  defp refuse_while_sign_on(socket) do
+    case Oidc.settings() do
+      nil ->
+        nil
+
+      settings ->
+        socket
+        |> put_flash(:error, PasswordAuth.refusal(settings))
+        |> redirect(to: ~p"/login")
+    end
+  end
+
+  defp do_mount(%{"code" => code}, _session, socket) do
     if socket.assigns.current_user do
       {:ok, push_navigate(socket, to: ~p"/")}
     else
@@ -20,7 +43,7 @@ defmodule RuleMavenWeb.RegistrationLive do
     end
   end
 
-  def mount(_params, _session, socket) do
+  defp do_mount(_params, _session, socket) do
     if socket.assigns.current_user do
       {:ok, push_navigate(socket, to: ~p"/")}
     else
@@ -37,11 +60,17 @@ defmodule RuleMavenWeb.RegistrationLive do
   end
 
   @impl true
-  def handle_event(
-        "register",
-        %{"code" => code, "username" => username, "email" => email, "password" => password},
-        socket
-      ) do
+  def handle_event("register", params, socket) do
+    case refuse_while_sign_on(socket) do
+      nil -> register(params, socket)
+      refused -> {:noreply, refused}
+    end
+  end
+
+  defp register(
+         %{"code" => code, "username" => username, "email" => email, "password" => password},
+         socket
+       ) do
     errors = %{}
 
     {errors, code_valid?} =

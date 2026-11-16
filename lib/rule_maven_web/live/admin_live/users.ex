@@ -2,6 +2,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
   use RuleMavenWeb, :live_view
 
   alias RuleMaven.{Audit, Users}
+  alias RuleMaven.Auth.Oidc
 
   @impl true
   def mount(_params, _session, socket) do
@@ -16,7 +17,9 @@ defmodule RuleMavenWeb.AdminLive.Users do
          new_email: "",
          new_role: "user",
          temp_password: nil,
-         created_username: nil
+         created_username: nil,
+         # Single sign-on on: people and admins come from the provider's groups, not here.
+         sso: Oidc.settings()
        )}
     else
       {:ok,
@@ -33,6 +36,11 @@ defmodule RuleMavenWeb.AdminLive.Users do
 
   def handle_event("demote_user", %{"id" => id_str}, socket) do
     with_superadmin(socket, fn -> do_demote_user(id_str, socket) end)
+  end
+
+  def handle_event("create_user", _params, %{assigns: %{sso: %{}}} = socket) do
+    {:noreply,
+     put_flash(socket, :error, "With single sign-on, add people at the shared sign-in.")}
   end
 
   def handle_event(
@@ -211,8 +219,20 @@ defmodule RuleMavenWeb.AdminLive.Users do
         </div>
       <% end %>
 
+      <p
+        :if={@sso}
+        style="font-size:0.78rem;color:var(--text-muted);margin:0 0 1rem"
+        data-testid="sso-users-note"
+      >
+        Everyone signs in with {@sso.name}. To let someone in, add them to the
+        <code>{@sso.group}</code>
+        group there; members of <code>{@sso.admin_group}</code>
+        are admins here (re-checked at every sign-in, so Promote/Demote below lasts only until
+        their next sign-in). Existing accounts link from their Settings page, or with <code>mix rule_maven.link_sso</code>.
+      </p>
+
       <!-- Create user form -->
-      <%= if !@temp_password do %>
+      <%= if !@temp_password and !@sso do %>
         <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem;margin-bottom:1rem">
           <h2 style="font-size:0.85rem;font-weight:600;color:var(--text);margin:0 0 0.5rem">
             Create New User
@@ -295,7 +315,10 @@ defmodule RuleMavenWeb.AdminLive.Users do
                   <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{user.username}</span>
                 </td>
                 <td style="padding:0.45rem 0.75rem;overflow:hidden">
-                  <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted);font-size:0.78rem">{user.email}</span>
+                  <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted);font-size:0.78rem">
+                    {user.email}
+                    <span :if={user.oidc_sub} title="Linked to single sign-on">· linked</span>
+                  </span>
                 </td>
                 <td style="padding:0.45rem 0.75rem;font-weight:600;font-size:0.78rem">
                   <span style={"#{if Users.can?(user, :admin), do: "color:var(--accent-ink, var(--accent))", else: "color:var(--text-muted)"}"}>

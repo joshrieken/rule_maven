@@ -1,6 +1,7 @@
 defmodule RuleMavenWeb.SettingsLive do
   use RuleMavenWeb, :live_view
 
+  alias RuleMaven.Auth.Oidc
   alias RuleMaven.Users
 
   @impl true
@@ -17,6 +18,9 @@ defmodule RuleMavenWeb.SettingsLive do
        password_msg: nil,
        password_error: nil,
        is_admin: Users.can?(user, :admin),
+       # Single sign-on settings (nil = off): passwords are the provider's then, and an
+       # account not linked yet gets the "Link your … account" button.
+       sso: Oidc.settings(),
        curator_stats: RuleMaven.Games.Curation.curator_stats(user.id)
      )}
   end
@@ -43,6 +47,14 @@ defmodule RuleMavenWeb.SettingsLive do
 
         {:noreply, assign(socket, profile_error: msg, profile_msg: nil)}
     end
+  end
+
+  def handle_event("change_password", _params, %{assigns: %{sso: %{}}} = socket) do
+    {:noreply,
+     assign(socket,
+       password_error: "Passwords are managed by #{socket.assigns.sso.name} now.",
+       password_msg: nil
+     )}
   end
 
   def handle_event(
@@ -86,6 +98,10 @@ defmodule RuleMavenWeb.SettingsLive do
     {:noreply,
      assign(socket, profile_msg: nil, profile_error: nil, password_msg: nil, password_error: nil)}
   end
+
+  # "your Low-Cal Calzone Zone account" (RULEMAVEN_OIDC_NAME), or "single sign-on" unbranded.
+  defp sso_account(%{name: "single sign-on"}), do: "single sign-on"
+  defp sso_account(%{name: name}), do: "your #{name} account"
 
   @impl true
   def render(assigns) do
@@ -138,8 +154,41 @@ defmodule RuleMavenWeb.SettingsLive do
             <% end %>
           </div>
 
+          <!-- Single sign-on: link this account (made with a password) to the shared sign-in -->
+          <div
+            :if={@sso}
+            style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)"
+            data-testid="sso-link"
+          >
+            <h3 style="font-size:0.82rem;font-weight:600;margin:0 0 0.5rem 0">Sign-in</h3>
+            <%= if @current_user.oidc_sub do %>
+              <p style="font-size:0.78rem;color:var(--text-muted);margin:0">
+                You sign in with {sso_account(@sso)}. Change your password there.
+              </p>
+            <% else %>
+              <.form
+                for={%{}}
+                id="sso-link-form"
+                action={~p"/auth/oidc"}
+                style="display:flex;flex-direction:column;gap:0.4rem"
+              >
+                <input type="hidden" name="mode" value="link" />
+                <p style="font-size:0.78rem;color:var(--text-muted);margin:0">
+                  Rule Maven signs everyone in with {sso_account(@sso)} now. Link it to this
+                  account to keep your questions, groups and standing.
+                </p>
+                <button type="submit" class="btn-primary btn-sm" style="align-self:flex-start">
+                  Link {sso_account(@sso)}
+                </button>
+              </.form>
+            <% end %>
+          </div>
+
           <!-- Change Password -->
-          <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)">
+          <div
+            :if={!@sso}
+            style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)"
+          >
             <h3 style="font-size:0.82rem;font-weight:600;margin:0 0 0.5rem 0">Change Password</h3>
             <form
               phx-submit="change_password"
