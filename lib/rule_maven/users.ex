@@ -428,7 +428,7 @@ defmodule RuleMaven.Users do
 
       user ->
         cond do
-          not Bcrypt.verify_pass(password, user.password_hash) ->
+          not password_matches?(user, password) ->
             {:error, "Invalid username or password"}
 
           User.suspended?(user) ->
@@ -439,6 +439,14 @@ defmodule RuleMaven.Users do
         end
     end
   end
+
+  # Accounts made by single sign-on have no password (hash ""): nothing matches, and Bcrypt
+  # still burns the same time as a real check.
+  defp password_matches?(%User{password_hash: hash}, password)
+       when is_binary(hash) and hash != "" and is_binary(password),
+       do: Bcrypt.verify_pass(password, hash)
+
+  defp password_matches?(_user, _password), do: Bcrypt.no_user_verify()
 
   @doc "Whether the user's role grants the given capability (see User.can?/2)."
   def can?(user, capability), do: User.can?(user, capability)
@@ -462,7 +470,7 @@ defmodule RuleMaven.Users do
   Returns {:ok, user} or {:error, reason}.
   """
   def change_password(%User{} = user, current_password, new_password) do
-    unless Bcrypt.verify_pass(current_password, user.password_hash) do
+    unless password_matches?(user, current_password) do
       {:error, "Current password is incorrect."}
     else
       case User.password_changeset(user, %{password: new_password}) do

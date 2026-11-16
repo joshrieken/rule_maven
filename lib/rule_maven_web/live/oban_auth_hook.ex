@@ -10,9 +10,7 @@ defmodule RuleMavenWeb.ObanAuthHook do
   import Phoenix.Component, only: [assign: 2]
 
   def on_mount(:default, _params, session, socket) do
-    user_id = session["user_id"]
-
-    user = if user_id, do: RuleMaven.Users.get_user(user_id), else: nil
+    user = RuleMavenWeb.UserLiveAuth.active_user(session)
 
     if user && RuleMaven.Users.can?(user, :superadmin) do
       {:cont, assign(socket, current_user: user)}

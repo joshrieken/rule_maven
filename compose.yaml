@@ -4,6 +4,13 @@
 #   RULEMAVEN_HOST=rulemaven.com
 #   SECRET_KEY_BASE=<mix phx.gen.secret>
 #   POSTGRES_PASSWORD=<random>
+# Single sign-on (shared Authentik, ../identity blueprints/rulemaven.yaml) is off until
+# RULEMAVEN_OIDC_ISSUER is set; then RULEMAVEN_OIDC_CLIENT_SECRET (same value as in
+# /opt/identity/.env) is required too and passwords stop working. The rest default to the
+# Low-Cal Calzone Zone sign-in:
+#   RULEMAVEN_OIDC_ISSUER=https://id.lowcalcalzonezone.com/application/o/rulemaven/
+#   RULEMAVEN_OIDC_CLIENT_SECRET=<openssl rand -hex 32>
+#   RULEMAVEN_HUB_SECRET=<random>   (optional: lets the hub read /api/hub/summary)
 # Data lives in bind mounts under ./data: postgres/ (database), files/ (uploaded rulebooks,
 # symbol crops; UPLOADS_DIR), backups/ (pg_dump files written by scripts/deploy.sh).
 services:
@@ -18,6 +25,15 @@ services:
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE in .env}
       DATABASE_URL: ecto://rulemaven:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db/rulemaven
       POOL_SIZE: ${POOL_SIZE:-20}
+      # Single sign-on: empty issuer = off (the app refuses to start with an issuer but no secret).
+      RULEMAVEN_OIDC_ISSUER: ${RULEMAVEN_OIDC_ISSUER:-}
+      RULEMAVEN_OIDC_CLIENT_ID: ${RULEMAVEN_OIDC_CLIENT_ID:-rulemaven}
+      RULEMAVEN_OIDC_CLIENT_SECRET: ${RULEMAVEN_OIDC_CLIENT_SECRET:-}
+      RULEMAVEN_OIDC_GROUP: ${RULEMAVEN_OIDC_GROUP:-rulemaven-users}
+      RULEMAVEN_OIDC_ADMIN_GROUP: ${RULEMAVEN_OIDC_ADMIN_GROUP:-rulemaven-admins}
+      RULEMAVEN_OIDC_NAME: ${RULEMAVEN_OIDC_NAME:-Low-Cal Calzone Zone}
+      # Lets the Low-Cal Calzone Zone hub (../hub) read each person's summary (/api/hub/summary). Unset: refused.
+      RULEMAVEN_HUB_SECRET: ${RULEMAVEN_HUB_SECRET:-}
     # The container runs as uid 1000 (the deploy user): ./data/files must be owned by it.
     volumes:
       - ./data/files:/data/files

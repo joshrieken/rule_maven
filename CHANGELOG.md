@@ -25,6 +25,19 @@ renames that heading to the new version and date.
 ### Everyone
 - The version number now sits beside the Rule Maven name at the top of every page. Tap it to see
   what's new in each release; a small red dot on it means there are notes you haven't read yet.
+- Sign in with your Low-Cal Calzone Zone account, the same one you use for Drawburn and Stir & Fold.
+  Already have a Rule Maven account? Open Settings and press "Link your Low-Cal Calzone Zone
+  account" so your questions, groups and standing come with you. Signing out of Rule Maven also
+  signs you out of that account.
+### Admins
+- Single sign-on: before turning it on, link every existing account to its Low-Cal Calzone Zone
+  account (`bin/prod mix rule_maven.link_sso USERNAME SUB`) and add people to `rulemaven-users`
+  (admins to `rulemaven-admins`) in the account admin; then set `RULEMAVEN_OIDC_ISSUER` and
+  `RULEMAVEN_OIDC_CLIENT_SECRET` on the server. From then on passwords, registration and invite
+  codes are off, admin rights follow the `rulemaven-admins` group at each sign-in, and sign-ins
+  last a week. Steps: `.agents/overview.md` "Single sign-on".
+- The Low-Cal Calzone Zone hub can show Rule Maven (questions this week, last game) once
+  `RULEMAVEN_HUB_SECRET` is set here and in the hub.
 
 ## v0.1.5 (2026-11-15)
 ### Admins

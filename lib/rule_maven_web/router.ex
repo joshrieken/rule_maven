@@ -26,6 +26,10 @@ defmodule RuleMavenWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :password_auth do
+    plug RuleMavenWeb.Plugs.PasswordAuth
+  end
+
   pipeline :admin_api do
     plug :accepts, ["json"]
     plug RuleMavenWeb.ApiAuth
@@ -37,17 +41,10 @@ defmodule RuleMavenWeb.Router do
     get "/help", PageController, :help
     get "/changelog", ChangelogController, :show
     get "/login", SessionController, :new
-    post "/login", SessionController, :create
     get "/logout", AuthController, :logout
-    get "/reset-password", PasswordResetController, :new
-    post "/reset-password", PasswordResetController, :create
-    get "/reset-password/:token", PasswordResetController, :edit
-    post "/reset-password/:token", PasswordResetController, :update
-    get "/magic-link", MagicLinkController, :new
-    post "/magic-link", MagicLinkController, :create
-    get "/magic-link/:token", MagicLinkController, :consume
-    get "/auto-login", AuthController, :auto_login
-    get "/confirm/:token", ConfirmationController, :confirm
+    # Single sign-on (RuleMaven.Auth.Oidc): started by a CSRF-protected POST, never a GET.
+    post "/auth/oidc", OidcController, :start
+    get "/auth/oidc/callback", OidcController, :callback
     get "/games/:id/cheatsheet", CheatSheetController, :show
     get "/games/:id/cheatsheet/:version_id", CheatSheetController, :show_version
     # Extracted-text HTML view, admin-gated (rulebooks may be copyrighted; the
@@ -133,10 +130,34 @@ defmodule RuleMavenWeb.Router do
     end
   end
 
+  # The app's own credentials. While single sign-on is configured these all refuse
+  # (Plugs.PasswordAuth) and send people to /login's sign-on button.
+  scope "/", RuleMavenWeb do
+    pipe_through [:browser, :password_auth]
+
+    post "/login", SessionController, :create
+    get "/reset-password", PasswordResetController, :new
+    post "/reset-password", PasswordResetController, :create
+    get "/reset-password/:token", PasswordResetController, :edit
+    post "/reset-password/:token", PasswordResetController, :update
+    get "/magic-link", MagicLinkController, :new
+    post "/magic-link", MagicLinkController, :create
+    get "/magic-link/:token", MagicLinkController, :consume
+    get "/auto-login", AuthController, :auto_login
+    get "/confirm/:token", ConfirmationController, :confirm
+  end
+
   scope "/", RuleMavenWeb do
     pipe_through [:browser]
 
     oban_dashboard("/oban", on_mount: [RuleMavenWeb.ObanAuthHook])
+  end
+
+  # The Low-Cal Calzone Zone hub, server to server (shared secret) — see RuleMaven.Hub.
+  scope "/api/hub", RuleMavenWeb do
+    pipe_through :api
+
+    get "/summary", HubController, :summary
   end
 
   # Remote Prepare (super admin bearer token) — see AdminApiController.

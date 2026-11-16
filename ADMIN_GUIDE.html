@@ -151,6 +151,7 @@
 <ul>
   <li><b><code>/admin/users</code></b> — see accounts and change roles. Granting the admin role gives the <code>admin</code> capability (all the powers in this guide).</li>
   <li><b><code>/admin/invites</code></b> — registration can require an invite code. Issue codes to onboard people and revoke ones you no longer want used.</li>
+  <li><b>Single sign-on</b> — once the Low-Cal Calzone Zone account is turned on, it is the only way in: no passwords, registration or invite codes. Let someone in by adding them to the <code>rulemaven-users</code> group in the account admin; members of <code>rulemaven-admins</code> are admins here (checked at every sign-in, so Promote/Demote on <code>/admin/users</code> only lasts until their next sign-in). Existing accounts link from Settings or with <code>mix rule_maven.link_sso</code>; never by matching email.</li>
 </ul>
 <p class="muted">Voter influence scales with reputation: contributors whose answers earn net upvotes have their votes weighted more heavily (up to a cap), so established users help surface good answers faster.</p>
 <div class="note"><b>Who can vote.</b> Only users who have <b>confirmed their email</b> count toward verifying an answer (and in prod, accounts must clear a minimum age). Promotion to community-verified also needs a <b>quorum</b> of distinct eligible voters, and each voter's effect on another user's reputation is capped — together these stop throwaway or colluding accounts from rigging the tally. Users can't vote on their own answers.</div>

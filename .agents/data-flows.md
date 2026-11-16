@@ -206,3 +206,48 @@ CHANGELOG.md (## vX.Y.Z (date) / ### Everyone / ### Admins; ## Unreleased ignore
      reassigns current_user, then renders, so the header on that page already has no dot
 Release: rename "## Unreleased" to "## vX.Y.Z (YYYY-MM-DD)" in the Release vX.Y.Z commit.
 ```
+
+## Sign-in (single sign-on via the shared Authentik, or passwords)
+
+```
+Sign-on configured (RULEMAVEN_OIDC_ISSUER/CLIENT_ID/CLIENT_SECRET → config :rule_maven, :oidc;
+Auth.Oidc.settings/0 non-nil) = the ONLY way in:
+  GET /login → SessionController.new: just the "Sign in [with <RULEMAVEN_OIDC_NAME>]" button
+  POST /auth/oidc (CSRF, mode=login|link) → OidcController.start → Oidc.begin_sign_in
+     (Assent OIDC: discovery cached 1h, PKCE S256 + state + nonce) → session :oidc_pending
+     (10 min) → 302 to the provider; redirect_uri = :public_url <> "/auth/oidc/callback"
+  GET /auth/oidc/callback → OidcController.callback: pops :oidc_pending (one use) →
+     Oidc.finish_sign_in (state, provider error, code + verifier, ID token: JWKS RS256 signature,
+     iss, aud, exp, nonce) → SignOn.sign_in(claims, group/admin_group):
+       groups ∌ users group and ∌ admin group → refuse (flash)
+       users.oidc_sub == sub → that account (suspended → refuse); else NEW account
+         (username from preferred_username/name, "-2" suffix if taken; email only if no account
+         has it; password_hash ""). NEVER matched by email/username.
+       role re-synced: admin group → "admin", else "user"; super_admin untouched
+     → session user_id + logged_in_at + sso_until (now + 7d); ID token → signed httpOnly cookie
+       "_rule_maven_oidc_id" (7d)
+     mode=link (signed-in password user, Settings "Link your … account") → SignOn.link → /settings
+  Password routes (POST /login, /reset-password*, /magic-link*, /confirm/:token, /auto-login)
+     → Plugs.PasswordAuth refuses (flash → /login); RegistrationLive, Settings change_password,
+     admin create_user refuse too
+  GET /logout → AuthController.logout: clears session + ID-token cookie → 302 to the provider's
+     end_session_endpoint?id_token_hint=…&post_logout_redirect_uri=<public_url>/login
+Session lifetime (SessionLifetime.valid?/3, checked by AuthPlug, UserLiveAuth.active_user and its
+  per-event re-check, ObanAuthHook): sso_until passed → signed out. Password sessions: forever
+  while sign-on is off; once on, 30 days from their sign-in (time to link).
+Operator migration: mix rule_maven.link_sso USERNAME SUB | --unlink | --list (SignOn.link_user/2).
+Sign-on off (dev/tests): the password flows above work as before.
+```
+
+## Hub summary (Low-Cal Calzone Zone hub, server to server)
+
+```
+GET /api/hub/summary?sub=<oidc sub>, Authorization: Bearer <RULEMAVEN_HUB_SECRET>
+  → HubController.summary: Hub.hub_request? (SHA-256 digests, secure_compare; unset → 401)
+     → sub missing/"" / >255 bytes → 400 → Hub.summary(sub): user by oidc_sub, not suspended
+     (else 404) → questions_log rows of that user (not llm_provider "manual", no error_kind):
+     level = thresholds Hub.levels() [1, 10, 50] reached; active = any in 7 days; headline
+     "N questions this week" / "Last question N days ago" / nudge; detail "Last game: <name>";
+     version = Changelog.app_version(); updated = Changelog.unseen_for?(user). Cache-Control: no-store.
+  force_ssl excludes this path (prod.exs): the hub calls http://rulemaven-rulemaven-1:4000 on `web`.
+```

@@ -7,7 +7,9 @@ config :rule_maven, RuleMavenWeb.Endpoint,
   force_ssl: [
     rewrite_on: [:x_forwarded_proto],
     exclude: [
-      # paths: ["/health"],
+      # The hub calls this over the private Docker network (http://<container>:4000), so it
+      # must not be redirected to https. It's bearer-secret gated (RuleMaven.Hub).
+      paths: ["/api/hub/summary"],
       hosts: ["localhost", "127.0.0.1"]
     ]
   ]

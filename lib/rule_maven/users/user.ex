@@ -25,6 +25,9 @@ defmodule RuleMaven.Users.User do
     # The newest release ("0.1.5") with notes for this user that they've opened
     # "What's new" (/changelog) since; nil = never. See RuleMaven.Changelog.
     field :seen_version, :string
+    # Subject id at the shared sign-on provider (Authentik), set when the account signs in or is
+    # linked there. Sign-on finds people by this alone, never by email or username.
+    field :oidc_sub, :string
 
     timestamps(type: :utc_datetime)
   end
@@ -87,7 +90,8 @@ defmodule RuleMaven.Users.User do
   def changeset(user, attrs) do
     user
     |> cast(attrs, [:username, :email, :role, :password_hash])
-    |> validate_required([:username, :email, :role])
+    |> validate_required([:username, :role])
+    |> validate_email_unless_sign_on()
     |> validate_inclusion(:role, @assignable_roles)
     |> protect_super_admin_role()
     |> validate_length(:username, max: 80)
@@ -95,6 +99,44 @@ defmodule RuleMaven.Users.User do
     |> unique_constraint(:username)
     |> unique_constraint(:email)
   end
+
+  # Password accounts need an email (reset, sign-in links). Accounts that sign in through the
+  # shared sign-on may have none: its address can already belong to an unlinked account here.
+  defp validate_email_unless_sign_on(changeset) do
+    if get_field(changeset, :oidc_sub),
+      do: changeset,
+      else: validate_required(changeset, [:email])
+  end
+
+  @doc """
+  A new account made by its first single sign-on (no password: `password_hash` is "", which no
+  password matches). `role` is "admin" only for members of the provider's admin group.
+  """
+  def sign_on_changeset(attrs) do
+    %__MODULE__{}
+    |> cast(attrs, [:username, :email, :role, :oidc_sub, :email_confirmed_at])
+    |> put_change(:password_hash, "")
+    |> validate_required([:username, :role, :oidc_sub])
+    |> validate_inclusion(:role, @assignable_roles)
+    |> validate_length(:username, max: 80)
+    |> validate_length(:email, max: 160)
+    |> validate_length(:oidc_sub, max: 255)
+    |> unique_constraint(:username)
+    |> unique_constraint(:email)
+    |> unique_constraint(:oidc_sub)
+  end
+
+  @doc "Links (a sub) or unlinks (nil) this account to a single sign-on account."
+  def oidc_link_changeset(user, sub) when is_binary(sub) or is_nil(sub) do
+    user
+    |> change(oidc_sub: sub)
+    |> validate_length(:oidc_sub, max: 255)
+    |> unique_constraint(:oidc_sub)
+  end
+
+  @doc "True once the account is linked to a single sign-on account."
+  def oidc_linked?(%__MODULE__{oidc_sub: sub}), do: is_binary(sub)
+  def oidc_linked?(_), do: false
 
   # A super admin's role cannot be changed through the ordinary changeset —
   # only `elevation_changeset/2` (mix task) may move a user in or out of it.
@@ -121,6 +163,7 @@ defmodule RuleMaven.Users.User do
   def registration_changeset(user, attrs) do
     user
     |> changeset(attrs)
+    |> validate_required([:email])
     |> cast(attrs, [:password])
     |> validate_required([:password])
     |> validate_password_strength()
@@ -130,7 +173,8 @@ defmodule RuleMaven.Users.User do
   def profile_changeset(user, attrs) do
     user
     |> cast(attrs, [:username, :email])
-    |> validate_required([:username, :email])
+    |> validate_required([:username])
+    |> validate_email_unless_sign_on()
     |> validate_length(:username, max: 80)
     |> validate_length(:email, max: 160)
     |> unique_constraint(:username)

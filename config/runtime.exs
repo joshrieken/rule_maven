@@ -31,6 +31,36 @@ if System.get_env("RULEMAVEN_TOOLS") == "1" do
   config :rule_maven, RuleMavenWeb.Endpoint, cache_static_manifest: nil
 end
 
+# Single sign-on through the shared Authentik (RuleMaven.Auth.Oidc). Unset issuer = off: the
+# app's own password accounts work. Set = the only way in. Tests configure it themselves.
+if config_env() != :test do
+  oidc_issuer = String.trim(System.get_env("RULEMAVEN_OIDC_ISSUER") || "")
+
+  if oidc_issuer != "" do
+    if config_env() == :prod and not String.starts_with?(oidc_issuer, "https://") do
+      raise "RULEMAVEN_OIDC_ISSUER must be https in production."
+    end
+
+    required = fn name ->
+      case String.trim(System.get_env(name) || "") do
+        "" -> raise "#{name} is required when RULEMAVEN_OIDC_ISSUER is set."
+        value -> value
+      end
+    end
+
+    config :rule_maven, :oidc,
+      issuer: oidc_issuer,
+      client_id: required.("RULEMAVEN_OIDC_CLIENT_ID"),
+      client_secret: required.("RULEMAVEN_OIDC_CLIENT_SECRET"),
+      group: System.get_env("RULEMAVEN_OIDC_GROUP"),
+      admin_group: System.get_env("RULEMAVEN_OIDC_ADMIN_GROUP"),
+      name: System.get_env("RULEMAVEN_OIDC_NAME")
+  end
+
+  # Lets the Low-Cal Calzone Zone hub read each person's summary (RuleMaven.Hub). Unset: refused.
+  config :rule_maven, :hub_secret, System.get_env("RULEMAVEN_HUB_SECRET")
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

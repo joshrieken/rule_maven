@@ -2,6 +2,8 @@ defmodule RuleMavenWeb.AuthPlug do
   import Plug.Conn
   import Phoenix.Controller
 
+  alias RuleMavenWeb.SessionLifetime
+
   def init(opts), do: opts
 
   def call(conn, _opts) do
@@ -15,6 +17,7 @@ defmodule RuleMavenWeb.AuthPlug do
       cond do
         user && RuleMaven.Users.suspended?(user) -> nil
         user && not RuleMaven.Users.session_valid?(user, logged_in_at) -> nil
+        user && not SessionLifetime.valid?(get_session(conn, :sso_until), logged_in_at) -> nil
         true -> user
       end
 
