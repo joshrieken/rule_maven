@@ -2,6 +2,10 @@
 
 Each production deploy is a `Release vX.Y.Z` commit that bumps `version` in `mix.exs` and adds an entry here (`scripts/deploy.sh` refuses anything else).
 
+## v0.1.4 — 2026-11-15
+
+- Operations: quieter maintenance commands.
+
 ## v0.1.3 — 2026-11-15
 
 - Operations: new games and fixes are now processed directly on the live site.
