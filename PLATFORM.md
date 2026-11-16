@@ -189,8 +189,8 @@ anyway, run the app's `scripts/deploy.sh`; to pause one app, `touch /opt/<app>/.
 - **Never copied (or removed from the copy):** sign-in sessions, API/CLI tokens, and credential settings (email,
   LLM, BGG keys, proxies, the app's public address). Nothing local can send email, spend, or act as prod. An app
   that stores dev's own credentials in its database keeps them across the pull (Rule Maven's `app_settings`).
-- **Prod is read-only:** SQLite online backup in the running container / `pg_dump`, files by rsync (new and
-  changed only). **The local copy is kept first** (`data/backups/local-*`, or `identity/backups/`), and each
+- **Prod is read-only:** SQLite online backup in the running container / `pg_dump`. Files **mirror** prod by rsync
+  (only changes travel; files prod no longer has are removed locally; regenerable caches like `images/sized` stay). **The local copy is kept first** (`data/backups/local-*`, or `identity/backups/`), and each
   script prints how to go back. Prod dumps are deleted once restored.
 - **Each script refuses** if its dev server is running (port in use) or the database is open: swapping a database
   under a running server corrupts it.
