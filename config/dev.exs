@@ -4,7 +4,8 @@ import Config
 config :rule_maven, RuleMaven.Repo,
   username: "postgres",
   password: "postgres",
-  hostname: "localhost",
+  # PGHOST: the dev stack (../hub/dev) reaches the Mac's Postgres as host.docker.internal.
+  hostname: System.get_env("PGHOST") || "localhost",
   database: "rule_maven_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
@@ -22,7 +23,11 @@ config :rule_maven, RuleMavenWeb.Endpoint,
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   # DEV_PORT lets a worktree run its own dev server beside the main
   # checkout's (default 4000), same idea as the per-worktree test port.
-  http: [ip: {127, 0, 0, 1}, port: String.to_integer(System.get_env("DEV_PORT") || "4000")],
+  # PHX_BIND=0.0.0.0 inside the dev stack's container (../hub/dev), where Traefik reaches it.
+  http: [
+    ip: if(System.get_env("PHX_BIND") == "0.0.0.0", do: {0, 0, 0, 0}, else: {127, 0, 0, 1}),
+    port: String.to_integer(System.get_env("DEV_PORT") || "4000")
+  ],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
@@ -31,7 +36,10 @@ config :rule_maven, RuleMavenWeb.Endpoint,
 
 # Host used to build links in outbound email (password reset, confirmation).
 # Independent of the Endpoint's own host/port above.
-config :rule_maven, :public_url, "http://localhost:#{System.get_env("DEV_PORT") || "4000"}"
+# PUBLIC_URL: the dev stack's address (http://rulemaven.lccz.localhost); also the sign-in return address.
+config :rule_maven,
+       :public_url,
+       System.get_env("PUBLIC_URL") || "http://localhost:#{System.get_env("DEV_PORT") || "4000"}"
 
 # ## SSL Support
 #

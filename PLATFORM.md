@@ -200,3 +200,48 @@ anyway, run the app's `scripts/deploy.sh`; to pause one app, `touch /opt/<app>/.
   `rule_maven_dev` on the local Postgres + `priv/static/uploads`. The hub keeps no data.
 - **SSH:** every script uses `deploy@207.244.249.148` (override with `LCCZ_SSH`; Stir & Fold also reads
   `STIRANDFOLD_SSH` from `.env.prod`). Never a domain: Cloudflare's proxy doesn't carry SSH.
+
+## 9. Dev environment (the zone in Docker)
+
+**The whole zone runs on your Mac shaped like production; any one app can run natively for speed.**
+Everything lives in the hub repo's `dev/`:
+
+```sh
+hub/dev/setup.sh      # once (re-run after adding an app): local secrets (hub/dev/.env), local Authentik's app addresses
+hub/dev/up.sh         # start: local Authentik + Traefik + every app (or name some: hub/dev/up.sh drawburn hub)
+hub/dev/down.sh       # stop the containers (--all stops the local Authentik too); deps, builds and data stay
+hub/dev/native.sh <app>   # run that app natively instead (fastest reloads), same address, same settings
+hub/ops/pull-prod-all.sh  # production data into dev (§8); the containers use the same files and databases
+```
+
+| Address | What |
+|---|---|
+| http://lccz.localhost | hub |
+| http://drawburn.lccz.localhost | Drawburn |
+| http://stirandfold.lccz.localhost | Stir & Fold |
+| http://rulemaven.lccz.localhost | Rule Maven |
+| http://id.lccz.localhost | sign-in (local Authentik; admin interface also at http://localhost:9000) |
+| http://traefik.lccz.localhost | routing dashboard |
+
+- **Like production:** each app is built from production's base image with its system tools (`dev/images/`:
+  poppler, Ghostscript, Tesseract, the same Node/Elixir/OTP), runs from your repo (bind-mounted, hot reload), and
+  reaches the others **by service name** on the `lccz-dev` network. Sign-in, hub summaries and "Updated" work as on
+  the server. `*.lccz.localhost` resolves to Traefik inside the network too (network aliases), so the browser and
+  the servers agree on the sign-in address.
+- **Native fallback:** Traefik routes an app's address to its container (priority 100) or, when that's stopped, to
+  the Mac's port (`dev/traefik/dynamic.yaml`: 3300 hub, 3000 Drawburn, 4637 Stir & Fold, 4000 Rule Maven).
+  `native.sh` stops the container and starts the dev server natively with the stack's settings; `up.sh <app>`
+  puts the container back.
+- **Data:** each repo's own `./data` (bind-mounted, so native and container see the same files); Rule Maven uses the
+  Mac's Postgres (`rule_maven_dev`, Postgres 18 like production) via `PGHOST=host.docker.internal`.
+- **Dependencies** live in volumes (Linux builds of native modules); they reinstall only when the lockfile changes.
+  First start: a few minutes (installs, Rule Maven compiles); later starts: about a minute.
+- **Tests and tools still run natively by default** (fast). For exact parity, run them in the container:
+  `docker compose -f hub/dev/compose.yaml exec <app> npm test` (or `mix test`).
+- **`curl` inside a container can't test `*.localhost` names** (it always uses loopback for them); the apps
+  (Node, Erlang) resolve them normally.
+- **Secrets:** `hub/dev/.env` (chmod 600, git-ignored) holds dev-only secrets, shared with the local
+  `identity/.env`. Never production's.
+- **New app:** add its service to `dev/compose.yaml` (image, bind mount, env like production's, Traefik labels with
+  priority 100), a native fallback route, its block in `setup.sh` and `native.sh`, and a network alias.
+
