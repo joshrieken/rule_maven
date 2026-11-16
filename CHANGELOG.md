@@ -2,6 +2,10 @@
 
 Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and adds an entry here (`scripts/deploy.sh` refuses anything else).
 
+## v0.1.5 — 2026-11-15
+
+- Operations: faster deploys.
+
 ## v0.1.4 — 2026-11-15
 
 - Operations: quieter maintenance commands.
