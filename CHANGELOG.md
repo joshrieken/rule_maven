@@ -24,6 +24,10 @@ renames that heading to the new version and date.
   account" so your questions, groups and standing come with you. Signing out of Rule Maven also
   signs you out of that account.
 
+## v0.2.4 (2026-11-16)
+### Admins
+- Deploys drop no requests: Traefik retries a request that reaches the retiring version on the new one.
+
 ## v0.2.3 (2026-11-15)
 ### Admins
 - Deploys no longer take the site down: the new version starts alongside the old one and takes
