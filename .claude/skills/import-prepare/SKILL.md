@@ -32,7 +32,10 @@ scratch (GLOSSARY.md, parts/, merge.py). Gloomhaven used `gh/`.
 **Run every command from the repo root.** `scripts/X` / `templates/X` / `references/X`
 below mean `.claude/skills/import-prepare/scripts/X` etc. — type the full path
 (`mix run` resolves paths from the repo root; the top-level `scripts/` is only `deploy.sh`).
-Answers/content are owned by an EXISTING username (default `jrieken`).
+Answers/content/publish/corrections run as the service account `maven` (super admin, no
+password, no sign-on link: nobody can sign in as it; shows as "maven asked"). Never use a
+person's account for processing. Claude-authored rows = `llm_provider='manual' AND raw_response
+IS NULL` (corrected human questions keep their `raw_response` and owner).
 
 ## Target: production (prod data is the source of truth)
 Imports are processed **in production**, never in dev (user rule, 2026-11-15). `bin/prod`
@@ -183,9 +186,9 @@ import json; a=json.load(open("tmp/rebuild/content/<slug>_part1.json")); b=json.
 a["enrichments"].update(b["enrichments"]); json.dump(a,open("tmp/rebuild/content/<slug>.json","w"),indent=1,ensure_ascii=False)
 E
 python3 -I .claude/skills/import-prepare/scripts/check_content.py tmp/rebuild/content/<slug>.json tmp/rebuild/out/<slug>.json [..._faq.json]   # must print bad 0
-bin/prod mix rule_maven.import_content GAME_ID jrieken tmp/rebuild/content/<slug>.json
+bin/prod mix rule_maven.import_content GAME_ID maven tmp/rebuild/content/<slug>.json
 python3 -I -c "import json;s=json.load(open('tmp/rebuild/symbols/<slug>.json'))['symbols'];json.dump({'enrichments':{'symbols':s}},open('tmp/rebuild/symbols/<slug>.import.json','w'),ensure_ascii=False)"
-bin/prod mix rule_maven.import_content GAME_ID jrieken tmp/rebuild/symbols/<slug>.import.json
+bin/prod mix rule_maven.import_content GAME_ID maven tmp/rebuild/symbols/<slug>.import.json
 ```
 Filter mix output: `2>&1 | grep -E ": (enrichments|answers) |✗|\*\* \("`.
 Read every ✗ line (citation rejects). Spot-check 1-2 crops with Read.
@@ -246,7 +249,7 @@ kind of miss the audit didn't flag, add a check for it to audit.py in the same s
   (pool hits when the expansion is toggled on). Check it against BOTH page files —
   `python3 -I .claude/skills/import-prepare/scripts/check_content.py content/<base>_with_<exp>.json out/<base>.json out/<exp>.json --prefill`
   (overlapping page numbers are fine; the importer finds the quoting book itself) — then
-  `bin/prod mix rule_maven.import_content BASE_ID jrieken tmp/rebuild/content/<base>_with_<exp>.json`. `import_prefill.sh SLUG EXP_ID BASE_ID` imports a prefill
+  `bin/prod mix rule_maven.import_content BASE_ID maven tmp/rebuild/content/<base>_with_<exp>.json`. `import_prefill.sh SLUG EXP_ID BASE_ID` imports a prefill
   file both ways — only when its citations are all expansion pages.
 - Audit both games: `audit.py EXP_ID` and `audit.py BASE_ID`.
 
@@ -259,7 +262,7 @@ kind of miss the audit didn't flag, add a check for it to audit.py in the same s
 3. The new source may OVERRULE existing answers: one agent compares every existing answer
    (`bin/prod psql -At -c "select id, question, answer from questions_log where game_id=N and llm_provider='manual'"`)
    against the new text and lists contradictions with replacement answer + citations; apply via
-   `bin/prod mix rule_maven.corrections` (see its moduledoc). Then a prefill agent adds Q&As for what the
+   `bin/prod mix rule_maven.corrections apply maven FILE.json` (see its moduledoc). Then a prefill agent adds Q&As for what the
    new source adds (dedupe with merge_prefill.py), import, audit.
 4. If the new source SUPERSEDES an older doc of the same kind (e.g. FAQ 2022 vs FAQ v0.2),
    demote the old one so it can't tie on authority in the answer prompt (sources are ordered by
@@ -280,7 +283,7 @@ All source JSON lives in `tmp/rebuild/`, so a rebuild costs only embeddings:
   then expansion, then re-import the `<base>_with_<exp>` files; audit both.
 
 ## Remote / prod path
-Same over HTTP: `bin/prod mix rule_maven.api_token jrieken` (90-day bearer; scratchpad only,
+Same over HTTP: `bin/prod mix rule_maven.api_token maven` (90-day bearer; scratchpad only,
 never the repo) → `GET /api/admin/games?q=` · `POST /api/admin/games/:token/documents`
 (pages JSON + optional `pdf_url`) · `POST …/content` · `GET …/:token` (wait embed) ·
 `POST …/publish`. API strips `image_path` — send symbol crops as `image_base64`.

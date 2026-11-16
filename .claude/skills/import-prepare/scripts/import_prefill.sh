@@ -2,10 +2,10 @@
 # Usage (any dir): import_prefill.sh SLUG GAME_ID [BASE_GAME_ID] [USERNAME]
 # Imports tmp/rebuild/prefill/SLUG.json answers onto GAME_ID; with BASE_GAME_ID
 # (GAME_ID is an expansion) also onto the base game WITH that expansion set.
-# USERNAME (default jrieken) must be an existing user; answers are owned by it.
+# USERNAME (default maven) must be an existing user; answers are owned by it.
 set -e
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
-SLUG=$1; GAME=$2; BASE=$3; USER_=${4:-jrieken}
+SLUG=$1; GAME=$2; BASE=$3; USER_=${4:-maven}
 python3 -I - "$SLUG" "$GAME" <<'P'
 import json, sys
 slug, game = sys.argv[1], int(sys.argv[2])

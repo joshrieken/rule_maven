@@ -2,7 +2,7 @@
 # Prints every readiness step, approves publish, and explains a false result.
 Mix.Tasks.RuleMaven.ResetPrepared.start_without_queues()
 [id | rest] = System.argv()
-username = List.first(rest) || "jrieken"
+username = List.first(rest) || "maven"
 game = RuleMaven.Games.get_game!(String.to_integer(id))
 admin = RuleMaven.Repo.get_by!(RuleMaven.Users.User, username: username)
 steps = RuleMaven.Readiness.state(game)
