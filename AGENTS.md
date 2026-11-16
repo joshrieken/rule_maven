@@ -1,5 +1,7 @@
 # AGENTS.md
 
+**Platform standard first:** read `PLATFORM.md` (architecture, sign-in, hub contract, releases, rolling deploys, migrations, dev conventions; identical in every Low-Cal Calzone Zone repo, canonical in the hub repo). The rules below add to it for this app.
+
 > Authoritative entry point for AI coding agents working in this repository.
 > Progressive disclosure: this file is the index. Load detail docs only when needed.
 

@@ -47,6 +47,10 @@ services:
       - traefik.http.routers.rulemaven.entrypoints=websecure
       - traefik.http.routers.rulemaven.tls.certresolver=le
       - traefik.http.routers.rulemaven.service=rulemaven
+      # Deploys: a request that reaches the retiring container while it shuts down is retried on the new one.
+      - traefik.http.routers.rulemaven.middlewares=rulemaven-retry
+      - traefik.http.middlewares.rulemaven-retry.retry.attempts=3
+      - traefik.http.middlewares.rulemaven-retry.retry.initialinterval=100ms
       - traefik.http.services.rulemaven.loadbalancer.server.port=4000
 
   # One-off commands against production (imports, audits, psql), run from a Mac via bin/prod:

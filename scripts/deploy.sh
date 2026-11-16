@@ -100,6 +100,9 @@ main() {
 
   if [ -n "$old" ]; then
     echo "== Retiring the previous version"
+    # A moment for Traefik to route to the new container (it reloads at most every 2 s), then stop the old
+    # one; anything still reaching it as it shuts down is retried on the new one (retry middleware).
+    sleep 2
     # By id, never a compose scale-down: that removes the highest-numbered replica, which may
     # be the new one.
     docker stop -t 30 "$old" >/dev/null && docker rm "$old" >/dev/null

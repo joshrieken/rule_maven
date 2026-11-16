@@ -249,5 +249,5 @@ GET /api/hub/summary?sub=<oidc sub>, Authorization: Bearer <RULEMAVEN_HUB_SECRET
      level = thresholds Hub.levels() [1, 10, 50] reached; active = any in 7 days; headline
      "N questions this week" / "Last question N days ago" / nudge; detail "Last game: <name>";
      version = Changelog.app_version(); updated = Changelog.unseen_for?(user). Cache-Control: no-store.
-  force_ssl excludes this path (prod.exs): the hub calls http://rulemaven-rulemaven-1:4000 on `web`.
+  force_ssl excludes this path (prod.exs): the hub calls http://rulemaven:4000 (compose service name, since rolling deploys renumber containers) on `web`.
 ```
