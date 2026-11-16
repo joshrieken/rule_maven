@@ -90,7 +90,14 @@ defmodule RuleMavenWeb.SilentSignIn do
   defp navigation?(conn) do
     case get_req_header(conn, "sec-fetch-mode") do
       [mode | _] ->
-        mode == "navigate" and get_req_header(conn, "sec-fetch-dest") in [[], ["document"]]
+        # A top-level page load; frames are left out (their navigations say so in Sec-Fetch-Dest).
+        mode == "navigate" and
+          get_req_header(conn, "sec-fetch-dest") not in [
+            ["iframe"],
+            ["frame"],
+            ["embed"],
+            ["object"]
+          ]
 
       [] ->
         conn |> get_req_header("accept") |> Enum.any?(&String.contains?(&1, "text/html"))

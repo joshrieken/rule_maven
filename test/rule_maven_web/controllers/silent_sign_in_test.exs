@@ -62,6 +62,15 @@ defmodule RuleMavenWeb.SilentSignInTest do
                silent_to("/games/abc/cheatsheet")
     end
 
+    test "a top-level load some browsers label sec-fetch-dest empty still counts" do
+      conn =
+        build_conn(:get, "/")
+        |> put_req_header("sec-fetch-mode", "navigate")
+        |> put_req_header("sec-fetch-dest", "empty")
+
+      assert SilentSignIn.silent_path(conn) == "/auth/oidc/silent?next=%2F"
+    end
+
     test "not once tried: the cookie sends people to /login as before" do
       conn = navigation() |> tried() |> get("/")
       assert redirected_to(conn) == ~p"/login"
