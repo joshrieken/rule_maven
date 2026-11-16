@@ -40,7 +40,7 @@ defmodule RuleMavenWeb.Plugs.ClientIp do
 
   @impl true
   def call(conn, opts) do
-    with true <- in_any?(conn.remote_ip, opts[:proxies]),
+    with true <- in_any?(unmap(conn.remote_ip), opts[:proxies]),
          {:ok, peer} <- last_forwarded(conn) do
       %{conn | remote_ip: via_cloudflare(conn, peer, opts[:cloudflare])}
     else
@@ -65,8 +65,18 @@ defmodule RuleMavenWeb.Plugs.ClientIp do
     end
   end
 
-  defp parse(text),
-    do: text |> String.trim() |> String.to_charlist() |> :inet.parse_strict_address()
+  defp parse(text) do
+    case text |> String.trim() |> String.to_charlist() |> :inet.parse_strict_address() do
+      {:ok, ip} -> {:ok, unmap(ip)}
+      error -> error
+    end
+  end
+
+  # Bandit listens on `::`, so IPv4 peers arrive IPv4-mapped (`::ffff:a.b.c.d`).
+  defp unmap({0, 0, 0, 0, 0, 0xFFFF, hi, lo}),
+    do: {hi >>> 8, hi &&& 0xFF, lo >>> 8, lo &&& 0xFF}
+
+  defp unmap(ip), do: ip
 
   defp cidr(text) do
     [addr, bits] = String.split(text, "/")

@@ -22,6 +22,15 @@ defmodule RuleMavenWeb.Plugs.ClientIpTest do
     assert conn.remote_ip == {203, 0, 113, 9}
   end
 
+  test "IPv4-mapped Traefik peer (Bandit listens on ::) still counts as the proxy" do
+    mapped = {0, 0, 0, 0, 0, 0xFFFF, 0xAC12, 0x0002}
+
+    conn =
+      run(mapped, [{"x-forwarded-for", "104.22.148.68"}, {"cf-connecting-ip", "203.0.113.9"}])
+
+    assert conn.remote_ip == {203, 0, 113, 9}
+  end
+
   test "IPv6 client via Cloudflare" do
     conn = run(@traefik, [{"x-forwarded-for", @cf_edge}, {"cf-connecting-ip", "2001:db8::1"}])
     assert conn.remote_ip == {0x2001, 0xDB8, 0, 0, 0, 0, 0, 1}
