@@ -24,6 +24,11 @@ renames that heading to the new version and date.
   account" so your questions, groups and standing come with you. Signing out of Rule Maven also
   signs you out of that account.
 
+## v0.2.2 (2026-11-15)
+### Admins
+- Shorter blip during deploys: the new version is put back into service within a second or two
+  of starting, and the deploy script only reports "Up" once visitors can reach it.
+
 ## v0.2.1 (2026-11-15)
 ### Everyone
 - The version number and What's new now appear only once you're signed in.
