@@ -435,6 +435,12 @@ defmodule RuleMavenWeb.OidcControllerTest do
     end
   end
 
+  test "the header's Log in starts single sign-on directly", %{conn: conn} do
+    html = conn |> get(~p"/help") |> html_response(200)
+    assert html =~ ~s(data-testid="header-sign-in")
+    assert html =~ ~s(action="/auth/oidc")
+  end
+
   describe "back-channel logout (sign out everywhere)" do
     @event %{"http://schemas.openid.net/event/backchannel-logout" => %{}}
 

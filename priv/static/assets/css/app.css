@@ -4530,6 +4530,11 @@ body:has([data-phx-main].phx-connected)::after {
 
 .nav-link:hover { background: rgba(255,255,255,0.1); color: #fff; }
 
+/* Log in as a button (single sign-on starts from a POST): looks like the links beside it. */
+.nav-link-form { display: contents; margin: 0; }
+button.nav-link, button.drawer-link { background: none; border: 0; font-family: inherit; cursor: pointer; }
+button.drawer-link { width: 100%; text-align: left; }
+
 .nav-link-dim { font-size: 0.67rem; opacity: 0.65; }
 .nav-link-dim:hover { opacity: 1; }
 
@@ -4650,7 +4655,8 @@ body:has([data-phx-main].phx-connected)::after {
 @media (max-width: 768px) {
   .header-nav { display: none; }
   .header-right .header-user { display: none; }
-  .header-right > .nav-link { display: none; }
+  .header-right > .nav-link,
+  .header-right > .nav-link-form > .nav-link { display: none; }
   .hamburger { display: flex; }
   /* Single row: the wrapped second row (theme selects + user menu) doubled
      the header height, and the Q&A page sizes itself off --header-height, so

@@ -310,7 +310,20 @@
                 >
                   Register
                 </.link>
-                <.link href={~p"/login"} class="nav-link">Log in</.link>
+                <%!-- With single sign-on, Log in starts it straight away (the /login page only
+                      repeats the same button). --%>
+                <.form
+                  :if={RuleMaven.Auth.Oidc.enabled?()}
+                  for={%{}}
+                  action={~p"/auth/oidc"}
+                  class="nav-link-form"
+                >
+                  <input type="hidden" name="mode" value="login" />
+                  <button type="submit" class="nav-link" data-testid="header-sign-in">Log in</button>
+                </.form>
+                <.link :if={!RuleMaven.Auth.Oidc.enabled?()} href={~p"/login"} class="nav-link">
+                  Log in
+                </.link>
             <% end %>
           </div>
         </div>
@@ -401,7 +414,18 @@
             <.link href={~p"/groups"} class="drawer-link">Groups</.link>
             <.link href={~p"/logout"} class="drawer-link">Log out</.link>
           <% else %>
-            <.link href={~p"/login"} class="drawer-link">Log in</.link>
+            <.form
+              :if={RuleMaven.Auth.Oidc.enabled?()}
+              for={%{}}
+              action={~p"/auth/oidc"}
+              class="nav-link-form"
+            >
+              <input type="hidden" name="mode" value="login" />
+              <button type="submit" class="drawer-link">Log in</button>
+            </.form>
+            <.link :if={!RuleMaven.Auth.Oidc.enabled?()} href={~p"/login"} class="drawer-link">
+              Log in
+            </.link>
             <.link :if={!RuleMaven.Auth.Oidc.enabled?()} href={~p"/register"} class="drawer-link">
               Register
             </.link>
