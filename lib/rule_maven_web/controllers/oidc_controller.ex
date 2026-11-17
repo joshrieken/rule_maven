@@ -168,7 +168,12 @@ defmodule RuleMavenWeb.OidcController do
     |> redirect(to: back_to(mode))
   end
 
-  defp sign_on_opts(settings), do: [group: settings.group, admin_group: settings.admin_group]
+  defp sign_on_opts(settings),
+    do: [
+      group: settings.group,
+      admin_group: settings.admin_group,
+      superadmin_group: settings.superadmin_group
+    ]
 
   defp mode_of(%{"mode" => "link"}), do: :link
   defp mode_of(_), do: :login

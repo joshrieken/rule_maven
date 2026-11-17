@@ -31,6 +31,7 @@ services:
       RULEMAVEN_OIDC_CLIENT_SECRET: ${RULEMAVEN_OIDC_CLIENT_SECRET:-}
       RULEMAVEN_OIDC_GROUP: ${RULEMAVEN_OIDC_GROUP:-rulemaven-users}
       RULEMAVEN_OIDC_ADMIN_GROUP: ${RULEMAVEN_OIDC_ADMIN_GROUP:-rulemaven-admins}
+      RULEMAVEN_OIDC_SUPERADMIN_GROUP: ${RULEMAVEN_OIDC_SUPERADMIN_GROUP:-rulemaven-superadmins}
       RULEMAVEN_OIDC_NAME: ${RULEMAVEN_OIDC_NAME:-Low-Cal Calzone Zone}
       # Lets the Low-Cal Calzone Zone hub (../hub) read each person's summary (/api/hub/summary). Unset: refused.
       RULEMAVEN_HUB_SECRET: ${RULEMAVEN_HUB_SECRET:-}

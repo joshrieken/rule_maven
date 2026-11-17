@@ -17,6 +17,8 @@ defmodule RuleMaven.Auth.Oidc do
     RULEMAVEN_OIDC_CLIENT_SECRET  same value as the identity blueprint's
     RULEMAVEN_OIDC_GROUP          optional, default "rulemaven-users"
     RULEMAVEN_OIDC_ADMIN_GROUP    optional, default "rulemaven-admins"
+    RULEMAVEN_OIDC_SUPERADMIN_GROUP  optional: admins also in it are super admins (synced at every
+                                  sign-in); unset = super admin is set on the server (mix task)
     RULEMAVEN_OIDC_NAME           optional: "Sign in with <name>"; unset = just "Sign in"
 
   Return addresses come from configuration (`:public_url`: PUBLIC_URL, else https://PHX_HOST),
@@ -37,6 +39,7 @@ defmodule RuleMaven.Auth.Oidc do
       :client_secret,
       group: "rulemaven-users",
       admin_group: "rulemaven-admins",
+      superadmin_group: nil,
       # For sentences: "Couldn't reach {name}".
       name: "single sign-on",
       # The main sign-in button's text.
@@ -80,6 +83,7 @@ defmodule RuleMaven.Auth.Oidc do
         client_secret: secret,
         group: present(opts[:group]) || "rulemaven-users",
         admin_group: present(opts[:admin_group]) || "rulemaven-admins",
+        superadmin_group: present(opts[:superadmin_group]),
         name: name || "single sign-on",
         button: if(name, do: "Sign in with #{name}", else: "Sign in")
       }

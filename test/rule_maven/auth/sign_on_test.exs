@@ -25,6 +25,49 @@ defmodule RuleMaven.Auth.SignOnTest do
     assert {:ok, %User{role: "admin", username: "Erin Smith"}} = SignOn.sign_in(claims, @opts)
   end
 
+  describe "with a super-admin group" do
+    @two @opts ++ [superadmin_group: "rulemaven-superadmins"]
+    @both ["rulemaven-admins", "rulemaven-superadmins"]
+
+    defp sign(sub, groups, opts \\ @two) do
+      {:ok, user} =
+        SignOn.sign_in(%{"sub" => sub, "groups" => groups, "preferred_username" => sub}, opts)
+
+      user.role
+    end
+
+    test "follows both groups at every sign-in: super needs admin too" do
+      assert sign("owner", @both) == "super_admin"
+      assert sign("curator", ["rulemaven-admins"]) == "admin"
+      assert sign("odd", ["rulemaven-users", "rulemaven-superadmins"]) == "user"
+      assert sign("curator", @both) == "super_admin"
+      assert sign("curator", ["rulemaven-admins"]) == "admin"
+      assert sign("curator", ["rulemaven-users"]) == "user"
+    end
+
+    test "never demotes the last super admin who signs on (a service account doesn't count)" do
+      {:ok, service} =
+        Users.create_user(%{
+          username: "maven",
+          email: "m@example.com",
+          password: "correct horse 1"
+        })
+
+      {:ok, _} = Users.set_super_admin(service, true)
+
+      assert sign("owner", @both) == "super_admin"
+      assert sign("owner", ["rulemaven-admins"]) == "super_admin"
+      assert sign("second", @both) == "super_admin"
+      assert sign("owner", ["rulemaven-admins"]) == "admin"
+    end
+
+    test "without one, a super admin's role stays the server's" do
+      {:ok, user} = SignOn.sign_in(%{"sub" => "s1", "groups" => ["rulemaven-admins"]}, @opts)
+      {:ok, _} = Users.set_super_admin(user, true)
+      assert sign("s1", ["rulemaven-users"], @opts) == "super_admin"
+    end
+  end
+
   test "never matches an existing account by email or username" do
     existing = password_user()
 

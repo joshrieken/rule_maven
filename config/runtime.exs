@@ -54,6 +54,7 @@ if config_env() != :test do
       client_secret: required.("RULEMAVEN_OIDC_CLIENT_SECRET"),
       group: System.get_env("RULEMAVEN_OIDC_GROUP"),
       admin_group: System.get_env("RULEMAVEN_OIDC_ADMIN_GROUP"),
+      superadmin_group: System.get_env("RULEMAVEN_OIDC_SUPERADMIN_GROUP"),
       name: System.get_env("RULEMAVEN_OIDC_NAME")
   end
 

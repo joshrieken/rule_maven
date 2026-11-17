@@ -227,7 +227,10 @@ defmodule RuleMavenWeb.AdminLive.Users do
         Everyone signs in with {@sso.name}. To let someone in, add them to the
         <code>{@sso.group}</code>
         group there; members of <code>{@sso.admin_group}</code>
-        are admins here (re-checked at every sign-in, so Promote/Demote below lasts only until
+        are admins here<span :if={@sso.superadmin_group}>, and those also in
+        <code>{@sso.superadmin_group}</code>
+        super admins</span>
+        (re-checked at every sign-in, so Promote/Demote below lasts only until
         their next sign-in). Existing accounts link from their Settings page, or with <code>mix rule_maven.link_sso</code>.
       </p>
 

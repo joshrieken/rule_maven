@@ -8,8 +8,10 @@ defmodule RuleMaven.Auth.SignOn do
       group, no password). Never matched to an existing account by email or username: existing
       accounts link while signed in (`link/3`, the "Link your … account" button) or by the
       operator (`link_user/2`, `mix rule_maven.link_sso`);
-    * role re-synced from admin-group membership at every sign-in ("admin" ⇄ "user"); a
-      super admin's role is server-only and never changed here.
+    * role re-synced from group membership at every sign-in. With a super-admin group
+      (`superadmin_group`, PLATFORM.md §2), admins also in it are "super_admin", the rest "admin" or
+      "user"; the last super admin who signs on here is never demoted. Without one, "admin" ⇄ "user"
+      and a super admin's role is server-only (`mix rule_maven.grant_superadmin`), never changed here.
   """
 
   import Ecto.Query, warn: false
@@ -18,7 +20,11 @@ defmodule RuleMaven.Auth.SignOn do
   alias RuleMaven.Users.{AuthCache, User}
 
   @type claims :: map()
-  @type opts :: [group: String.t() | nil, admin_group: String.t() | nil]
+  @type opts :: [
+          group: String.t() | nil,
+          admin_group: String.t() | nil,
+          superadmin_group: String.t() | nil
+        ]
 
   @doc "The account linked to this sign-on id, if any."
   @spec get_user_by_sub(String.t()) :: User.t() | nil
@@ -31,10 +37,10 @@ defmodule RuleMaven.Auth.SignOn do
   @spec sign_in(claims(), opts()) :: {:ok, User.t()} | {:error, String.t()}
   def sign_in(claims, opts) do
     with {:ok, sub} <- fetch_sub(claims),
-         {:ok, admin?} <- check_groups(claims, opts) do
+         {:ok, level} <- check_groups(claims, opts) do
       case get_user_by_sub(sub) do
-        nil -> create(sub, claims, admin?)
-        %User{} = user -> existing(user, admin?)
+        nil -> create(sub, claims, level)
+        %User{} = user -> existing(user, level)
       end
     end
   end
@@ -47,9 +53,9 @@ defmodule RuleMaven.Auth.SignOn do
   @spec link(User.t(), claims(), opts()) :: {:ok, User.t()} | {:error, String.t()}
   def link(%User{} = user, claims, opts) do
     with {:ok, sub} <- fetch_sub(claims),
-         {:ok, admin?} <- check_groups(claims, opts),
+         {:ok, level} <- check_groups(claims, opts),
          {:ok, linked} <- put_sub(user, sub) do
-      existing(linked, admin?)
+      existing(linked, level)
     end
   end
 
@@ -91,7 +97,9 @@ defmodule RuleMaven.Auth.SignOn do
 
   defp fetch_sub(_claims), do: {:error, "The sign-in service sent no account id."}
 
-  # In the users group or the admin group (admins may use the app too). Returns whether admin.
+  # In the users group or the admin group (admins may use the app too). Returns `{level, managed?}`:
+  # the level the groups give (:super_admin, :admin or :user) and whether a super-admin group decides
+  # super admins (without one, a super admin's role is the server's).
   defp check_groups(claims, opts) do
     groups =
       case claims["groups"] do
@@ -100,41 +108,37 @@ defmodule RuleMaven.Auth.SignOn do
       end
 
     group = opts[:group]
-    admin_group = opts[:admin_group]
-    admin? = is_binary(admin_group) and admin_group in groups
+    managed? = is_binary(opts[:superadmin_group])
 
     cond do
-      admin? ->
-        {:ok, true}
+      member?(groups, opts[:admin_group]) and member?(groups, opts[:superadmin_group]) ->
+        {:ok, {:super_admin, managed?}}
 
-      is_binary(group) and group in groups ->
-        {:ok, false}
+      member?(groups, opts[:admin_group]) ->
+        {:ok, {:admin, managed?}}
 
-      not is_binary(group) ->
-        {:ok, false}
+      not is_binary(group) or group in groups ->
+        {:ok, {:user, managed?}}
 
       true ->
         {:error, "Your account isn't allowed in yet. Ask the admin to add you to \"#{group}\"."}
     end
   end
 
-  defp existing(%User{} = user, admin?) do
+  defp member?(groups, group), do: is_binary(group) and group in groups
+
+  defp existing(%User{} = user, level) do
     if User.suspended?(user) do
       {:error, "This account has been suspended."}
     else
-      user |> sync(admin?) |> Repo.update() |> bust() |> describe_error()
+      user |> sync(level) |> Repo.update() |> bust() |> describe_error()
     end
   end
 
   # Role follows the admin group; the account counts as email-confirmed (the provider's
   # operator made it), since confirmation emails are off while sign-on is on.
-  defp sync(%User{} = user, admin?) do
-    role =
-      cond do
-        User.super_admin?(user) -> user.role
-        admin? -> "admin"
-        true -> "user"
-      end
+  defp sync(%User{} = user, level) do
+    role = role_for(user, level)
 
     changes = if user.role == role, do: %{}, else: %{role: role}
 
@@ -144,17 +148,44 @@ defmodule RuleMaven.Auth.SignOn do
     Ecto.Changeset.change(user, changes)
   end
 
-  defp create(sub, claims, admin?) do
+  defp role_for(_user, {:super_admin, _}), do: "super_admin"
+
+  defp role_for(%User{} = user, {level, managed?}) do
+    # Without a super-admin group a super admin's role is the server's; with one, the last super
+    # admin who signs on here stays one (the group may just be empty for now).
+    if User.super_admin?(user) and (not managed? or not other_signed_on_super_admin?(user)),
+      do: user.role,
+      else: Atom.to_string(level)
+  end
+
+  # Another super admin who can sign on (a service account without a sign-on id can't step in).
+  defp other_signed_on_super_admin?(%User{id: id}) do
+    Repo.exists?(
+      from u in User,
+        where:
+          u.id != ^id and u.role in ^User.roles_with_capability(:superadmin) and
+            not is_nil(u.oidc_sub)
+    )
+  end
+
+  defp create(sub, claims, {level, _managed?}) do
     email = free_email(claims["email"])
 
     %{
       username: free_username(claims),
       email: email,
-      role: if(admin?, do: "admin", else: "user"),
+      role: if(level == :user, do: "user", else: "admin"),
       oidc_sub: sub,
       email_confirmed_at: now()
     }
     |> User.sign_on_changeset()
+    # (Validated as an admin: super_admin is never an assignable role, only the groups give it.)
+    |> then(
+      &if(level == :super_admin,
+        do: Ecto.Changeset.put_change(&1, :role, "super_admin"),
+        else: &1
+      )
+    )
     |> Repo.insert()
     |> describe_error()
   end
