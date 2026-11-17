@@ -1,8 +1,6 @@
 defmodule RuleMavenWeb.Layouts do
   use RuleMavenWeb, :html
 
-  alias RuleMaven.Users
-
   embed_templates "layouts/*"
 
   @doc """
@@ -134,11 +132,10 @@ defmodule RuleMavenWeb.Layouts do
 
   def current_user(conn_or_assigns) do
     case conn_or_assigns do
+      # Checked like every other read of the session (suspended, force-logged-out, signed out
+      # everywhere, past its lifetime = nobody), or the header kept showing an ended session's name.
       %Plug.Conn{private: %{plug_session: session}} ->
-        case session[:user_id] || session["user_id"] do
-          nil -> nil
-          user_id -> Users.get_user(user_id)
-        end
+        RuleMavenWeb.UserLiveAuth.active_user(session)
 
       _ ->
         nil

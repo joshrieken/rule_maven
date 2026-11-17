@@ -465,6 +465,10 @@ defmodule RuleMavenWeb.OidcControllerTest do
       assert_receive %Phoenix.Socket.Broadcast{event: "disconnect"}
       refute Users.session_valid?(Repo.get!(User, jo.id), before)
       assert Users.session_valid?(Repo.get!(User, kim.id), before)
+      # The sign-in page's header doesn't show them either (it used to read the cookie unchecked).
+      html = build_conn() |> signed_in_at(jo, before) |> get(~p"/login") |> html_response(200)
+      refute html =~ jo.username
+
       # A signed-in page from before is signed out now.
       assert build_conn() |> signed_in_at(jo, before) |> get(~p"/settings") |> redirected_to() =~
                "/login"
