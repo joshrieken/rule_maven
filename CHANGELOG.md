@@ -17,6 +17,12 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## v0.5.5 (2026-11-17)
+
+### Admins
+
+- Internal improvements: sign-in, sign-out everywhere, the hub summary and the changelog now come from the shared Low-Cal Calzone Zone library. Nothing changes for anyone.
+
 ## v0.5.4 (2026-11-17)
 ### Everyone
 - Log in at the top (and in the menu on phones) signs you in straight away, without a second button to find.
