@@ -26,6 +26,22 @@ defmodule RuleMaven.Auth.SignOn do
           superadmin_group: String.t() | nil
         ]
 
+  @doc """
+  The sign-in service ended this person's session there (signed out in any app, expired, or ended
+  by its admin): every session of theirs here ends too (the force-logout cutoff). Returns the
+  account, or nil when nobody here has that sign-on id.
+  """
+  @spec end_sessions(String.t()) :: {:ok, User.t()} | nil | {:error, String.t()}
+  def end_sessions(sub) when is_binary(sub) do
+    case get_user_by_sub(sub) do
+      nil ->
+        nil
+
+      %User{} = user ->
+        user |> User.force_logout_changeset() |> Repo.update() |> bust() |> describe_error()
+    end
+  end
+
   @doc "The account linked to this sign-on id, if any."
   @spec get_user_by_sub(String.t()) :: User.t() | nil
   def get_user_by_sub(sub) when is_binary(sub), do: Repo.get_by(User, oidc_sub: sub)

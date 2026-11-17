@@ -44,7 +44,13 @@ app-specific rules on top; where they disagree, fix one of them.
   Two levels when an app needs them: plain admins run content and moderation; **super admins** (also in
   `<app>-superadmins`, env `<APP>_OIDC_SUPERADMIN_GROUP`; unset = every admin is super) also own settings, AI and
   spending, backups, invites and accounts. Super implies admin; never demote the last super admin.
-  Signing out also ends the Authentik session (end-session with `id_token_hint`). Return addresses come from
+  Signing out also ends the Authentik session (end-session with `id_token_hint`). **Sign out everywhere:** when an
+  Authentik session ends (signed out in any app, expired after its 7 days, or ended by an admin under Directory → Users →
+  Sessions), Authentik's worker POSTs a signed logout token to each app's `POST /auth/oidc/backchannel` over the internal
+  network (blueprint `logout_uri`, `logout_method: backchannel`, `access_token_validity: days=7`; `blueprints/sessions.yaml`
+  makes Authentik sessions 7 days). The app checks it like an ID token (provider's keys, issuer, audience, expiry) plus the
+  logout event and no nonce, then ends every browser session of that `sub` (CLI tokens may stay). The hub keeps no
+  sessions, so its own last an hour and renew by silent sign-in instead. Return addresses come from
   configuration (`<APP>_PUBLIC_URL`), never request headers.
 - **`sub` is the same person in every app** (subject mode `hashed_user_id` = Authentik user `uid`). The hub and
   cross-app features rely on it; never change a provider's subject mode.

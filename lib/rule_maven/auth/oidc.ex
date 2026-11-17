@@ -237,6 +237,31 @@ defmodule RuleMaven.Auth.Oidc do
 
   def end_session_url(_), do: nil
 
+  @backchannel_event "http://schemas.openid.net/event/backchannel-logout"
+
+  @doc """
+  The person a back-channel logout token is about (its `sub`), once it checks out (OpenID Connect
+  Back-Channel Logout 1.0 §2.6): validated like an ID token (signature from the provider's keys,
+  issuer, audience, expiry), carrying the logout event and no nonce, so an ID token can't stand in
+  for one. Sign out everywhere, PLATFORM.md §2.
+  """
+  @spec verify_logout_token(Settings.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  def verify_logout_token(%Settings{} = s, token) when is_binary(token) do
+    # (No nonce was sent for it, so an empty session_params makes a nonce in the token an error.)
+    with {:ok, config} <- assent_config(s),
+         {:ok, %{claims: claims}} <-
+           OIDC.validate_id_token(Keyword.put(config, :session_params, %{}), token),
+         %{@backchannel_event => _} <- claims["events"] || :no_event,
+         sub when is_binary(sub) and sub != "" and byte_size(sub) <= 255 <- claims["sub"] do
+      {:ok, sub}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, "Not a logout token"}
+    end
+  end
+
+  def verify_logout_token(_settings, _token), do: {:error, "No logout token"}
+
   defp assent_config(%Settings{} = s) do
     with {:ok, discovery} <- discovery(s) do
       {:ok,

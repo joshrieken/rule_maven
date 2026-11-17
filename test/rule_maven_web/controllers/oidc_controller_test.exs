@@ -433,4 +433,64 @@ defmodule RuleMavenWeb.OidcControllerTest do
       assert redirected_to(expired) == ~p"/login"
     end
   end
+
+  describe "back-channel logout (sign out everywhere)" do
+    @event %{"http://schemas.openid.net/event/backchannel-logout" => %{}}
+
+    defp linked_user(sub) do
+      {:ok, user} =
+        RuleMaven.Auth.SignOn.sign_in(
+          %{"sub" => sub, "groups" => ["rulemaven-users"], "preferred_username" => sub},
+          group: "rulemaven-users",
+          admin_group: "rulemaven-admins"
+        )
+
+      user
+    end
+
+    defp notify(conn, token),
+      do: post(conn, ~p"/auth/oidc/backchannel", %{"logout_token" => token})
+
+    test "ends that person's sessions here, and only theirs", %{conn: conn} do
+      jo = linked_user("sub-jo")
+      kim = linked_user("sub-kim")
+      before = System.os_time(:second) - 5
+
+      assert notify(conn, FakeOidc.id_token(%{"sub" => "sub-jo", "events" => @event})).status ==
+               200
+
+      refute Users.session_valid?(Repo.get!(User, jo.id), before)
+      assert Users.session_valid?(Repo.get!(User, kim.id), before)
+      # A signed-in page from before is signed out now.
+      assert build_conn() |> signed_in_at(jo, before) |> get(~p"/settings") |> redirected_to() =~
+               "/login"
+    end
+
+    test "refuses tokens that aren't logout tokens from the provider", %{conn: conn} do
+      jo = linked_user("sub-jo")
+      before = System.os_time(:second) - 5
+
+      for token <- [
+            FakeOidc.id_token(%{"sub" => "sub-jo"}),
+            FakeOidc.id_token(%{"sub" => "sub-jo", "events" => @event, "nonce" => "n"}),
+            FakeOidc.id_token(%{"sub" => "sub-jo", "events" => @event}, :other),
+            FakeOidc.id_token(%{"sub" => "sub-jo", "events" => @event, "aud" => "drawburn"}),
+            "not a token"
+          ] do
+        assert notify(conn, token).status == 400
+      end
+
+      assert notify(conn, nil).status == 400
+      assert Users.session_valid?(Repo.get!(User, jo.id), before)
+    end
+
+    test "is quiet about someone it doesn't know", %{conn: conn} do
+      assert notify(conn, FakeOidc.id_token(%{"sub" => "nobody", "events" => @event})).status ==
+               200
+    end
+  end
+
+  defp signed_in_at(conn, user, at) do
+    Plug.Test.init_test_session(conn, %{"user_id" => user.id, "logged_in_at" => at})
+  end
 end

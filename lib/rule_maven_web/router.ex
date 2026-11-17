@@ -155,6 +155,12 @@ defmodule RuleMavenWeb.Router do
     oban_dashboard("/oban", on_mount: [RuleMavenWeb.ObanAuthHook])
   end
 
+  # Back-channel logout: the sign-in service, server to server (its signed logout token is the
+  # check; no session, no CSRF token) — see OidcController.backchannel/2.
+  scope "/auth/oidc", RuleMavenWeb do
+    post "/backchannel", OidcController, :backchannel
+  end
+
   # The Low-Cal Calzone Zone hub, server to server (shared secret) — see RuleMaven.Hub.
   scope "/api/hub", RuleMavenWeb do
     pipe_through :api

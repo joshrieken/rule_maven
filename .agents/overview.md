@@ -86,8 +86,11 @@ like Drawburn and Stir & Fold. Code: `Auth.Oidc` (protocol), `Auth.SignOn` (who)
 `data-flows.md` "Sign-in". Rules: when configured it is the ONLY way in (password, registration,
 reset, sign-in links, confirmation all refuse); people are linked by `users.oidc_sub` only (never
 email/username); group check (`rulemaven-users` or `rulemaven-admins`) and admin re-sync at every
-sign-in (super_admin is server-only and never changed); sign-on sessions last 7 days; sign-out
-also ends the Authentik session (back to `/login`). Someone already signed in to Authentik is
+sign-in (super_admin from `rulemaven-superadmins` when `RULEMAVEN_OIDC_SUPERADMIN_GROUP` is set, else
+server-only); sign-on sessions last 7 days; sign-out also ends the Authentik session (back to `/login`).
+Sign out everywhere: when an Authentik session ends, Authentik POSTs a logout token to
+`/auth/oidc/backchannel` (`OidcController.backchannel/2`, no session/CSRF pipeline);
+`Oidc.verify_logout_token/2` checks it and `SignOn.end_sessions/1` stamps the force-logout cutoff. Someone already signed in to Authentik is
 signed in silently on their first page load (`RuleMavenWeb.SilentSignIn`, `prompt=none`, once per
 10 minutes via the `rulemaven_sso_tried` cookie). Unset `RULEMAVEN_OIDC_ISSUER` = off (dev, tests).
 
