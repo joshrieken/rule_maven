@@ -17,6 +17,10 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## v0.5.0 (2026-11-17)
+### Everyone
+- Signing out signs you out of every Low-Cal Calzone Zone app at once, and signing out of any of them signs you out here too.
+
 ## v0.4.0 (2026-11-17)
 ### Admins
 - Who's a super admin now comes from the Low-Cal Calzone Zone sign-in (the rulemaven-superadmins group), checked at every sign-in, like admin already is. The question-writing service account isn't affected.
