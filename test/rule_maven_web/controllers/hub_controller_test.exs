@@ -46,8 +46,12 @@ defmodule RuleMavenWeb.HubControllerTest do
     assert json_response(hub(build_conn(), %{"sub" => "sub-alice"}), 401)
   end
 
-  test "400 for a missing or oversize sub", %{conn: conn} do
-    assert json_response(hub(conn, %{}), 400)
+  test "without sub: just the running version (with the secret only)", %{conn: conn} do
+    assert json_response(hub(conn, %{}), 200) == %{"version" => RuleMaven.Changelog.app_version()}
+    assert json_response(hub(build_conn(), %{}, "wrong"), 401)
+  end
+
+  test "400 for an empty or oversize sub", %{conn: _conn} do
     assert json_response(hub(build_conn(), %{"sub" => ""}), 400)
     assert json_response(hub(build_conn(), %{"sub" => String.duplicate("x", 256)}), 400)
   end
