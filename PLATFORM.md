@@ -41,11 +41,15 @@ app-specific rules on top; where they disagree, fix one of them.
   `<APP_URL>/auth/oidc/callback`, logout redirect `<APP_URL>/login`.
 - **In the app:** link people by `users.oidc_sub` (unique). Never auto-link by email or username. Re-check the
   group claim at every sign-in; admin = `<app>-admins`, re-synced each time. Sign-on sessions last 7 days.
+  Two levels when an app needs them: plain admins run content and moderation; **super admins** (also in
+  `<app>-superadmins`, env `<APP>_OIDC_SUPERADMIN_GROUP`; unset = every admin is super) also own settings, AI and
+  spending, backups, invites and accounts. Super implies admin; never demote the last super admin.
   Signing out also ends the Authentik session (end-session with `id_token_hint`). Return addresses come from
   configuration (`<APP>_PUBLIC_URL`), never request headers.
 - **`sub` is the same person in every app** (subject mode `hashed_user_id` = Authentik user `uid`). The hub and
   cross-app features rely on it; never change a provider's subject mode.
 - **One shared admin account:** the Authentik user `admin`, in every `<app>-admins` group. A new app adds it.
+  It's a shared login, so it's never a super admin; the owner (`jrieken`) is.
 - **Changing a secret in `/opt/identity/.env` isn't enough:** Authentik copies it into its database only when
   the blueprint is applied. Restart, then `docker compose exec -T worker ak apply_blueprint /blueprints/apps/<app>.yaml`.
   Add new env values **before** pulling a new blueprint, or it applies with empty values.
