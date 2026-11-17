@@ -111,7 +111,9 @@ Every app's script does the same steps:
 1. **Only release commits deploy**: `Release vX.Y.Z` whose version file says `X.Y.Z`. `./scripts/deploy.sh <commit>`
    deploys an older release (rolling back).
 2. **Back up the database first** (SQLite online backup / `pg_dump`), keep the newest 14, owner-only.
-3. **Build on the server** with BuildKit cache mounts (dependency layers only rebuild when the lockfile changes).
+3. **Build on the server** with BuildKit cache mounts. Dependency layers only rebuild when the dependencies change:
+   Node images install from a `manifest` stage that copies `package.json`/`package-lock.json` with `version` set to
+   0.0.0, so a release's version bump doesn't reinstall everything (it cost Stir & Fold ~4 minutes per deploy).
 4. **Rolling swap:** start the new container *beside* the running one (`up -d --no-deps --no-recreate --scale`),
    wait until Docker says **healthy** *and* it reports the version just built, wait 2 s for Traefik, then retire
    the old one by id (never a compose scale-down: that may remove the new one). A release that fails to start is
