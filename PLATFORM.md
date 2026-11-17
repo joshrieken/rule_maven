@@ -17,6 +17,7 @@ app-specific rules on top; where they disagree, fix one of them.
 | Stir & Fold | `gourmand` | `/opt/gourmand` | `stirandfold` | 4637 | Next.js + SQLite |
 | Rule Maven | `rule_maven` | `/opt/rulemaven` | `rulemaven` (+ `db`) | 4000 | Phoenix + Postgres |
 | Identity | `lccz-identity` | `/opt/identity` | `server`, `worker` (+ `postgresql`) | 9000 | Authentik |
+| Rollcall (not ours: kalinkakr's) | `kalinkakr/RollCall` | `/opt/rollcall` | `web` (+ `db`) | 8000 | Django + Postgres |
 
 - **One server** (`deploy@207.244.249.148`), Docker Compose per app, **Traefik** in front (`/opt/traefik`,
   external network `web`, entrypoint `websecure`, Let's Encrypt resolver `le`). DNS goes through Cloudflare's
@@ -248,4 +249,41 @@ hub/ops/pull-prod-all.sh  # production data into dev (§8); the containers use t
   `identity/.env`. Never production's.
 - **New app:** add its service to `dev/compose.yaml` (image, bind mount, env like production's, Traefik labels with
   priority 100), a native fallback route, its block in `setup.sh` and `native.sh`, and a network alias.
+
+## 10. Backups and disaster recovery
+
+**Everything that isn't in git is backed up off-site every night, and a fresh machine becomes the whole zone
+in three commands.** Scripts in the hub repo's `ops/`; one restic repository (Backblaze B2), encrypted with
+`RESTIC_PASSWORD`. **Keep that password and the bucket's keys in your password manager, off the server**:
+without them the backups can't be read.
+
+| Tag | What | Made by |
+|---|---|---|
+| `stirandfold` | database, photos, cookbooks, `secret.key` | Stir & Fold's `scripts/offsite-backup.sh` (03:15; its admin page reports on it) |
+| `drawburn` | database (SQLite online backup) | `ops/backup.sh` (03:45) |
+| `rulemaven` | `pg_dump` + uploaded files | `ops/backup.sh` |
+| `identity` | Authentik `pg_dump` + its media and certs | `ops/backup.sh` |
+| `rollcall` | `pg_dump` + uploaded media | `ops/backup.sh` |
+| `secrets` | every `/opt/*/.env*`, `/opt/traefik` (config + certificates), `~/.ssh` (deploy keys), the crontab | `ops/backup.sh` |
+| `pre-optimize` | Stir & Fold's originals before the 2026-11-16 file optimization (kept for good) | by hand |
+
+Kept: 7 daily, 5 weekly, 12 monthly per tag. `ops/backup.sh` checks 2% of the stored data every Sunday and, when
+`BACKUP_PING_URL` is set in `/opt/hub/.env.backup`, pings it after a fully successful night (an Uptime Robot
+heartbeat alerts on a missed ping). Log: `~/lccz-backups/backup.log`.
+
+**Restore one thing** (same server or new): `ops/restore.sh <secrets|identity|drawburn|stirandfold|rulemaven|rollcall|all> [snapshot]`
+(`ops/restore.sh snapshots` lists them). It stops the app, keeps a copy of what it replaces, restores, starts it.
+Secrets never overwrite existing files unless `FORCE=1`.
+
+**Rebuild the server** (`ops/bootstrap.sh`, details at its top):
+1. New Debian/Ubuntu machine with your SSH key for root; `scp ops/bootstrap.sh root@NEW:/root/`; `./bootstrap.sh system`.
+2. As `deploy`: the restic settings into `~/.env.backup` (chmod 600), then `./bootstrap.sh keys` (restores the deploy
+   keys GitHub already knows).
+3. `./bootstrap.sh apps`: clones, restores secrets and every app's data, starts Traefik, Authentik (+ blueprints),
+   every app at its latest release, Rollcall, and the cron jobs.
+4. Point every domain's A record in Cloudflare at the new IP. Check every site and Uptime Robot.
+
+**Tested so far:** end to end against a local restic repository and a stand-in `/opt` (backup, wipe, restore of every
+tag, Stir & Fold's own snapshots included), and the real database commands against copies of production data. Not
+yet on a real fresh server: the first rebuild is that test.
 
