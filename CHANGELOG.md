@@ -17,6 +17,10 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## v0.5.3 (2026-11-17)
+### Everyone
+- After signing out anywhere, the header no longer shows your name on the sign-in page.
+
 ## v0.5.2 (2026-11-17)
 ### Everyone
 - Signing out anywhere also closes Rule Maven pages you already have open (they go to the sign-in page).
