@@ -31,6 +31,7 @@ defmodule RuleMavenWeb.SessionController do
 
             conn
             |> put_session(:user_id, user.id)
+            |> put_session(:live_socket_id, RuleMavenWeb.LiveSessions.id(user.id))
             |> put_session(:logged_in_at, System.os_time(:second))
             |> delete_session(:sso_until)
             |> put_flash(:info, "Welcome back!")

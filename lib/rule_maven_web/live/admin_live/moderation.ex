@@ -61,6 +61,7 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
     with {:ok, user} <- fetch(id),
          :ok <- guard_super_admin(user, socket) do
       {:ok, _} = Users.force_logout(user)
+      RuleMavenWeb.LiveSessions.disconnect(user)
       audit(socket, "user.force_logout", user)
 
       {:noreply,

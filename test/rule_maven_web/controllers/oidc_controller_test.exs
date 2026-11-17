@@ -138,6 +138,7 @@ defmodule RuleMavenWeb.OidcControllerTest do
       assert user.password_hash == ""
       assert user.email_confirmed_at
       assert get_session(conn, :user_id) == user.id
+      assert get_session(conn, :live_socket_id) == RuleMavenWeb.LiveSessions.id(user.id)
 
       now = System.os_time(:second)
       assert_in_delta get_session(conn, :sso_until), now + 7 * 86_400, 5
@@ -455,10 +456,13 @@ defmodule RuleMavenWeb.OidcControllerTest do
       jo = linked_user("sub-jo")
       kim = linked_user("sub-kim")
       before = System.os_time(:second) - 5
+      RuleMavenWeb.Endpoint.subscribe(RuleMavenWeb.LiveSessions.id(jo.id))
 
       assert notify(conn, FakeOidc.id_token(%{"sub" => "sub-jo", "events" => @event})).status ==
                200
 
+      # Their open pages close (and reconnect to /login).
+      assert_receive %Phoenix.Socket.Broadcast{event: "disconnect"}
       refute Users.session_valid?(Repo.get!(User, jo.id), before)
       assert Users.session_valid?(Repo.get!(User, kim.id), before)
       # A signed-in page from before is signed out now.

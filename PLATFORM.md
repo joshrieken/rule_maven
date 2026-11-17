@@ -49,8 +49,9 @@ app-specific rules on top; where they disagree, fix one of them.
   Sessions), Authentik's worker POSTs a signed logout token to each app's `POST /auth/oidc/backchannel` over the internal
   network (blueprint `logout_uri`, `logout_method: backchannel`, `access_token_validity: days=7`; `blueprints/sessions.yaml`
   makes Authentik sessions 7 days). The app checks it like an ID token (provider's keys, issuer, audience, expiry) plus the
-  logout event and no nonce, then ends every browser session of that `sub` (CLI tokens may stay). The hub keeps no
-  sessions, so its own last an hour and renew by silent sign-in instead. Return addresses come from
+  logout event and no nonce, then ends every browser session of that `sub` (CLI tokens may stay) and closes pages
+  already open where it can (Rule Maven's LiveViews: `live_socket_id`). The hub keeps no sessions: it remembers
+  sign-outs in memory and its sessions last an hour (silent sign-in renews them), the most a restart can leave. Return addresses come from
   configuration (`<APP>_PUBLIC_URL`), never request headers.
 - **`sub` is the same person in every app** (subject mode `hashed_user_id` = Authentik user `uid`). The hub and
   cross-app features rely on it; never change a provider's subject mode.

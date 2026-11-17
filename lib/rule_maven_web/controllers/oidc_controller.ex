@@ -93,6 +93,7 @@ defmodule RuleMavenWeb.OidcController do
          {:ok, sub} <- Oidc.verify_logout_token(settings, params["logout_token"]) do
       case SignOn.end_sessions(sub) do
         {:ok, user} ->
+          RuleMavenWeb.LiveSessions.disconnect(user)
           Audit.log(user, "user.signed_out_everywhere", target_type: "user", target_id: user.id)
 
         _ ->
@@ -145,6 +146,7 @@ defmodule RuleMavenWeb.OidcController do
         conn
         |> configure_session(renew: true)
         |> put_session(:user_id, user.id)
+        |> put_session(:live_socket_id, RuleMavenWeb.LiveSessions.id(user.id))
         |> put_session(:logged_in_at, now)
         |> put_session(:sso_until, SessionLifetime.sso_until(now))
         |> put_resp_cookie(@id_token_cookie, id_token,
