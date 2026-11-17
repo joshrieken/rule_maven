@@ -17,6 +17,10 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## v0.5.4 (2026-11-17)
+### Everyone
+- Log in at the top (and in the menu on phones) signs you in straight away, without a second button to find.
+
 ## v0.5.3 (2026-11-17)
 ### Everyone
 - After signing out anywhere, the header no longer shows your name on the sign-in page.
