@@ -7,9 +7,10 @@ config :rule_maven, RuleMavenWeb.Endpoint,
   force_ssl: [
     rewrite_on: [:x_forwarded_proto],
     exclude: [
-      # The hub calls this over the private Docker network (http://<container>:4000), so it
-      # must not be redirected to https. It's bearer-secret gated (RuleMaven.Hub).
-      paths: ["/api/hub/summary"],
+      # Called over the private Docker network (http://<container>:4000), so they must not be
+      # redirected to https: the hub's summary (bearer-secret gated, RuleMaven.Hub) and the sign-in
+      # service's back-channel logout (signed logout token, OidcController.backchannel/2).
+      paths: ["/api/hub/summary", "/auth/oidc/backchannel"],
       hosts: ["localhost", "127.0.0.1"]
     ]
   ]
