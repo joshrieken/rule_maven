@@ -1,4 +1,4 @@
-defmodule RuleMaven.Changelog.Release do
+defmodule Lccz.Changelog.Release do
   @moduledoc "One `## vX.Y.Z (date)` CHANGELOG.md entry: its version, date and bullets per audience."
   defstruct version: nil, date: nil, everyone: [], admins: []
 

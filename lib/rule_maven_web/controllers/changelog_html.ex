@@ -4,7 +4,7 @@ defmodule RuleMavenWeb.ChangelogHTML do
 
   embed_templates "changelog_html/*"
 
-  attr :release, RuleMaven.Changelog.Release, required: true
+  attr :release, Lccz.Changelog.Release, required: true
 
   @doc "One release's notes: everyone's bullets, then admins' (only non-empty for admins), collapsed."
   def notes(assigns) do

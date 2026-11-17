@@ -62,6 +62,11 @@ app-specific rules on top; where they disagree, fix one of them.
   the blueprint is applied. Restart, then `docker compose exec -T worker ak apply_blueprint /blueprints/apps/<app>.yaml`.
   Add new env values **before** pulling a new blueprint, or it applies with empty values.
 
+**Elixir apps share one copy of all of the above:** `hub/platform/elixir/lccz` (tested there with `mix test`) is
+copied into every Phoenix app's `lib/lccz` by `ops/sync-platform.sh` — never edit an app's copy. It holds the sign-in
+protocol and logout tokens (`use Lccz.Oidc`), group levels (`Lccz.Groups`), silent sign-in (`use Lccz.SilentSignIn`),
+sign out everywhere (`Lccz.Backchannel`, `Lccz.LiveSessions`), the hub contract (`Lccz.Hub`) and What's new (`Lccz.Changelog`).
+
 ## 3. The hub contract
 
 Every app the hub shows answers, server to server:

@@ -5,6 +5,13 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 > **Auto-update:** After adding/removing/renaming a module, update this file.
 > After changing a public function, update the Key Functions column.
 
+## Shared platform library (`lib/lccz/`, synced — never edit here)
+
+Copied from `hub/platform/elixir/lccz` by `hub/ops/sync-platform.sh`; edit and test it there. Rule Maven binds it:
+`RuleMaven.Auth.Oidc` = `use Lccz.Oidc` (sign-in protocol, logout tokens), `RuleMavenWeb.SilentSignIn` = `use Lccz.SilentSignIn`,
+`RuleMavenWeb.LiveSessions` → `Lccz.LiveSessions`, `RuleMaven.Changelog` → `Lccz.Changelog` (parser, audience rules),
+`HubController` → `Lccz.Hub.serve/3`, `OidcController.backchannel/2` → `Lccz.Backchannel.serve/3`, `SignOn` groups → `Lccz.Groups.level/2`.
+
 ## Context Modules (business logic — `lib/rule_maven/`)
 
 | Module | File | Lines | Responsibility | Key Functions |

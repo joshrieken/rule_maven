@@ -8,7 +8,7 @@ defmodule RuleMaven.Changelog do
   that they've opened /changelog since. `unseen?/3` is true while a newer one exists.
   """
 
-  alias RuleMaven.Changelog.{Parser, Release}
+  alias Lccz.Changelog.{Parser, Release}
   alias RuleMaven.Users
   alias RuleMaven.Users.User
 
@@ -28,7 +28,7 @@ defmodule RuleMaven.Changelog do
                {:error, _} -> []
              end)
 
-  @doc "Parse CHANGELOG.md text (see `RuleMaven.Changelog.Parser`)."
+  @doc "Parse CHANGELOG.md text (the zone's format: `Lccz.Changelog.Parser`)."
   @spec parse(String.t()) :: [Release.t()]
   defdelegate parse(text), to: Parser
 
@@ -42,24 +42,18 @@ defmodule RuleMaven.Changelog do
 
   @doc "Every release as this reader may see it: admins' notes only for admins (so some may be empty)."
   @spec reader_releases(boolean(), [Release.t()]) :: [Release.t()]
-  def reader_releases(admin?, all \\ releases())
-  def reader_releases(true, all), do: all
-  def reader_releases(_, all), do: Enum.map(all, &%{&1 | admins: []})
+  def reader_releases(admin?, all \\ releases()),
+    do: Lccz.Changelog.reader_releases(admin? == true, all)
 
   @doc "The releases with notes for this reader: what the \"What's new\" mark goes by."
   @spec visible_releases(boolean(), [Release.t()]) :: [Release.t()]
-  def visible_releases(admin?, all \\ releases()) do
-    admin? |> reader_releases(all) |> Enum.filter(&(&1.everyone != [] or &1.admins != []))
-  end
+  def visible_releases(admin?, all \\ releases()),
+    do: Lccz.Changelog.visible_releases(admin? == true, all)
 
   @doc "Whether there's a release with notes for this reader newer than the one they last saw."
   @spec unseen?(boolean(), String.t() | nil, [Release.t()]) :: boolean()
-  def unseen?(admin?, seen, all \\ releases()) do
-    case visible_releases(admin?, all) do
-      [newest | _] -> newest.version != seen
-      [] -> false
-    end
-  end
+  def unseen?(admin?, seen, all \\ releases()),
+    do: Lccz.Changelog.unseen?(admin? == true, seen, all)
 
   @doc "Whether this user (nil = signed out: never) has release notes they haven't opened."
   @spec unseen_for?(User.t() | nil, [Release.t()]) :: boolean()

@@ -2,7 +2,7 @@ defmodule RuleMaven.ChangelogTest do
   use RuleMaven.DataCase, async: true
 
   alias RuleMaven.{Changelog, Users}
-  alias RuleMaven.Changelog.Release
+  alias Lccz.Changelog.Release
 
   @sample """
   # Changelog

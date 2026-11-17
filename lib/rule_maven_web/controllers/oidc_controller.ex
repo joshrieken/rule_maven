@@ -89,30 +89,16 @@ defmodule RuleMavenWeb.OidcController do
   The signed logout token is the check (`Oidc.verify_logout_token/2`).
   """
   def backchannel(conn, params) do
-    with %Oidc.Settings{} = settings <- Oidc.settings(),
-         {:ok, sub} <- Oidc.verify_logout_token(settings, params["logout_token"]) do
-      case SignOn.end_sessions(sub) do
-        {:ok, user} ->
-          RuleMavenWeb.LiveSessions.disconnect(user)
+    Lccz.Backchannel.serve(conn, params,
+      oidc: Oidc,
+      endpoint: RuleMavenWeb.Endpoint,
+      end_sessions: fn sub ->
+        with {:ok, user} <- SignOn.end_sessions(sub) do
           Audit.log(user, "user.signed_out_everywhere", target_type: "user", target_id: user.id)
-
-        _ ->
-          :ok
+          {:ok, user.id}
+        end
       end
-
-      conn |> put_resp_header("cache-control", "no-store") |> send_resp(200, "")
-    else
-      nil ->
-        send_resp(conn, 404, "")
-
-      {:error, reason} ->
-        Logger.warning("Back-channel logout refused: #{inspect(reason)}")
-
-        conn
-        |> put_resp_header("cache-control", "no-store")
-        |> put_status(400)
-        |> json(%{error: "invalid_request"})
-    end
+    )
   end
 
   def callback(conn, params) do

@@ -1,15 +1,13 @@
 defmodule RuleMavenWeb.LiveSessions do
   @moduledoc """
-  Ties a person's open LiveView pages to them (`live_socket_id`, put in the session at every
-  sign-in), so ending their sessions (sign out everywhere, an admin's force-logout) also closes
-  pages already open: each reconnects, finds the session ended, and goes to /login. Without this an
-  open page kept showing until the next click.
+  Rule Maven's binding of `Lccz.LiveSessions`: a person's open LiveView pages are tied to them
+  (`live_socket_id` at every sign-in), so ending their sessions (sign out everywhere, an admin's
+  force-logout) also closes pages already open.
   """
 
   @doc "The session's `live_socket_id` for this person."
-  def id(user_id), do: "users_sessions:#{user_id}"
+  defdelegate id(user_id), to: Lccz.LiveSessions
 
   @doc "Closes every open LiveView page of this person."
-  def disconnect(%{id: user_id}),
-    do: RuleMavenWeb.Endpoint.broadcast(id(user_id), "disconnect", %{})
+  def disconnect(%{id: user_id}), do: Lccz.LiveSessions.disconnect(RuleMavenWeb.Endpoint, user_id)
 end

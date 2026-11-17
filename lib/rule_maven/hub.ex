@@ -45,27 +45,8 @@ defmodule RuleMaven.Hub do
   (as SHA-256 digests, so lengths don't leak); always false while the secret is unset.
   """
   @spec hub_request?(String.t() | nil) :: boolean()
-  def hub_request?(authorization) do
-    secret = Application.get_env(:rule_maven, :hub_secret)
-
-    with secret when is_binary(secret) and secret != "" <- secret,
-         given when is_binary(given) <- bearer(authorization) do
-      Plug.Crypto.secure_compare(digest(given), digest(secret))
-    else
-      _ -> false
-    end
-  end
-
-  defp bearer(value) when is_binary(value) do
-    case Regex.run(~r/\ABearer\s+(\S+)\z/i, String.trim(value)) do
-      [_, token] -> token
-      _ -> nil
-    end
-  end
-
-  defp bearer(_), do: nil
-
-  defp digest(value), do: :crypto.hash(:sha256, value)
+  def hub_request?(authorization),
+    do: Lccz.Hub.authorized?(authorization, Application.get_env(:rule_maven, :hub_secret))
 
   @doc """
   The summary for the person with this sign-on id, or nil when nobody here has it (never signed

@@ -113,35 +113,8 @@ defmodule RuleMaven.Auth.SignOn do
 
   defp fetch_sub(_claims), do: {:error, "The sign-in service sent no account id."}
 
-  # In the users group or the admin group (admins may use the app too). Returns `{level, managed?}`:
-  # the level the groups give (:super_admin, :admin or :user) and whether a super-admin group decides
-  # super admins (without one, a super admin's role is the server's).
-  defp check_groups(claims, opts) do
-    groups =
-      case claims["groups"] do
-        list when is_list(list) -> Enum.filter(list, &is_binary/1)
-        _ -> []
-      end
-
-    group = opts[:group]
-    managed? = is_binary(opts[:superadmin_group])
-
-    cond do
-      member?(groups, opts[:admin_group]) and member?(groups, opts[:superadmin_group]) ->
-        {:ok, {:super_admin, managed?}}
-
-      member?(groups, opts[:admin_group]) ->
-        {:ok, {:admin, managed?}}
-
-      not is_binary(group) or group in groups ->
-        {:ok, {:user, managed?}}
-
-      true ->
-        {:error, "Your account isn't allowed in yet. Ask the admin to add you to \"#{group}\"."}
-    end
-  end
-
-  defp member?(groups, group), do: is_binary(group) and group in groups
+  # The level the groups give, `{level, managed?}` (`Lccz.Groups.level/2`, the zone's rule).
+  defp check_groups(claims, opts), do: Lccz.Groups.level(claims, opts)
 
   defp existing(%User{} = user, level) do
     if User.suspended?(user) do

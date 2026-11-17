@@ -1,7 +1,7 @@
-defmodule RuleMaven.Changelog.Parser do
+defmodule Lccz.Changelog.Parser do
   @moduledoc """
   CHANGELOG.md's format, parsed. Its own module (no app dependencies) so
-  `RuleMaven.Changelog` can run it at compile time.
+  each app can run it at compile time.
 
       ## vX.Y.Z (YYYY-MM-DD)
       ### Everyone
@@ -15,7 +15,7 @@ defmodule RuleMaven.Changelog.Parser do
   an unknown `###` section (or none) are dropped rather than shown to everyone.
   """
 
-  alias RuleMaven.Changelog.Release
+  alias Lccz.Changelog.Release
 
   @release_re ~r/^##\s+v?(\d+\.\d+\.\d+)(?:\s*(?:\(|—|–|-)\s*(\d{4}-\d{2}-\d{2})\)?)?\s*$/u
   @section_re ~r/^###\s+(.+?)\s*$/
