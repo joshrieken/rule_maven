@@ -12,8 +12,8 @@ app-specific rules on top; where they disagree, fix one of them.
 
 | App | Repo | Server checkout | Compose service | Port | Stack |
 |---|---|---|---|---|---|
-| Hub | `lowcalcalzonezone` | `/opt/hub` | `hub` | 3000 | Node (no framework) |
-| Drawburn | `drawburn` (folder `workcard`) | `/opt/drawburn` | `drawburn` | 3000 | Next.js + SQLite |
+| Hub | `lowcalcalzonezone` | `/opt/hub` | `hub` (+ `db`) | 3000 | Phoenix + Postgres |
+| Drawburn | `drawburn` (folder `workcard`) | `/opt/drawburn` | `drawburn` (+ `db`) | 3000 | Phoenix + Postgres |
 | Stir & Fold | `gourmand` | `/opt/gourmand` | `stirandfold` | 4637 | Next.js + SQLite |
 | Rule Maven | `rule_maven` | `/opt/rulemaven` | `rulemaven` (+ `db`) | 4000 | Phoenix + Postgres |
 | Identity | `lccz-identity` | `/opt/identity` | `server`, `worker` (+ `postgresql`) | 9000 | Authentik |
@@ -51,8 +51,8 @@ app-specific rules on top; where they disagree, fix one of them.
   makes Authentik sessions 7 days). The app checks it like an ID token (provider's keys, issuer, audience, expiry) plus the
   logout event and no nonce, then ends every browser session of that `sub` (CLI tokens may stay) and makes pages
   already open follow without a reload by hand (Rule Maven: LiveView `live_socket_id` disconnect; Stir & Fold: the bell's
-  live stream; Drawburn and the hub: a server-sent `ended` on a small session stream). The hub keeps no sessions: it remembers
-  sign-outs in memory and its sessions last an hour (silent sign-in renews them), the most a restart can leave. Return addresses come from
+  live stream; Drawburn: a server-sent `ended` on a small session stream; the hub: LiveView `live_socket_id` disconnect,
+  its sessions in Postgres like the apps'). Return addresses come from
   configuration (`<APP>_PUBLIC_URL`), never request headers.
 - **`sub` is the same person in every app** (subject mode `hashed_user_id` = Authentik user `uid`). The hub and
   cross-app features rely on it; never change a provider's subject mode.
@@ -215,9 +215,10 @@ anyway, run the app's `scripts/deploy.sh`; to pause one app, `touch /opt/<app>/.
 - **Each script refuses** if its dev server is running (port in use) or the database is open: swapping a database
   under a running server corrupts it.
 - **Code ahead of prod:** migrations newer than prod run on the next dev start (Rule Maven's script runs them).
-- **What lands where:** identity → local Authentik's Postgres (docker compose); Drawburn → `data/drawburn.db`;
+- **What lands where:** identity → local Authentik's Postgres (docker compose); Drawburn → `drawburn_dev` on the local Postgres;
   Stir & Fold → `data/stirandfold.db` + `data/images`, `data/inbox` (~2.4 GB the first time); Rule Maven →
-  `rule_maven_dev` on the local Postgres + `priv/static/uploads`. The hub keeps no data.
+  `rule_maven_dev` on the local Postgres + `priv/static/uploads`. The hub's database holds only sessions and who has
+  seen which release notes: nothing to pull (dev signs in fresh).
 - **SSH:** every script uses `deploy@207.244.249.148` (override with `LCCZ_SSH`; Stir & Fold also reads
   `STIRANDFOLD_SSH` from `.env.prod`). Never a domain: Cloudflare's proxy doesn't carry SSH.
 
@@ -279,7 +280,8 @@ without them the backups can't be read.
 | Tag | What | Made by |
 |---|---|---|
 | `stirandfold` | database, photos, cookbooks, `secret.key` | Stir & Fold's `scripts/offsite-backup.sh` (03:15; its admin page reports on it) |
-| `drawburn` | database (SQLite online backup) | `ops/backup.sh` (03:45) |
+| `hub` | `pg_dump` (sessions, who has read which notes) | `ops/backup.sh` (03:45) |
+| `drawburn` | `pg_dump` (SQLite online backup before v0.8.0) | `ops/backup.sh` |
 | `rulemaven` | `pg_dump` + uploaded files | `ops/backup.sh` |
 | `identity` | Authentik `pg_dump` + its media and certs | `ops/backup.sh` |
 | `rollcall` | `pg_dump` + uploaded media | `ops/backup.sh` |
@@ -290,7 +292,7 @@ Kept: 7 daily, 5 weekly, 12 monthly per tag. `ops/backup.sh` checks 2% of the st
 `BACKUP_PING_URL` is set in `/opt/hub/.env.backup`, pings it after a fully successful night (an Uptime Robot
 heartbeat alerts on a missed ping). Log: `~/lccz-backups/backup.log`.
 
-**Restore one thing** (same server or new): `ops/restore.sh <secrets|identity|drawburn|stirandfold|rulemaven|rollcall|all> [snapshot]`
+**Restore one thing** (same server or new): `ops/restore.sh <secrets|identity|hub|drawburn|stirandfold|rulemaven|rollcall|all> [snapshot]`
 (`ops/restore.sh snapshots` lists them). It stops the app, keeps a copy of what it replaces, restores, starts it.
 Secrets never overwrite existing files unless `FORCE=1`.
 
