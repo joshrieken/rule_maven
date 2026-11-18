@@ -119,4 +119,36 @@ defmodule RuleMavenWeb.GameLiveQueryBudgetTest do
            "game page connected mount ran #{length(queries)} queries (budget #{@budget}):\n" <>
              Enum.map_join(queries, "\n", &String.slice(&1, 0, 140))
   end
+
+  test "Prepare's connected mount loads documents once and doesn't grow per document",
+       %{conn: conn} do
+    {:ok, admin} =
+      RuleMaven.Users.create_user(%{
+        username: "budget_admin_#{System.unique_integer([:positive])}",
+        email: "budget_admin_#{System.unique_integer([:positive])}@test.com",
+        password: "password1234",
+        role: "admin"
+      })
+
+    game = game_fixture(%{name: "Budget Prep", bgg_id: 2001, bgg_data: "<items/>"})
+    for n <- 1..4, do: doc!(game, "Book #{n}", 3)
+
+    conn =
+      conn
+      |> Plug.Test.init_test_session(%{"user_id" => admin.id})
+      |> get(~p"/games/#{game}/prepare")
+
+    queries =
+      count_queries(fn ->
+        {:ok, view, _html} = live(conn)
+        GenServer.stop(view.pid)
+      end)
+
+    full_document_loads = Enum.count(queries, &(&1 =~ ~s(d0."full_text")))
+    assert full_document_loads == 1
+
+    assert length(queries) <= 40,
+           "prepare connected mount ran #{length(queries)} queries:\n" <>
+             Enum.map_join(queries, "\n", &String.slice(&1, 0, 140))
+  end
 end

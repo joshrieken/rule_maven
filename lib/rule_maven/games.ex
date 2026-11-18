@@ -2162,6 +2162,29 @@ defmodule RuleMaven.Games do
     )
   end
 
+  @doc "True when any of these documents has a cleanup queued or running (one query)."
+  def any_cleanup_running?([]), do: false
+
+  def any_cleanup_running?(doc_ids) do
+    Repo.exists?(
+      from j in Oban.Job,
+        where:
+          j.worker == ^@cleanup_worker and
+            j.state in ^@cleanup_active_states and
+            fragment("?->>'document_id'", j.args) in ^Enum.map(doc_ids, &to_string/1)
+    )
+  end
+
+  @doc """
+  True when any of these documents has chunks still waiting for an embedding
+  (EmbedChunksWorker in flight). One query.
+  """
+  def any_embedding_pending?([]), do: false
+
+  def any_embedding_pending?(doc_ids) do
+    Repo.exists?(from c in Chunk, where: c.document_id in ^doc_ids and is_nil(c.embedding))
+  end
+
   @doc """
   Enqueue (or no-op if one is already active) a durable cleanup of a document's
   pages at the given strength (`:auto | :light | :standard | :aggressive`;

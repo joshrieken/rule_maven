@@ -262,6 +262,57 @@ defmodule RuleMaven.Jobs do
     end)
   end
 
+  @doc """
+  `list_runs(scope_type: type, scope_id: id, limit: per_scope)` for many scope
+  ids in one query: each scope's newest `per_scope` runs, newest first overall.
+  """
+  def list_runs_for_scopes(_scope_type, [], _per_scope), do: []
+
+  def list_runs_for_scopes(scope_type, scope_ids, per_scope) do
+    ranked =
+      from r in JobRun,
+        where: r.scope_type == ^to_string(scope_type) and r.scope_id in ^scope_ids,
+        select: %{
+          id: r.id,
+          rank:
+            over(row_number(),
+              partition_by: r.scope_id,
+              order_by: [desc: r.inserted_at, desc: r.id]
+            )
+        }
+
+    from(r in JobRun,
+      join: k in subquery(ranked),
+      on: k.id == r.id and k.rank <= ^per_scope,
+      order_by: [desc: r.inserted_at, desc: r.id]
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  `events(run_id, limit)` for many runs in one query: `%{run_id => events}`,
+  each run's newest `limit` lines, newest first.
+  """
+  def events_for_runs([], _limit), do: %{}
+
+  def events_for_runs(run_ids, limit) do
+    ranked =
+      from e in JobEvent,
+        where: e.job_run_id in ^run_ids,
+        select: %{
+          id: e.id,
+          rank: over(row_number(), partition_by: e.job_run_id, order_by: [desc: e.id])
+        }
+
+    from(e in JobEvent,
+      join: k in subquery(ranked),
+      on: k.id == e.id and k.rank <= ^limit,
+      order_by: [desc: e.id]
+    )
+    |> Repo.all()
+    |> Enum.group_by(& &1.job_run_id)
+  end
+
   @doc "How many runs are currently `running` (left-rail badge)."
   def running_count do
     Repo.aggregate(from(r in JobRun, where: r.state == "running"), :count)

@@ -110,7 +110,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         {:ok, socket |> put_flash(:error, "That game doesn’t exist.") |> push_navigate(to: ~p"/")}
 
       true ->
-        Readiness.recompute(game)
+        # One full document load for the whole mount (recompute, the
+        # subscriptions and load/2 all read the same rows).
+        docs = Games.list_documents(game)
+        Readiness.recompute(game, docs)
 
         if connected?(socket) do
           Jobs.subscribe(Readiness.topic(game.id))
@@ -119,7 +122,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           # job log filters them to this game's runs in handle_info.
           Jobs.subscribe(Jobs.admin_topic())
 
-          for d <- Games.list_documents(game) do
+          for d <- docs do
             Jobs.subscribe(Jobs.scope_topic("document", d.id))
           end
         end
@@ -129,21 +132,27 @@ defmodule RuleMavenWeb.GameLive.Prepare do
          |> assign(game: game, page_title: "Prepare — #{game.name}", renaming_doc_id: nil)
          |> ToolHost.mount_header(game)
          |> ToolHost.mount_tools(game)
-         |> load()}
+         |> load(docs)}
     end
   end
 
-  defp load(socket) do
+  # Rebuilds every assign from one document load: each step's completion is
+  # checked once (Readiness.completion/2) and shared by the step list, the
+  # playable/required flags and the cost estimates.
+  defp load(socket, docs \\ nil) do
     game = socket.assigns.game
-    docs = Games.list_documents(game)
-    steps = Readiness.state(game)
+    docs = docs || Games.list_documents(game)
+    done = Readiness.completion(game, docs)
+    steps = Readiness.state(game, docs, done)
+    required_complete? = Readiness.required_complete?(game, done)
+    publish_approved? = Readiness.publish_approved?(game.id)
     # Scope the cost readout to spend since the last pipeline reset (nil = all
     # time) so a fresh reset shows $0.00 without deleting billing history.
     cost_since = Games.preparation_reset_at(game.id)
     by_operation = LLM.cost_by_operation_for_game(game.id, cost_since)
 
     estimates =
-      Map.new(steps, fn s -> {s.id, Estimator.step_cost(s.id, game, docs)} end)
+      Map.new(steps, fn s -> {s.id, Estimator.step_cost(s.id, game, docs, done)} end)
 
     actuals =
       Map.new(steps, fn s -> {s.id, step_actual_cost(s.id, by_operation)} end)
@@ -155,6 +164,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       step_logs |> Map.values() |> Enum.flat_map(& &1.runs) |> MapSet.new(& &1.id)
 
     next_step = Enum.find(steps, &(&1.state == :pending))
+    previews = build_previews(game, docs)
+    doc_ids = Enum.map(docs, & &1.id)
 
     assign(socket,
       steps: steps,
@@ -168,20 +179,30 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       # :job_run filter recognizes runs for documents added after mount (their
       # per-document scope topic is only subscribed at mount).
       doc_ids: MapSet.new(docs, & &1.id),
-      previews: build_previews(game, docs),
+      previews: previews,
+      # What step_actions/1 shows per step, derived here once per load (it used
+      # to query in render — reloading every document for the cleanup and
+      # embed rows — on every re-render).
+      step_flags: %{
+        expansion?: Games.expansion?(game.id),
+        cleaning?: Games.any_cleanup_running?(doc_ids),
+        embedding?: Games.any_embedding_pending?(doc_ids),
+        cat_draft?: category_draft(game.id) != [],
+        cat_saved?: previews.categories != []
+      },
       running_steps: running_steps(game),
-      playable?: Readiness.playable?(game),
+      playable?: required_complete? and publish_approved?,
       # Distinct from playable?: playable flips true once just the *required*
       # steps are done + approved, while enrichment steps (suggestions, cheat
       # sheet, etc.) can still be running. Re-run wording/spend-warning should
       # only kick in once literally nothing is left to do.
       all_done?: Enum.all?(steps, &(&1.state == :done)),
-      required_complete?: Readiness.required_complete?(game),
-      publish_approved?: Readiness.publish_approved?(game.id),
+      required_complete?: required_complete?,
+      publish_approved?: publish_approved?,
       auto?: Readiness.auto?(game.id),
       pause_reason: Readiness.pause_reason(game.id),
-      remaining_cost: Estimator.remaining_cost(game),
-      rerun_cost: Estimator.rerun_cost(game),
+      remaining_cost: Estimator.remaining_cost(game, docs, done),
+      rerun_cost: Estimator.rerun_cost(game, docs),
       estimates: estimates,
       actuals: actuals,
       total_actual: LLM.cost_for_game(game.id, cost_since),
@@ -766,22 +787,9 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   defp clear_step(:symbols, g), do: RuleMaven.Symbols.clear(g.id)
   defp clear_step(_, _), do: :ok
 
-  # True when any of the game's sources has a cleanup job queued/running. Cleanup
-  # is document-scoped, so it isn't covered by `running_steps/1`.
-  defp cleanup_active?(game) do
-    game |> Games.list_documents() |> Enum.any?(&Games.cleanup_running?(&1.id))
-  end
-
   # Embedding in flight = chunks exist that still lack a vector (the
-  # EmbedChunksWorker fills them in). Document-scoped like cleanup, so it isn't
-  # covered by `running_steps/1` either.
-  defp embed_in_flight?(doc_id) do
-    Repo.exists?(from(c in Chunk, where: c.document_id == ^doc_id and is_nil(c.embedding)))
-  end
-
-  defp embed_active?(game) do
-    game |> Games.list_documents() |> Enum.any?(&embed_in_flight?(&1.id))
-  end
+  # EmbedChunksWorker fills them in).
+  defp embed_in_flight?(doc_id), do: Games.any_embedding_pending?([doc_id])
 
   # Latest runs per step (newest first, capped at 3) plus the newest run's
   # event lines, feeding each step's inline job log. Two run queries (game +
@@ -789,18 +797,25 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # admin-only and reloads on job traffic, so eager loading is fine.
   defp load_step_logs(game, docs) do
     game_runs = Jobs.list_runs(scope_type: "game", scope_id: game.id, limit: 200)
+    doc_runs = Jobs.list_runs_for_scopes("document", Enum.map(docs, & &1.id), 100)
 
-    doc_runs =
-      Enum.flat_map(docs, &Jobs.list_runs(scope_type: "document", scope_id: &1.id, limit: 100))
+    step_runs =
+      (game_runs ++ doc_runs)
+      |> Enum.group_by(&Map.get(@run_kind_to_step, &1.kind))
+      |> Map.delete(nil)
+      |> Map.new(fn {step, runs} ->
+        {step, runs |> Enum.sort_by(& &1.id, :desc) |> Enum.take(3)}
+      end)
 
-    (game_runs ++ doc_runs)
-    |> Enum.group_by(&Map.get(@run_kind_to_step, &1.kind))
-    |> Map.delete(nil)
-    |> Map.new(fn {step, runs} ->
-      [latest | _] = runs = runs |> Enum.sort_by(& &1.id, :desc) |> Enum.take(3)
-      # Newest line first (Jobs.events order) — latest progress stays visible
-      # at the top of the box without scrolling.
-      {step, %{runs: runs, events: Jobs.events(latest.id, 40)}}
+    # Newest line first (Jobs.events order) — latest progress stays visible
+    # at the top of the box without scrolling. One query for every step.
+    events =
+      step_runs
+      |> Enum.map(fn {_step, [latest | _]} -> latest.id end)
+      |> Jobs.events_for_runs(40)
+
+    Map.new(step_runs, fn {step, [latest | _] = runs} ->
+      {step, %{runs: runs, events: Map.get(events, latest.id, [])}}
     end)
   end
 
@@ -1100,6 +1115,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
               next?={step.id == @next_step_id}
               renaming_doc_id={@renaming_doc_id}
               two_up_suspects={@two_up_suspects}
+              flags={@step_flags}
             />
           <% end %>
         </div>
@@ -1123,6 +1139,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   attr :next?, :boolean, default: false
   attr :renaming_doc_id, :any, default: nil
   attr :two_up_suspects, :any, default: nil
+  attr :flags, :map, required: true
 
   defp step_row(assigns) do
     # A row is collapsible when it has a result to preview *or* an action to
@@ -1190,7 +1207,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           renaming_doc_id={@renaming_doc_id}
           two_up_suspects={@two_up_suspects}
         />
-        <.step_actions step={@step} game={@game} running={@running} />
+        <.step_actions step={@step} game={@game} running={@running} flags={@flags} />
         <.step_log log={@log} />
       </div>
     </div>
@@ -1672,6 +1689,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   attr :step, :map, required: true
   attr :game, :map, required: true
   attr :running, :boolean, default: false
+  attr :flags, :map, required: true, doc: "the page's :step_flags (see load/2)"
 
   defp step_actions(assigns) do
     categories? = assigns.step.id == :categories
@@ -1682,7 +1700,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       |> assign(
         :regen?,
         assigns.step.id in @regen_steps and assigns.step.state != :blocked and
-          not (assigns.step.id == :theme and Games.expansion?(assigns.game.id))
+          not (assigns.step.id == :theme and assigns.flags.expansion?)
       )
       |> assign(:clear?, assigns.step.id in @clear_steps)
       |> assign(:done?, assigns.step.state == :done)
@@ -1692,17 +1710,17 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       # jobs are document-scoped, so they don't show up in the game-scoped
       # `running` MapSet and need their own check.
       |> assign(:cleanable?, assigns.step.id == :cleanup and assigns.step.state == :pending)
-      |> assign(:cleaning?, assigns.step.id == :cleanup and cleanup_active?(assigns.game))
+      |> assign(:cleaning?, assigns.step.id == :cleanup and assigns.flags.cleaning?)
       # Embed can run once cleanup is done (state :pending, not :blocked). Like
       # cleanup it's document-scoped, so in-flight embedding needs its own check.
       |> assign(:embeddable?, assigns.step.id == :embed and assigns.step.state == :pending)
-      |> assign(:embedding?, assigns.step.id == :embed and embed_active?(assigns.game))
+      |> assign(:embedding?, assigns.step.id == :embed and assigns.flags.embedding?)
       # Once embedded, offer a re-chunk: chunking logic evolves (e.g. scenario
       # headings carried onto continuation pages) and existing games only pick
       # it up by being chunked again.
       |> assign(:rechunkable?, assigns.step.id == :embed and assigns.step.state == :done)
-      |> assign(:cat_draft?, categories? and category_draft(assigns.game.id) != [])
-      |> assign(:cat_saved?, categories? and Games.list_game_categories(assigns.game) != [])
+      |> assign(:cat_draft?, categories? and assigns.flags.cat_draft?)
+      |> assign(:cat_saved?, categories? and assigns.flags.cat_saved?)
 
     ~H"""
     <div

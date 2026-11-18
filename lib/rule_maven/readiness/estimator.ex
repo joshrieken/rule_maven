@@ -54,22 +54,28 @@ defmodule RuleMaven.Readiness.Estimator do
   Estimated USD for a single step against a game's current inputs. Returns 0.0
   for non-LLM steps and for steps already complete.
   """
-  def step_cost(step, %Games.Game{} = game, docs \\ nil) do
+  #
+  # `done` is an optional `Readiness.completion/2` map, so a page that already
+  # computed it doesn't re-check every step per estimate.
+  def step_cost(step, %Games.Game{} = game, docs \\ nil, done \\ nil) do
     docs = docs || Games.list_documents(game)
 
     cond do
       not Readiness.llm_step?(step) -> 0.0
-      Readiness.step_complete?(step, game, docs) -> 0.0
+      complete?(step, game, docs, done) -> 0.0
       true -> do_step_cost(step, game, docs)
     end
   end
 
+  defp complete?(step, game, docs, nil), do: Readiness.step_complete?(step, game, docs)
+  defp complete?(step, _game, _docs, done), do: Map.fetch!(done, step)
+
   @doc "Total estimated USD across all *pending* LLM steps (the remaining spend)."
-  def remaining_cost(%Games.Game{} = game) do
-    docs = Games.list_documents(game)
+  def remaining_cost(%Games.Game{} = game, docs \\ nil, done \\ nil) do
+    docs = docs || Games.list_documents(game)
 
     Readiness.all_steps()
-    |> Enum.reduce(0.0, fn step, acc -> acc + step_cost(step, game, docs) end)
+    |> Enum.reduce(0.0, fn step, acc -> acc + step_cost(step, game, docs, done) end)
   end
 
   @doc """
@@ -78,8 +84,8 @@ defmodule RuleMaven.Readiness.Estimator do
   pass regenerates — so this sums the enrichment LLM steps regardless of whether
   they're already done (unlike `remaining_cost`, which would read 0).
   """
-  def rerun_cost(%Games.Game{} = game) do
-    docs = Games.list_documents(game)
+  def rerun_cost(%Games.Game{} = game, docs \\ nil) do
+    docs = docs || Games.list_documents(game)
 
     Readiness.enrichment_steps()
     |> Enum.reduce(0.0, fn step, acc ->

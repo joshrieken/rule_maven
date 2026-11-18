@@ -86,24 +86,31 @@ defmodule RuleMaven.Readiness do
   `:done | :pending | :blocked`. `:blocked` marks a step whose prerequisites
   aren't met yet (so the UI can dim it).
   """
-  def state(%Game{} = game) do
-    docs = Games.list_documents(game)
+  def state(%Game{} = game), do: state(game, Games.list_documents(game))
+
+  @doc """
+  `state/1` for already-loaded documents (`Games.list_documents/1`), and
+  optionally an already-computed `completion/2` map so callers that also need
+  `required_complete?/1` or cost estimates check each step only once.
+  """
+  def state(%Game{} = game, docs, done \\ nil) do
+    done = done || completion(game, docs)
     # Enrichments read the embedded rulebook text, so every step after
     # "Chunked & embedded" stays blocked until embedding completes.
-    embed_done = step_complete?(:embed, game, docs)
+    embed_done = done[:embed]
 
     {steps, _prev_done} =
       Enum.map_reduce(all_steps(), true, fn step, prev_done ->
-        done = step_complete?(step, game, docs)
+        complete = done[step]
 
         s =
           cond do
-            done -> :done
+            complete -> :done
             category(step) == :required and not prev_done -> :blocked
             # Theme only needs the BGG cover image, not the embedded rulebook —
             # gate it on :bgg instead of the shared embed_done gate so it can run
             # (and show as runnable) well before the rest of the pipeline.
-            step == :theme -> if step_complete?(:bgg, game, docs), do: :pending, else: :blocked
+            step == :theme -> if done[:bgg], do: :pending, else: :blocked
             category(step) == :enrichment and not embed_done -> :blocked
             true -> :pending
           end
@@ -114,17 +121,28 @@ defmodule RuleMaven.Readiness do
            category: category(step),
            llm: llm_step?(step),
            state: s
-         }, prev_done and (done or category(step) == :enrichment)}
+         }, prev_done and (complete or category(step) == :enrichment)}
       end)
 
     steps
   end
 
-  @doc "True when every required step is complete (ignores the publish gate)."
-  def required_complete?(%Game{} = game) do
-    docs = Games.list_documents(game)
-    Enum.all?(@required, &step_complete?(&1, game, docs))
+  @doc """
+  `%{step => complete?}` for every step in `all_steps/0`, each checked once
+  against the given documents (one load shared by every step).
+  """
+  def completion(%Game{} = game, docs) do
+    Map.new(all_steps(), &{&1, step_complete?(&1, game, docs)})
   end
+
+  @doc "True when every required step is complete (ignores the publish gate)."
+  def required_complete?(%Game{} = game), do: required_complete?(game, Games.list_documents(game))
+
+  @doc "`required_complete?/1` for loaded documents or a `completion/2` map."
+  def required_complete?(%Game{} = _game, %{} = done), do: Enum.all?(@required, &done[&1])
+
+  def required_complete?(%Game{} = game, docs) when is_list(docs),
+    do: Enum.all?(@required, &step_complete?(&1, game, docs))
 
   @doc "True when the game is live: required steps complete AND publish approved."
   def playable?(%Game{} = game), do: required_complete?(game) and publish_approved?(game.id)
@@ -134,12 +152,14 @@ defmodule RuleMaven.Readiness do
   when it actually changed), then broadcast so any open page refreshes.
   Returns the boolean.
   """
-  def recompute(%Game{} = game) do
-    docs = Games.list_documents(game)
+  def recompute(game, docs \\ nil)
+
+  def recompute(%Game{} = game, docs) do
+    docs = docs || Games.list_documents(game)
     # A game goes playable only when every required step is complete AND an admin
     # has manually approved publishing it — the gate keeps a fully-prepared game
     # from auto-going-live before someone is ready.
-    now = Enum.all?(@required, &step_complete?(&1, game, docs)) and publish_approved?(game.id)
+    now = required_complete?(game, docs) and publish_approved?(game.id)
 
     if now != game.playable do
       game
@@ -154,7 +174,7 @@ defmodule RuleMaven.Readiness do
     now
   end
 
-  def recompute(game_id) when is_integer(game_id) do
+  def recompute(game_id, _docs) when is_integer(game_id) do
     case Repo.get(Game, game_id) do
       %Game{} = g -> recompute(g)
       _ -> false
@@ -188,7 +208,8 @@ defmodule RuleMaven.Readiness do
   # Embedding must chunk the *cleaned* text, so it can't count as done while
   # cleanup is still pending — even if (stale, raw-text) embedded chunks exist.
   def step_complete?(:embed, _game, docs) do
-    docs != [] and Enum.all?(docs, &(doc_cleaned?(&1) and doc_embedded?(&1)))
+    docs != [] and Enum.all?(docs, &doc_cleaned?/1) and
+      MapSet.subset?(MapSet.new(docs, & &1.id), embedded_doc_ids(docs))
   end
 
   # Done when categories exist as either an unsaved draft (Settings cache) or a
@@ -245,16 +266,23 @@ defmodule RuleMaven.Readiness do
     end)
   end
 
-  defp doc_embedded?(%Document{id: doc_id}) do
-    total = Repo.aggregate(from(c in Chunk, where: c.document_id == ^doc_id), :count)
+  defp doc_embedded?(%Document{} = doc), do: MapSet.member?(embedded_doc_ids([doc]), doc.id)
 
-    pending =
-      Repo.aggregate(
-        from(c in Chunk, where: c.document_id == ^doc_id and is_nil(c.embedding)),
-        :count
-      )
+  @doc """
+  Ids of the given documents that are fully embedded: at least one chunk and
+  none still waiting for a vector. One query for all of them.
+  """
+  def embedded_doc_ids(docs) do
+    ids = Enum.map(docs, & &1.id)
 
-    total > 0 and pending == 0
+    Repo.all(
+      from c in Chunk,
+        where: c.document_id in ^ids,
+        group_by: c.document_id,
+        having: count(c.id) > 0 and count(c.id) == count(c.embedding),
+        select: c.document_id
+    )
+    |> MapSet.new()
   end
 
   defp present?(key), do: is_binary(Settings.get(key)) and Settings.get(key) != ""
