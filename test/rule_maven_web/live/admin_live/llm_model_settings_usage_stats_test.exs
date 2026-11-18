@@ -91,10 +91,13 @@ defmodule RuleMavenWeb.AdminLive.LlmModelSettingsUsageStatsTest do
 
   describe "usage dashboard" do
     test "shows $/question and pool hit rate", %{conn: conn} do
-      {:ok, view, html} = conn |> login(user("admin")) |> live(~p"/admin/usage")
-      # The aggregates load after the join (start_async), not in it.
-      assert html =~ "Loading…"
-      html = render_async(view)
+      conn = conn |> login(user("admin")) |> get(~p"/admin/usage")
+      # The dead render skips the aggregates; the connected mount loads them
+      # off the join (QuickLoad) and, when they're quick, renders them in its
+      # first paint — no loading line to swap out.
+      assert html_response(conn, 200) =~ "Loading…"
+      {:ok, _view, html} = live(conn)
+      refute html =~ "Loading…"
 
       assert html =~ "$ / question"
       assert html =~ "Pool hit rate"

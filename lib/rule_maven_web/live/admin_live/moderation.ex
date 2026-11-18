@@ -3,11 +3,13 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
 
   alias RuleMaven.{Audit, Users, Games, Moderation, Repo}
   alias RuleMaven.Games.QuestionLog
+  alias RuleMavenWeb.QuickLoad
 
   @impl true
   def mount(_params, _session, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
-      {:ok, socket |> assign(page_title: "Moderation", loaded: false) |> load_async()}
+      {:ok,
+       socket |> assign(page_title: "Moderation", loaded: false, load_ref: nil) |> load_async()}
     else
       {:ok, push_navigate(socket, to: ~p"/")}
     end
@@ -25,17 +27,29 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
   end
 
   # Whole-table group-bys over questions_log/question_votes: off the join (a slow mount holds the
-  # socket), with a loading line until they're in. The dead render skips them entirely.
+  # socket) — rendered with the page when they finish within QuickLoad's budget, else a loading
+  # line until they're in. The dead render skips them entirely.
   defp load_async(socket) do
-    if connected?(socket), do: start_async(socket, :load, &compute/0), else: socket
+    if connected?(socket) do
+      case QuickLoad.start(&compute/0) do
+        {:done, result} -> apply_load(socket, result)
+        {:pending, ref} -> assign(socket, load_ref: ref)
+      end
+    else
+      socket
+    end
   end
 
-  @impl true
-  def handle_async(:load, {:ok, data}, socket),
-    do: {:noreply, assign(socket, Map.put(data, :loaded, true))}
+  defp apply_load(socket, {:ok, data}), do: assign(socket, Map.put(data, :loaded, true))
 
-  def handle_async(:load, {:exit, _reason}, socket),
-    do: {:noreply, put_flash(socket, :error, "Couldn't load moderation signals. Try again.")}
+  defp apply_load(socket, {:error, _reason}),
+    do: put_flash(socket, :error, "Couldn't load moderation signals. Try again.")
+
+  @impl true
+  def handle_info({:DOWN, ref, :process, _, reason}, %{assigns: %{load_ref: ref}} = socket),
+    do: {:noreply, socket |> assign(load_ref: nil) |> apply_load(QuickLoad.result(reason))}
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   # Every action re-checks admin server-side: LiveView events are forgeable over
   # the socket, so the `:admin` live_session on_mount is not the only guard.

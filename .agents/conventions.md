@@ -136,6 +136,16 @@ outermost wrapper div that always exists (even if hidden with `display:none`).
   anything there that must react to a page change listens to
   `phx:page-loading-start/stop` in app.js (drawer closes, `<details>` close,
   theme re-sync, `.page-progress` bar). Test: `live_navigation_test.exs`.
+- No flicker on a live page change: entrance animations (`qa-panel-in`,
+  `sidebar-item-in`, `content-rise`, …) are finished in app.js the moment the
+  new page joins after a `redirect` navigation — they play on arrival only.
+  Pages that load slow data off the join use `RuleMavenWeb.QuickLoad` (waits
+  ~150ms, so quick data renders in the first paint; slower falls back to a
+  loading state + `{:DOWN, ref, …}`), not a bare `start_async` that always
+  swaps a placeholder. Test: `feature/live_nav_flicker_test.exs` (layout
+  shifts, replayed animations and late DOM changes per navigation).
+- Connected mounts stay cheap: query ceilings in
+  `game_live_query_budget_test.exs`; measure real data with `test/perf`.
 - Nothing heavy (>~300 ms) synchronously in a connected mount/handle_params:
   the join runs there and a slow one holds the socket. Aggregates go through
   `start_async`/`assign_async` with a loading state (see AdminLive.Usage,

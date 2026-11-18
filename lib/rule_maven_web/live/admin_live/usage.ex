@@ -2,6 +2,7 @@ defmodule RuleMavenWeb.AdminLive.Usage do
   use RuleMavenWeb, :live_view
 
   alias RuleMaven.{Users, LLM, Settings, Audit}
+  alias RuleMavenWeb.QuickLoad
 
   @impl true
   def mount(_params, _session, socket) do
@@ -11,7 +12,8 @@ defmodule RuleMavenWeb.AdminLive.Usage do
          page_title: "Usage & Cost",
          days: 30,
          cost_cap: Settings.get("user_daily_cost_cap") || "0",
-         loaded: false
+         loaded: false,
+         load_ref: nil
        )
        |> load_async()}
     else
@@ -34,22 +36,30 @@ defmodule RuleMavenWeb.AdminLive.Usage do
   end
 
   # About nine aggregate queries over llm_logs/questions_log: off the join (a slow mount holds the
-  # socket), with a loading line until they're in. The dead render skips them entirely.
+  # socket) — rendered with the page when they finish within QuickLoad's budget (no loading
+  # line swapped out on a live navigation), else a loading line until they're in. The dead
+  # render skips them entirely.
   defp load_async(socket) do
-    if connected?(socket) do
-      days = socket.assigns.days
-      start_async(socket, :load, fn -> compute(days) end)
-    else
-      socket
+    if connected?(socket), do: quick_load(socket, socket.assigns.days), else: socket
+  end
+
+  defp quick_load(socket, days) do
+    case QuickLoad.start(fn -> compute(days) end) do
+      {:done, result} -> apply_load(socket, result)
+      {:pending, ref} -> assign(socket, load_ref: ref)
     end
   end
 
-  @impl true
-  def handle_async(:load, {:ok, data}, socket),
-    do: {:noreply, assign(socket, Map.put(data, :loaded, true))}
+  defp apply_load(socket, {:ok, data}), do: assign(socket, Map.put(data, :loaded, true))
 
-  def handle_async(:load, {:exit, _reason}, socket),
-    do: {:noreply, put_flash(socket, :error, "Couldn't load usage. Try again.")}
+  defp apply_load(socket, {:error, _reason}),
+    do: put_flash(socket, :error, "Couldn't load usage. Try again.")
+
+  @impl true
+  def handle_info({:DOWN, ref, :process, _, reason}, %{assigns: %{load_ref: ref}} = socket),
+    do: {:noreply, socket |> assign(load_ref: nil) |> apply_load(QuickLoad.result(reason))}
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("set_days", %{"days" => days}, socket) do

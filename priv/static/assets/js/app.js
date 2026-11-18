@@ -2472,6 +2472,39 @@ document.addEventListener("click", (e) => {
   });
 })();
 
+// Entrance animations (the Q&A panel rising in, sidebar rows sliding in, the
+// page fading up) are for arriving at the app. After a live navigation the new
+// page must simply be there — replaying them on every page change reads as
+// flicker (PLATFORM.md §6). A live navigation fires page-loading-start
+// {kind: "redirect"}; the new page's join then ends with page-loading-stop
+// {kind: "initial"} right after its DOM is patched in (same task, before
+// paint), so that is where every finite CSS animation that has only just
+// started is finished; the end state is the resting layout, so nothing jumps.
+// Live patches within a page (tabs, thread switches) keep their animations,
+// and so does the first page load.
+(function() {
+  let navigating = false;
+  window.addEventListener("phx:page-loading-start", (e) => {
+    if (e.detail && e.detail.kind === "redirect") navigating = true;
+  });
+  window.addEventListener("phx:page-loading-stop", (e) => {
+    const kind = e.detail && e.detail.kind;
+    if (kind === "error") navigating = false;
+    if (!navigating || kind !== "initial") return;
+    navigating = false;
+    if (!document.getAnimations) return;
+    // getAnimations() flushes style, so the new page's animations exist now.
+    document.getAnimations().forEach((a) => {
+      if (typeof CSSAnimation === "undefined" || !(a instanceof CSSAnimation)) return;
+      const target = a.effect && a.effect.target;
+      if (!target || (target.closest && target.closest(".page-progress"))) return;
+      const timing = a.effect.getComputedTiming();
+      if (timing.iterations === Infinity || a.playState === "finished") return;
+      if (a.currentTime === null || a.currentTime < 120) a.finish();
+    });
+  });
+})();
+
 let liveSocket = new LiveView.LiveSocket("/live", Phoenix.Socket, {
   params: () => ({
     _csrf_token: csrfToken,
