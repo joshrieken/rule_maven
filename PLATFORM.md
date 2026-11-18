@@ -175,6 +175,16 @@ has a new `Release v` commit that isn't running yet. So: **push a release, it's 
 GitHub holds no key to the server. Logs: `~/lccz-autodeploy/<app>.log` (on the server). To deploy by hand
 anyway, run the app's `scripts/deploy.sh`; to pause one app, `touch /opt/<app>/.no-autodeploy`.
 
+**Releases must be signed.** Autodeploy only deploys a release commit signed (git's SSH signing) by a key listed
+in `ops/release-signers` (hub repo); anything else is refused, logged, marked like a failed deploy and reported
+by the health check. Pushing to GitHub alone (a stolen token, a bad merge) can't put code on the server. Every
+repo signs its commits with the owner's release key (repo-local `git config`: `gpg.format ssh`,
+`user.signingkey ~/.ssh/lccz_release_signing.pub`, `commit.gpgsign true`), so the `release` skill's commit is
+signed with nothing extra to do. Check a release before pushing: `git verify-commit HEAD` (with
+`-c gpg.ssh.allowedSignersFile=<hub>/ops/release-signers`). A new key (new laptop, rotation) is a line in
+`ops/release-signers`, released in the hub **signed by a key already listed**; remove the old line the same way.
+Manual `scripts/deploy.sh` (rollback) isn't checked: whoever runs it is already on the server.
+
 ## 6. Development
 
 - **Pinned toolchains** in `.tool-versions` (asdf).
@@ -234,8 +244,8 @@ Claude's `new-app` skill (hub repo) runs the whole checklist. Steps marked **own
 or the server; everything else an agent does in the repos. In order:
 
 1. **Repo.** `ops/new-app.sh`; build the features on the template (this file, the app's `CLAUDE.md`); make
-   `HubSummary` about the app; `mix precommit` green; first commit. **Owner:** create the GitHub repo (private),
-   push; turn on Dependabot security alerts.
+   `HubSummary` about the app; `mix precommit` green; first commit (signed: new-app sets the repo up with the
+   release key, §5.4). **Owner:** create the GitHub repo (private), push; turn on Dependabot security alerts.
 2. **Identity.** Commit `identity/blueprints/<slug>.yaml` (groups `<slug>-users`, `-admins`, `-superadmins`,
    `-requests`; strict redirect URIs; back-channel `logout_uri` `http://<slug>:<port>/auth/oidc/backchannel`) and its
    blocks in `hub-access.yaml` and `.env.example`. **Owner, on the server, before pulling identity:** append
