@@ -14,7 +14,7 @@ app-specific rules on top; where they disagree, fix one of them.
 |---|---|---|---|---|---|
 | Hub | `lowcalcalzonezone` | `/opt/hub` | `hub` (+ `db`) | 3000 | Phoenix + Postgres |
 | Drawburn | `drawburn` (folder `workcard`) | `/opt/drawburn` | `drawburn` (+ `db`) | 3000 | Phoenix + Postgres |
-| Stir & Fold | `gourmand` | `/opt/gourmand` | `stirandfold` | 4637 | Next.js + SQLite |
+| Stir & Fold | `gourmand` | `/opt/gourmand` | `stirandfold` (+ `db`) | 4637 | Phoenix + Postgres |
 | Rule Maven | `rule_maven` | `/opt/rulemaven` | `rulemaven` (+ `db`) | 4000 | Phoenix + Postgres |
 | Identity | `lccz-identity` | `/opt/identity` | `server`, `worker` (+ `postgresql`) | 9000 | Authentik |
 | Rollcall (not ours: kalinkakr's) | `kalinkakr/RollCall` | `/opt/rollcall` | `web` (+ `db`) | 8000 | Django + Postgres |
@@ -87,7 +87,7 @@ Authorization: Bearer <APP>_HUB_SECRET          (unset = always 401)
 
 ## 4. Versions, changelog, What's new
 
-- **Semantic versions.** The version lives in `package.json` (Node) or `VERSION` (Elixir). Minor = anything new
+- **Semantic versions.** The version lives in `VERSION`. Minor = anything new
   people or admins can see or do; patch = fixes and internals; major only when the owner says so (while 0.x, a
   breaking change is a minor that says so).
 - **`CHANGELOG.md`, newest first:**
@@ -127,10 +127,9 @@ Every app's script does the same steps:
 
 1. **Only release commits deploy**: `Release vX.Y.Z` whose version file says `X.Y.Z`. `./scripts/deploy.sh <commit>`
    deploys an older release (rolling back).
-2. **Back up the database first** (SQLite online backup / `pg_dump`), keep the newest 14, owner-only.
-3. **Build on the server** with BuildKit cache mounts. Dependency layers only rebuild when the dependencies change:
-   Node images install from a `manifest` stage that copies `package.json`/`package-lock.json` with `version` set to
-   0.0.0, so a release's version bump doesn't reinstall everything (it cost Stir & Fold ~4 minutes per deploy).
+2. **Back up the database first** (`pg_dump`), keep the newest 14, owner-only.
+3. **Build on the server** with BuildKit cache mounts: `deps/` and `_build/` (and hex/npm downloads) live in caches
+   that survive between builds, so a deploy fetches and compiles only what changed, a version bump included.
 4. **Rolling swap:** start the new container *beside* the running one (`up -d --no-deps --no-recreate --scale`),
    wait until Docker says **healthy** *and* it reports the version just built, wait 2 s for Traefik, then retire
    the old one by id (never a compose scale-down: that may remove the new one). A release that fails to start is
@@ -166,8 +165,8 @@ anyway, run the app's `scripts/deploy.sh`; to pause one app, `touch /opt/<app>/.
 
 ## 6. Development
 
-- **Pinned toolchains** in `.tool-versions` (asdf). Node apps: after switching Node, `npm rebuild better-sqlite3`.
-- **Framework docs from the installed version**, not memory (Next.js: `node_modules/next/dist/docs/`).
+- **Pinned toolchains** in `.tool-versions` (asdf).
+- **Framework docs from the installed version**, not memory (the locked deps' own source and docs in `deps/`).
 - **Data layer owns rules**: every data function takes the user first and checks permission itself; pages, routes
   and actions stay thin. Capped lists (`MAX_*`). Untrusted input validated at the edge (zod / changesets).
 - **Tests next to the code**, against a real temporary database. Every repo's full check suite must pass before a
@@ -209,14 +208,14 @@ anyway, run the app's `scripts/deploy.sh`; to pause one app, `touch /opt/<app>/.
 - **Never copied (or removed from the copy):** sign-in sessions, API/CLI tokens, and credential settings (email,
   LLM, BGG keys, proxies, the app's public address). Nothing local can send email, spend, or act as prod. An app
   that stores dev's own credentials in its database keeps them across the pull (Rule Maven's `app_settings`).
-- **Prod is read-only:** SQLite online backup in the running container / `pg_dump`. Files **mirror** prod by rsync
+- **Prod is read-only:** `pg_dump`. Files **mirror** prod by rsync
   (only changes travel; files prod no longer has are removed locally; regenerable caches like `images/sized` stay). **The local copy is kept first** (`data/backups/local-*`, or `identity/backups/`), and each
   script prints how to go back. Prod dumps are deleted once restored.
 - **Each script refuses** if its dev server is running (port in use) or the database is open: swapping a database
   under a running server corrupts it.
 - **Code ahead of prod:** migrations newer than prod run on the next dev start (Rule Maven's script runs them).
 - **What lands where:** identity → local Authentik's Postgres (docker compose); Drawburn → `drawburn_dev` on the local Postgres;
-  Stir & Fold → `data/stirandfold.db` + `data/images`, `data/inbox` (~2.4 GB the first time); Rule Maven →
+  Stir & Fold → `stirandfold_dev` on the local Postgres + `data/images`, `data/inbox` (~2.4 GB the first time); Rule Maven →
   `rule_maven_dev` on the local Postgres + `priv/static/uploads`. The hub's database holds only sessions and who has
   seen which release notes: nothing to pull (dev signs in fresh).
 - **SSH:** every script uses `deploy@207.244.249.148` (override with `LCCZ_SSH`; Stir & Fold also reads
@@ -258,11 +257,7 @@ hub/ops/pull-prod-all.sh  # production data into dev (§8); the containers use t
 - **Dependencies** live in volumes (Linux builds of native modules); they reinstall only when the lockfile changes.
   First start: a few minutes (installs, Rule Maven compiles); later starts: about a minute.
 - **Tests and tools still run natively by default** (fast). For exact parity, run them in the container:
-  `docker compose -f hub/dev/compose.yaml exec <app> npm test` (or `mix test`).
-- **A Next.js app reloads itself in a loop** (its console says `HMR hash mismatch`): its build cache in the
-  container went stale (code changed a lot underneath it). Clear it and restart:
-  `docker compose -f hub/dev/compose.yaml rm -sf <app> && docker volume rm lccz-dev_<app>-next && hub/dev/up.sh <app>`,
-  then hard-refresh the browser (Cmd+Shift+R).
+  `docker compose -f hub/dev/compose.yaml exec <app> mix test`.
 - **`curl` inside a container can't test `*.localhost` names** (it always uses loopback for them); the apps
   (Node, Erlang) resolve them normally.
 - **Secrets:** `hub/dev/.env` (chmod 600, git-ignored) holds dev-only secrets, shared with the local
@@ -279,7 +274,7 @@ without them the backups can't be read.
 
 | Tag | What | Made by |
 |---|---|---|
-| `stirandfold` | database, photos, cookbooks, `secret.key` | Stir & Fold's `scripts/offsite-backup.sh` (03:15; its admin page reports on it) |
+| `stirandfold` | `pg_dump` (SQLite before v0.61.0), photos, cookbooks, `secret.key` | Stir & Fold's `scripts/offsite-backup.sh` (03:15; its admin page reports on it) |
 | `hub` | `pg_dump` (sessions, who has read which notes) | `ops/backup.sh` (03:45) |
 | `drawburn` | `pg_dump` (SQLite online backup before v0.8.0) | `ops/backup.sh` |
 | `rulemaven` | `pg_dump` + uploaded files | `ops/backup.sh` |
