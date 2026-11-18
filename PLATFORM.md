@@ -307,8 +307,10 @@ without them the backups can't be read.
 | `pre-optimize` | Stir & Fold's originals before the 2026-11-16 file optimization (kept for good) | by hand |
 
 Kept: 7 daily, 5 weekly, 12 monthly per tag. `ops/backup.sh` checks 2% of the stored data every Sunday and, when
-`BACKUP_PING_URL` is set in `/opt/hub/.env.backup`, pings it after a fully successful night (an Uptime Robot
-heartbeat alerts on a missed ping). Log: `~/lccz-backups/backup.log`.
+`BACKUP_PING_URL` is set in `/opt/hub/.env.backup`, pings it after a fully successful night and its `/fail` after
+a failed one. Alerts come from healthchecks.io: one check per job, each emailing on a `/fail` or a missed ping —
+`BACKUP_PING_URL` (daily), `DRILL_PING_URL` (monthly restore drill, same file) and `STIRANDFOLD_BACKUP_PING_URL`
+(Stir & Fold's off-site backup, in `/opt/gourmand/.env.backup`). Log: `~/lccz-backups/backup.log`.
 
 **Restore one thing** (same server or new): `ops/restore.sh <secrets|identity|hub|drawburn|stirandfold|rulemaven|rollcall|all> [snapshot]`
 
