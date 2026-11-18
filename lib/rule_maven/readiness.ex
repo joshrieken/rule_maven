@@ -93,8 +93,10 @@ defmodule RuleMaven.Readiness do
   optionally an already-computed `completion/2` map so callers that also need
   `required_complete?/1` or cost estimates check each step only once.
   """
-  def state(%Game{} = game, docs, done \\ nil) do
-    done = done || completion(game, docs)
+  def state(game, docs, done \\ nil)
+  def state(%Game{} = game, docs, nil), do: state(game, docs, completion(game, docs))
+
+  def state(%Game{} = _game, _docs, done) do
     # Enrichments read the embedded rulebook text, so every step after
     # "Chunked & embedded" stays blocked until embedding completes.
     embed_done = done[:embed]

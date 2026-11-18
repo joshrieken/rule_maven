@@ -27,6 +27,7 @@ defmodule RuleMaven.Games do
   alias RuleMaven.Games.ExpansionLink
   alias RuleMaven.Games.ExpansionSelection
   alias RuleMaven.Audit
+  alias RuleMaven.Settings.Cache, as: SettingsCache
   alias Oban
 
   NimbleCSV.define(RuleMaven.Games.RankCSV, separator: ",", escape: "\"")
@@ -196,7 +197,7 @@ defmodule RuleMaven.Games do
     # A DISTINCT over the whole catalog (~150k rows for "all"), rerun on every
     # search keystroke and page of the games list: cached for the settings
     # cache's TTL — categories only change when games are imported or edited.
-    RuleMaven.Settings.Cache.fetch({:view_categories, view}, fn ->
+    SettingsCache.fetch({:view_categories, view}, fn ->
       uncached_view_categories(view)
     end)
   end

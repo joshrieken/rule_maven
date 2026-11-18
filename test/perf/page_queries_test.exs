@@ -21,6 +21,8 @@ defmodule RuleMavenWeb.Perf.PageQueriesTest do
   import Ecto.Query
 
   alias RuleMaven.Repo
+  alias RuleMaven.Settings.Cache
+  alias RuleMaven.Users.User
 
   @moduletag :perf
   @moduletag timeout: :infinity
@@ -30,11 +32,11 @@ defmodule RuleMavenWeb.Perf.PageQueriesTest do
     # Production caches settings in ETS (off in the suite for sandbox
     # isolation): measure the steady state production sees.
     Application.put_env(:rule_maven, :cache_settings, true)
-    RuleMaven.Settings.Cache.flush()
+    Cache.flush()
 
     on_exit(fn ->
       Application.put_env(:rule_maven, :cache_settings, false)
-      RuleMaven.Settings.Cache.flush()
+      Cache.flush()
     end)
 
     parent = self()
@@ -63,7 +65,7 @@ defmodule RuleMavenWeb.Perf.PageQueriesTest do
   test "page query counts and timings", %{conn: conn, ref: ref} do
     user =
       Repo.one(
-        from u in RuleMaven.Users.User,
+        from u in User,
           left_join: q in "questions_log",
           on: q.user_id == u.id,
           where: u.role == "super_admin",

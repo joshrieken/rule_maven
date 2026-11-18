@@ -12,7 +12,10 @@ defmodule RuleMavenWeb.GameLiveQueryBudgetTest do
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
 
+  alias RuleMaven.Coverage.PageCoverage
+  alias RuleMaven.Games.{Chunk, Document}
   alias RuleMaven.Repo
+  alias RuleMaven.Settings.Cache
 
   # fun_with_flags reads are ETS-cached outside the test build.
   @uncounted ["fun_with_flags_toggles"]
@@ -22,17 +25,17 @@ defmodule RuleMavenWeb.GameLiveQueryBudgetTest do
     # Settings are ETS-cached in production (off in the suite for sandbox
     # isolation); this test is async: false, so turn the cache on for it.
     Application.put_env(:rule_maven, :cache_settings, true)
-    RuleMaven.Settings.Cache.flush()
+    Cache.flush()
 
     on_exit(fn ->
       Application.put_env(:rule_maven, :cache_settings, false)
-      RuleMaven.Settings.Cache.flush()
+      Cache.flush()
     end)
   end
 
   defp doc!(game, label, pages) do
     doc =
-      Repo.insert!(%RuleMaven.Games.Document{
+      Repo.insert!(%Document{
         game_id: game.id,
         label: label,
         status: "published",
@@ -40,7 +43,7 @@ defmodule RuleMavenWeb.GameLiveQueryBudgetTest do
       })
 
     for page <- 1..pages, idx <- 0..1 do
-      Repo.insert!(%RuleMaven.Games.Chunk{
+      Repo.insert!(%Chunk{
         document_id: doc.id,
         page_number: page,
         chunk_index: idx,
@@ -96,7 +99,7 @@ defmodule RuleMavenWeb.GameLiveQueryBudgetTest do
       end
 
     for doc <- docs ++ expansion_docs, page <- [1, 2] do
-      Repo.insert!(%RuleMaven.Coverage.PageCoverage{
+      Repo.insert!(%PageCoverage{
         document_id: doc.id,
         page: page,
         first_covered_by_user_id: user.id
