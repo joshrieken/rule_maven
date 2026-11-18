@@ -177,6 +177,15 @@ anyway, run the app's `scripts/deploy.sh`; to pause one app, `touch /opt/<app>/.
 - **Security baseline**: strict CSP where feasible, POST + origin check for state changes, secrets compared in
   constant time, no server-side fetch of user URLs without the SSRF guard, errors shown via flash (never raw in
   URLs), user text always escaped.
+- **Pages move live, without reloads** (Phoenix): signed-in pages are LiveViews in as few `live_session`s as
+  their sign-in needs (normally one for signed-in pages, one for public ones; a page that can't fit, e.g. a
+  controller-rendered one, says why). A `live_session` boundary forces a full page load, so never split one by
+  feature or permission: admin and super-admin checks are each LiveView's own `on_mount` (and its data functions
+  check again). In-app links are `<.link navigate={…}>` (or `patch` within a page), never a bare `<a href>`, so a
+  page change swaps the content over the open connection: no reload, no flash, the header stays. Pieces that
+  belong to every page (the header, a notice bell) live in the layout; a live one is a sticky
+  `live_render(..., sticky: true)`. Plain `<a href>` only for downloads, files, other apps and sign-in/out.
+  A page's first (static) render shows its frame and a loading state, not half the data drawn twice.
 - **Look**: always dark (`#0e0e10`), warm off-white text, red accent `#e5484d`, Atkinson Hyperlegible, rem units,
   17px base, mobile first, accessible (labels, focus rings, `prefers-reduced-motion`).
 - **Keep users' docs true**: a user-visible change updates the app's Help/guide and its changelog in the same change.
