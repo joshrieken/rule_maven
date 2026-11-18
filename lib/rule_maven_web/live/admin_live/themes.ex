@@ -17,7 +17,9 @@ defmodule RuleMavenWeb.AdminLive.Themes do
 
   defp assign_metrics(socket) do
     counts = Metrics.theme_counts()
-    total = Metrics.total_theme_events()
+    # Every event has exactly one theme, so the total is the sum of the
+    # per-theme counts — no second scan of theme_events.
+    total = counts |> Map.values() |> Enum.sum()
     max = counts |> Map.values() |> Enum.max(fn -> 0 end)
 
     # Every theme, count-descending then alphabetical, so zero-use themes still

@@ -23,7 +23,14 @@ defmodule RuleMavenWeb.AdminLive.Security do
     end
   end
 
-  defp load_blocked(socket), do: assign(socket, blocked: Security.list_blocked_questions())
+  # Newest Security.max_blocked/0 rows; the tab shows the true total.
+  defp load_blocked(socket),
+    do:
+      assign(socket,
+        blocked: Security.list_blocked_questions(),
+        blocked_total: Security.blocked_count()
+      )
+
   defp load_patterns(socket), do: assign(socket, patterns: Security.list_patterns())
 
   @impl true
@@ -201,7 +208,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
 
       <%!-- Tabs --%>
       <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:1.25rem">
-        <%= for {id, label} <- [{"blocked", "Blocked (#{length(@blocked)})"}, {"patterns", "Patterns (#{length(@patterns)})"}] do %>
+        <%= for {id, label} <- [{"blocked", "Blocked (#{@blocked_total})"}, {"patterns", "Patterns (#{length(@patterns)})"}] do %>
           <button
             type="button"
             phx-click="tab"
@@ -216,6 +223,12 @@ defmodule RuleMavenWeb.AdminLive.Security do
         <%= if @blocked == [] do %>
           <p style="color:var(--text-muted);font-size:0.85rem">No blocked questions.</p>
         <% else %>
+          <p
+            :if={@blocked_total > length(@blocked)}
+            style="color:var(--text-muted);font-size:0.75rem;margin:0 0 0.5rem"
+          >
+            Showing the newest {length(@blocked)} of {@blocked_total}.
+          </p>
           <div style="border:1px solid var(--border);border-radius:0.5rem;overflow-x:auto">
             <table style="width:100%;border-collapse:collapse;font-size:0.8rem;table-layout:fixed">
               <colgroup>

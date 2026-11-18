@@ -33,8 +33,9 @@ defmodule RuleMavenWeb.AdminLive.JobPanel do
     socket =
       if admin? and connected?(socket) do
         # Close out any runs stranded by a crash/restart before we read, so the
-        # rail never shows a ghost "running" job.
-        Jobs.reconcile_stale()
+        # rail never shows a ghost "running" job. This panel mounts on every
+        # full page load, so at most once per settings-cache TTL per node.
+        RuleMaven.Settings.Cache.fetch({Jobs, :reconcile_stale}, &Jobs.reconcile_stale/0)
         Jobs.subscribe(Jobs.admin_topic())
         socket
       else

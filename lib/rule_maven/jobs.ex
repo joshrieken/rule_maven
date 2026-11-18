@@ -353,18 +353,21 @@ defmodule RuleMaven.Jobs do
   def reconcile_stale do
     cutoff = DateTime.add(DateTime.utc_now(), -@stale_after_seconds, :second)
 
-    last_event =
-      from(e in JobEvent,
-        group_by: e.job_run_id,
-        select: %{run_id: e.job_run_id, at: max(e.inserted_at)}
-      )
-
+    # Newest event per RUNNING run only (a correlated lookup on the
+    # job_run_id index) — it used to group every row of job_events.
     stale =
       from(r in JobRun,
-        left_join: le in subquery(last_event),
-        on: le.run_id == r.id,
+        as: :r,
         where: r.state == "running",
-        where: coalesce(le.at, r.started_at) < ^cutoff,
+        where:
+          coalesce(
+            subquery(
+              from e in JobEvent,
+                where: e.job_run_id == parent_as(:r).id,
+                select: max(e.inserted_at)
+            ),
+            r.started_at
+          ) < ^cutoff,
         select: r
       )
       |> Repo.all()

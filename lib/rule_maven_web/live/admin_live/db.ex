@@ -91,7 +91,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
         columns = fetch_columns(table)
         {pk, _} = find_pk(table, columns)
 
-        rows = load_rows(socket, table, columns)
+        rows = load_rows(socket, table, columns, pk)
 
         assign(socket,
           table_name: table,
@@ -168,7 +168,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
           metadata: %{"table" => table}
         )
 
-        rows = load_rows(socket, table, socket.assigns.columns)
+        rows = load_rows(socket, table, socket.assigns.columns, socket.assigns.pk_col)
         {:noreply, assign(socket, rows: rows, delete_id: nil)}
       rescue
         e in [Postgrex.Error, DBConnection.ConnectionError] ->
@@ -290,7 +290,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
         metadata: %{"table" => table, "columns" => set_cols}
       )
 
-      rows = load_rows(socket, table, columns)
+      rows = load_rows(socket, table, columns, pk)
 
       {:noreply,
        assign(socket, rows: rows, mode: nil, editing_id: nil, form_data: %{}, form_errors: %{})}
@@ -393,19 +393,26 @@ defmodule RuleMavenWeb.AdminLive.Db do
   # (initial load, post-save, post-delete) goes through here so sensitive-column
   # masking cannot be forgotten at one call site — which is exactly how the delete
   # path re-rendered raw crew prose after the load path was hardened.
-  defp load_rows(socket, table, columns) do
+  defp load_rows(socket, table, columns, pk) do
+    superadmin? = Users.can?(live_user(socket), :superadmin)
+
     table
-    |> fetch_rows(columns)
-    |> redact_sensitive(columns, Users.can?(live_user(socket), :superadmin))
+    |> fetch_rows(columns, pk, superadmin?)
+    |> redact_sensitive(columns, superadmin?)
   end
 
-  defp fetch_rows(table, columns) do
-    cols = Enum.map_join(columns, ", ", fn {c, _} -> safe(c) end)
+  # The list shows each cell clipped to 80 characters (format/1), so text is
+  # clipped in SQL too (81 keeps format/1's "longer than 80" test exact), and a
+  # column that will be masked anyway reads only whether it is NULL — 500 rows
+  # of rulebook text, answers or vectors used to cross the wire per browse.
+  defp fetch_rows(table, columns, pk, superadmin?) do
+    cols = Enum.map_join(columns, ", ", &list_column(&1, pk, superadmin?))
+    {first, _} = hd(columns)
 
     %{rows: rows, columns: col_names} =
       SQL.query!(
         Repo,
-        "SELECT #{cols} FROM #{safe(table)} ORDER BY 1 DESC LIMIT #{@row_limit}",
+        "SELECT #{cols} FROM #{safe(table)} AS t ORDER BY t.#{safe(first)} DESC LIMIT #{@row_limit}",
         []
       )
 
@@ -478,14 +485,28 @@ defmodule RuleMavenWeb.AdminLive.Db do
     visibility verdict error_kind stage llm_provider llm_model provider model voice
   )
 
+  @clipped_text_types ["text", "character", "character varying"]
+
+  # The primary key is never clipped: edit/delete look rows up by it.
+  defp list_column({col, type}, pk, superadmin?) do
+    cond do
+      not superadmin? and masked_column?(col, type) ->
+        "CASE WHEN t.#{safe(col)} IS NULL THEN NULL ELSE '' END AS #{safe(col)}"
+
+      type in @clipped_text_types and col != pk ->
+        "left(t.#{safe(col)}, 81) AS #{safe(col)}"
+
+      true ->
+        "t.#{safe(col)}"
+    end
+  end
+
+  defp masked_column?(col, type), do: type in @masked_types and col not in @always_safe_columns
+
   defp redact_sensitive(rows, _columns, true = _superadmin?), do: rows
 
   defp redact_sensitive(rows, columns, _superadmin?) do
-    masked_cols =
-      for {col, type} <- columns,
-          type in @masked_types,
-          col not in @always_safe_columns,
-          do: col
+    masked_cols = for {col, type} <- columns, masked_column?(col, type), do: col
 
     case masked_cols do
       [] ->

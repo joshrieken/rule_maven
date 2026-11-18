@@ -1,5 +1,9 @@
 defmodule RuleMaven.Security do
   import Ecto.Query
+
+  # The Security page lists the newest blocked questions only.
+  @max_blocked 200
+
   alias RuleMaven.Repo
   alias RuleMaven.Security.InjectionPattern
 
@@ -45,16 +49,26 @@ defmodule RuleMaven.Security do
 
   # ── Blocked question management ─────────────────────────────────────────────
 
-  def list_blocked_questions do
+  def list_blocked_questions(limit \\ @max_blocked) do
     alias RuleMaven.Games.QuestionLog
 
     Repo.all(
       from q in QuestionLog,
         where: q.blocked == true,
         order_by: [desc: q.inserted_at],
+        limit: ^limit,
         preload: [:game, :user]
     )
   end
+
+  @doc "How many questions are blocked in all (the list above is capped)."
+  def blocked_count do
+    alias RuleMaven.Games.QuestionLog
+    Repo.aggregate(from(q in QuestionLog, where: q.blocked == true), :count)
+  end
+
+  @doc "Cap on `list_blocked_questions/1` (newest first)."
+  def max_blocked, do: @max_blocked
 
   def unblock_question(%RuleMaven.Games.QuestionLog{} = q) do
     q
