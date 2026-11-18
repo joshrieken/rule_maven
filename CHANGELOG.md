@@ -17,6 +17,16 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## v0.6.2 (2026-11-18)
+
+### Everyone
+
+- Code blocks in answers show as plain text (no colour highlighting) after a library update; everything else looks the same.
+
+### Admins
+
+- Library updates: sign-in, background jobs (Oban and its dashboard), Markdown rendering, vector search, browser-test tooling; a fix for leftover background processes in the app's container.
+
 ## v0.6.1 (2026-11-18)
 
 ### Everyone
