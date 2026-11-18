@@ -10,6 +10,7 @@ defmodule RuleMavenWeb.Router do
     plug :put_root_layout, html: {RuleMavenWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug RuleMavenWeb.Plugs.SecurityHeaders
     plug RuleMavenWeb.AuthPlug
     plug :put_dyk_seed
   end
@@ -152,7 +153,10 @@ defmodule RuleMavenWeb.Router do
   scope "/", RuleMavenWeb do
     pipe_through [:browser]
 
-    oban_dashboard("/oban", on_mount: [RuleMavenWeb.ObanAuthHook])
+    oban_dashboard("/oban",
+      on_mount: [RuleMavenWeb.ObanAuthHook],
+      csp_nonce_assign_key: :csp_nonce
+    )
   end
 
   # Back-channel logout: the sign-in service, server to server (its signed logout token is the

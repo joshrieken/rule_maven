@@ -15,6 +15,9 @@
 # symbol crops; UPLOADS_DIR), backups/ (pg_dump files written by scripts/deploy.sh).
 services:
   rulemaven:
+    # Memory cap (OPERATIONS.md §2): a runaway is killed and restarted here instead of starving
+    # the other apps; the health check reports any kill.
+    mem_limit: 2g
     # A tiny init as PID 1 reaps finished child processes (the release's epmd), which otherwise stay as zombies.
     init: true
     build: .
@@ -91,6 +94,7 @@ services:
     networks: [default]
 
   db:
+    mem_limit: 1g
     image: pgvector/pgvector:0.8.7-pg18-bookworm
     restart: unless-stopped
     environment:

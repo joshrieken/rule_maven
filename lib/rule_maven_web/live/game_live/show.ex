@@ -5167,7 +5167,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                     :if={@suggestions != []}
                     type="button"
                     phx-click="open_suggestions"
-                    onclick="this.closest('details').open = false"
+                    data-close-menu
                     class="card-menu__item"
                   >
                     <span aria-hidden="true">💡</span> Suggested questions
@@ -5175,7 +5175,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                   <button
                     type="button"
                     phx-click="open_settle"
-                    onclick="this.closest('details').open = false"
+                    data-close-menu
                     disabled={
                       @pending_count >= @max_concurrent || @source_count == 0 ||
                         (not @game.playable and not @is_admin)
@@ -5191,7 +5191,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                     id="persona-default-menu-btn"
                     phx-click="open_persona_modal"
                     phx-value-target="default"
-                    onclick="this.closest('details').open = false"
+                    data-close-menu
                     class="card-menu__item show-mobile"
                   >
                     <span aria-hidden="true">{cur_default.emoji}</span>

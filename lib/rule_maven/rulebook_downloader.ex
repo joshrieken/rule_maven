@@ -356,8 +356,9 @@ defmodule RuleMaven.RulebookDownloader do
 
           {page_acc, next_para} =
             Enum.reduce(page_paras, {[divider | acc], para_num}, fn para, {list, pn} ->
-              para_html =
-                "<p id=\"p#{pn}\" data-page=\"#{label}\">#{String.replace(para, "\n", "<br>")}</p>"
+              # PDF text is untrusted (rulebooks come from the internet): escape it.
+              text = para |> Plug.HTML.html_escape() |> String.replace("\n", "<br>")
+              para_html = "<p id=\"p#{pn}\" data-page=\"#{label}\">#{text}</p>"
 
               {[para_html | list], pn + 1}
             end)

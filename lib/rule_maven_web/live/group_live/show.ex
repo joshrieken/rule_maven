@@ -237,14 +237,16 @@ defmodule RuleMavenWeb.GroupLive.Show do
             readonly
             value={invite_url(@group)}
             id="invite-url"
-            onclick="this.select()"
+            data-select-on-click
             style="flex:1;min-width:12rem;padding:0.45rem 0.6rem;border:1px solid var(--border);border-radius:0.5rem;background:var(--bg);color:var(--text);font-size:0.8rem"
           />
           <button
             type="button"
             class="btn-sm"
             style="white-space:nowrap"
-            onclick={"navigator.clipboard.writeText('#{invite_url(@group)}').then(() => { this.textContent = 'Copied!'; setTimeout(() => this.textContent = 'Copy', 1500) })"}
+            id="copy-invite-url"
+            phx-hook="ClipboardCopy"
+            data-clipboard-text={invite_url(@group)}
           >
             Copy
           </button>

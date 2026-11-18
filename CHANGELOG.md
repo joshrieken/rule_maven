@@ -17,6 +17,13 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## Unreleased
+### Everyone
+- Stronger browser security: pages now only run Rule Maven's own scripts.
+### Admins
+- Rulebook text copies are safer to open: rulebook text is shown exactly as written, and the
+  page runs in its own sandbox (the light/dark choice there is no longer remembered).
+
 ## v0.6.2 (2026-11-18)
 
 ### Everyone

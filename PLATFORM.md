@@ -183,9 +183,13 @@ anyway, run the app's `scripts/deploy.sh`; to pause one app, `touch /opt/<app>/.
   and actions stay thin. Capped lists (`MAX_*`). Untrusted input validated at the edge (zod / changesets).
 - **Tests next to the code**, against a real temporary database. Every repo's full check suite must pass before a
   release (tests, types, lint, build or the Elixir equivalents).
-- **Security baseline**: strict CSP where feasible, POST + origin check for state changes, secrets compared in
-  constant time, no server-side fetch of user URLs without the SSRF guard, errors shown via flash (never raw in
-  URLs), user text always escaped.
+- **Security baseline**: strict CSP (`script-src 'self'`: no inline scripts or `on*=` handlers; a per-request
+  nonce only for pages a library renders, like the Oban dashboard), POST + origin check for state changes, secrets
+  compared in constant time, no server-side fetch of user URLs without the SSRF guard, errors shown via flash (never
+  raw in URLs), user text always escaped, including text from files and the web (PDFs, imports) written into HTML.
+- **Containers**: the app runs as a non-root user with `cap_drop: [ALL]` and `no-new-privileges`, read-only where
+  it can be; every service (app and database) has a `mem_limit` in the production compose file, so a runaway is
+  killed and restarted there instead of starving the server (the health check reports any kill).
 - **Pages move live, without reloads** (Phoenix): signed-in pages are LiveViews in as few `live_session`s as
   their sign-in needs (normally one for signed-in pages, one for public ones; a page that can't fit, e.g. a
   controller-rendered one, says why). A `live_session` boundary forces a full page load, so never split one by

@@ -324,7 +324,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
               type="button"
               phx-click="open_tool"
               phx-value-tool={t.id}
-              onclick="this.closest('details').open = false"
+              data-close-menu
               class="card-menu__item"
             >
               <span aria-hidden="true">{t.emoji}</span> {t.label}
@@ -338,7 +338,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
               type="button"
               phx-click="open_tool"
               phx-value-tool={t.id}
-              onclick="this.closest('details').open = false"
+              data-close-menu
               class="card-menu__item"
             >
               <span aria-hidden="true">{t.emoji}</span> {t.label}
@@ -353,7 +353,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
               type="button"
               phx-click="open_tool"
               phx-value-tool={t.id}
-              onclick="this.closest('details').open = false"
+              data-close-menu
               class="card-menu__item"
             >
               <span aria-hidden="true">{t.emoji}</span> {t.label}
@@ -490,7 +490,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
             type="button"
             phx-click="set_active_group"
             phx-value-group=""
-            onclick="this.closest('details').open = false"
+            data-close-menu
             aria-pressed={to_string(is_nil(@active_group_id))}
             class="card-menu__item"
           >
@@ -503,7 +503,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
             type="button"
             phx-click="set_active_group"
             phx-value-group={Phoenix.Param.to_param(g)}
-            onclick="this.closest('details').open = false"
+            data-close-menu
             title={"Ask for the group: #{g.name}"}
             aria-pressed={to_string(@active_group_id == g.id)}
             class="card-menu__item"
@@ -603,7 +603,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
           type="button"
           phx-click="open_tool"
           phx-value-tool={t.id}
-          onclick="this.closest('details').open = false"
+          data-close-menu
           class="card-menu__item"
         >
           <span aria-hidden="true">{t.emoji}</span> {t.label}

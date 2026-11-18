@@ -44,6 +44,24 @@ defmodule RuleMavenWeb.RulebookControllerTest do
     doc
   end
 
+  test "admin gets the HTML copy sandboxed", %{conn: conn, game: game} do
+    admin = create_user!("html_admin", "admin")
+    doc = create_pdf_doc!(game)
+    html_path = String.replace_suffix(doc.pdf_path, ".pdf", ".html")
+    abs_path = Application.app_dir(:rule_maven, "priv/static/#{html_path}")
+    File.write!(abs_path, "<p>rules</p>")
+    on_exit(fn -> File.rm(abs_path) end)
+    {:ok, _} = RuleMaven.Games.update_document(doc, %{html_path: html_path})
+
+    conn = conn |> login(admin) |> get(~p"/rulebooks/#{Hashid.encode(doc.id)}/html")
+
+    assert conn.status == 200
+    [csp] = get_resp_header(conn, "content-security-policy")
+    assert csp =~ "sandbox allow-scripts"
+    refute csp =~ "allow-same-origin"
+    assert csp =~ "default-src 'none'"
+  end
+
   setup %{conn: conn} do
     game = game_fixture(%{name: "PDF Test Game", bgg_id: 91_001})
     %{conn: conn, game: game}

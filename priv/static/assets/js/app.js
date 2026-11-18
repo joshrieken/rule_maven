@@ -38,6 +38,24 @@ function showVoteThanks(e) {
 }
 window.addEventListener("phx:vote_thanks", showVoteThanks);
 
+// Small click behaviours that used to be inline on*= handlers (the CSP allows no inline
+// script). Bubble phase on document: runs before LiveView's window listener.
+//   data-close-menu       closes the <details> menu it sits in (alongside its phx-click)
+//   data-stop-card-click  keeps the click from reaching the card's phx-click (menu triggers)
+//   data-select-on-click  selects an input's text (read-only links to copy)
+document.addEventListener("click", (e) => {
+  const t = e.target instanceof Element ? e.target : null;
+  if (!t) return;
+  const closer = t.closest("[data-close-menu]");
+  if (closer) {
+    const det = closer.closest("details");
+    if (det) det.open = false;
+  }
+  if (t.closest("[data-stop-card-click]")) e.stopPropagation();
+  const sel = t.closest("[data-select-on-click]");
+  if (sel && typeof sel.select === "function") sel.select();
+});
+
 // Make open <details class="card-menu"> dropdowns behave like a modal: a click
 // anywhere outside the open menu closes it and is swallowed (it does NOT also
 // activate whatever is underneath), so the next click interacts normally.

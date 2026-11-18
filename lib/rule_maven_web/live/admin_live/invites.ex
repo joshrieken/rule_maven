@@ -130,7 +130,9 @@ defmodule RuleMavenWeb.AdminLive.Invites do
                     <%= if code.active do %>
                       <button
                         type="button"
-                        onclick={"navigator.clipboard.writeText(window.location.origin + '/register?code=#{code.code}').then(() => { this.textContent = 'Copied!'; setTimeout(() => this.textContent = 'Copy link', 1500) })"}
+                        id={"copy-invite-#{code.code}"}
+                        phx-hook="ClipboardCopy"
+                        data-clipboard-text={RuleMavenWeb.public_url(~p"/register?code=#{code.code}")}
                         class="btn-outline btn-xs"
                         style="white-space:nowrap"
                       >Copy link</button>

@@ -716,10 +716,10 @@ defmodule RuleMavenWeb.GameLive.Index do
   defp card_menu(assigns) do
     ~H"""
     <details class="card-menu" style="flex-shrink:0">
-      <%!-- stopPropagation: the whole game card is phx-click=go_to_game; opening
+      <%!-- data-stop-card-click (app.js): the whole game card is phx-click=go_to_game; opening
             the menu must not also navigate. (Items inside the pop are fine —
             LiveView dispatches only the nearest phx-click.) --%>
-      <summary class="card-menu__trigger" title="More actions" onclick="event.stopPropagation()">
+      <summary class="card-menu__trigger" title="More actions" data-stop-card-click>
         ⋯
       </summary>
       <div class="card-menu__pop card-menu__pop--right">

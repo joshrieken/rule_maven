@@ -10,6 +10,14 @@ defmodule RuleMavenWeb.RulebookController do
 
   alias RuleMaven.{Games, Users}
 
+  # The HTML copy is built from a PDF's text (untrusted) and carries its own inline theme
+  # script and styles. Sandboxed without allow-same-origin: its scripts run in an opaque
+  # origin, so even markup that slipped into an older copy can't reach the session or the
+  # app. (The saved light/dark choice doesn't persist there; the toggle still works.)
+  @html_csp "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " <>
+              "img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; " <>
+              "sandbox allow-scripts"
+
   def html(conn, %{"id" => id}) do
     user = conn.assigns[:current_user]
 
@@ -21,6 +29,7 @@ defmodule RuleMavenWeb.RulebookController do
          true <- File.exists?(full_path) do
       conn
       |> put_resp_content_type("text/html")
+      |> put_resp_header("content-security-policy", @html_csp)
       |> send_file(200, full_path)
     else
       # 404 (not 403) so the route doesn't reveal which documents exist to
@@ -41,6 +50,10 @@ defmodule RuleMavenWeb.RulebookController do
       conn
       |> put_resp_content_type("application/pdf")
       |> put_resp_header("content-disposition", "inline")
+      # Browsers' built-in PDF viewers can refuse to render under the strict page policy:
+      # keep Phoenix's default for the PDF itself.
+      |> put_resp_header("content-security-policy", "base-uri 'self'; frame-ancestors 'self';")
+      |> delete_resp_header("x-frame-options")
       |> send_file(200, full_path)
     else
       # 404 (not 403) so the route doesn't reveal which documents exist to
