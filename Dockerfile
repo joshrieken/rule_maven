@@ -26,13 +26,13 @@ COPY priv priv
 COPY lib lib
 COPY rel rel
 # deps/ and _build/ live in BuildKit caches that survive between builds, so a deploy
-# fetches and compiles only what changed (cold: ~2 min of deps.compile; code-only: seconds).
+# fetches and compiles only what changed (cold: ~2 min compiling deps; code-only: seconds).
 # No bundler: assets are committed plain files; digesting is the whole asset build.
 # The release is written outside the caches so the runtime stage can copy it.
 RUN --mount=type=cache,target=/opt/hex/packages,sharing=locked \
     --mount=type=cache,target=/app/deps,id=rulemaven-deps,sharing=locked \
     --mount=type=cache,target=/app/_build,id=rulemaven-build,sharing=locked \
-    mix deps.get --only prod && mix deps.compile && mix compile && mix assets.deploy && \
+    mix deps.get --only prod && mix compile && mix assets.deploy && \
     mix release --overwrite --path /app/release
 
 FROM debian:${DEBIAN_VERSION} AS runtime

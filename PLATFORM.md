@@ -162,7 +162,8 @@ Targets for a cached deploy (code change, same lockfiles): **hub ~15 s, the Phoe
 ~30 s, then the swap waits for healthy), with no failed requests. After each release, look at its time; when an
 app is over target or got slower, find the step and fix it rather than living with it: the faster a deploy is,
 the more often it happens. Known levers: BuildKit cache mounts kept (never prune `exec.cachemount`), npm/apt layers
-that only rebuild when their inputs change, a quick start and health check (the swap waits for healthy).
+that only rebuild when their inputs change, `mix compile` without `mix deps.compile` (that one rebuilds rebar
+deps such as idna every time, ~17 s on the server), a quick start and health check (the swap waits for healthy).
 
 ### 5.4 Continuous deployment
 
