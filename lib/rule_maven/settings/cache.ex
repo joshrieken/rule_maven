@@ -54,6 +54,25 @@ defmodule RuleMaven.Settings.Cache do
   end
 
   @doc """
+  Returns the cached value for `key`, or computes it with `fun`, caches it for
+  the TTL and returns it. For values DERIVED from settings or the catalog that
+  are expensive to rebuild and fine to serve up to #{@ttl_seconds}s stale
+  (e.g. the homepage's rule of the day). Use a tuple key so it can't collide
+  with a setting's string key. With caching off (tests) it just calls `fun`.
+  """
+  def fetch(key, fun) when is_function(fun, 0) do
+    case get(key) do
+      {:ok, value} ->
+        value
+
+      :miss ->
+        value = fun.()
+        put(key, value)
+        value
+    end
+  end
+
+  @doc """
   Drops `key` from the local table synchronously and broadcasts
   `{:setting_changed, key}` so every other node drops it too. Call after any
   successful settings write — the local delete must not wait on PubSub

@@ -95,4 +95,17 @@ defmodule RuleMaven.SettingsCacheTest do
     Repo.update_all(AppSetting, set: [value: "direct"])
     assert Settings.get("off_probe") == "direct"
   end
+
+  test "fetch/2 computes once within the TTL and serves the cached value" do
+    counter = :counters.new(1, [])
+
+    compute = fn ->
+      :counters.add(counter, 1, 1)
+      %{value: :counters.get(counter, 1)}
+    end
+
+    assert Cache.fetch({:derived, 1}, compute) == %{value: 1}
+    assert Cache.fetch({:derived, 1}, compute) == %{value: 1}
+    assert Cache.fetch({:derived, 2}, compute) == %{value: 2}
+  end
 end

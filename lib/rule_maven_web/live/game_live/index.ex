@@ -57,7 +57,7 @@ defmodule RuleMavenWeb.GameLive.Index do
   defp resume_exp_syncs(socket) do
     if connected?(socket) do
       active =
-        Settings.all()
+        Settings.with_prefix("exp_sync:")
         |> Enum.flat_map(fn {k, v} ->
           case Regex.run(~r/^exp_sync:(\d+)$/, k) do
             [_, id] -> [{String.to_integer(id), parse_progress(v)}]

@@ -13,19 +13,30 @@ defmodule RuleMaven.RuleOfTheDay do
 
   alias RuleMaven.{Repo, Settings}
   alias RuleMaven.Games.Game
+  alias RuleMaven.Settings.AppSetting
 
   @doc """
   The spotlight for `date` as `%{game: %Game{}, fact: text}`, or nil when no
   Ready game has generated facts yet.
+
+  Every homepage visit asks twice (static + connected mount), so the pick is
+  cached per date for the settings cache's TTL; it only changes when a game's
+  facts or Ready state do.
   """
   def pick(date \\ Date.utc_today()) do
-    entries =
-      Settings.all()
-      |> Enum.flat_map(&fact_entry/1)
-      |> Map.new()
+    Settings.Cache.fetch({__MODULE__, date}, fn -> compute(date) end)
+  end
+
+  defp compute(date) do
+    # Keys first: only Ready games' fact blobs are read, never the whole
+    # settings table (every game's cached facts, suggestions, …).
+    ids =
+      "did_you_know_"
+      |> Settings.keys_with_prefix()
+      |> Enum.flat_map(&game_id/1)
 
     playable =
-      case Map.keys(entries) do
+      case ids do
         [] ->
           []
 
@@ -37,7 +48,20 @@ defmodule RuleMaven.RuleOfTheDay do
           )
       end
 
-    case playable do
+    entries =
+      case playable do
+        [] ->
+          %{}
+
+        games ->
+          keys = Enum.map(games, &"did_you_know_#{&1.id}")
+
+          Repo.all(from s in AppSetting, where: s.key in ^keys, select: {s.key, s.value})
+          |> Enum.flat_map(&fact_entry/1)
+          |> Map.new()
+      end
+
+    case Enum.filter(playable, &Map.has_key?(entries, &1.id)) do
       [] ->
         nil
 
@@ -48,6 +72,15 @@ defmodule RuleMaven.RuleOfTheDay do
         %{game: game, fact: clean(Enum.at(facts, :erlang.phash2({day, game.id}, length(facts))))}
     end
   end
+
+  defp game_id("did_you_know_" <> id) do
+    case Integer.parse(id) do
+      {game_id, ""} -> [game_id]
+      _ -> []
+    end
+  end
+
+  defp game_id(_), do: []
 
   defp fact_entry({"did_you_know_" <> id, json}) do
     with {game_id, ""} <- Integer.parse(id),

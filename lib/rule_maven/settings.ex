@@ -82,6 +82,32 @@ defmodule RuleMaven.Settings do
     end
   end
 
+  @doc """
+  `{key, value}` pairs for every setting whose key starts with `prefix`
+  (uncached). Use it instead of `all/0`, which reads every per-game blob in
+  the table.
+  """
+  def with_prefix(prefix) when is_binary(prefix) do
+    import Ecto.Query
+
+    Repo.all(
+      from s in AppSetting,
+        where: like(s.key, ^(escape_like(prefix) <> "%")),
+        select: {s.key, s.value}
+    )
+  end
+
+  @doc "Keys of every setting whose key starts with `prefix` (values not read)."
+  def keys_with_prefix(prefix) when is_binary(prefix) do
+    import Ecto.Query
+
+    Repo.all(
+      from s in AppSetting, where: like(s.key, ^(escape_like(prefix) <> "%")), select: s.key
+    )
+  end
+
+  defp escape_like(text), do: String.replace(text, ~r/([\\%_])/, "\\\\\\1")
+
   @doc "Returns all settings as a map."
   def all do
     Repo.all(AppSetting)

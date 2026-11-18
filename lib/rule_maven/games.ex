@@ -193,6 +193,15 @@ defmodule RuleMaven.Games do
   "board_game", mirroring the in-memory derivation in GameLive.Index.
   """
   def view_categories(view) when view in ~w(playable all needs_bgg) do
+    # A DISTINCT over the whole catalog (~150k rows for "all"), rerun on every
+    # search keystroke and page of the games list: cached for the settings
+    # cache's TTL — categories only change when games are imported or edited.
+    RuleMaven.Settings.Cache.fetch({:view_categories, view}, fn ->
+      uncached_view_categories(view)
+    end)
+  end
+
+  defp uncached_view_categories(view) do
     base =
       case view do
         "playable" ->
