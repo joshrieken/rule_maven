@@ -155,9 +155,14 @@ keeps the 40 GB most recently used and never touches the cache mounts, so builds
 
 ### 5.3 Timings to keep
 
-A cached deploy (code change, same lockfile) should take **under ~15 s** end to end, and the swap itself ~3 s,
-with no failed requests. If a step gets slower, fix it rather than living with it: the faster a deploy is, the
-more often it happens.
+Every autodeploy is timed: its log stamps each line with the seconds since the start, and
+`~/lccz-autodeploy/timings.csv` gets one row per deploy (total and each `== step`). `ops/deploy-times.sh` reports
+per app (median, last, slowest step); `ops/deploy-times.sh <app>` shows the last deploys step by step.
+Targets for a cached deploy (code change, same lockfiles): **hub ~15 s, the Phoenix apps under ~60 s** (build
+~30 s, then the swap waits for healthy), with no failed requests. After each release, look at its time; when an
+app is over target or got slower, find the step and fix it rather than living with it: the faster a deploy is,
+the more often it happens. Known levers: BuildKit cache mounts kept (never prune `exec.cachemount`), npm/apt layers
+that only rebuild when their inputs change, a quick start and health check (the swap waits for healthy).
 
 ### 5.4 Continuous deployment
 
