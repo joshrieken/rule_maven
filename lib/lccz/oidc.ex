@@ -186,7 +186,7 @@ defmodule Lccz.Oidc do
       {:error, {:show, message}} ->
         {:error, message}
 
-      {:error, %Assent.CallbackCSRFError{}} ->
+      {:error, %Assent.Strategy.CallbackCSRFError{}} ->
         {:error, "Sign-in got mixed up (it may have started in another tab). Try again."}
 
       other ->
