@@ -8,6 +8,9 @@ the hub (lowcalcalzonezone.com), Drawburn, Stir & Fold, Rule Maven, and the shar
 sitting (`ops/sync-platform.sh` in the hub repo does it). A repo's own `CLAUDE.md`/`AGENTS.md` adds
 app-specific rules on top; where they disagree, fix one of them.
 
+**Running it** (what's on the server, what runs on its own, backups, the maintenance plan, costs, what to do when
+something breaks): `OPERATIONS.md` in the hub repo.
+
 ## 1. The pieces
 
 | App | Repo | Server checkout | Compose service | Port | Stack |
