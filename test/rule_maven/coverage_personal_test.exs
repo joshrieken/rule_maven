@@ -273,8 +273,10 @@ defmodule RuleMaven.CoveragePersonalTest do
       :telemetry.attach(
         handler,
         [:rule_maven, :repo, :query],
+        # Telemetry handlers run in the process that made the query: count only this test's own
+        # (async tests elsewhere query at the same time).
         fn _, _, _, _ ->
-          send(parent, :query)
+          if self() == parent, do: send(parent, :query)
         end,
         nil
       )
