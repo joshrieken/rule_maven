@@ -121,6 +121,22 @@ the element from DOM, refresh reference is lost and LiveView stops
 re-rendering that section. Always put `data-refresh={@counter}` on the
 outermost wrapper div that always exists (even if hidden with `display:none`).
 
+## LiveView — Pages Move Live (PLATFORM.md §6)
+
+- Every signed-in LiveView is in the one `live_session :app` (router); admin
+  and super-admin gates are `UserLiveAuth` on_mount, never a separate
+  live_session (a boundary forces a full page load). `:public` holds only
+  `/register` (signed-out).
+- Links to LiveView pages are `<.link navigate={…}>` (or `patch` within the
+  same page, e.g. DB Admin's table tabs), including the header and drawer in
+  `root.html.heex`. Plain `href` only for controller pages (`/help`,
+  `/changelog`, `/login`, `/logout`, cheat sheets), files (rulebook PDF/HTML),
+  `/oban` (its own live_session) and other sites.
+- The root layout (header, drawer, job panel) stays across live navigation:
+  anything there that must react to a page change listens to
+  `phx:page-loading-start/stop` in app.js (drawer closes, `<details>` close,
+  theme re-sync, `.page-progress` bar). Test: `live_navigation_test.exs`.
+
 ## Dev Server
 
 - **Never start your own dev server.** If one isn't running and you need it, ask the user.
