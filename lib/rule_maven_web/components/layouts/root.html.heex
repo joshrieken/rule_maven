@@ -93,12 +93,12 @@
                 version tucked under the wordmark's end on narrow phones (see
                 .header-version in app.css) so it costs the nowrap row no width. --%>
           <div class="header-brand-group">
-            <a href={~p"/"} class="header-brand">
+            <.link navigate={~p"/"} class="header-brand">
               <span class="header-icon">🎲</span>
               <%!-- Mobile stacks "Rule" over "Maven" (see the 768px block) so the
                     theme picker beside it can show a full theme name. --%>
               <span class="header-title">Rule <span class="header-title-accent">Maven</span></span>
-            </a>
+            </.link>
             <%!-- Signed-in only: the running version isn't shown to the public. --%>
             <.version_link :if={me} user={me} />
           </div>
@@ -106,7 +106,7 @@
           <!-- Desktop nav -->
           <nav class="header-nav" id="header-nav">
             <%= if me && RuleMaven.Users.can?(me, :admin) do %>
-              <.link href={~p"/admin"} class="nav-link">Dashboard</.link>
+              <.link navigate={~p"/admin"} class="nav-link">Dashboard</.link>
               <details class="user-dropdown">
                 <summary class="user-dropdown-toggle nav-link">Admin</summary>
                 <div
@@ -114,66 +114,66 @@
                   style="left:0;right:auto;min-width:160px;max-height:22rem;overflow-y:auto"
                 >
                   <div class="user-dropdown-section">Review</div>
-                  <.link href={~p"/admin/questions"} class="user-dropdown-link">Questions</.link>
-                  <.link href={~p"/admin/moderation"} class="user-dropdown-link">Moderation</.link>
-                  <.link href={~p"/admin/audit"} class="user-dropdown-link">Audit Log</.link>
-                  <.link href={~p"/admin/takedowns"} class="user-dropdown-link">Takedowns</.link>
+                  <.link navigate={~p"/admin/questions"} class="user-dropdown-link">Questions</.link>
+                  <.link navigate={~p"/admin/moderation"} class="user-dropdown-link">Moderation</.link>
+                  <.link navigate={~p"/admin/audit"} class="user-dropdown-link">Audit Log</.link>
+                  <.link navigate={~p"/admin/takedowns"} class="user-dropdown-link">Takedowns</.link>
                   <div class="user-dropdown-section">Manage</div>
-                  <.link href={~p"/admin/users"} class="user-dropdown-link">Users</.link>
-                  <.link href={~p"/admin/groups"} class="user-dropdown-link">Groups</.link>
-                  <.link href={~p"/admin/invites"} class="user-dropdown-link">Invites</.link>
-                  <.link href={~p"/admin/catalog"} class="user-dropdown-link">Catalog</.link>
-                  <.link href={~p"/admin/requests"} class="user-dropdown-link">Requests</.link>
+                  <.link navigate={~p"/admin/users"} class="user-dropdown-link">Users</.link>
+                  <.link navigate={~p"/admin/groups"} class="user-dropdown-link">Groups</.link>
+                  <.link navigate={~p"/admin/invites"} class="user-dropdown-link">Invites</.link>
+                  <.link navigate={~p"/admin/catalog"} class="user-dropdown-link">Catalog</.link>
+                  <.link navigate={~p"/admin/requests"} class="user-dropdown-link">Requests</.link>
                   <div :if={RuleMaven.Users.can?(me, :superadmin)} class="user-dropdown-section">
                     AI &amp; Integrations
                   </div>
                   <.link
                     :if={RuleMaven.Users.can?(me, :superadmin)}
-                    href={~p"/admin/llm"}
+                    navigate={~p"/admin/llm"}
                     class="user-dropdown-link"
                   >LLM Provider</.link>
                   <.link
                     :if={RuleMaven.Users.can?(me, :superadmin)}
-                    href={~p"/admin/embeddings"}
+                    navigate={~p"/admin/embeddings"}
                     class="user-dropdown-link"
                   >Embeddings &amp; Proxy</.link>
                   <.link
                     :if={RuleMaven.Users.can?(me, :superadmin)}
-                    href={~p"/admin/automation"}
+                    navigate={~p"/admin/automation"}
                     class="user-dropdown-link"
                   >Automation</.link>
                   <.link
                     :if={RuleMaven.Users.can?(me, :superadmin)}
-                    href={~p"/admin/bgg"}
+                    navigate={~p"/admin/bgg"}
                     class="user-dropdown-link"
                   >BoardGameGeek</.link>
                   <.link
                     :if={RuleMaven.Users.can?(me, :superadmin)}
-                    href={~p"/admin/prompts"}
+                    navigate={~p"/admin/prompts"}
                     class="user-dropdown-link"
                   >Prompts</.link>
                   <div class="user-dropdown-section">System</div>
                   <.link
                     :if={RuleMaven.Users.can?(me, :superadmin)}
-                    href={~p"/admin/flags"}
+                    navigate={~p"/admin/flags"}
                     class="user-dropdown-link"
                   >Feature Flags</.link>
-                  <.link href={~p"/admin/health"} class="user-dropdown-link">Health</.link>
-                  <.link href={~p"/admin/usage"} class="user-dropdown-link">Usage &amp; Cost</.link>
+                  <.link navigate={~p"/admin/health"} class="user-dropdown-link">Health</.link>
+                  <.link navigate={~p"/admin/usage"} class="user-dropdown-link">Usage &amp; Cost</.link>
                   <.link
                     :if={RuleMaven.Users.can?(me, :superadmin)}
-                    href={~p"/admin/security"}
+                    navigate={~p"/admin/security"}
                     class="user-dropdown-link"
                   >Security</.link>
                   <.link
                     :if={RuleMaven.Users.can?(me, :superadmin)}
-                    href={~p"/admin/db"}
+                    navigate={~p"/admin/db"}
                     class="user-dropdown-link"
                   >DB Admin</.link>
-                  <.link href={~p"/admin/themes"} class="user-dropdown-link">Themes</.link>
-                  <.link href={~p"/standing"} class="user-dropdown-link">Standing</.link>
-                  <.link href={~p"/groups"} class="user-dropdown-link">Groups</.link>
-                  <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>
+                  <.link navigate={~p"/admin/themes"} class="user-dropdown-link">Themes</.link>
+                  <.link navigate={~p"/standing"} class="user-dropdown-link">Standing</.link>
+                  <.link navigate={~p"/groups"} class="user-dropdown-link">Groups</.link>
+                  <.link navigate={~p"/settings"} class="user-dropdown-link">Settings</.link>
                   <.link
                     :if={RuleMaven.Users.can?(me, :superadmin)}
                     href={~p"/oban"}
@@ -284,9 +284,9 @@
                       <span class="motion-toggle-off">Turn animations on</span>
                     </button>
                     <div class="user-dropdown-section">Account</div>
-                    <.link href={~p"/standing"} class="user-dropdown-link">Standing</.link>
-                    <.link href={~p"/groups"} class="user-dropdown-link">Groups</.link>
-                    <.link href={~p"/settings"} class="user-dropdown-link">Settings</.link>
+                    <.link navigate={~p"/standing"} class="user-dropdown-link">Standing</.link>
+                    <.link navigate={~p"/groups"} class="user-dropdown-link">Groups</.link>
+                    <.link navigate={~p"/settings"} class="user-dropdown-link">Settings</.link>
                     <.link href={~p"/help"} class="user-dropdown-link">Help &amp; FAQ</.link>
                     <div class="user-dropdown-section">Tours</div>
                     <a href={~p"/"} class="user-dropdown-link" data-tour-replay="games">
@@ -337,69 +337,69 @@
           <button class="drawer-close" id="drawer-close" aria-label="Close menu">&times;</button>
         </div>
         <nav class="drawer-nav">
-          <.link href={~p"/"} class="drawer-link">🏠 Home</.link>
+          <.link navigate={~p"/"} class="drawer-link">🏠 Home</.link>
           <%= if me && RuleMaven.Users.can?(me, :admin) do %>
             <div class="drawer-section">Admin</div>
-            <.link href={~p"/admin"} class="drawer-link">Dashboard</.link>
+            <.link navigate={~p"/admin"} class="drawer-link">Dashboard</.link>
             <div class="drawer-section">Review</div>
-            <.link href={~p"/admin/questions"} class="drawer-link">Questions</.link>
-            <.link href={~p"/admin/moderation"} class="drawer-link">Moderation</.link>
-            <.link href={~p"/admin/audit"} class="drawer-link">Audit Log</.link>
-            <.link href={~p"/admin/takedowns"} class="drawer-link">DMCA Takedowns</.link>
+            <.link navigate={~p"/admin/questions"} class="drawer-link">Questions</.link>
+            <.link navigate={~p"/admin/moderation"} class="drawer-link">Moderation</.link>
+            <.link navigate={~p"/admin/audit"} class="drawer-link">Audit Log</.link>
+            <.link navigate={~p"/admin/takedowns"} class="drawer-link">DMCA Takedowns</.link>
             <div class="drawer-section">Manage</div>
-            <.link href={~p"/admin/users"} class="drawer-link">Manage Users</.link>
-            <.link href={~p"/admin/groups"} class="drawer-link">Groups</.link>
-            <.link href={~p"/admin/invites"} class="drawer-link">Invite Codes</.link>
-            <.link href={~p"/admin/catalog"} class="drawer-link">Game Catalog</.link>
-            <.link href={~p"/admin/requests"} class="drawer-link">Support Requests</.link>
+            <.link navigate={~p"/admin/users"} class="drawer-link">Manage Users</.link>
+            <.link navigate={~p"/admin/groups"} class="drawer-link">Groups</.link>
+            <.link navigate={~p"/admin/invites"} class="drawer-link">Invite Codes</.link>
+            <.link navigate={~p"/admin/catalog"} class="drawer-link">Game Catalog</.link>
+            <.link navigate={~p"/admin/requests"} class="drawer-link">Support Requests</.link>
             <div :if={RuleMaven.Users.can?(me, :superadmin)} class="drawer-section">
               AI &amp; Integrations
             </div>
             <.link
               :if={RuleMaven.Users.can?(me, :superadmin)}
-              href={~p"/admin/llm"}
+              navigate={~p"/admin/llm"}
               class="drawer-link"
             >LLM Provider</.link>
             <.link
               :if={RuleMaven.Users.can?(me, :superadmin)}
-              href={~p"/admin/embeddings"}
+              navigate={~p"/admin/embeddings"}
               class="drawer-link"
             >Embeddings &amp; Proxy</.link>
             <.link
               :if={RuleMaven.Users.can?(me, :superadmin)}
-              href={~p"/admin/automation"}
+              navigate={~p"/admin/automation"}
               class="drawer-link"
             >Automation</.link>
             <.link
               :if={RuleMaven.Users.can?(me, :superadmin)}
-              href={~p"/admin/bgg"}
+              navigate={~p"/admin/bgg"}
               class="drawer-link"
             >BoardGameGeek</.link>
             <.link
               :if={RuleMaven.Users.can?(me, :superadmin)}
-              href={~p"/admin/prompts"}
+              navigate={~p"/admin/prompts"}
               class="drawer-link"
             >Prompts</.link>
             <div class="drawer-section">System</div>
             <.link
               :if={RuleMaven.Users.can?(me, :superadmin)}
-              href={~p"/admin/flags"}
+              navigate={~p"/admin/flags"}
               class="drawer-link"
             >Feature Flags</.link>
-            <.link href={~p"/admin/health"} class="drawer-link">System Health</.link>
-            <.link href={~p"/admin/usage"} class="drawer-link">Usage &amp; Cost</.link>
+            <.link navigate={~p"/admin/health"} class="drawer-link">System Health</.link>
+            <.link navigate={~p"/admin/usage"} class="drawer-link">Usage &amp; Cost</.link>
             <.link
               :if={RuleMaven.Users.can?(me, :superadmin)}
-              href={~p"/admin/security"}
+              navigate={~p"/admin/security"}
               class="drawer-link"
             >Security</.link>
             <.link
               :if={RuleMaven.Users.can?(me, :superadmin)}
-              href={~p"/admin/db"}
+              navigate={~p"/admin/db"}
               class="drawer-link"
             >DB Admin</.link>
-            <.link href={~p"/admin/themes"} class="drawer-link">Theme Usage</.link>
-            <.link href={~p"/settings"} class="drawer-link">Settings</.link>
+            <.link navigate={~p"/admin/themes"} class="drawer-link">Theme Usage</.link>
+            <.link navigate={~p"/settings"} class="drawer-link">Settings</.link>
             <.link
               :if={RuleMaven.Users.can?(me, :superadmin)}
               href={~p"/oban"}
@@ -410,8 +410,8 @@
           <div class="drawer-section"></div>
           <.link href={~p"/help"} class="drawer-link">📖 Help &amp; FAQ</.link>
           <%= if me do %>
-            <.link href={~p"/standing"} class="drawer-link">Standing</.link>
-            <.link href={~p"/groups"} class="drawer-link">Groups</.link>
+            <.link navigate={~p"/standing"} class="drawer-link">Standing</.link>
+            <.link navigate={~p"/groups"} class="drawer-link">Groups</.link>
             <.link href={~p"/logout"} class="drawer-link">Log out</.link>
           <% else %>
             <.form

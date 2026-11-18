@@ -2443,9 +2443,34 @@ document.addEventListener("click", (e) => {
     window.dispatchEvent(new CustomEvent("rm:tour:start", {detail: {id}}));
   } else {
     localStorage.setItem("rm:pending-tour", id);
-    window.location.href = "/";
+    // Home over the open LiveView connection when there is one (no reload); the
+    // tour hook picks the pending id up on mount either way.
+    if (liveSocket.isConnected() && document.querySelector("[data-phx-main]")) {
+      liveSocket.js().navigate("/");
+    } else {
+      window.location.href = "/";
+    }
   }
 });
+
+// Page-change progress bar: a thin accent line along the top while a live
+// navigation (or the first connect) takes more than a moment. Styled by
+// .page-progress in app.css; the delay keeps quick hops from flickering it.
+(function() {
+  const bar = document.createElement("div");
+  bar.className = "page-progress";
+  bar.setAttribute("aria-hidden", "true");
+  document.body.appendChild(bar);
+  let timer = null;
+  window.addEventListener("phx:page-loading-start", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => bar.classList.add("is-loading"), 120);
+  });
+  window.addEventListener("phx:page-loading-stop", () => {
+    clearTimeout(timer);
+    bar.classList.remove("is-loading");
+  });
+})();
 
 let liveSocket = new LiveView.LiveSocket("/live", Phoenix.Socket, {
   params: () => ({
@@ -2655,6 +2680,9 @@ if ("serviceWorker" in navigator) {
   btn.addEventListener('click', open);
   closeBtn.addEventListener('click', close);
   overlay.addEventListener('click', close);
+  // Its links move live now (the drawer is in the root layout, which stays):
+  // close it when a page change starts, as a full load used to.
+  window.addEventListener('phx:page-loading-start', close);
 
   // Close on Escape
   document.addEventListener('keydown', function(e) {
@@ -2706,6 +2734,9 @@ if ("serviceWorker" in navigator) {
   brand.addEventListener('click', function(e) {
     if (suppressClick) {
       e.preventDefault();
+      // The brand is a LiveView navigate link: its window-level click handler
+      // ignores preventDefault, so keep the click from reaching it.
+      e.stopPropagation();
       suppressClick = false;
     }
   });
