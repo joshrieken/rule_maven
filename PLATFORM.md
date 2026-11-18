@@ -185,7 +185,12 @@ anyway, run the app's `scripts/deploy.sh`; to pause one app, `touch /opt/<app>/.
   page change swaps the content over the open connection: no reload, no flash, the header stays. Pieces that
   belong to every page (the header, a notice bell) live in the layout; a live one is a sticky
   `live_render(..., sticky: true)`. Plain `<a href>` only for downloads, files, other apps and sign-in/out.
-  A page's first (static) render shows its frame and a loading state, not half the data drawn twice.
+  A page's first (static) render shows its frame and a loading state, not half the data drawn twice. Nothing
+  slow runs in a connected mount (the join runs in the socket process and holds its heartbeat: a slow one makes
+  the browser fall back to long-polling): load it with `start_async`/`assign_async`. **No flicker**: a page
+  reached by a live change shows its final content without visible in-between states (keep recent data to
+  paint at once and refresh quietly; a placeholder takes the final layout's exact space), and entry animations
+  don't replay on content that was already there.
 - **Look**: always dark (`#0e0e10`), warm off-white text, red accent `#e5484d`, Atkinson Hyperlegible, rem units,
   17px base, mobile first, accessible (labels, focus rings, `prefers-reduced-motion`).
 - **Keep users' docs true**: a user-visible change updates the app's Help/guide and its changelog in the same change.
