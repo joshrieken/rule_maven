@@ -311,6 +311,11 @@ Kept: 7 daily, 5 weekly, 12 monthly per tag. `ops/backup.sh` checks 2% of the st
 heartbeat alerts on a missed ping). Log: `~/lccz-backups/backup.log`.
 
 **Restore one thing** (same server or new): `ops/restore.sh <secrets|identity|hub|drawburn|stirandfold|rulemaven|rollcall|all> [snapshot]`
+
+**Prove it** (nothing live is touched): `ops/restore-drill.sh [part...]` restores each part's newest snapshot into a
+throwaway folder and its dump into a throwaway Postgres (no network), then compares tables, rows and files with
+live and reports restore errors. Cron runs it monthly (04:30 on the 1st) into `~/lccz-backups/drill.log`; the
+first drill (2026-11-18) restored every part with no errors.
 (`ops/restore.sh snapshots` lists them). It stops the app, keeps a copy of what it replaces, restores, starts it.
 Secrets never overwrite existing files unless `FORCE=1`.
 
