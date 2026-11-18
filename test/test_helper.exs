@@ -1,4 +1,5 @@
-ExUnit.start()
+# :perf (test/perf) measures pages against real data — run it on purpose with --only perf.
+ExUnit.start(exclude: [:perf])
 Ecto.Adapters.SQL.Sandbox.mode(RuleMaven.Repo, :manual)
 
 # Browser E2E tests (phoenix_test_playwright): the endpoint must actually

@@ -38,8 +38,13 @@ defmodule RuleMavenWeb.GameLive.GameTheme do
   Expansions don't generate their own palette; this resolves to the base
   game's palette instead (see `RuleMaven.Games.effective_theme_palette/1`).
   """
-  def style_block(%RuleMaven.Games.Game{} = game) do
-    case theme_sets(game) do
+  def style_block(%RuleMaven.Games.Game{} = game), do: game |> theme_sets() |> style_block_for()
+
+  def style_block(_), do: Phoenix.HTML.raw("")
+
+  @doc "The `style_block/1` markup for already-resolved `theme_sets/1`."
+  def style_block_for(sets) do
+    case sets do
       [] ->
         Phoenix.HTML.raw("")
 
@@ -68,8 +73,6 @@ defmodule RuleMavenWeb.GameLive.GameTheme do
     end
   end
 
-  def style_block(_), do: Phoenix.HTML.raw("")
-
   @doc """
   A game's renderable theme sets, picker order: a list of
   `%{light_slug, dark_slug, light, dark, light_name, dark_name}` maps. Handles
@@ -79,8 +82,9 @@ defmodule RuleMavenWeb.GameLive.GameTheme do
   "Game Light 2", …). Empty when the game has no usable palette.
   """
   def theme_sets(%RuleMaven.Games.Game{} = game) do
-    palettes = ThemePalette.palette_sets(Games.effective_theme_palette(game) || %{})
-    names = ThemePalette.name_sets(Games.effective_theme_names(game) || %{})
+    theme = Games.effective_theme(game)
+    palettes = ThemePalette.palette_sets(theme.palette || %{})
+    names = ThemePalette.name_sets(theme.names || %{})
     defaults = Map.new(Metrics.game_themes())
 
     palettes

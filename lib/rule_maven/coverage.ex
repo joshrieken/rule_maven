@@ -120,8 +120,14 @@ defmodule RuleMaven.Coverage do
   defp page_count_map(citations) do
     ids = citations |> Enum.map(& &1["document_id"]) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    Repo.all(from d in Document, where: d.id in ^ids, select: {d.id, d.page_count})
-    |> Map.new()
+    # No citation names a document (e.g. a landing page with no answer open):
+    # nothing can be recorded, so skip the lookup.
+    if ids == [] do
+      %{}
+    else
+      Repo.all(from d in Document, where: d.id in ^ids, select: {d.id, d.page_count})
+      |> Map.new()
+    end
   end
 
   defp covered_pair(%{"document_id" => doc_id, "page" => page}, page_counts)
@@ -421,6 +427,148 @@ defmodule RuleMaven.Coverage do
       _ ->
         []
     end
+  end
+
+  @doc """
+  Everything the game page's coverage UI shows — the community rollup
+  (`for_game/1`), the gap list (`gaps_enriched/1`), the user's first-to-ground
+  credit (`contribution_credit/2`) and personal title (`title_for/2`) — from
+  at most four queries instead of one round of lookups per piece. Same
+  results as calling those four functions; `game_name` labels the title.
+  """
+  @spec game_snapshot(integer(), integer(), String.t() | nil) :: %{
+          for_game: map(),
+          gaps: [map()],
+          credit: non_neg_integer(),
+          title: map()
+        }
+  def game_snapshot(user_id, game_id, game_name) do
+    docs = published_documents(game_id)
+    doc_ids = Enum.map(docs, & &1.document_id)
+
+    community =
+      if doc_ids == [],
+        do: [],
+        else:
+          Repo.all(
+            from p in PageCoverage,
+              where: p.document_id in ^doc_ids,
+              select: {p.document_id, p.page, p.first_covered_by_user_id}
+          )
+
+    personal =
+      if doc_ids == [],
+        do: [],
+        else:
+          Repo.all(
+            from u in UserPageCoverage,
+              where: u.user_id == ^user_id and u.document_id in ^doc_ids,
+              select: {u.document_id, u.page}
+          )
+
+    community_counts = Enum.frequencies_by(community, &elem(&1, 0))
+    personal_counts = Enum.frequencies_by(personal, &elem(&1, 0))
+
+    sources =
+      Enum.map(docs, fn d ->
+        Map.merge(d, summarize(d.page_count, Map.get(community_counts, d.document_id, 0)))
+      end)
+
+    for_game = rollup(sources)
+
+    personal_rollup =
+      docs
+      |> Enum.map(&summarize(&1.page_count, Map.get(personal_counts, &1.document_id, 0)))
+      |> rollup()
+      |> Map.delete(:sources)
+
+    community_set = MapSet.new(community, fn {doc, page, _} -> {doc, page} end)
+
+    sage? =
+      MapSet.size(community_set) > 0 and MapSet.subset?(community_set, MapSet.new(personal))
+
+    tier = tier_for(personal_rollup.pct, sage?)
+
+    %{
+      for_game: for_game,
+      gaps: enriched_gaps(docs, community_set),
+      credit: Enum.count(community, fn {_, _, by} -> by == user_id end),
+      title: %{
+        tier: tier,
+        label: label_for(tier, game_name),
+        pct: personal_rollup.pct,
+        next_tier: next_tier(tier),
+        pages_to_next: pages_to_next(tier, personal_rollup)
+      }
+    }
+  end
+
+  # Published documents of a game and its linked expansions, in one query
+  # (the same set `expansion_game_ids/1` + a documents query select).
+  defp published_documents(game_id) do
+    expansion_ids =
+      from l in "game_expansion_links", where: l.base_game_id == ^game_id, select: l.expansion_id
+
+    Repo.all(
+      from d in Document,
+        where:
+          (d.game_id == ^game_id or d.game_id in subquery(expansion_ids)) and
+            d.status == "published",
+        select: %{document_id: d.id, label: d.label, page_count: d.page_count}
+    )
+  end
+
+  defp rollup(sources) do
+    total = sources |> Enum.map(&(&1.page_count || 0)) |> Enum.sum()
+
+    covered =
+      sources |> Enum.map(fn s -> if s.page_count, do: s.covered, else: 0 end) |> Enum.sum()
+
+    %{sources: sources, covered: covered, total: total, pct: pct(covered, total)}
+  end
+
+  # Uncovered pages per document (document order, pages ascending) with the
+  # section label and first line of each page's first chunk — fetched for the
+  # gap pages only, one row per page.
+  defp enriched_gaps(docs, community_set) do
+    gaps =
+      for %{document_id: doc_id, page_count: pc} <- docs,
+          is_integer(pc) and pc > 0,
+          page <- 1..pc,
+          not MapSet.member?(community_set, {doc_id, page}),
+          do: {doc_id, page}
+
+    snippets = gap_snippets(gaps)
+
+    Enum.map(gaps, fn {doc_id, page} ->
+      {label, snippet} = Map.get(snippets, {doc_id, page}, {nil, nil})
+      %{document_id: doc_id, page: page, label: label, snippet: snippet}
+    end)
+  end
+
+  defp gap_snippets([]), do: %{}
+
+  defp gap_snippets(gaps) do
+    {doc_ids, pages} = Enum.unzip(gaps)
+
+    Repo.all(
+      from c in Chunk,
+        join:
+          g in fragment(
+            "SELECT * FROM unnest(?::bigint[], ?::int[]) AS g(doc, page)",
+            ^doc_ids,
+            ^pages
+          ),
+        on: c.document_id == g.doc and c.page_number == g.page,
+        distinct: [asc: c.document_id, asc: c.page_number],
+        order_by: [asc: c.chunk_index],
+        select:
+          {c.document_id, c.page_number, c.section_label,
+           fragment("split_part(?, E'\\n', 1)", c.content)}
+    )
+    |> Map.new(fn {doc_id, page, label, line} ->
+      {{doc_id, page}, {label, line && String.trim(line)}}
+    end)
   end
 
   # page_count nil => pct nil, covered reported as-is (nothing to cap against).

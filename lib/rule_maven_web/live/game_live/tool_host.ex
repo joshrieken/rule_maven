@@ -74,7 +74,7 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
     |> put_new(:expansions, fn _s -> RuleMaven.Games.expansions_with_documents(game) end)
     |> put_new(:included_expansions, fn s ->
       s.assigns.current_user.id
-      |> RuleMaven.Games.effective_expansion_ids(game)
+      |> RuleMaven.Games.effective_expansion_ids(game, s.assigns.expansions)
       |> Map.new(&{&1, true})
     end)
   end

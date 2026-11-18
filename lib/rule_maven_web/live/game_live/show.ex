@@ -4,7 +4,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   alias RuleMaven.Games
   alias RuleMaven.Games.QuestionLog
   alias RuleMavenWeb.ReportModal
-  alias RuleMavenWeb.GameLive.{CoveragePanel, SubBar, ToolHost, ToolPanel}
+  alias RuleMavenWeb.GameLive.{CoveragePanel, GameTheme, SubBar, ToolHost, ToolPanel}
 
   # Events delegated to the shared ToolHost; the house-rule subset also
   # recomputes this page's answer overlay after the shared handler runs.
@@ -56,6 +56,11 @@ defmodule RuleMavenWeb.GameLive.Show do
        # the same fact on both; re-rolls on a real refresh.
        dyk_seed: session["dyk_seed"] || :rand.uniform(1_000_000_000),
        game: nil,
+       # The game's theme <style> block and whether it has a palette: derived
+       # once per game load (a lookup of the base game's palette for an
+       # expansion) instead of on every render that touches @game.
+       theme_style: Phoenix.HTML.raw(""),
+       has_game_palette: false,
        question: "",
        conversation: [],
        # thread_id => the raw text the asker just typed on an ask that got
@@ -460,7 +465,7 @@ defmodule RuleMavenWeb.GameLive.Show do
         socket.assigns.included_expansions
       else
         socket.assigns.current_user.id
-        |> Games.effective_expansion_ids(game)
+        |> Games.effective_expansion_ids(game, expansions)
         |> Map.new(&{&1, true})
       end
 
@@ -486,12 +491,17 @@ defmodule RuleMavenWeb.GameLive.Show do
     # this never doubles.
     prev_thread_id = socket.assigns[:active_thread_id]
 
+    theme_sets = GameTheme.theme_sets(game)
+
     levelling? = RuleMaven.Flags.enabled?(:mastery_levels, socket.assigns.current_user)
     mastery = RuleMaven.Progress.get_mastery(socket.assigns.current_user.id, game.id)
 
     socket =
       assign(socket,
         game: game,
+        theme_style: GameTheme.style_block_for(theme_sets),
+        # Same test as GameTheme.has_palette?/1, from the sets resolved above.
+        has_game_palette: theme_sets != [],
         loaded_game_id: game.id,
         grouped: grouped,
         # Persona picker is gated by per-game mastery (feature C): locked voices
@@ -950,11 +960,13 @@ defmodule RuleMavenWeb.GameLive.Show do
       require Logger
 
       try do
+        snapshot = RuleMaven.Coverage.game_snapshot(user.id, game.id, game.name)
+
         assign(socket,
-          coverage_for_game: RuleMaven.Coverage.for_game(game.id),
-          coverage_gaps: RuleMaven.Coverage.gaps_enriched(game.id),
-          coverage_credit: RuleMaven.Coverage.contribution_credit(user.id, game.id),
-          coverage_title: RuleMaven.Coverage.title_for(user.id, game.id)
+          coverage_for_game: snapshot.for_game,
+          coverage_gaps: snapshot.gaps,
+          coverage_credit: snapshot.credit,
+          coverage_title: snapshot.title
         )
       rescue
         e ->
@@ -3659,7 +3671,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   # the Q&A UI. Admins fall through to the full page so they can test it.
   def render(%{game: %{playable: false}, is_admin: false} = assigns) do
     ~H"""
-    {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
+    {@theme_style}
     <div style="max-width:34rem;margin:0 auto;padding:4rem 1.5rem;text-align:center">
       <div style="font-size:2.5rem;margin-bottom:0.75rem">🔒</div>
       <h1 style="font-size:1.4rem;font-weight:700;margin:0 0 0.5rem;color:var(--text-heading,var(--text))">
@@ -3675,7 +3687,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
   def render(assigns) do
     ~H"""
-    {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
+    {@theme_style}
     <%!-- Hosts the spotlight onboarding tour for this page (Hooks.Tour). --%>
     <div
       id="tour-game"
@@ -4122,7 +4134,7 @@ defmodule RuleMavenWeb.GameLive.Show do
                    a "switch back" pill depending on whether a game variant is
                    already active. --%>
                 <div
-                  :if={RuleMavenWeb.GameLive.GameTheme.has_palette?(@game)}
+                  :if={@has_game_palette}
                   id="game-theme-hint"
                   phx-hook="GameThemeHint"
                   data-tour="game-theme-hint"

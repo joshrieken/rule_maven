@@ -379,16 +379,7 @@ defmodule RuleMaven.Games do
   own (see `Readiness` step `:theme`) — they inherit whichever palette their
   base game has, falling back to `nil` (default theme) if the base has none.
   """
-  def effective_theme_palette(%Game{theme_palette: palette} = game) do
-    if expansion?(game.id) do
-      case base_game_for(game) do
-        %Game{theme_palette: p} -> p
-        nil -> nil
-      end
-    else
-      palette
-    end
-  end
+  def effective_theme_palette(%Game{} = game), do: effective_theme(game).palette
 
   @doc """
   The player-facing names for a game's two theme variants, e.g.
@@ -397,14 +388,26 @@ defmodule RuleMaven.Games do
   when the palette was generated before names existed, or when the model's
   names were unusable — callers fall back to the generic variant labels.
   """
-  def effective_theme_names(%Game{theme_names: names} = game) do
-    if expansion?(game.id) do
-      case base_game_for(game) do
-        %Game{theme_names: n} -> n
-        nil -> nil
-      end
-    else
-      names
+  def effective_theme_names(%Game{} = game), do: effective_theme(game).names
+
+  @doc """
+  `%{palette: effective_theme_palette(game), names: effective_theme_names(game)}`
+  in one query: an expansion's first base game (by name) lends both; a base
+  game keeps its own.
+  """
+  def effective_theme(%Game{} = game) do
+    bases =
+      Repo.all(
+        from g in Game,
+          join: l in ExpansionLink,
+          on: l.base_game_id == g.id,
+          where: l.expansion_id == ^game.id,
+          select: %{name: g.name, palette: g.theme_palette, names: g.theme_names}
+      )
+
+    case Enum.sort_by(bases, &String.downcase(&1.name)) do
+      [] -> %{palette: game.theme_palette, names: game.theme_names}
+      [base | _] -> %{palette: base.palette, names: base.names}
     end
   end
 
@@ -452,10 +455,20 @@ defmodule RuleMaven.Games do
   Always filtered to expansions that actually have published documents (a
   stored id whose docs were unpublished, or an owned expansion with no
   rulebook, silently drops out), sorted ascending.
-  """
-  def effective_expansion_ids(user_id, %Game{} = base_game) do
-    available = base_game |> expansions_with_documents() |> MapSet.new(& &1.id)
 
+  Pass `expansions_with_documents/1` as `available` when the caller already
+  has it, to skip running that query again.
+  """
+  def effective_expansion_ids(user_id, %Game{} = base_game, available \\ nil) do
+    available = MapSet.new(available || expansions_with_documents(base_game), & &1.id)
+
+    # Nothing to choose from (most games): skip the selection lookups.
+    if MapSet.size(available) == 0,
+      do: [],
+      else: chosen_expansion_ids(user_id, base_game, available)
+  end
+
+  defp chosen_expansion_ids(user_id, base_game, available) do
     chosen =
       case get_expansion_selection(user_id, base_game.id) do
         nil ->
@@ -5343,7 +5356,11 @@ defmodule RuleMaven.Games do
         from t in QuestionCategoryTag,
           join: c in assoc(t, :game_category),
           where: t.question_log_id in ^question_log_ids,
-          select: {t.question_log_id, c}
+          # name_embedding is a vector nobody reading these pills needs; it
+          # was most of each row's size.
+          select:
+            {t.question_log_id,
+             struct(c, [:id, :game_id, :name, :description, :inserted_at, :updated_at])}
       )
 
     Enum.reduce(tags, %{}, fn {qid, cat}, acc ->

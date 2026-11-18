@@ -1,0 +1,122 @@
+defmodule RuleMavenWeb.GameLiveQueryBudgetTest do
+  @moduledoc """
+  The game page's connected mount runs in the LiveView socket process, so every
+  query it makes delays the join (and the heartbeat). Keep the count flat: it
+  must not grow with the number of rulebooks, expansions or covered pages.
+  (Measured on real data with test/perf/page_queries_test.exs.)
+  """
+
+  # async: false — the telemetry handler is global; no other test may run
+  # queries while this one counts.
+  use RuleMavenWeb.ConnCase, async: false
+  import Phoenix.LiveViewTest
+  import RuleMaven.GamesFixtures
+
+  alias RuleMaven.Repo
+
+  # fun_with_flags reads are ETS-cached outside the test build.
+  @uncounted ["fun_with_flags_toggles"]
+  @budget 28
+
+  setup do
+    # Settings are ETS-cached in production (off in the suite for sandbox
+    # isolation); this test is async: false, so turn the cache on for it.
+    Application.put_env(:rule_maven, :cache_settings, true)
+    RuleMaven.Settings.Cache.flush()
+
+    on_exit(fn ->
+      Application.put_env(:rule_maven, :cache_settings, false)
+      RuleMaven.Settings.Cache.flush()
+    end)
+  end
+
+  defp doc!(game, label, pages) do
+    doc =
+      Repo.insert!(%RuleMaven.Games.Document{
+        game_id: game.id,
+        label: label,
+        status: "published",
+        page_count: pages
+      })
+
+    for page <- 1..pages, idx <- 0..1 do
+      Repo.insert!(%RuleMaven.Games.Chunk{
+        document_id: doc.id,
+        page_number: page,
+        chunk_index: idx,
+        content: "#{label} page #{page}\nRules text.",
+        section_label: "Section #{page}"
+      })
+    end
+
+    doc
+  end
+
+  defp count_queries(fun) do
+    parent = self()
+    handler = "budget-#{System.unique_integer()}"
+
+    :telemetry.attach(
+      handler,
+      [:rule_maven, :repo, :query],
+      fn _, _, meta, _ ->
+        if meta.source not in @uncounted, do: send(parent, {:query, meta.query})
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler)
+    end
+
+    drain([])
+  end
+
+  defp drain(acc) do
+    receive do
+      {:query, sql} -> drain([sql | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  test "connected mount stays within the query budget with several rulebooks and expansions",
+       %{conn: conn} do
+    %{game: game, user: user} = qa_thread_fixture(question_count: 6)
+
+    docs = [doc!(game, "Rulebook II", 12), doc!(game, "Scenario book", 20)]
+
+    expansion_docs =
+      for n <- 1..3 do
+        exp = game_fixture(%{name: "Expansion #{n}", bgg_id: 1000 + n})
+        RuleMaven.Games.link_expansion(exp.id, game.id)
+        doc!(exp, "Expansion #{n} rules", 6)
+      end
+
+    for doc <- docs ++ expansion_docs, page <- [1, 2] do
+      Repo.insert!(%RuleMaven.Coverage.PageCoverage{
+        document_id: doc.id,
+        page: page,
+        first_covered_by_user_id: user.id
+      })
+    end
+
+    conn =
+      conn
+      |> Plug.Test.init_test_session(%{"user_id" => user.id})
+      |> get(~p"/games/#{game}")
+
+    queries =
+      count_queries(fn ->
+        {:ok, view, html} = live(conn)
+        assert html =~ "Rulebook coverage"
+        GenServer.stop(view.pid)
+      end)
+
+    assert length(queries) <= @budget,
+           "game page connected mount ran #{length(queries)} queries (budget #{@budget}):\n" <>
+             Enum.map_join(queries, "\n", &String.slice(&1, 0, 140))
+  end
+end

@@ -223,4 +223,103 @@ defmodule RuleMaven.CoveragePersonalTest do
       assert Coverage.contribution_credit(u2.id, game.id) == 1
     end
   end
+
+  describe "game_snapshot/3" do
+    test "matches for_game, gaps_enriched, contribution_credit and title_for, in four queries" do
+      game = game_fixture(%{name: "Catan"})
+      expansion = game_fixture(%{name: "Seafarers", bgg_id: 43})
+      RuleMaven.Games.link_expansion(expansion.id, game.id)
+
+      base_doc = published_doc(game, %{page_count: 4})
+      exp_doc = published_doc(expansion, %{label: "Seafarers rules", page_count: 3})
+      _draft = published_doc(game, %{label: "Draft", status: "pending_review"})
+      _no_pages = published_doc(game, %{label: "Errata", page_count: nil})
+      me = make_user()
+      other = make_user()
+
+      for {doc, page, by} <- [
+            {base_doc.id, 1, me.id},
+            {base_doc.id, 2, other.id},
+            {exp_doc.id, 1, me.id}
+          ] do
+        Repo.insert!(%RuleMaven.Coverage.PageCoverage{
+          document_id: doc,
+          page: page,
+          first_covered_by_user_id: by
+        })
+      end
+
+      for {doc, page} <- [{base_doc.id, 1}, {base_doc.id, 2}, {exp_doc.id, 1}] do
+        Repo.insert!(%UserPageCoverage{user_id: me.id, document_id: doc, page: page})
+      end
+
+      for {page, idx, content, label} <- [
+            {3, 1, "Later chunk", "Later"},
+            {3, 0, "Trading\nSwap cards.", "Trade"},
+            {4, 0, "  Winning \nFirst to 10.", nil}
+          ] do
+        Repo.insert!(%RuleMaven.Games.Chunk{
+          document_id: base_doc.id,
+          page_number: page,
+          chunk_index: idx,
+          content: content,
+          section_label: label
+        })
+      end
+
+      parent = self()
+      handler = "snapshot-#{System.unique_integer()}"
+
+      :telemetry.attach(
+        handler,
+        [:rule_maven, :repo, :query],
+        fn _, _, _, _ ->
+          send(parent, :query)
+        end,
+        nil
+      )
+
+      snapshot = Coverage.game_snapshot(me.id, game.id, "Catan")
+      :telemetry.detach(handler)
+
+      queries = Stream.repeatedly(fn -> receive do: (:query -> 1), after: (0 -> nil) end)
+      assert Enum.count(Enum.take_while(queries, & &1)) <= 4
+
+      sort = &Enum.sort_by(&1, fn s -> s.document_id end)
+      expected_for_game = Coverage.for_game(game.id)
+      assert sort.(snapshot.for_game.sources) == sort.(expected_for_game.sources)
+      assert Map.delete(snapshot.for_game, :sources) == Map.delete(expected_for_game, :sources)
+
+      assert Enum.sort(snapshot.gaps) == Enum.sort(Coverage.gaps_enriched(game.id))
+
+      assert %{page: 3, label: "Trade", snippet: "Trading"} =
+               Enum.find(snapshot.gaps, &(&1.document_id == base_doc.id and &1.page == 3))
+
+      assert %{label: nil, snippet: "Winning"} =
+               Enum.find(snapshot.gaps, &(&1.document_id == base_doc.id and &1.page == 4))
+
+      assert snapshot.credit == Coverage.contribution_credit(me.id, game.id)
+      assert snapshot.credit == 2
+      assert snapshot.title == Coverage.title_for(me.id, game.id)
+      assert snapshot.title.tier == :sage
+
+      other_snapshot = Coverage.game_snapshot(other.id, game.id, "Catan")
+      assert other_snapshot.title == Coverage.title_for(other.id, game.id)
+      assert other_snapshot.credit == 1
+    end
+
+    test "a game without published documents" do
+      game = game_fixture()
+      user = make_user()
+
+      assert %{
+               for_game: %{sources: [], covered: 0, total: 0, pct: nil},
+               gaps: [],
+               credit: 0,
+               title: title
+             } = Coverage.game_snapshot(user.id, game.id, game.name)
+
+      assert title == Coverage.title_for(user.id, game.id)
+    end
+  end
 end
