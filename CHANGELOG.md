@@ -17,7 +17,7 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
-## Unreleased
+## v0.6.3 (2026-11-18)
 ### Everyone
 - Stronger browser security: pages now only run Rule Maven's own scripts.
 ### Admins
