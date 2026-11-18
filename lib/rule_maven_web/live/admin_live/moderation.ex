@@ -7,20 +7,35 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
   @impl true
   def mount(_params, _session, socket) do
     if Users.can?(socket.assigns.current_user, :admin) do
-      {:ok, assign(socket, page_title: "Moderation") |> load()}
+      {:ok, socket |> assign(page_title: "Moderation", loaded: false) |> load_async()}
     else
       {:ok, push_navigate(socket, to: ~p"/")}
     end
   end
 
-  defp load(socket) do
-    assign(socket,
+  defp load(socket), do: assign(socket, Map.put(compute(), :loaded, true))
+
+  defp compute do
+    %{
       signals: Moderation.user_signals(),
       collusion: Moderation.collusion_pairs(),
       flagged: Games.list_flagged_questions(),
       pulled: Games.list_needs_review_questions()
-    )
+    }
   end
+
+  # Whole-table group-bys over questions_log/question_votes: off the join (a slow mount holds the
+  # socket), with a loading line until they're in. The dead render skips them entirely.
+  defp load_async(socket) do
+    if connected?(socket), do: start_async(socket, :load, &compute/0), else: socket
+  end
+
+  @impl true
+  def handle_async(:load, {:ok, data}, socket),
+    do: {:noreply, assign(socket, Map.put(data, :loaded, true))}
+
+  def handle_async(:load, {:exit, _reason}, socket),
+    do: {:noreply, put_flash(socket, :error, "Couldn't load moderation signals. Try again.")}
 
   # Every action re-checks admin server-side: LiveView events are forgeable over
   # the socket, so the `:admin` live_session on_mount is not the only guard.
@@ -232,255 +247,259 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
         = ungrounded answers. New unconfirmed accounts that are already active are flagged.
       </p>
 
-      <div style="overflow-x:auto;border:1px solid var(--border);border-radius:0.5rem">
-        <table style="width:100%;border-collapse:collapse;font-size:0.78rem;white-space:nowrap">
-          <thead>
-            <tr style="background:var(--bg-subtle);text-align:left">
-              <th style={th()}>User</th>
-              <th style={th()} title="Total answers authored">Asks</th>
-              <th style={th()} title="Injection / blocked questions">Blocked</th>
-              <th style={th()}>Refused</th>
-              <th style={th()} title="Answers with ungrounded citations">Bad cite</th>
-              <th style={th()} title="Owned answers flagged stale">Review</th>
-              <th style={th()} title="Answers promoted to the community pool">Pooled</th>
-              <th style={th()}>Rep</th>
-              <th style={th()} title="Monthly question quota (fresh asks only)">Quota</th>
-              <th style={th()} title="Votes cast (up / down)">Votes</th>
-              <th style={th()}>Age</th>
-              <th style={th()}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for s <- @signals do %>
-              <tr style={"border-top:1px solid var(--border-subtle);#{if s.risk > 0, do: "background:color-mix(in srgb, var(--danger,#c0392b) 6%, transparent)"}"}>
-                <td style={td()}>
-                  <span style="font-weight:600">{s.username}</span>
-                  <%!-- Super admins are immune to every button in this table
-                        (Users refuses the action), so say so before it's clicked. --%>
-                  <span :if={Users.super_admin?(s)} style={pill("var(--accent)")}>super admin</span>
-                  <span :if={s.is_admin and not Users.super_admin?(s)} style={pill("var(--accent)")}>
-                    admin
-                  </span>
-                  <span :if={s.suspended} style={pill("var(--danger,#c0392b)")}>suspended</span>
-                  <span
-                    :if={not s.confirmed}
-                    style={pill("var(--text-muted)")}
-                    title="Email not confirmed"
-                  >unconfirmed</span>
-                </td>
-                <td style={td()}>{s.total}</td>
-                <td style={num(s.blocked)}>{s.blocked}</td>
-                <td style={num(s.refused)}>{s.refused}</td>
-                <td style={num(s.citation_invalid)}>{s.citation_invalid}</td>
-                <td style={num(s.needs_review)}>{s.needs_review}</td>
-                <td style={td()}>{s.community}</td>
-                <td style={td()}>{s.reputation}</td>
-                <td style={td()}>
-                  <%= if s.is_admin do %>
-                    <span style="color:var(--text-muted)" title="Admins are exempt from quotas">—</span>
-                  <% else %>
-                    <form phx-submit="set_quota" style="display:flex;gap:0.2rem;align-items:center">
-                      <input type="hidden" name="user_id" value={s.user_id} />
-                      <input
-                        type="number"
-                        name="quota"
-                        value={s.monthly_quota}
-                        min="0"
-                        step="50"
-                        style="width:4.5rem;font-size:0.72rem;padding:0.1rem 0.25rem;border:1px solid var(--border);border-radius:0.25rem;background:var(--bg-surface);color:var(--text)"
-                      />
-                      <button type="submit" class="btn-outline btn-xs" title="Save quota">Set</button>
-                    </form>
-                  <% end %>
-                </td>
-                <td style={td()}>{s.votes_up}/{s.votes_down}</td>
-                <td style={td()}>{if s.age_days, do: "#{s.age_days}d", else: "—"}</td>
-                <td style={td()}>
-                  <div style="display:flex;gap:0.3rem;flex-wrap:wrap">
-                    <%= if s.suspended do %>
-                      <button
-                        type="button"
-                        phx-click="unsuspend_user"
-                        phx-value-id={s.user_id}
-                        class="btn-xs"
-                        style="border:1px solid var(--green);color:var(--green);background:none"
-                      >Unsuspend</button>
-                    <% else %>
-                      <button
-                        :if={not s.is_admin}
-                        type="button"
-                        phx-click="suspend_user"
-                        phx-value-id={s.user_id}
-                        data-confirm={"Suspend #{s.username}? They'll be logged out and can't sign in."}
-                        class="btn-danger-outline btn-xs"
-                      >Suspend</button>
-                    <% end %>
-                    <button
-                      :if={not Users.super_admin?(s)}
-                      type="button"
-                      phx-click="demote_answers"
-                      phx-value-id={s.user_id}
-                      data-confirm={"Pull all of #{s.username}'s answers from the pool? They become private."}
-                      class="btn-xs"
-                    >Pull answers</button>
-                    <button
-                      :if={not Users.super_admin?(s)}
-                      type="button"
-                      phx-click="force_logout"
-                      phx-value-id={s.user_id}
-                      data-confirm={"Force log out #{s.username}? Revokes all their active sessions without suspending the account."}
-                      class="btn-xs"
-                      title="Revoke all active sessions"
-                    >Force logout</button>
-                    <button
-                      :if={not Users.super_admin?(s)}
-                      type="button"
-                      phx-click="reset_reputation"
-                      phx-value-id={s.user_id}
-                      data-confirm={"Reset #{s.username}'s reputation to 0?"}
-                      class="btn-xs"
-                    >Reset rep</button>
-                  </div>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-
-      <h2 style="font-size:1.1rem;font-weight:700;margin:1.75rem 0 0.35rem">
-        Reported answers
-        <span
-          :if={@flagged != []}
-          style="margin-left:0.4rem;font-size:0.7rem;font-weight:700;color:#fff;background:var(--danger,#c0392b);border-radius:999px;padding:0.05rem 0.45rem;vertical-align:middle"
-        >{length(@flagged)}</span>
-      </h2>
-      <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">
-        Answers users flagged as wrong or unhelpful, most-flagged first. Resolve to dismiss the
-        flags, or delete the answer outright.
-      </p>
-
-      <%= if @flagged == [] do %>
-        <p style="font-size:0.8rem;color:var(--text-muted)">No open reports.</p>
-      <% else %>
-        <div style="display:flex;flex-direction:column;gap:0.6rem;margin-bottom:0.5rem">
-          <%= for f <- @flagged do %>
-            <div style="border:1px solid var(--border);border-radius:0.5rem;padding:0.6rem 0.75rem">
-              <div style="display:flex;gap:0.5rem;align-items:baseline;justify-content:space-between">
-                <span style="font-weight:600;font-size:0.85rem">{QuestionLog.listed_question(
-                  f.question
-                )}</span>
-                <span style={pill("var(--danger,#c0392b)")}>{f.flag_count} flag(s)</span>
-              </div>
-              <p style="font-size:0.78rem;color:var(--text-muted);margin:0.3rem 0">
-                {String.slice(QuestionLog.listed_answer(f.question), 0, 240)}
-              </p>
-              <p
-                :if={f.reasons != []}
-                style="font-size:0.72rem;color:var(--text-muted);margin:0.2rem 0"
-              >
-                Reasons: {Enum.join(f.reasons, "; ")}
-              </p>
-              <div style="display:flex;gap:0.3rem;margin-top:0.35rem">
-                <button
-                  type="button"
-                  phx-click="resolve_flags"
-                  phx-value-id={f.question_log_id}
-                  class="btn-xs"
-                  style="border:1px solid var(--green);color:var(--green);background:none"
-                >Resolve</button>
-                <button
-                  type="button"
-                  phx-click="delete_flagged"
-                  phx-value-id={f.question_log_id}
-                  data-confirm="Delete this answer? This can't be undone."
-                  class="btn-danger-outline btn-xs"
-                >Delete answer</button>
-              </div>
-            </div>
-          <% end %>
-        </div>
-      <% end %>
-
-      <h2 style="font-size:1.1rem;font-weight:700;margin:1.75rem 0 0.35rem">
-        Pulled from the pool — awaiting review
-        <span
-          :if={@pulled != []}
-          style="margin-left:0.4rem;font-size:0.7rem;font-weight:700;color:#fff;background:var(--danger,#c0392b);border-radius:999px;padding:0.05rem 0.45rem;vertical-align:middle"
-        >{length(@pulled)}</span>
-      </h2>
-      <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">
-        Answers auto-pulled by user reports or a rulebook change. They stop serving until you
-        re-approve them. Re-approve to put it back in the pool, or delete it.
-      </p>
-
-      <%= if @pulled == [] do %>
-        <p style="font-size:0.8rem;color:var(--text-muted)">Nothing awaiting review.</p>
-      <% else %>
-        <div style="display:flex;flex-direction:column;gap:0.6rem;margin-bottom:0.5rem">
-          <%= for q <- @pulled do %>
-            <div style="border:1px solid var(--border);border-radius:0.5rem;padding:0.6rem 0.75rem">
-              <div style="display:flex;gap:0.5rem;align-items:baseline;justify-content:space-between">
-                <span style="font-weight:600;font-size:0.85rem">{QuestionLog.listed_question(q)}</span>
-                <span style={pill("var(--text-muted)")}>
-                  {q.game && q.game.name} · {q.tier || "private"}
-                </span>
-              </div>
-              <p style="font-size:0.78rem;color:var(--text-muted);margin:0.3rem 0">
-                {String.slice(QuestionLog.listed_answer(q), 0, 240)}
-              </p>
-              <div style="display:flex;gap:0.3rem;margin-top:0.35rem">
-                <button
-                  type="button"
-                  phx-click="reapprove_answer"
-                  phx-value-id={q.id}
-                  class="btn-xs"
-                  style="border:1px solid var(--green);color:var(--green);background:none"
-                >Re-approve</button>
-                <button
-                  type="button"
-                  phx-click="delete_flagged"
-                  phx-value-id={q.id}
-                  data-confirm="Delete this answer? This can't be undone."
-                  class="btn-danger-outline btn-xs"
-                >Delete answer</button>
-              </div>
-            </div>
-          <% end %>
-        </div>
-      <% end %>
-
-      <h2 style="font-size:1.1rem;font-weight:700;margin:1.75rem 0 0.35rem">Possible vote rings</h2>
-      <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">
-        Voter→author pairs with repeated votes on the same author. Mostly-up counts are the vote-ring
-        signature; reputation effect is already capped, this is for a human call.
-      </p>
-
-      <%= if @collusion == [] do %>
-        <p style="font-size:0.8rem;color:var(--text-muted)">None above threshold.</p>
-      <% else %>
+      <%= if @loaded do %>
         <div style="overflow-x:auto;border:1px solid var(--border);border-radius:0.5rem">
-          <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;white-space:nowrap">
             <thead>
               <tr style="background:var(--bg-subtle);text-align:left">
-                <th style={th()}>Voter</th>
-                <th style={th()}>Author</th>
-                <th style={th()}>Votes</th>
-                <th style={th()}>Up</th>
+                <th style={th()}>User</th>
+                <th style={th()} title="Total answers authored">Asks</th>
+                <th style={th()} title="Injection / blocked questions">Blocked</th>
+                <th style={th()}>Refused</th>
+                <th style={th()} title="Answers with ungrounded citations">Bad cite</th>
+                <th style={th()} title="Owned answers flagged stale">Review</th>
+                <th style={th()} title="Answers promoted to the community pool">Pooled</th>
+                <th style={th()}>Rep</th>
+                <th style={th()} title="Monthly question quota (fresh asks only)">Quota</th>
+                <th style={th()} title="Votes cast (up / down)">Votes</th>
+                <th style={th()}>Age</th>
+                <th style={th()}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              <%= for p <- @collusion do %>
-                <tr style="border-top:1px solid var(--border-subtle)">
-                  <td style={td()}>{p.voter_name}</td>
-                  <td style={td()}>{p.author_name}</td>
-                  <td style={td()}>{p.votes}</td>
-                  <td style={td()}>{p.ups}</td>
+              <%= for s <- @signals do %>
+                <tr style={"border-top:1px solid var(--border-subtle);#{if s.risk > 0, do: "background:color-mix(in srgb, var(--danger,#c0392b) 6%, transparent)"}"}>
+                  <td style={td()}>
+                    <span style="font-weight:600">{s.username}</span>
+                    <%!-- Super admins are immune to every button in this table
+                          (Users refuses the action), so say so before it's clicked. --%>
+                    <span :if={Users.super_admin?(s)} style={pill("var(--accent)")}>super admin</span>
+                    <span :if={s.is_admin and not Users.super_admin?(s)} style={pill("var(--accent)")}>
+                      admin
+                    </span>
+                    <span :if={s.suspended} style={pill("var(--danger,#c0392b)")}>suspended</span>
+                    <span
+                      :if={not s.confirmed}
+                      style={pill("var(--text-muted)")}
+                      title="Email not confirmed"
+                    >unconfirmed</span>
+                  </td>
+                  <td style={td()}>{s.total}</td>
+                  <td style={num(s.blocked)}>{s.blocked}</td>
+                  <td style={num(s.refused)}>{s.refused}</td>
+                  <td style={num(s.citation_invalid)}>{s.citation_invalid}</td>
+                  <td style={num(s.needs_review)}>{s.needs_review}</td>
+                  <td style={td()}>{s.community}</td>
+                  <td style={td()}>{s.reputation}</td>
+                  <td style={td()}>
+                    <%= if s.is_admin do %>
+                      <span style="color:var(--text-muted)" title="Admins are exempt from quotas">—</span>
+                    <% else %>
+                      <form phx-submit="set_quota" style="display:flex;gap:0.2rem;align-items:center">
+                        <input type="hidden" name="user_id" value={s.user_id} />
+                        <input
+                          type="number"
+                          name="quota"
+                          value={s.monthly_quota}
+                          min="0"
+                          step="50"
+                          style="width:4.5rem;font-size:0.72rem;padding:0.1rem 0.25rem;border:1px solid var(--border);border-radius:0.25rem;background:var(--bg-surface);color:var(--text)"
+                        />
+                        <button type="submit" class="btn-outline btn-xs" title="Save quota">Set</button>
+                      </form>
+                    <% end %>
+                  </td>
+                  <td style={td()}>{s.votes_up}/{s.votes_down}</td>
+                  <td style={td()}>{if s.age_days, do: "#{s.age_days}d", else: "—"}</td>
+                  <td style={td()}>
+                    <div style="display:flex;gap:0.3rem;flex-wrap:wrap">
+                      <%= if s.suspended do %>
+                        <button
+                          type="button"
+                          phx-click="unsuspend_user"
+                          phx-value-id={s.user_id}
+                          class="btn-xs"
+                          style="border:1px solid var(--green);color:var(--green);background:none"
+                        >Unsuspend</button>
+                      <% else %>
+                        <button
+                          :if={not s.is_admin}
+                          type="button"
+                          phx-click="suspend_user"
+                          phx-value-id={s.user_id}
+                          data-confirm={"Suspend #{s.username}? They'll be logged out and can't sign in."}
+                          class="btn-danger-outline btn-xs"
+                        >Suspend</button>
+                      <% end %>
+                      <button
+                        :if={not Users.super_admin?(s)}
+                        type="button"
+                        phx-click="demote_answers"
+                        phx-value-id={s.user_id}
+                        data-confirm={"Pull all of #{s.username}'s answers from the pool? They become private."}
+                        class="btn-xs"
+                      >Pull answers</button>
+                      <button
+                        :if={not Users.super_admin?(s)}
+                        type="button"
+                        phx-click="force_logout"
+                        phx-value-id={s.user_id}
+                        data-confirm={"Force log out #{s.username}? Revokes all their active sessions without suspending the account."}
+                        class="btn-xs"
+                        title="Revoke all active sessions"
+                      >Force logout</button>
+                      <button
+                        :if={not Users.super_admin?(s)}
+                        type="button"
+                        phx-click="reset_reputation"
+                        phx-value-id={s.user_id}
+                        data-confirm={"Reset #{s.username}'s reputation to 0?"}
+                        class="btn-xs"
+                      >Reset rep</button>
+                    </div>
+                  </td>
                 </tr>
               <% end %>
             </tbody>
           </table>
         </div>
+
+        <h2 style="font-size:1.1rem;font-weight:700;margin:1.75rem 0 0.35rem">
+          Reported answers
+          <span
+            :if={@flagged != []}
+            style="margin-left:0.4rem;font-size:0.7rem;font-weight:700;color:#fff;background:var(--danger,#c0392b);border-radius:999px;padding:0.05rem 0.45rem;vertical-align:middle"
+          >{length(@flagged)}</span>
+        </h2>
+        <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">
+          Answers users flagged as wrong or unhelpful, most-flagged first. Resolve to dismiss the
+          flags, or delete the answer outright.
+        </p>
+
+        <%= if @flagged == [] do %>
+          <p style="font-size:0.8rem;color:var(--text-muted)">No open reports.</p>
+        <% else %>
+          <div style="display:flex;flex-direction:column;gap:0.6rem;margin-bottom:0.5rem">
+            <%= for f <- @flagged do %>
+              <div style="border:1px solid var(--border);border-radius:0.5rem;padding:0.6rem 0.75rem">
+                <div style="display:flex;gap:0.5rem;align-items:baseline;justify-content:space-between">
+                  <span style="font-weight:600;font-size:0.85rem">{QuestionLog.listed_question(
+                    f.question
+                  )}</span>
+                  <span style={pill("var(--danger,#c0392b)")}>{f.flag_count} flag(s)</span>
+                </div>
+                <p style="font-size:0.78rem;color:var(--text-muted);margin:0.3rem 0">
+                  {String.slice(QuestionLog.listed_answer(f.question), 0, 240)}
+                </p>
+                <p
+                  :if={f.reasons != []}
+                  style="font-size:0.72rem;color:var(--text-muted);margin:0.2rem 0"
+                >
+                  Reasons: {Enum.join(f.reasons, "; ")}
+                </p>
+                <div style="display:flex;gap:0.3rem;margin-top:0.35rem">
+                  <button
+                    type="button"
+                    phx-click="resolve_flags"
+                    phx-value-id={f.question_log_id}
+                    class="btn-xs"
+                    style="border:1px solid var(--green);color:var(--green);background:none"
+                  >Resolve</button>
+                  <button
+                    type="button"
+                    phx-click="delete_flagged"
+                    phx-value-id={f.question_log_id}
+                    data-confirm="Delete this answer? This can't be undone."
+                    class="btn-danger-outline btn-xs"
+                  >Delete answer</button>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+
+        <h2 style="font-size:1.1rem;font-weight:700;margin:1.75rem 0 0.35rem">
+          Pulled from the pool — awaiting review
+          <span
+            :if={@pulled != []}
+            style="margin-left:0.4rem;font-size:0.7rem;font-weight:700;color:#fff;background:var(--danger,#c0392b);border-radius:999px;padding:0.05rem 0.45rem;vertical-align:middle"
+          >{length(@pulled)}</span>
+        </h2>
+        <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">
+          Answers auto-pulled by user reports or a rulebook change. They stop serving until you
+          re-approve them. Re-approve to put it back in the pool, or delete it.
+        </p>
+
+        <%= if @pulled == [] do %>
+          <p style="font-size:0.8rem;color:var(--text-muted)">Nothing awaiting review.</p>
+        <% else %>
+          <div style="display:flex;flex-direction:column;gap:0.6rem;margin-bottom:0.5rem">
+            <%= for q <- @pulled do %>
+              <div style="border:1px solid var(--border);border-radius:0.5rem;padding:0.6rem 0.75rem">
+                <div style="display:flex;gap:0.5rem;align-items:baseline;justify-content:space-between">
+                  <span style="font-weight:600;font-size:0.85rem">{QuestionLog.listed_question(q)}</span>
+                  <span style={pill("var(--text-muted)")}>
+                    {q.game && q.game.name} · {q.tier || "private"}
+                  </span>
+                </div>
+                <p style="font-size:0.78rem;color:var(--text-muted);margin:0.3rem 0">
+                  {String.slice(QuestionLog.listed_answer(q), 0, 240)}
+                </p>
+                <div style="display:flex;gap:0.3rem;margin-top:0.35rem">
+                  <button
+                    type="button"
+                    phx-click="reapprove_answer"
+                    phx-value-id={q.id}
+                    class="btn-xs"
+                    style="border:1px solid var(--green);color:var(--green);background:none"
+                  >Re-approve</button>
+                  <button
+                    type="button"
+                    phx-click="delete_flagged"
+                    phx-value-id={q.id}
+                    data-confirm="Delete this answer? This can't be undone."
+                    class="btn-danger-outline btn-xs"
+                  >Delete answer</button>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+
+        <h2 style="font-size:1.1rem;font-weight:700;margin:1.75rem 0 0.35rem">Possible vote rings</h2>
+        <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.75rem">
+          Voter→author pairs with repeated votes on the same author. Mostly-up counts are the vote-ring
+          signature; reputation effect is already capped, this is for a human call.
+        </p>
+
+        <%= if @collusion == [] do %>
+          <p style="font-size:0.8rem;color:var(--text-muted)">None above threshold.</p>
+        <% else %>
+          <div style="overflow-x:auto;border:1px solid var(--border);border-radius:0.5rem">
+            <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+              <thead>
+                <tr style="background:var(--bg-subtle);text-align:left">
+                  <th style={th()}>Voter</th>
+                  <th style={th()}>Author</th>
+                  <th style={th()}>Votes</th>
+                  <th style={th()}>Up</th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for p <- @collusion do %>
+                  <tr style="border-top:1px solid var(--border-subtle)">
+                    <td style={td()}>{p.voter_name}</td>
+                    <td style={td()}>{p.author_name}</td>
+                    <td style={td()}>{p.votes}</td>
+                    <td style={td()}>{p.ups}</td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
+      <% else %>
+        <p style="font-size:0.8rem;color:var(--text-muted)" role="status">Loading…</p>
       <% end %>
     </div>
     """

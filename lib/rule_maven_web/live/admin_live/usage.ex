@@ -10,26 +10,46 @@ defmodule RuleMavenWeb.AdminLive.Usage do
        assign(socket,
          page_title: "Usage & Cost",
          days: 30,
-         cost_cap: Settings.get("user_daily_cost_cap") || "0"
+         cost_cap: Settings.get("user_daily_cost_cap") || "0",
+         loaded: false
        )
-       |> load()}
+       |> load_async()}
     else
       {:ok, push_navigate(socket, to: ~p"/")}
     end
   end
 
-  defp load(socket) do
-    days = socket.assigns.days
+  defp load(socket), do: assign(socket, Map.put(compute(socket.assigns.days), :loaded, true))
+
+  defp compute(days) do
     by_user = LLM.cost_by_user(days)
 
-    assign(socket,
+    %{
       stats: LLM.stats(days),
       by_user: by_user,
       total_cost: Enum.reduce(by_user, 0.0, &(&1.cost + &2)),
       savings: RuleMaven.LLM.Savings.summary(days),
       ask_stats: LLM.ask_stats(days)
-    )
+    }
   end
+
+  # About nine aggregate queries over llm_logs/questions_log: off the join (a slow mount holds the
+  # socket), with a loading line until they're in. The dead render skips them entirely.
+  defp load_async(socket) do
+    if connected?(socket) do
+      days = socket.assigns.days
+      start_async(socket, :load, fn -> compute(days) end)
+    else
+      socket
+    end
+  end
+
+  @impl true
+  def handle_async(:load, {:ok, data}, socket),
+    do: {:noreply, assign(socket, Map.put(data, :loaded, true))}
+
+  def handle_async(:load, {:exit, _reason}, socket),
+    do: {:noreply, put_flash(socket, :error, "Couldn't load usage. Try again.")}
 
   @impl true
   def handle_event("set_days", %{"days" => days}, socket) do
@@ -69,92 +89,96 @@ defmodule RuleMavenWeb.AdminLive.Usage do
         </form>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:0.6rem;margin-bottom:1.25rem">
-        <.stat label="Est. cost" value={"$#{fmt_cost(@total_cost)}"} />
-        <.stat
-          label="$ / question"
-          value={"$#{fmt_cost4(cost_per_question(@total_cost, @ask_stats.asks))}"}
-        />
-        <.stat
-          label="Pool hit rate"
-          value={"#{fmt_pct(@ask_stats.pool_hit_rate)} (#{@ask_stats.pool_hits}/#{@ask_stats.asks})"}
-        />
-        <.stat label="Requests" value={@stats.total_requests} />
-        <.stat label="Tokens" value={fmt_int(@stats.total_tokens)} />
-        <.stat label="Errors" value={@stats.error_count} />
-        <.stat label="Avg latency" value={"#{@stats.avg_duration_ms || 0} ms"} />
-      </div>
+      <%= if @loaded do %>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:0.6rem;margin-bottom:1.25rem">
+          <.stat label="Est. cost" value={"$#{fmt_cost(@total_cost)}"} />
+          <.stat
+            label="$ / question"
+            value={"$#{fmt_cost4(cost_per_question(@total_cost, @ask_stats.asks))}"}
+          />
+          <.stat
+            label="Pool hit rate"
+            value={"#{fmt_pct(@ask_stats.pool_hit_rate)} (#{@ask_stats.pool_hits}/#{@ask_stats.asks})"}
+          />
+          <.stat label="Requests" value={@stats.total_requests} />
+          <.stat label="Tokens" value={fmt_int(@stats.total_tokens)} />
+          <.stat label="Errors" value={@stats.error_count} />
+          <.stat label="Avg latency" value={"#{@stats.avg_duration_ms || 0} ms"} />
+        </div>
 
-      <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem 1rem;margin-bottom:1.25rem">
-        <h2 style="font-size:1rem;font-weight:700;margin-bottom:0.5rem">Estimated savings</h2>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:0.6rem">
-          <.stat label="Saved (est.)" value={"$#{fmt_cost(@savings.headline_usd)}"} />
-          <.stat label="Saved tokens" value={fmt_int(@savings.headline_tokens)} />
-          <%= for k <- @savings.by_kind, k.kind in ["cache_hit", "prompt_cache"] do %>
-            <.stat label={savings_label(k.kind)} value={"$#{fmt_cost(k.usd)}"} />
+        <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem 1rem;margin-bottom:1.25rem">
+          <h2 style="font-size:1rem;font-weight:700;margin-bottom:0.5rem">Estimated savings</h2>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:0.6rem">
+            <.stat label="Saved (est.)" value={"$#{fmt_cost(@savings.headline_usd)}"} />
+            <.stat label="Saved tokens" value={fmt_int(@savings.headline_tokens)} />
+            <%= for k <- @savings.by_kind, k.kind in ["cache_hit", "prompt_cache"] do %>
+              <.stat label={savings_label(k.kind)} value={"$#{fmt_cost(k.usd)}"} />
+            <% end %>
+          </div>
+          <%= for k <- @savings.by_kind, k.kind == "cheap_route" do %>
+            <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">
+              Cheap-model routing (counterfactual, not in total): ${fmt_cost(k.usd)} vs running on the answer model.
+            </p>
           <% end %>
         </div>
-        <%= for k <- @savings.by_kind, k.kind == "cheap_route" do %>
-          <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">
-            Cheap-model routing (counterfactual, not in total): ${fmt_cost(k.usd)} vs running on the answer model.
-          </p>
-        <% end %>
-      </div>
 
-      <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem 1rem;margin-bottom:1.25rem">
-        <form phx-submit="save_cap" style="display:flex;align-items:end;gap:0.6rem;flex-wrap:wrap">
-          <div>
-            <label style="display:block;font-size:0.72rem;font-weight:600;color:var(--text-muted);margin-bottom:0.2rem">
-              Per-user daily budget cap (USD, 0 = off)
-            </label>
-            <input
-              type="text"
-              name="cap"
-              value={@cost_cap}
-              inputmode="decimal"
-              style="width:8rem;border:1px solid var(--border);border-radius:0.25rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text)"
-            />
-          </div>
-          <button
-            type="submit"
-            class="btn-primary btn-sm"
-          >Save</button>
-          <span style="font-size:0.72rem;color:var(--text-muted)">
-            Blocks a user's new asks once their estimated spend today hits the cap. Admins exempt.
-          </span>
-        </form>
-      </div>
-
-      <h2 style="font-size:1.1rem;font-weight:700;margin:0 0 0.5rem">Cost by user</h2>
-      <p style="font-size:0.72rem;color:var(--text-muted);margin:0 0 0.6rem">
-        Estimated from logged token usage; for budgeting, not billing.
-      </p>
-
-      <%= if @by_user == [] do %>
-        <p style="font-size:0.8rem;color:var(--text-muted)">No usage in this window.</p>
-      <% else %>
-        <div style="overflow-x:auto;border:1px solid var(--border);border-radius:0.5rem">
-          <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
-            <thead>
-              <tr style="background:var(--bg-subtle);text-align:left">
-                <th style={th()}>User</th>
-                <th style={th()}>Est. cost</th>
-                <th style={th()}>Requests</th>
-                <th style={th()}>Tokens</th>
-              </tr>
-            </thead>
-            <tbody>
-              <%= for u <- @by_user do %>
-                <tr style="border-top:1px solid var(--border-subtle)">
-                  <td style={td()}>{u.username}</td>
-                  <td style={td() <> ";font-weight:600"}>${fmt_cost(u.cost)}</td>
-                  <td style={td()}>{u.requests}</td>
-                  <td style={td()}>{fmt_int(u.tokens)}</td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
+        <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem 1rem;margin-bottom:1.25rem">
+          <form phx-submit="save_cap" style="display:flex;align-items:end;gap:0.6rem;flex-wrap:wrap">
+            <div>
+              <label style="display:block;font-size:0.72rem;font-weight:600;color:var(--text-muted);margin-bottom:0.2rem">
+                Per-user daily budget cap (USD, 0 = off)
+              </label>
+              <input
+                type="text"
+                name="cap"
+                value={@cost_cap}
+                inputmode="decimal"
+                style="width:8rem;border:1px solid var(--border);border-radius:0.25rem;padding:0.3rem 0.5rem;font-size:0.8rem;background:var(--bg);color:var(--text)"
+              />
+            </div>
+            <button
+              type="submit"
+              class="btn-primary btn-sm"
+            >Save</button>
+            <span style="font-size:0.72rem;color:var(--text-muted)">
+              Blocks a user's new asks once their estimated spend today hits the cap. Admins exempt.
+            </span>
+          </form>
         </div>
+
+        <h2 style="font-size:1.1rem;font-weight:700;margin:0 0 0.5rem">Cost by user</h2>
+        <p style="font-size:0.72rem;color:var(--text-muted);margin:0 0 0.6rem">
+          Estimated from logged token usage; for budgeting, not billing.
+        </p>
+
+        <%= if @by_user == [] do %>
+          <p style="font-size:0.8rem;color:var(--text-muted)">No usage in this window.</p>
+        <% else %>
+          <div style="overflow-x:auto;border:1px solid var(--border);border-radius:0.5rem">
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+              <thead>
+                <tr style="background:var(--bg-subtle);text-align:left">
+                  <th style={th()}>User</th>
+                  <th style={th()}>Est. cost</th>
+                  <th style={th()}>Requests</th>
+                  <th style={th()}>Tokens</th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for u <- @by_user do %>
+                  <tr style="border-top:1px solid var(--border-subtle)">
+                    <td style={td()}>{u.username}</td>
+                    <td style={td() <> ";font-weight:600"}>${fmt_cost(u.cost)}</td>
+                    <td style={td()}>{u.requests}</td>
+                    <td style={td()}>{fmt_int(u.tokens)}</td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
+      <% else %>
+        <p style="font-size:0.8rem;color:var(--text-muted)" role="status">Loading…</p>
       <% end %>
     </div>
     """

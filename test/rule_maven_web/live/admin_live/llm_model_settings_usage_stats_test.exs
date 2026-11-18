@@ -91,7 +91,10 @@ defmodule RuleMavenWeb.AdminLive.LlmModelSettingsUsageStatsTest do
 
   describe "usage dashboard" do
     test "shows $/question and pool hit rate", %{conn: conn} do
-      {:ok, _view, html} = conn |> login(user("admin")) |> live(~p"/admin/usage")
+      {:ok, view, html} = conn |> login(user("admin")) |> live(~p"/admin/usage")
+      # The aggregates load after the join (start_async), not in it.
+      assert html =~ "Loading…"
+      html = render_async(view)
 
       assert html =~ "$ / question"
       assert html =~ "Pool hit rate"

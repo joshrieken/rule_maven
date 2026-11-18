@@ -136,6 +136,10 @@ outermost wrapper div that always exists (even if hidden with `display:none`).
   anything there that must react to a page change listens to
   `phx:page-loading-start/stop` in app.js (drawer closes, `<details>` close,
   theme re-sync, `.page-progress` bar). Test: `live_navigation_test.exs`.
+- Nothing heavy (>~300 ms) synchronously in a connected mount/handle_params:
+  the join runs there and a slow one holds the socket. Aggregates go through
+  `start_async`/`assign_async` with a loading state (see AdminLive.Usage,
+  AdminLive.Moderation); tests then `render_async/1`.
 
 ## Dev Server
 
