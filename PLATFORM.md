@@ -203,22 +203,64 @@ anyway, run the app's `scripts/deploy.sh`; to pause one app, `touch /opt/<app>/.
 - **Look**: always dark (`#0e0e10`), warm off-white text, red accent `#e5484d`, Atkinson Hyperlegible, rem units,
   17px base, mobile first, accessible (labels, focus rings, `prefers-reduced-motion`).
 - **Keep users' docs true**: a user-visible change updates the app's Help/guide and its changelog in the same change.
+- **Keep the zone's docs true**: they're how the owner and future sessions know how things work, so they change in
+  the same commit as what they describe: infrastructure, cron, backups, monitoring, costs → `OPERATIONS.md` (hub);
+  how every app is built or run → this file (then `ops/sync-platform.sh`, commit the copies); what new apps need →
+  `templates/phoenix-app` + `ops/new-app.sh` too; a server-side change → `ops/bootstrap.sh` so a rebuild matches.
 - **Agents (Claude Code)**: read this file, then the repo's `CLAUDE.md`/`AGENTS.md`. Never push or deploy unless
   the owner asks (a pushed release *is* a deploy once autodeploy is on). Commit messages end with the
   `Co-Authored-By` line the session gives.
 
 ## 7. Adding an app
 
-1. Repo with this file, `.env.example`, `compose.yaml` + production overlay with Traefik labels (router, service,
-   retry middleware), `Dockerfile` (multi-stage, non-root, `HEALTHCHECK` as §5.2), `scripts/deploy.sh` (copy
-   Drawburn's), a `release` skill, `CHANGELOG.md`, version display + What's new.
-2. Identity: blueprint `<app>.yaml`, env block in `/opt/identity/.env` (before pulling), apply it, add `admin`
-   to `<app>-admins`.
-3. Server: deploy key + `github-<app>` alias, `git clone` into `/opt/<app>`, `.env`, first `./scripts/deploy.sh`.
-4. Hub: entry in `src/apps.js` (+ illustration), summary endpoint + `HUB_<APP>_SUMMARY_*`, `<app>-requests`
-   group in `identity/blueprints/hub-access.yaml`.
-5. Add it to the table in §1, to `ops/autodeploy.sh`, and to `ops/pull-prod-all.sh` with its own
-   `scripts/pull-prod.sh` (§8).
+**Start from the template, never by copying an app:** `hub/templates/phoenix-app` is a complete Phoenix 1.8 +
+LiveView + Postgres app that already does everything above (sign-in and sign out everywhere through `lib/lccz`,
+groups → user/admin/super admin, sessions in Postgres, one `live_session` with admin checks per LiveView, the hub
+summary, What's new, health/version, activity log and server errors, strict CSP, the Dockerfile, compose files,
+`scripts/deploy.sh` and `pull-prod.sh`, CI, Dependabot, the `release` skill, tests). In the hub repo:
+
+```sh
+ops/new-app.sh <slug> <Module> "<Product name>" <domain> <port>            # shows every zone edit as a diff
+ops/new-app.sh --apply <slug> <Module> "<Product name>" <domain> <port>    # makes them (safe to run again)
+```
+
+It makes `../<slug>` (tokens replaced, `PLATFORM.md` and `lib/lccz` copied in, `git init`, `mix deps.get`), writes
+`identity/blueprints/<slug>.yaml`, and adds the app to the lists below; whatever it can't do safely it prints.
+Claude's `new-app` skill (hub repo) runs the whole checklist. Steps marked **owner** need the owner's accounts
+or the server; everything else an agent does in the repos. In order:
+
+1. **Repo.** `ops/new-app.sh`; build the features on the template (this file, the app's `CLAUDE.md`); make
+   `HubSummary` about the app; `mix precommit` green; first commit. **Owner:** create the GitHub repo (private),
+   push; turn on Dependabot security alerts.
+2. **Identity.** Commit `identity/blueprints/<slug>.yaml` (groups `<slug>-users`, `-admins`, `-superadmins`,
+   `-requests`; strict redirect URIs; back-channel `logout_uri` `http://<slug>:<port>/auth/oidc/backchannel`) and its
+   blocks in `hub-access.yaml` and `.env.example`. **Owner, on the server, before pulling identity:** append
+   `<SLUG>_URL`, `<SLUG>_OIDC_CLIENT_ID` and `<SLUG>_OIDC_CLIENT_SECRET` (generated there: `openssl rand -hex 32`) to
+   `/opt/identity/.env`; pull; restart; apply `<slug>.yaml` and `hub-access.yaml` (§2). **Owner:** put `admin` in
+   `<slug>-admins`, yourself in `-admins` and `-superadmins`, people in `-users`.
+3. **Server.** **Owner:** DNS: an A record for the domain → the server's IP in Cloudflare, **proxied** (orange cloud:
+   `ops/harden.sh` lets web ports in only from Cloudflare, so an unproxied name doesn't answer). **Owner:** a deploy
+   key on the server (`ssh-keygen -t ed25519 -f ~/.ssh/<slug>_deploy`, `Host github-<slug>` in `~/.ssh/config`),
+   added read-only to the repo; `git clone` into `/opt/<slug>`; `/opt/<slug>/.env` from `.env.example` with secrets
+   generated on the server (the client secret = identity's). Then cut `v0.1.0` (the `release` skill); pushing it
+   deploys once `ops/autodeploy.sh` lists the app (or `./scripts/deploy.sh` the first time).
+4. **Hub.** `ops/autodeploy.sh`, `zone.sh` and `bootstrap.sh` list it (new-app); the hub's `compose.yaml` /
+   `compose.prod.yaml` pass `HUB_<SLUG>_SUMMARY_URL/_SECRET`. A place on the map is a small hub change, by hand:
+   the `Hub.Apps` entry (new-app prints it), its illustration in `HubWeb.Art`, and the map's tests. **Owner:**
+   `HUB_<SLUG>_SUMMARY_SECRET` in `/opt/hub/.env` = `<SLUG>_HUB_SECRET` in `/opt/<slug>/.env` (generated on the server).
+   Release the hub.
+5. **Monitoring.** `ops/healthcheck.sh` (new-app: the site's `/api/health`, its containers, error and connection
+   checks, certificate, and a new registrable domain). **Owner:** an UptimeRobot monitor for `https://<domain>/api/health`.
+6. **Backups.** `ops/backup.sh`, `restore.sh`, `restore-drill.sh` get its `pg_dump` part (new-app; files beyond the
+   database need their paths added by hand, like Rule Maven's). After its first night, `ops/restore-drill.sh <slug>`
+   on the server.
+7. **Dev zone.** `dev/compose.yaml`, `dev/traefik/dynamic.yaml`, `dev/native.sh`, `dev/setup.sh`, `dev/up.sh`,
+   `ops/pull-prod-all.sh` (new-app); then `hub/dev/setup.sh` and `hub/dev/up.sh <slug>`.
+8. **Docs.** The table in §1, the addresses in §9, the backup table in §10; `OPERATIONS.md` §1 (diagram and table),
+   §4 (restore list), §8 (costs: a new domain), §11 (UptimeRobot list). Then `ops/sync-platform.sh` (it learns the
+   new repo from new-app) and commit every repo.
+
+Never deploy (push a release) unless the owner asks.
 
 ## 8. Production data on dev
 
