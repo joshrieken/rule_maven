@@ -706,7 +706,7 @@ defmodule RuleMavenWeb.GameLive.SubBar do
       </.link>
       <.link
         :if={RuleMaven.Games.bgg_synced?(@game)}
-        href={~p"/games/#{@game}/prepare"}
+        navigate={~p"/games/#{@game}/prepare"}
         class="card-menu__item"
       ><span aria-hidden="true">🚀</span> Prepare</.link>
     <% end %>

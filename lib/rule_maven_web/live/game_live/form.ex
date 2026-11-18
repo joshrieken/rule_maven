@@ -2541,7 +2541,7 @@ defmodule RuleMavenWeb.GameLive.Form do
         >{page_num_label(p)}{if Games.page_blocks_review?(p), do: " ⚠"}</button>
         <.link
           :if={@game && Games.bgg_synced?(@game)}
-          href={~p"/games/#{@game}/prepare"}
+          navigate={~p"/games/#{@game}/prepare"}
           class="btn-xs"
           style="margin-left:auto"
         >🚀 Back to Prepare</.link>
@@ -3308,7 +3308,7 @@ defmodule RuleMavenWeb.GameLive.Form do
                 <.confidence_banner :if={@source_entries != []} entries={@source_entries} />
                 <.link
                   :if={@game && Games.bgg_synced?(@game)}
-                  href={~p"/games/#{@game}/prepare"}
+                  navigate={~p"/games/#{@game}/prepare"}
                   class="btn-xs"
                 >🚀 Back to Prepare</.link>
               </div>

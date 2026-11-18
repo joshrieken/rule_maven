@@ -1030,7 +1030,7 @@ defmodule RuleMavenWeb.GameLive.Index do
                     <div class="card-menu__divider"></div>
                     <.link
                       :if={has_source and RuleMaven.Games.bgg_synced?(game)}
-                      href={~p"/games/#{game}/prepare"}
+                      navigate={~p"/games/#{game}/prepare"}
                       class="card-menu__item"
                     >{if game.playable, do: "Readiness →", else: "Prepare →"}</.link>
                     <.link navigate={~p"/games/#{game}/edit"} class="card-menu__item">Edit</.link>

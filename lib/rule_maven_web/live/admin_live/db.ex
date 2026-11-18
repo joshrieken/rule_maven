@@ -561,8 +561,8 @@ defmodule RuleMavenWeb.AdminLive.Db do
 
       <div style="display:flex;gap:0.25rem;margin-bottom:0.5rem;flex-wrap:wrap">
         <%= for t <- @tables do %>
-          <a
-            href={"/admin/db?table=#{t}"}
+          <.link
+            patch={~p"/admin/db?#{[table: t]}"}
             style={"padding:0.25rem 0.5rem;border-radius:0.3rem;font-size:0.7rem;font-weight:600;text-decoration:none;#{
               if @table_name == t,
                 do: "background:var(--accent);color:var(--accent-text,#fff)",
@@ -570,7 +570,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
             }"}
           >
             {t}
-          </a>
+          </.link>
         <% end %>
       </div>
 

@@ -94,7 +94,12 @@ defmodule RuleMavenWeb.PrepareReviewUnblockTest do
     assert has_element?(view, ~s(button[phx-click="goto_source_page"][phx-value-page="0"]))
     assert has_element?(view, ~s(button[phx-click="goto_source_page"][phx-value-page="2"]))
     refute has_element?(view, ~s(button[phx-click="goto_source_page"][phx-value-page="1"]))
-    assert has_element?(view, ~s(a[href$="/prepare"]), "Back to Prepare")
+
+    assert has_element?(
+             view,
+             ~s(a[href$="/prepare"][data-phx-link="redirect"]),
+             "Back to Prepare"
+           )
 
     html = render_click(view, "mark_reviewed", %{"id" => "0", "page" => "0"})
 
