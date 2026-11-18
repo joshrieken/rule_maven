@@ -25,7 +25,11 @@ main() {
   local target_ref=""
   if [ -n "${1:-}" ]; then
     target_ref=$1
-    git show-ref --verify --quiet "refs/remotes/origin/$target_ref" && target_ref="origin/$target_ref"
+    # A full commit hash (what autodeploy passes, after checking its signature) is always that commit, never
+    # a branch someone named after it.
+    if [[ ! $target_ref =~ ^[0-9a-f]{40}$ ]] && git show-ref --verify --quiet "refs/remotes/origin/$target_ref"; then
+      target_ref="origin/$target_ref"
+    fi
   fi
   local target subject version
   target=$(git rev-parse --verify --quiet "${target_ref:-origin/$BRANCH}^{commit}") || { echo "No such commit: ${target_ref:-origin/$BRANCH}" >&2; exit 1; }
@@ -54,11 +58,12 @@ main() {
 
   echo "== Getting the code"
   if [ -n "$target_ref" ]; then
-    git checkout --quiet --detach "$target_ref"
+    git checkout --quiet --detach "$target"
   else
     git checkout --quiet "$BRANCH"
     git merge --ff-only --quiet "origin/$BRANCH"
   fi
+  [ "$(git rev-parse HEAD)" = "$target" ] || { echo "Checked out $(git rev-parse HEAD), expected $target" >&2; exit 1; }
   git log --oneline -1
 
   echo "== Building"
