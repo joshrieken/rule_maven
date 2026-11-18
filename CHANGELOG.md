@@ -17,6 +17,17 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## v0.6.0 (2026-11-17)
+
+### Everyone
+
+- Moving between pages is quicker: the header, the menu and Prepare's links open pages without reloading, and a thin bar at the top shows when one is on its way.
+
+### Admins
+
+- The admin pages move live too; Usage and Moderation load their numbers after the page shows.
+- DB Admin opens the users table again (JSON columns crashed it).
+
 ## v0.5.6 (2026-11-17)
 
 ### Admins
