@@ -1,0 +1,20 @@
+# Weekly pull requests that update dependencies (each runs the Checks workflow). Minor and patch updates of
+# a kind come together in one PR; majors come alone. Merge when green, then release as usual.
+version: 2
+updates:
+  - package-ecosystem: mix
+    directory: "/"
+    schedule: { interval: weekly, day: monday }
+    groups:
+      minor-and-patch: { update-types: [minor, patch] }
+  - package-ecosystem: docker
+    directory: "/"
+    schedule: { interval: weekly, day: monday }
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: monthly }
+  - package-ecosystem: npm
+    directory: "/assets"
+    schedule: { interval: weekly, day: monday }
+    groups:
+      minor-and-patch: { update-types: [minor, patch] }
