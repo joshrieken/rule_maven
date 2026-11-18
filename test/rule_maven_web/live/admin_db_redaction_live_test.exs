@@ -39,4 +39,14 @@ defmodule RuleMavenWeb.AdminDbRedactionLiveTest do
 
     assert {:ok, _view, _html} = live(conn, ~p"/admin/db?table=questions_log")
   end
+
+  test "the users table opens (JSON columns show as text)" do
+    superadmin = user("db_superadmin_users", "admin")
+    {:ok, superadmin} = RuleMaven.Users.set_super_admin(superadmin, true)
+
+    conn = login(build_conn(), superadmin)
+
+    assert {:ok, _view, html} = live(conn, ~p"/admin/db?table=users")
+    assert html =~ "db_superadmin_users"
+  end
 end

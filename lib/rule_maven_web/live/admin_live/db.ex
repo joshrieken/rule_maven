@@ -541,6 +541,18 @@ defmodule RuleMavenWeb.AdminLive.Db do
     end
   end
 
+  # Dates and other printable structs as text; JSON/array columns (maps, lists) as JSON, clipped like text.
+  defp format(%_{} = val) do
+    if String.Chars.impl_for(val), do: to_string(val), else: inspect(val)
+  end
+
+  defp format(val) when is_map(val) or is_list(val) do
+    case Jason.encode(val) do
+      {:ok, json} -> format(json)
+      {:error, _} -> format(inspect(val))
+    end
+  end
+
   defp format(val), do: to_string(val)
 
   defp input_type("boolean"), do: "checkbox"
