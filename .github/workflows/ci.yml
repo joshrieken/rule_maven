@@ -42,7 +42,7 @@ jobs:
       # The Playwright CLI and Chromium for phoenix_test_playwright's browser tests.
       - run: npm ci --prefix assets --no-audit --no-fund
       - run: npx --prefix assets playwright install --with-deps chromium
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             deps
