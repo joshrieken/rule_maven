@@ -137,6 +137,9 @@ Every app's script does the same steps:
    reaches the retiring container while it shuts down.
 5. Prune this project's old images.
 
+The build cache is pruned server-wide, not per deploy: `ops/prune-build-cache.sh` (hub repo, cron every hour)
+keeps the 40 GB most recently used and never touches the cache mounts, so builds stay as fast as before.
+
 **Requirements this puts on the code:**
 - **Health checks answer fast**: Docker `HEALTHCHECK --interval=30s --start-interval=1s --start-period=60s` on a
   cheap endpoint, and a version endpoint (`/api/version`, `/health`) the script can read.
