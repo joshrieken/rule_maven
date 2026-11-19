@@ -97,12 +97,31 @@ Authorization: Bearer <APP>_HUB_SECRET          (unset = always 401)
   ```
   ## vX.Y.Z (YYYY-MM-DD)
   ### Everyone
-  - What people notice, in their words: what they can do now and where. Most noticeable first.
+  - New: What people notice, in their words: what they can do now and where.
+  - Improved: …
+  - Fixed: …
   ### Admins
-  - Admin pages, server/deploy/upkeep, anything an operator must do ("Action needed: …" first).
+  - Action needed: … (first, when there is one)
+  - New: Admin pages, server/deploy/upkeep.
+  - Security: …
   ```
   (Stir & Fold's older entries omit the `v`; every parser accepts both.) Notes waiting for the next release go
   under `## Unreleased`. Never describe how to exploit a security fix; never include secrets or people's data.
+- **Every changelog bullet starts with its kind**, and within each section bullets go in this order (most
+  noticeable first within a kind):
+  - `New:` something people (or admins) can do or see that they couldn't before.
+  - `Improved:` something that already existed works better, faster or more clearly.
+  - `Fixed:` something that was wrong now works as it should.
+  - `Security:` a security fix or hardening (never how to exploit it).
+  - `Removed:` something taken away or replaced.
+  Admins' `Action needed:` lines come before everything else in their section. A release with nothing anyone
+  would notice still says so: `- Improved: Internal improvements.` under Admins.
+- **Commit subjects say their kind** (Conventional Commits): `type: what changed`, or `type(area): …`.
+  `feat` (→ New), `fix` (→ Fixed), `fix(security)` (→ Security), `perf` and user-visible polish `feat`/`fix` as
+  fits (→ Improved), `refactor`, `docs`, `test`, `build` (dependencies, Docker, tooling), `ci`, `chore` (anything
+  else). A removal is `feat!:` or `refactor!:` with the reason in the body (→ Removed when people notice). A commit
+  doing two kinds of thing is two commits. **Release commits are the exception**: subject exactly
+  `Release vX.Y.Z` (deploys match it, §5).
 - **Every app shows its version** (small `vX.Y.Z` beside the name, or on Help where there's no header), linking
   to **What's new** (`/changelog`): Everyone notes for all, Admins notes for admins only. A **red dot** marks
   release notes this person hasn't opened (`users.seen_version`, set when they open the page; new accounts start
@@ -116,7 +135,8 @@ Authorization: Bearer <APP>_HUB_SECRET          (unset = always 401)
 
 1. Clean tree on the default branch, tests green.
 2. Pick the version (§4) from what changed since the last `Release v` commit.
-3. Write the `CHANGELOG.md` entry and bump the version.
+3. Write the `CHANGELOG.md` entry (every bullet with its kind, §4; the commit types since the last release say
+   which) and bump the version.
 4. Run the full checks (each repo's `CLAUDE.md`/`AGENTS.md` lists them).
 5. Commit **only** the version bump + changelog, subject exactly `Release vX.Y.Z`. Tag it:
    `git tag -a vX.Y.Z -m "Release vX.Y.Z"`. Push with `git push --follow-tags`.

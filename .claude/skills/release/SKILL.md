@@ -19,11 +19,15 @@ within about a minute** (PLATFORM.md §5.4), so pushing a release is deploying i
    fixes and internals, major only when the owner says so (while 0.x a breaking change is a minor that says so).
    Highest wins.
 5. **Notes**: a new entry at the top of `CHANGELOG.md` (`## vX.Y.Z (YYYY-MM-DD)`, date from `date +%F`):
+   - Every bullet starts with its kind (PLATFORM.md §4), in this order within each section: `New:`,
+     `Improved:`, `Fixed:`, `Security:`, `Removed:` (Admins' `Action needed:` lines first). The commit types since
+     the last release say which (`feat` → New, `fix` → Fixed, `fix(security)` → Security, `perf` → Improved); read
+     the diff where a commit has no type or mixes kinds.
    - `### Everyone`: what people notice, in their words: what they can now do and where. Most noticeable first.
    - `### Admins`: admin pages, server/deploy/upkeep, anything an operator must do ("Action needed: …" first),
      including any migration that needs care.
    - Leave out internal-only changes unless they change behaviour; omit an empty section; if nothing anyone
-     would notice changed, release a patch with one Admins line ("Internal improvements.").
+     would notice changed, release a patch with one Admins line ("- Improved: Internal improvements.").
    - Never how to exploit a security fix, never secrets, tokens, people's names or their content.
    Rename `## Unreleased` to the new version and date if it has notes, rather than writing them again.
 6. **Bump**: write `X.Y.Z` to `VERSION`.
