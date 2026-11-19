@@ -17,6 +17,13 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## v0.6.4 (2026-11-19)
+### Admins
+- Import tasks and import-prepare scripts refuse to write to the dev database; production is the source of truth. Put `bin/prod` in front of the command (or `RULEMAVEN_DEV_WRITE=1` for a deliberate dev experiment).
+- `bin/prod` refuses to run while the local import code differs from what is deployed (`PROD_STALE_OK=1` overrides).
+- The dev copy of the app shows a "Dev copy" banner so local changes aren't mistaken for production ones.
+- Deploys now run exactly the verified release commit.
+
 ## v0.6.3 (2026-11-18)
 ### Everyone
 - Stronger browser security: pages now only run Rule Maven's own scripts.
