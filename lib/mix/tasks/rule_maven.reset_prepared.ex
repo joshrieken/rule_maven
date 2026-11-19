@@ -51,10 +51,24 @@ defmodule Mix.Tasks.RuleMaven.ResetPrepared do
 
   @doc false
   # Start the app with Oban's queues and plugins OFF: this process may insert
-  # jobs, but only the running dev server executes them.
+  # jobs, but only the running server executes them. Every content task and
+  # import-prepare script starts here, so this is also where dev refuses: prod
+  # is the source of truth, and content written to dev never reaches users.
   def start_without_queues do
+    refuse_dev_write!(Mix.env(), System.get_env("RULEMAVEN_DEV_WRITE"))
     conf = Application.get_env(:rule_maven, Oban, [])
     Application.put_env(:rule_maven, Oban, Keyword.merge(conf, queues: false, plugins: false))
     Mix.Task.run("app.start")
   end
+
+  @doc false
+  def refuse_dev_write!(:dev, override) when override != "1" do
+    Mix.raise("""
+    This writes to the DEV database, but production is the source of truth.
+    Run it against prod instead: put bin/prod in front of the same command.
+    To write to dev anyway (throwaway experiment): RULEMAVEN_DEV_WRITE=1 mix …
+    """)
+  end
+
+  def refuse_dev_write!(_env, _override), do: :ok
 end

@@ -48,6 +48,11 @@
   <body>
     <div class="phx-disconnected-text">Lost connection. Retrying...</div>
     <div class="app-shell">
+      <%!-- Prod is the source of truth: anything done in this dev copy is
+            overwritten by the next bin/pull-prod and never reaches users. --%>
+      <div :if={Application.get_env(:rule_maven, :dev_routes)} class="dev-banner" role="note">
+        Dev copy · changes here never reach rulemaven.com
+      </div>
       <header class="header">
         <div class="header-inner">
           <% me =

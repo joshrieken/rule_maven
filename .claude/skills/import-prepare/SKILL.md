@@ -43,10 +43,13 @@ Imports are processed **in production**, never in dev (user rule, 2026-11-15). `
 command in its tools container: this repo at the DEPLOYED commit, `MIX_ENV=prod`, the prod
 DB (`psql` needs no connection args), uploads mounted, Oban queues OFF. So:
 - Changed a mix task or skill script? Ship it (Release + deploy) before running it via `bin/prod`.
+  `bin/prod` refuses while `lib/mix/tasks`, ManualImport or these scripts differ from the deployed
+  commit (`PROD_STALE_OK=1` only when the difference is unrelated to the command).
 - Source PDFs under `tmp/rebuild/backup/` upload only when a command names them.
 - Transcription, authoring, `tokens.py`, `check_content.py`, `merge_prefill.py` stay local (no DB).
 - Dev is a copy: refresh it with `bin/pull-prod` when you need to try something locally;
-  never import into dev and expect it to reach prod.
+  never import into dev and expect it to reach prod. Content tasks/scripts refuse to run in dev
+  (`RULEMAVEN_DEV_WRITE=1` for a deliberate throwaway experiment).
 
 ## NEVER (these spend the app's paid AI — Claude does that work instead)
 - Never click Prepare-page step buttons, never switch a game's Prepare **Auto** on, never

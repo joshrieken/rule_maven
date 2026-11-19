@@ -1012,6 +1012,20 @@ a:not([class]):hover {
   padding-bottom: var(--jobpanel-h, 0px);
 }
 
+/* Dev-only strip (root layout): fixed colors, not theme tokens, so it reads the
+   same on every theme set. #1a1200 on #ffcc33 ≈ 13:1. */
+.dev-banner {
+  flex: none;
+  position: relative;
+  z-index: 1;
+  padding: 0.2rem 1rem;
+  background: #ffcc33;
+  color: #1a1200;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: center;
+}
+
 /* Gentle fade + rise of page content on load. Uses `backwards` (not `both`) on
    purpose: `forwards`/`both` would hold the `to` frame's transform:translateY(0)
    after the animation, and a non-`none` transform turns .main-content into the

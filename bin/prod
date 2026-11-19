@@ -11,12 +11,29 @@
 #   bin/prod psql -At -c "select id, name from games where playable"
 #
 # First run compiles the app on the server (a few minutes); later runs are incremental.
-# Code runs at the DEPLOYED commit: ship task/script changes before using them here.
+# Code runs at the DEPLOYED commit: ship task/script changes before using them here
+# (it refuses while mix tasks / ManualImport / import-prepare scripts differ from prod).
 set -euo pipefail
 HOST=${RULEMAVEN_SSH:-deploy@207.244.249.148}
 DIR=/opt/rulemaven
 cd "$(dirname "$0")/.."
-[ $# -gt 0 ] || { sed -n '2,15p' "$0"; exit 1; }
+[ $# -gt 0 ] || { sed -n '2,16p' "$0"; exit 1; }
+
+# The server runs the DEPLOYED commit, not this checkout. Refuse when the import code here
+# differs from what's deployed (you'd be testing one thing and running another).
+# PROD_STALE_OK=1 skips the check (e.g. the difference is unrelated to this command).
+if [ "${PROD_STALE_OK:-}" != 1 ]; then
+  deployed=$(ssh "$HOST" "git -C $DIR rev-parse HEAD")
+  git cat-file -e "$deployed^{commit}" 2>/dev/null || git fetch --quiet origin
+  stale=$(git diff --name-only "$deployed" -- lib/mix/tasks lib/rule_maven/manual_import.ex \
+    lib/rule_maven/manual_import .claude/skills/import-prepare/scripts)
+  if [ -n "$stale" ]; then
+    echo "Prod runs $(git log -1 --format='%h %s' "$deployed"); these differ here:" >&2
+    echo "$stale" | sed 's/^/  /' >&2
+    echo "Release + deploy them first, or PROD_STALE_OK=1 if this command doesn't use them." >&2
+    exit 1
+  fi
+fi
 if [ -d tmp/rebuild ]; then
   ssh "$HOST" "mkdir -p $DIR/tmp/rebuild"
   rsync -a --exclude 'backup/' tmp/rebuild/ "$HOST:$DIR/tmp/rebuild/"
