@@ -378,6 +378,10 @@ hub/ops/pull-prod-all.sh  # production data into dev (§8); the containers use t
   `docker compose -f hub/dev/compose.yaml exec <app> mix test`.
 - **`curl` inside a container can't test `*.localhost` names** (it always uses loopback for them); the apps
   (Node, Erlang) resolve them normally.
+- **The dev copy says so:** every app shows a yellow strip at the very top of every page in dev, "Dev copy ·
+  changes here never reach <its domain>" (`.dev-banner`: `#1a1200` on `#ffcc33`, `role="note"`), switched on by
+  `config :<app>, dev_banner: true` in `config/dev.exs` only (Rule Maven: `dev_routes`), so tests and production
+  never show it. The template has it.
 - **Secrets:** `hub/dev/.env` (chmod 600, git-ignored) holds dev-only secrets, shared with the local
   `identity/.env`. Never production's.
 - **New app:** add its service to `dev/compose.yaml` (image, bind mount, env like production's, Traefik labels with
