@@ -22,6 +22,8 @@ renames that heading to the new version and date.
 - Removed: the old sign-up invite codes (the Invite Codes admin page and the invite-code registration
   page). Access comes from the Low-Cal Calzone Zone sign-in: people ask from the hub and an admin
   approves. Old /register links now open the sign-in page. Group invite links are unchanged.
+- Fixed: deleting a user who once made an invite code no longer fails (the code just forgets who made it; the
+  old table goes in a later release).
 
 ## v0.6.4 (2026-11-19)
 ### Admins
