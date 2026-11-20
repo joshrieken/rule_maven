@@ -32,15 +32,13 @@ defmodule RuleMavenWeb.AdminLive.Takedowns do
     reason = String.trim(reason)
     who = String.trim(who)
 
-    cond do
-      reason == "" ->
-        {:noreply, assign(socket, error: "A reason is required.")}
-
-      true ->
-        case Integer.parse(to_string(gid)) do
-          {id, _} -> take_down(socket, id, reason, who)
-          :error -> {:noreply, assign(socket, error: "Enter a numeric game id.")}
-        end
+    if reason == "" do
+      {:noreply, assign(socket, error: "A reason is required.")}
+    else
+      case Integer.parse(to_string(gid)) do
+        {id, _} -> take_down(socket, id, reason, who)
+        :error -> {:noreply, assign(socket, error: "Enter a numeric game id.")}
+      end
     end
   end
 

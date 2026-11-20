@@ -17,7 +17,7 @@ defmodule RuleMaven.Workers.SymbolKeyWorker do
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
-  alias RuleMaven.{Games, Jobs, Symbols}
+  alias RuleMaven.{Games, Jobs, LLM, Symbols}
 
   def topic(game_id), do: "symbols:#{game_id}"
 
@@ -59,25 +59,28 @@ defmodule RuleMaven.Workers.SymbolKeyWorker do
         {:ok, 0}
 
       candidates ->
-        with {:ok, entries} <-
-               RuleMaven.LLM.generate_symbol_key(game.name, text, candidates, game.id) do
-          {found, _} = Symbols.tokens_in_text(Enum.map(entries, & &1.token), text)
-          keep = MapSet.new(found)
-          # A regenerate must not throw away hand-cropped icons: carry each
-          # existing image over to the entry with the same token.
-          images = Map.new(Symbols.list(game.id), &{&1.token, {&1.image_path, &1.image_note}})
-
-          entries =
-            for e <- entries, MapSet.member?(keep, e.token) do
-              {path, note} = Map.get(images, e.token, {nil, nil})
-              Map.merge(e, %{image_path: path, image_note: note})
-            end
-
-          with {:ok, _} <- Symbols.replace(game.id, entries, "llm") do
-            Symbols.mark_none(game.id, entries == [])
-            {:ok, length(entries)}
-          end
+        with {:ok, entries} <- LLM.generate_symbol_key(game.name, text, candidates, game.id) do
+          store_entries(game, text, entries)
         end
+    end
+  end
+
+  defp store_entries(game, text, entries) do
+    {found, _} = Symbols.tokens_in_text(Enum.map(entries, & &1.token), text)
+    keep = MapSet.new(found)
+    # A regenerate must not throw away hand-cropped icons: carry each
+    # existing image over to the entry with the same token.
+    images = Map.new(Symbols.list(game.id), &{&1.token, {&1.image_path, &1.image_note}})
+
+    entries =
+      for e <- entries, MapSet.member?(keep, e.token) do
+        {path, note} = Map.get(images, e.token, {nil, nil})
+        Map.merge(e, %{image_path: path, image_note: note})
+      end
+
+    with {:ok, _} <- Symbols.replace(game.id, entries, "llm") do
+      Symbols.mark_none(game.id, entries == [])
+      {:ok, length(entries)}
     end
   end
 end

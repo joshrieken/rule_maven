@@ -87,20 +87,7 @@ defmodule RuleMaven.ThemePalette do
   def build_sets(%{"sets" => sets}) when is_list(sets) do
     built =
       sets
-      |> Enum.flat_map(fn set ->
-        with true <- is_map(set),
-             {:ok, palette} <- build(set) do
-          names =
-            case names(set) do
-              {:ok, names} -> names
-              :error -> nil
-            end
-
-          [%{palette: palette, names: names, anchors: set}]
-        else
-          _ -> []
-        end
-      end)
+      |> Enum.flat_map(&build_set_entry/1)
       |> dedupe_sets()
       |> Enum.take(@max_sets)
       |> Enum.map(&Map.delete(&1, :anchors))
@@ -113,6 +100,22 @@ defmodule RuleMaven.ThemePalette do
 
   def build_sets(%{"light" => _, "dark" => _} = single), do: build_sets(%{"sets" => [single]})
   def build_sets(_), do: {:error, :missing_variants}
+
+  defp build_set_entry(set) do
+    with true <- is_map(set),
+         {:ok, palette} <- build(set) do
+      [%{palette: palette, names: names_or_nil(set), anchors: set}]
+    else
+      _ -> []
+    end
+  end
+
+  defp names_or_nil(set) do
+    case names(set) do
+      {:ok, names} -> names
+      :error -> nil
+    end
+  end
 
   @doc """
   Normalize a stored `games.theme_palette` value to an ordered list of

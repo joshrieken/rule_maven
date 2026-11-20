@@ -5,6 +5,10 @@ defmodule RuleMaven.LLM do
   Configure via Settings page or env vars.
   """
 
+  alias RuleMaven.Games.{Category, Citations, Document, QuestionLog}
+  alias RuleMaven.LLM.{Log, NormalizeCache, Polarity, Pricing, QuestionFacets, Savings}
+  alias RuleMaven.Repo
+
   @default_url "https://openrouter.ai/api/v1/chat/completions"
   @default_model "google/gemini-2.5-flash"
 
@@ -41,15 +45,7 @@ defmodule RuleMaven.LLM do
     # widen anything. This is the single point every ask path funnels
     # through (LLM.ask/5), so a bypass would require skipping this function
     # entirely, not just the LiveView that normally calls it.
-    active_group_id =
-      case Keyword.get(opts, :group_id) do
-        nil ->
-          nil
-
-        group_id ->
-          if RuleMaven.Groups.member_of_group_id?(opts[:user_id], group_id),
-            do: group_id
-      end
+    active_group_id = verified_group_id(opts)
 
     # Canonical sorted form — cache rows store and match this exact set.
     expansion_ids = Enum.sort(expansion_ids)
@@ -85,10 +81,7 @@ defmodule RuleMaven.LLM do
     # there isn't one. So a fallback (429, timeout, rejected rewrite) produced "the
     # raw question, plus a question mark" and both gates waved it through as a
     # genuine scrub.
-    {normalize_status, cleaned} =
-      if Keyword.get(opts, :skip_normalize, false),
-        do: {:fallback, ""},
-        else: normalize_question(game, question, recent_context, user_id: opts[:user_id])
+    {normalize_status, cleaned} = normalize_for_ask(game, question, recent_context, opts)
 
     normalized? = normalize_status == :ok
 
@@ -100,16 +93,11 @@ defmodule RuleMaven.LLM do
     # answer text lands underneath, so the streaming answer never reflows the
     # page out from under the reader. Fires only when normalization actually
     # rewrote the text; otherwise the bubble is already correct.
-    if cleaned != "" and cleaned != question,
-      do: broadcast_ask_normalized(game.id, question, cleaned)
+    maybe_broadcast_normalized(game.id, question, cleaned)
 
     # Embed the cleaned question (used for pool check + stored on the logged row,
     # so a future paraphrase normalizes to the same form and matches it).
-    question_embedding =
-      case RuleMaven.Embed.embed(match_text) do
-        {:ok, vec} -> vec
-        {:error, _} -> nil
-      end
+    question_embedding = embed_or_nil(match_text)
 
     user_id = opts[:user_id]
 
@@ -122,8 +110,7 @@ defmodule RuleMaven.LLM do
     # the exact tier misses: on an exact repeat its pgvector lookup (plus the
     # pool_tier/quorum query behind it) would be pure wasted work.
     user_exact =
-      !skip_pool && user_id &&
-        RuleMaven.Games.find_user_duplicate(game.id, user_id, match_text, question, expansion_ids)
+      find_user_exact(game, user_id, match_text, question, expansion_ids, skip_pool)
 
     # Gated by QuestionFacets exactly as the pool is, and for a sharper reason: at
     # 0.95 this floor is stricter than the pool's, but "…FEWER than seven cards?"
@@ -131,15 +118,90 @@ defmodule RuleMaven.LLM do
     # does not save it — and this tier has no tiebreaker behind it, so a match here
     # is served outright. Nearest SURVIVING candidate wins, not merely the nearest.
     user_semantic =
-      !user_exact && !skip_pool && user_id && question_embedding &&
-        game.id
-        |> RuleMaven.Games.find_user_similar_candidates(user_id, question_embedding,
-          expansion_ids: expansion_ids
-        )
-        |> Enum.reject(&answer_flipping?(question, match_text, &1))
-        |> List.first()
-        |> then(&(&1 && {&1, RuleMaven.Games.pool_tier(&1)}))
+      !user_exact &&
+        find_user_semantic(game, user_id, question_embedding, question, match_text, %{
+          expansion_ids: expansion_ids,
+          skip_pool: skip_pool
+        })
 
+    ctx = %{
+      question: question,
+      match_text: match_text,
+      cleaned: cleaned,
+      expansion_ids: expansion_ids,
+      recent_context: recent_context,
+      question_embedding: question_embedding,
+      user_id: user_id,
+      skip_pool: skip_pool,
+      active_group_id: active_group_id,
+      normalized?: normalized?,
+      voice: opts[:voice] || "neutral"
+    }
+
+    route_ask(game, user_exact, user_semantic, ctx)
+  end
+
+  defp verified_group_id(opts) do
+    case Keyword.get(opts, :group_id) do
+      nil ->
+        nil
+
+      group_id ->
+        if RuleMaven.Groups.member_of_group_id?(opts[:user_id], group_id),
+          do: group_id
+    end
+  end
+
+  defp normalize_for_ask(game, question, recent_context, opts) do
+    if Keyword.get(opts, :skip_normalize, false),
+      do: {:fallback, ""},
+      else: normalize_question(game, question, recent_context, user_id: opts[:user_id])
+  end
+
+  defp maybe_broadcast_normalized(game_id, question, cleaned) do
+    if cleaned != "" and cleaned != question,
+      do: broadcast_ask_normalized(game_id, question, cleaned)
+  end
+
+  defp embed_or_nil(text) do
+    case RuleMaven.Embed.embed(text) do
+      {:ok, vec} -> vec
+      {:error, _} -> nil
+    end
+  end
+
+  defp find_user_exact(game, user_id, match_text, question, expansion_ids, skip_pool) do
+    !skip_pool && user_id &&
+      RuleMaven.Games.find_user_duplicate(game.id, user_id, match_text, question, expansion_ids)
+  end
+
+  defp find_user_semantic(game, user_id, question_embedding, question, match_text, %{
+         expansion_ids: expansion_ids,
+         skip_pool: skip_pool
+       }) do
+    !skip_pool && user_id && question_embedding &&
+      game.id
+      |> RuleMaven.Games.find_user_similar_candidates(user_id, question_embedding,
+        expansion_ids: expansion_ids
+      )
+      |> Enum.reject(&answer_flipping?(question, match_text, &1))
+      |> List.first()
+      |> then(&(&1 && {&1, RuleMaven.Games.pool_tier(&1)}))
+  end
+
+  defp route_ask(game, user_exact, user_semantic, %{
+         question: question,
+         match_text: match_text,
+         cleaned: cleaned,
+         expansion_ids: expansion_ids,
+         recent_context: recent_context,
+         question_embedding: question_embedding,
+         user_id: user_id,
+         skip_pool: skip_pool,
+         active_group_id: active_group_id,
+         normalized?: normalized?,
+         voice: voice
+       }) do
     cond do
       # The asker's OWN exact (normalized-text) repeat wins over everything else:
       # the pool match is user-agnostic, so once the asker's row is pooled a plain
@@ -201,19 +263,17 @@ defmodule RuleMaven.LLM do
         )
 
       true ->
-        call_llm(
-          game,
-          match_text,
-          question,
-          expansion_ids,
-          recent_context,
-          question_embedding,
-          cleaned,
-          user_id,
-          opts[:voice] || "neutral",
-          skip_pool,
-          normalized?
-        )
+        call_llm(game, match_text, %{
+          raw_question: question,
+          expansion_ids: expansion_ids,
+          recent_context: recent_context,
+          question_embedding: question_embedding,
+          cleaned: cleaned,
+          user_id: user_id,
+          voice: voice,
+          fresh: skip_pool,
+          normalized?: normalized?
+        })
     end
   end
 
@@ -376,7 +436,7 @@ defmodule RuleMaven.LLM do
     # ("what about then?") carries no facet at all until context expansion
     # folds it back in. Both directions fail SAFE — an extra rejection is one
     # full-price ask, a missed flip serves a confidently-wrong rule.
-    facets = RuleMaven.LLM.QuestionFacets
+    facets = QuestionFacets
 
     case facets.conflict(question, candidate_text) ||
            facets.conflict(match_text, candidate_text) do
@@ -418,7 +478,7 @@ defmodule RuleMaven.LLM do
 
     candidate_question =
       if row.browsable or own_crew_row?,
-        do: RuleMaven.Games.QuestionLog.display_question(row)
+        do: QuestionLog.display_question(row)
 
     if is_nil(candidate_question) do
       false
@@ -490,13 +550,13 @@ defmodule RuleMaven.LLM do
          same_user?,
          normalized?
        ) do
-    RuleMaven.LLM.Savings.record_cache_hit("ask", game_id, user_id)
+    Savings.record_cache_hit("ask", game_id, user_id)
 
     # Backstop for rows cached before the 2026-07-14 lead-strip fix: strip any
     # inverted Yes/No lead against the RAW asker question (idempotent — no-op on
     # already-stripped answers or non-negative questions).
     served_answer =
-      RuleMaven.LLM.Polarity.strip_inverted_lead(row.canonical_answer || row.answer, question)
+      Polarity.strip_inverted_lead(row.canonical_answer || row.answer, question)
 
     {:ok,
      %{
@@ -521,19 +581,18 @@ defmodule RuleMaven.LLM do
      }}
   end
 
-  defp call_llm(
-         game,
-         question,
-         raw_question,
-         expansion_ids,
-         recent_context,
-         question_embedding,
-         cleaned,
-         user_id,
-         voice,
-         fresh,
-         normalized?
-       ) do
+  # `ctx` carries the per-ask inputs resolved in ask/5 (see the caller).
+  defp call_llm(game, question, %{
+         raw_question: raw_question,
+         expansion_ids: expansion_ids,
+         recent_context: recent_context,
+         question_embedding: question_embedding,
+         cleaned: cleaned,
+         user_id: user_id,
+         voice: voice,
+         fresh: fresh,
+         normalized?: normalized?
+       }) do
     game_ids = [game.id | expansion_ids]
     # Reuse the embedding already computed in ask/5 — no second embed call.
     # `small_corpus_boost` lets retrieval return the WHOLE corpus when it's
@@ -762,9 +821,7 @@ defmodule RuleMaven.LLM do
 
           # A blank retried answer is worse than the truthful refusal we
           # already hold — it surfaces as a ⚠️ retry error to the user.
-          if refused_answer?(retried) or String.trim(to_string(retried[:answer])) == "",
-            do: {llm_result, chunks},
-            else: {retried, escalated}
+          prefer_answered_retry(retried, escalated, llm_result, chunks)
 
         {:error, _reason} ->
           {llm_result, chunks}
@@ -817,10 +874,7 @@ defmodule RuleMaven.LLM do
            ) do
         {:ok, retried} ->
           retried = maybe_reground(retried, system_prompt, esc_ctx, chunks)
-
-          if refused_answer?(retried) or String.trim(to_string(retried[:answer])) == "",
-            do: {llm_result, chunks},
-            else: {retried, chunks}
+          prefer_answered_retry(retried, chunks, llm_result, chunks)
 
         {:error, _reason} ->
           {llm_result, chunks}
@@ -828,6 +882,14 @@ defmodule RuleMaven.LLM do
     else
       _ -> {llm_result, chunks}
     end
+  end
+
+  # Keep the retry only when it actually answered: a refusal or a blank keeps
+  # the original result (and its chunks).
+  defp prefer_answered_retry(retried, retried_chunks, llm_result, chunks) do
+    if refused_answer?(retried) or String.trim(to_string(retried[:answer])) == "",
+      do: {llm_result, chunks},
+      else: {retried, retried_chunks}
   end
 
   # An answer that asserts a prohibition or a replacement ("you do not take a
@@ -934,22 +996,26 @@ defmodule RuleMaven.LLM do
            raw: true
          ) do
       {:ok, text} ->
-        with {:ok, %{"combinable" => true, "rules" => rules}} <-
-               json_object(to_string(text)),
-             true <- is_list(rules) do
-          texts = Enum.map(chunks, & &1.content)
-          verified = RuleMaven.Games.Citations.distinct_verified_quotes(rules, texts)
-
-          # "Combining two or more rules" needs two DISTINCT real rules — a
-          # duplicate, a respelling of one rule, or a padded/paraphrased chain
-          # doesn't make two.
-          if length(verified) >= 2, do: {:combinable, verified}, else: :not_combinable
-        else
-          _ -> :not_combinable
-        end
+        combinable_verdict(text, chunks)
 
       _ ->
         :not_combinable
+    end
+  end
+
+  defp combinable_verdict(text, chunks) do
+    with {:ok, %{"combinable" => true, "rules" => rules}} <-
+           json_object(to_string(text)),
+         true <- is_list(rules) do
+      texts = Enum.map(chunks, & &1.content)
+      verified = Citations.distinct_verified_quotes(rules, texts)
+
+      # "Combining two or more rules" needs two DISTINCT real rules — a
+      # duplicate, a respelling of one rule, or a padded/paraphrased chain
+      # doesn't make two.
+      if length(verified) >= 2, do: {:combinable, verified}, else: :not_combinable
+    else
+      _ -> :not_combinable
     end
   end
 
@@ -1025,7 +1091,7 @@ defmodule RuleMaven.LLM do
     stripped_styled =
       case Map.get(res, :styled_answer) do
         styled when is_binary(styled) ->
-          RuleMaven.LLM.Polarity.strip_inverted_lead(styled, question)
+          Polarity.strip_inverted_lead(styled, question)
 
         other ->
           other
@@ -1034,7 +1100,7 @@ defmodule RuleMaven.LLM do
     res =
       res
       |> Map.put(:verdict, negative_question_verdict(res, question))
-      |> Map.put(:answer, RuleMaven.LLM.Polarity.strip_inverted_lead(answer, question))
+      |> Map.put(:answer, Polarity.strip_inverted_lead(answer, question))
 
     {:ok, Map.put(res, :styled_answer, stripped_styled)}
   end
@@ -1050,8 +1116,6 @@ defmodule RuleMaven.LLM do
   # questions the stamp comes from the model's own verdict field (judged on the
   # action), with only the coverage correction applied.
   defp negative_question_verdict(res, question) do
-    alias RuleMaven.LLM.Polarity
-
     with true <- Polarity.negative?(question),
          raw when is_binary(raw) <- res[:raw_response],
          {:ok, map} <- json_object(raw) do
@@ -1391,7 +1455,7 @@ defmodule RuleMaven.LLM do
     # "grounded" (reproduced 3/3 — see Citations.contradicted_quote/2). A
     # support-shaped check cannot see an inverted polarity, so an LLM verdict is
     # not evidence here and is not consulted.
-    case RuleMaven.Games.Citations.contradicted_quote(llm_result[:answer], quotes) do
+    case Citations.contradicted_quote(llm_result[:answer], quotes) do
       nil -> reground_by_critic(llm_result, system_prompt, ctx, chunks, quotes, full_texts)
       quote -> retry_contradicted_answer(llm_result, quote, system_prompt, ctx, chunks)
     end
@@ -1429,7 +1493,7 @@ defmodule RuleMaven.LLM do
       {:ok, retried} ->
         retried_quotes = citation_quotes(retried[:citations])
 
-        if RuleMaven.Games.Citations.contradicted_quote(retried[:answer], retried_quotes) do
+        if Citations.contradicted_quote(retried[:answer], retried_quotes) do
           Logger.warning("contradiction survived the retry — refusing")
           refuse(retried)
         else
@@ -1478,7 +1542,7 @@ defmodule RuleMaven.LLM do
       if refused_answer?(llm_result),
         do: unrefusable_premises(ctx.raw_question),
         else:
-          RuleMaven.Games.Citations.ignored_premises(
+          Citations.ignored_premises(
             to_string(ctx.raw_question),
             to_string(llm_result[:answer])
           )
@@ -1543,8 +1607,8 @@ defmodule RuleMaven.LLM do
     raw = to_string(raw_question)
 
     Enum.uniq(
-      RuleMaven.Games.Citations.ignored_fractions(raw, "") ++
-        RuleMaven.Games.Citations.refusal_premises(raw)
+      Citations.ignored_fractions(raw, "") ++
+        Citations.refusal_premises(raw)
     )
   end
 
@@ -1559,7 +1623,7 @@ defmodule RuleMaven.LLM do
         # extra call and the same refusal the user would have gotten anyway.
         do: unrefusable_premises(ctx.raw_question),
         else:
-          RuleMaven.Games.Citations.ignored_premises(
+          Citations.ignored_premises(
             to_string(ctx.raw_question),
             to_string(retried[:answer])
           )
@@ -1584,20 +1648,7 @@ defmodule RuleMaven.LLM do
            ) do
         {:ok, esc} ->
           esc = maybe_reground(esc, warned_system_prompt, esc_ctx, chunks)
-
-          # "The rules do not specify what happens at 0" IS the ideal answer
-          # here, and models label it verdict "silent" — so unlike the refusal
-          # escalations, a silent verdict alone doesn't disqualify. Only the
-          # bare refusal phrase does (that's what maybe_reground collapses a
-          # discarded answer into, and it engages nothing).
-          engaged? =
-            String.trim(to_string(esc[:answer])) != @refusal_answer and
-              RuleMaven.Games.Citations.ignored_premises(
-                to_string(ctx.raw_question),
-                to_string(esc[:answer])
-              ) == []
-
-          if engaged?, do: esc, else: retried
+          engaged_or_previous(esc, retried, ctx)
 
         {:error, _reason} ->
           retried
@@ -1605,8 +1656,24 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  # "The rules do not specify what happens at 0" IS the ideal answer here, and
+  # models label it verdict "silent" — so unlike the refusal escalations, a
+  # silent verdict alone doesn't disqualify. Only the bare refusal phrase does
+  # (that's what maybe_reground collapses a discarded answer into, and it
+  # engages nothing).
+  defp engaged_or_previous(esc, retried, ctx) do
+    engaged? =
+      String.trim(to_string(esc[:answer])) != @refusal_answer and
+        Citations.ignored_premises(
+          to_string(ctx.raw_question),
+          to_string(esc[:answer])
+        ) == []
+
+    if engaged?, do: esc, else: retried
+  end
+
   defp reground_by_critic(llm_result, system_prompt, ctx, chunks, quotes, full_texts) do
-    case RuleMaven.Games.Citations.suspicion(llm_result[:answer], quotes, full_texts) do
+    case Citations.suspicion(llm_result[:answer], quotes, full_texts) do
       nil ->
         llm_result
 
@@ -1883,7 +1950,7 @@ defmodule RuleMaven.LLM do
         sources = chunk_texts(chunks)
 
         recheck =
-          if RuleMaven.Games.Citations.suspicious?(retried_result[:answer], quotes, sources) do
+          if Citations.suspicious?(retried_result[:answer], quotes, sources) do
             critique_grounding(quotes, retried_result[:answer],
               sources: sources,
               game_id: ctx.game_id,
@@ -1925,7 +1992,7 @@ defmodule RuleMaven.LLM do
   # substance remains; only an unlocatable clause or a gutted answer falls back
   # to the full refusal.
   defp salvage_or_refuse(retried_result, flagged_clause) do
-    case RuleMaven.Games.Citations.strip_unsupported_clause(
+    case Citations.strip_unsupported_clause(
            retried_result[:answer],
            flagged_clause
          ) do
@@ -1977,8 +2044,7 @@ defmodule RuleMaven.LLM do
       {first, if(stable?, do: Enum.sort_by(group, &Map.get(&1, :id, 0)), else: group)}
     end)
     |> Enum.sort_by(fn {first, _} ->
-      {RuleMaven.Games.Document.authority(first.kind),
-       if(first.game_id == base_game_id, do: 0, else: 1)}
+      {Document.authority(first.kind), if(first.game_id == base_game_id, do: 0, else: 1)}
     end)
     |> Enum.map_join("\n\n", fn {first, group} ->
       scope =
@@ -2073,7 +2139,7 @@ defmodule RuleMaven.LLM do
         # would throw the fact away again on every cache hit: a fallback served
         # from cache would look exactly like a genuine rewrite to whoever read it
         # back, which is the whole bug this is closing.
-        case RuleMaven.LLM.NormalizeCache.get(key) do
+        case NormalizeCache.get(key) do
           {:ok, {status, cached}} when status in [:ok, :fallback] ->
             {status, cached}
 
@@ -2090,16 +2156,20 @@ defmodule RuleMaven.LLM do
             # question's canonical shape for every user of the game, while not
             # caching it at all re-paid the normalize call on every ask
             # whenever the rejection was deterministic.
-            case do_normalize(game, raw, [], user_id) do
-              {:ok, cleaned} ->
-                RuleMaven.LLM.NormalizeCache.put(key, {:ok, cleaned})
-                {:ok, cleaned}
-
-              {:fallback, cleaned} ->
-                RuleMaven.LLM.NormalizeCache.put_fallback(key, {:fallback, cleaned})
-                {:fallback, cleaned}
-            end
+            normalize_and_cache(key, game, raw, user_id)
         end
+    end
+  end
+
+  defp normalize_and_cache(key, game, raw, user_id) do
+    case do_normalize(game, raw, [], user_id) do
+      {:ok, cleaned} ->
+        NormalizeCache.put(key, {:ok, cleaned})
+        {:ok, cleaned}
+
+      {:fallback, cleaned} ->
+        NormalizeCache.put_fallback(key, {:fallback, cleaned})
+        {:fallback, cleaned}
     end
   end
 
@@ -2128,7 +2198,7 @@ defmodule RuleMaven.LLM do
     user =
       RuleMaven.Prompts.render("normalize_question", %{
         game_name: game.name,
-        game_kind: RuleMaven.Games.Category.context_noun(game.category),
+        game_kind: Category.context_noun(game.category),
         context_block: normalize_context_block(recent_context),
         canonical_questions_block: canonical_questions_block(game.id, hint_embedding),
         question: raw
@@ -2182,7 +2252,7 @@ defmodule RuleMaven.LLM do
       String.length(cleaned) <= max(String.length(raw) * 3, 80) and
       not String.ends_with?(cleaned, ":") and
       not preamble_line?(cleaned) and
-      RuleMaven.LLM.QuestionFacets.preserved_in_rewrite?(raw, cleaned)
+      QuestionFacets.preserved_in_rewrite?(raw, cleaned)
   end
 
   # Meta-language a model uses to introduce (or refuse) a rewrite rather than
@@ -2371,30 +2441,34 @@ defmodule RuleMaven.LLM do
              game_id: opts[:game_id]
            ) do
         {:ok, cleaned} ->
-          trimmed = String.trim(cleaned)
-          min_keep = round(String.length(page_text) * min_kept_ratio(level))
-
-          # Output collapsed below the length floor → likely truncation/refusal.
-          # Hard guard (default): keep the raw page (:kept_raw). Soft guard
-          # (auto-clean loop): keep the short output and report :guard_fired so
-          # the critic can adjudicate — an aggressive clean of a junk-heavy page
-          # legitimately shrinks past the floor, and blanket reverts were baking
-          # raw junk back in. An empty output has nothing to adjudicate and
-          # reverts either way.
-          cond do
-            # Sentinel from the cleanup prompt: page needs no repairs. Returning
-            # the original text as :cleaned lets the worker's identical-text
-            # reclassification route it through the normal :unchanged path.
-            trimmed == "NO_CHANGES" -> {:ok, page_text, :cleaned}
-            trimmed == "" -> {:ok, page_text, :kept_raw}
-            String.length(trimmed) >= min_keep -> {:ok, cleaned, :cleaned}
-            opts[:soft_guard] -> {:ok, cleaned, :guard_fired}
-            true -> {:ok, page_text, :kept_raw}
-          end
+          classify_cleanup(cleaned, page_text, level, opts)
 
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  defp classify_cleanup(cleaned, page_text, level, opts) do
+    trimmed = String.trim(cleaned)
+    min_keep = round(String.length(page_text) * min_kept_ratio(level))
+
+    # Output collapsed below the length floor → likely truncation/refusal.
+    # Hard guard (default): keep the raw page (:kept_raw). Soft guard
+    # (auto-clean loop): keep the short output and report :guard_fired so
+    # the critic can adjudicate — an aggressive clean of a junk-heavy page
+    # legitimately shrinks past the floor, and blanket reverts were baking
+    # raw junk back in. An empty output has nothing to adjudicate and
+    # reverts either way.
+    cond do
+      # Sentinel from the cleanup prompt: page needs no repairs. Returning
+      # the original text as :cleaned lets the worker's identical-text
+      # reclassification route it through the normal :unchanged path.
+      trimmed == "NO_CHANGES" -> {:ok, page_text, :cleaned}
+      trimmed == "" -> {:ok, page_text, :kept_raw}
+      String.length(trimmed) >= min_keep -> {:ok, cleaned, :cleaned}
+      opts[:soft_guard] -> {:ok, cleaned, :guard_fired}
+      true -> {:ok, page_text, :kept_raw}
     end
   end
 
@@ -2505,20 +2579,7 @@ defmodule RuleMaven.LLM do
       {:ok, bin} ->
         mime = if String.ends_with?(image_path, ".jpg"), do: "image/jpeg", else: "image/png"
         data_url = "data:#{mime};base64," <> Base.encode64(bin)
-
-        # Optional guidance appended on a re-read: the adversarial critic's defect
-        # list, so the model fixes specific misses rather than re-transcribing blind.
-        base_prompt = RuleMaven.Prompts.template("vision_transcribe")
-
-        prompt =
-          case opts[:guidance] do
-            g when is_binary(g) and g != "" ->
-              base_prompt <>
-                "\n\nA previous transcription had these defects — fix them this time:\n" <> g
-
-            _ ->
-              base_prompt
-          end
+        prompt = transcribe_prompt(opts[:guidance])
 
         messages = [
           %{
@@ -2545,6 +2606,21 @@ defmodule RuleMaven.LLM do
 
       {:error, reason} ->
         {:error, "could not read page image: #{inspect(reason)}"}
+    end
+  end
+
+  # Optional guidance appended on a re-read: the adversarial critic's defect
+  # list, so the model fixes specific misses rather than re-transcribing blind.
+  defp transcribe_prompt(guidance) do
+    base_prompt = RuleMaven.Prompts.template("vision_transcribe")
+
+    case guidance do
+      g when is_binary(g) and g != "" ->
+        base_prompt <>
+          "\n\nA previous transcription had these defects — fix them this time:\n" <> g
+
+      _ ->
+        base_prompt
     end
   end
 
@@ -2713,21 +2789,7 @@ defmodule RuleMaven.LLM do
     model_name = opts[:model] || model()
     user_content = cacheable_content(prompt, opts[:cache_block], cache_control(model_name))
 
-    messages =
-      if system = opts[:system] do
-        # `:cache_system` marks the ENTIRE system message as the breakpoint —
-        # for a caller whose whole system prompt is stable (rulebook and all)
-        # and whose per-call text lives in the user turn. Gemini only caches its
-        # systemInstruction, so this is the only shape that caches there.
-        system_content =
-          if opts[:cache_system],
-            do: [%{type: "text", text: system, cache_control: cache_control(model_name)}],
-            else: system
-
-        [%{role: "system", content: system_content}, %{role: "user", content: user_content}]
-      else
-        [%{role: "user", content: user_content}]
-      end
+    messages = chat_messages(user_content, model_name, opts)
 
     body =
       %{
@@ -2744,19 +2806,40 @@ defmodule RuleMaven.LLM do
            question_log_id: opts[:question_log_id]
          ) do
       {:ok, %{answer: answer} = res} ->
-        # `decode_answer` is tuned to the ask schema: a JSON *object* without
-        # an "answer" key decodes to "". Callers expecting their own JSON
-        # object (raw: true) need the untouched model text instead.
-        text = if opts[:raw], do: res[:raw_response] || answer, else: answer
-
-        if opts[:reject_truncated] && truncated?(res[:finish_reason], text) do
-          {:error, :truncated}
-        else
-          {:ok, text}
-        end
+        chat_text_result(res, answer, opts)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp chat_messages(user_content, model_name, opts) do
+    if system = opts[:system] do
+      # `:cache_system` marks the ENTIRE system message as the breakpoint —
+      # for a caller whose whole system prompt is stable (rulebook and all)
+      # and whose per-call text lives in the user turn. Gemini only caches its
+      # systemInstruction, so this is the only shape that caches there.
+      system_content =
+        if opts[:cache_system],
+          do: [%{type: "text", text: system, cache_control: cache_control(model_name)}],
+          else: system
+
+      [%{role: "system", content: system_content}, %{role: "user", content: user_content}]
+    else
+      [%{role: "user", content: user_content}]
+    end
+  end
+
+  defp chat_text_result(res, answer, opts) do
+    # `decode_answer` is tuned to the ask schema: a JSON *object* without
+    # an "answer" key decodes to "". Callers expecting their own JSON
+    # object (raw: true) need the untouched model text instead.
+    text = if opts[:raw], do: res[:raw_response] || answer, else: answer
+
+    if opts[:reject_truncated] && truncated?(res[:finish_reason], text) do
+      {:error, :truncated}
+    else
+      {:ok, text}
     end
   end
 
@@ -2900,10 +2983,10 @@ defmodule RuleMaven.LLM do
     require Logger
 
     try do
-      RuleMaven.LLM.Savings.record("prompt_cache", %{
+      Savings.record("prompt_cache", %{
         operation: opts[:operation] || "unknown",
         estimated_tokens: cached,
-        estimated_usd: RuleMaven.LLM.Pricing.cached_savings(actual_model, cached),
+        estimated_usd: Pricing.cached_savings(actual_model, cached),
         model: actual_model,
         game_id: opts[:game_id],
         user_id: opts[:user_id]
@@ -2925,10 +3008,10 @@ defmodule RuleMaven.LLM do
 
       if actual_model == model(:cheap) and actual_model != default do
         saved =
-          RuleMaven.LLM.Pricing.cost(default, p, c) -
-            RuleMaven.LLM.Pricing.cost(actual_model, p, c)
+          Pricing.cost(default, p, c) -
+            Pricing.cost(actual_model, p, c)
 
-        RuleMaven.LLM.Savings.record("cheap_route", %{
+        Savings.record("cheap_route", %{
           operation: opts[:operation] || "unknown",
           estimated_tokens: (p || 0) + (c || 0),
           estimated_usd: max(saved, 0.0),
@@ -3485,9 +3568,7 @@ defmodule RuleMaven.LLM do
     # A done flag flipping forces an emit even below the growth floor: it
     # carries the final tail of the text and tells the LiveView to swap the
     # stream cursor for the citations-pending indicator.
-    if grown?(text, state.sent.text) or grown?(styled, state.sent.styled) or
-         (text_done and not state.sent.text_done) or
-         (styled_done and not state.sent.styled_done) do
+    if partial_changed?(state.sent, text, styled, text_done, styled_done) do
       Phoenix.PubSub.broadcast(
         RuleMaven.PubSub,
         ask_stream_topic(stream_to.question_log_id),
@@ -3513,6 +3594,12 @@ defmodule RuleMaven.LLM do
     else
       state
     end
+  end
+
+  defp partial_changed?(sent, text, styled, text_done, styled_done) do
+    grown?(text, sent.text) or grown?(styled, sent.styled) or
+      (text_done and not sent.text_done) or
+      (styled_done and not sent.styled_done)
   end
 
   defp grown?(partial, sent) do
@@ -3715,10 +3802,8 @@ defmodule RuleMaven.LLM do
   defp cached_tokens(_), do: 0
 
   defp log_llm(provider, model, opts, usage, duration_ms, success, error, detail) do
-    alias RuleMaven.Repo
-
-    %RuleMaven.LLM.Log{}
-    |> RuleMaven.LLM.Log.changeset(%{
+    %Log{}
+    |> Log.changeset(%{
       provider: provider,
       model: model,
       operation: opts[:operation] || "unknown",
@@ -3792,14 +3877,13 @@ defmodule RuleMaven.LLM do
   # text parts, note the rest.
   defp detail_preview(parts, limit) when is_list(parts) do
     parts
-    |> Enum.map(fn
+    |> Enum.map_join("\n", fn
       %{type: "text", text: text} -> text
       %{"type" => "text", "text" => text} -> text
       %{type: "image_url"} -> "[image]"
       %{"type" => "image_url"} -> "[image]"
       other -> inspect(other) |> String.slice(0, 80)
     end)
-    |> Enum.join("\n")
     |> detail_preview(limit)
   end
 
@@ -3837,7 +3921,6 @@ defmodule RuleMaven.LLM do
   the Q&A view.
   """
   def calls_for_question(question_log_id) when is_integer(question_log_id) do
-    alias RuleMaven.{LLM.Pricing, Repo}
     import Ecto.Query
 
     # `detail` holds per-call input/output PREVIEWS — and for a crew row that means
@@ -3851,17 +3934,17 @@ defmodule RuleMaven.LLM do
     # `▸ LLM trace` toggle next to the same answer bubble made that decision theater.
     # The panel exists for tokens, cost, latency and model — it keeps all of those.
     crew_row? =
-      case Repo.get(RuleMaven.Games.QuestionLog, question_log_id) do
+      case Repo.get(QuestionLog, question_log_id) do
         # No row (a deleted question, or a log written in a test) — there is no crew
         # boundary left to protect, and the trace panel only ever loads ids that are
         # on the page.
         nil -> false
-        q -> RuleMaven.Games.QuestionLog.crew_origin?(q)
+        q -> QuestionLog.crew_origin?(q)
       end
 
     calls =
       Repo.all(
-        from l in RuleMaven.LLM.Log,
+        from l in Log,
           where: l.question_log_id == ^question_log_id,
           order_by: [asc: l.inserted_at, asc: l.id]
       )
@@ -3913,7 +3996,7 @@ defmodule RuleMaven.LLM do
   end
 
   defp build_system_prompt(game_name, category, full_text, recent_context, voice, game) do
-    kind = RuleMaven.Games.Category.context_noun(category)
+    kind = Category.context_noun(category)
 
     context_block =
       if recent_context != [] do
@@ -4420,12 +4503,11 @@ defmodule RuleMaven.LLM do
   Returns usage stats for the last N days.
   """
   def stats(days \\ 30) do
-    alias RuleMaven.Repo
     import Ecto.Query
 
     since = DateTime.add(DateTime.utc_now(), -days, :day)
 
-    base = from(l in RuleMaven.LLM.Log, where: l.inserted_at >= ^since)
+    base = from(l in Log, where: l.inserted_at >= ^since)
 
     total_requests = Repo.aggregate(base, :count)
 
@@ -4476,18 +4558,16 @@ defmodule RuleMaven.LLM do
 
   @doc """
   Per-user LLM cost (USD estimate) over the last N days, highest spend first.
-  Costs are derived from logged token counts via `RuleMaven.LLM.Pricing`.
+  Costs are derived from logged token counts via `Pricing`.
   """
   def cost_by_user(days \\ 30) do
-    alias RuleMaven.Repo
-    alias RuleMaven.LLM.Pricing
     import Ecto.Query
 
     since = DateTime.add(DateTime.utc_now(), -days, :day)
 
     rows =
       Repo.all(
-        from l in RuleMaven.LLM.Log,
+        from l in Log,
           where: l.inserted_at >= ^since and not is_nil(l.user_id),
           group_by: [l.user_id, l.model],
           select: {
@@ -4529,14 +4609,13 @@ defmodule RuleMaven.LLM do
   so the rate slightly undercounts.
   """
   def ask_stats(days \\ 30) do
-    alias RuleMaven.Repo
     import Ecto.Query
 
     since = DateTime.add(DateTime.utc_now(), -days, :day)
 
     {asks, pool_hits} =
       Repo.one(
-        from q in RuleMaven.Games.QuestionLog,
+        from q in QuestionLog,
           where: q.inserted_at >= ^since,
           select: {count(q.id), filter(count(q.id), q.llm_provider == "pool")}
       )
@@ -4559,14 +4638,12 @@ defmodule RuleMaven.LLM do
   in the cost REPORTING views (that is why it carries a user_id at all).
   """
   def user_cost_today(user_id) when is_integer(user_id) do
-    alias RuleMaven.Repo
-    alias RuleMaven.LLM.Pricing
     import Ecto.Query
 
     since = DateTime.utc_now() |> DateTime.to_date() |> DateTime.new!(~T[00:00:00], "Etc/UTC")
 
     Repo.all(
-      from l in RuleMaven.LLM.Log,
+      from l in Log,
         where: l.user_id == ^user_id and l.inserted_at >= ^since,
         where: l.operation != "publish_check",
         group_by: l.model,
@@ -4579,14 +4656,12 @@ defmodule RuleMaven.LLM do
 
   @doc "USD cost estimate of ALL LLM usage since UTC midnight today (whole app)."
   def cost_today do
-    alias RuleMaven.Repo
-    alias RuleMaven.LLM.Pricing
     import Ecto.Query
 
     since = DateTime.utc_now() |> DateTime.to_date() |> DateTime.new!(~T[00:00:00], "Etc/UTC")
 
     Repo.all(
-      from l in RuleMaven.LLM.Log,
+      from l in Log,
         where: l.inserted_at >= ^since,
         group_by: l.model,
         select: {l.model, sum(l.prompt_tokens), sum(l.completion_tokens)}
@@ -4601,11 +4676,9 @@ defmodule RuleMaven.LLM do
   `{operation, model}` so per-row model pricing stays accurate.
   """
   def cost_by_operation_for_game(game_id, since \\ nil) do
-    alias RuleMaven.Repo
-    alias RuleMaven.LLM.Pricing
     import Ecto.Query
 
-    base = from(l in RuleMaven.LLM.Log, where: l.game_id == ^game_id)
+    base = from(l in Log, where: l.game_id == ^game_id)
     base = if since, do: from(l in base, where: l.inserted_at >= ^since), else: base
 
     Repo.all(
@@ -4655,12 +4728,10 @@ defmodule RuleMaven.LLM do
   def cost_in_window(_game_id, [], _from, _to), do: 0.0
 
   def cost_in_window(game_id, operations, %DateTime{} = from, %DateTime{} = to) do
-    alias RuleMaven.Repo
-    alias RuleMaven.LLM.Pricing
     import Ecto.Query
 
     Repo.all(
-      from l in RuleMaven.LLM.Log,
+      from l in Log,
         where:
           l.game_id == ^game_id and l.operation in ^operations and
             l.inserted_at >= ^from and l.inserted_at <= ^to,
@@ -4677,11 +4748,10 @@ defmodule RuleMaven.LLM do
   is a 0.0–1.0 float (0.0 when no requests).
   """
   def error_rate(hours \\ 24) do
-    alias RuleMaven.Repo
     import Ecto.Query
 
     since = DateTime.add(DateTime.utc_now(), -hours, :hour)
-    base = from(l in RuleMaven.LLM.Log, where: l.inserted_at >= ^since)
+    base = from(l in Log, where: l.inserted_at >= ^since)
 
     total = Repo.aggregate(base, :count)
     errors = Repo.aggregate(from(l in base, where: l.success == false), :count)
@@ -4720,36 +4790,39 @@ defmodule RuleMaven.LLM do
            reject_truncated: true
          ) do
       {:ok, text} ->
-        # Everything before the first "CATEGORY:" is preamble (e.g. "Here are
-        # common questions for X, grouped by category:") — drop it so it never
-        # becomes a bogus category name.
-        blocks =
-          text
-          |> String.split(~r/^CATEGORY:\s*/mi)
-          |> Enum.drop(1)
-
-        categories =
-          if blocks == [] do
-            # Model ignored the CATEGORY: format — salvage the "- " questions
-            # under a single generic category rather than show the preamble.
-            qs = text |> bullet_lines() |> single_questions()
-            if qs == [], do: [], else: [%{category: "Suggested", questions: qs}]
-          else
-            blocks
-            |> Enum.map(fn block ->
-              [name | _] =
-                String.split(block, "\n") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
-
-              %{category: name, questions: block |> bullet_lines() |> single_questions()}
-            end)
-            |> Enum.reject(fn %{questions: qs} -> qs == [] end)
-          end
-
-        {:ok, categories}
+        {:ok, parse_suggested_categories(text)}
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp parse_suggested_categories(text) do
+    # Everything before the first "CATEGORY:" is preamble (e.g. "Here are
+    # common questions for X, grouped by category:") — drop it so it never
+    # becomes a bogus category name.
+    blocks =
+      text
+      |> String.split(~r/^CATEGORY:\s*/mi)
+      |> Enum.drop(1)
+
+    if blocks == [] do
+      # Model ignored the CATEGORY: format — salvage the "- " questions
+      # under a single generic category rather than show the preamble.
+      qs = text |> bullet_lines() |> single_questions()
+      if qs == [], do: [], else: [%{category: "Suggested", questions: qs}]
+    else
+      blocks
+      |> Enum.map(&suggested_category/1)
+      |> Enum.reject(fn %{questions: qs} -> qs == [] end)
+    end
+  end
+
+  defp suggested_category(block) do
+    [name | _] =
+      String.split(block, "\n") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+
+    %{category: name, questions: block |> bullet_lines() |> single_questions()}
   end
 
   @doc """
@@ -4764,7 +4837,7 @@ defmodule RuleMaven.LLM do
         game_name: game_name,
         # Wider sample (≈16k across ~8 coherent windows) so there's enough source
         # material to draw up to ~50 distinct facts from.
-        rulebook: sample_across(rulebook_text, 16000, 2000)
+        rulebook: sample_across(rulebook_text, 16_000, 2000)
       })
 
     case chat(prompt, "did_you_know",
@@ -4813,7 +4886,7 @@ defmodule RuleMaven.LLM do
         game_name: game_name,
         # Wider sample than generation so the checker is likelier to see the
         # clause a fact may have omitted.
-        rulebook: sample_across(rulebook_text, 24000, 3000),
+        rulebook: sample_across(rulebook_text, 24_000, 3000),
         facts: numbered
       })
 
@@ -4825,19 +4898,23 @@ defmodule RuleMaven.LLM do
            max_tokens: 2000
          ) do
       {:ok, text} ->
-        case parse_keep_indices(text, length(facts)) do
-          :all ->
-            facts
-
-          keep ->
-            facts
-            |> Enum.with_index(1)
-            |> Enum.filter(fn {_, i} -> MapSet.member?(keep, i) end)
-            |> Enum.map(&elem(&1, 0))
-        end
+        keep_verified_facts(text, facts)
 
       {:error, _} ->
         facts
+    end
+  end
+
+  defp keep_verified_facts(text, facts) do
+    case parse_keep_indices(text, length(facts)) do
+      :all ->
+        facts
+
+      keep ->
+        facts
+        |> Enum.with_index(1)
+        |> Enum.filter(fn {_, i} -> MapSet.member?(keep, i) end)
+        |> Enum.map(&elem(&1, 0))
     end
   end
 
@@ -4851,7 +4928,7 @@ defmodule RuleMaven.LLM do
     prompt =
       RuleMaven.Prompts.render("common_mistakes", %{
         game_name: game_name,
-        rulebook: sample_across(rulebook_text, 16000, 2000),
+        rulebook: sample_across(rulebook_text, 16_000, 2000),
         questions:
           case questions do
             [] -> "(none yet)"
@@ -4870,20 +4947,7 @@ defmodule RuleMaven.LLM do
         entries =
           text
           |> bullet_lines()
-          |> Enum.flat_map(fn line ->
-            case String.split(line, "||", parts: 2) do
-              [wrong, right] ->
-                wrong = String.trim(wrong)
-                right = String.trim(right)
-
-                if String.length(wrong) >= 12 and String.length(right) >= 12,
-                  do: [%{"wrong" => wrong, "right" => right}],
-                  else: []
-
-              _ ->
-                []
-            end
-          end)
+          |> Enum.flat_map(&parse_mistake_line/1)
           |> Enum.uniq_by(& &1["right"])
           |> Enum.take(8)
 
@@ -4900,6 +4964,21 @@ defmodule RuleMaven.LLM do
     end
   end
 
+  defp parse_mistake_line(line) do
+    case String.split(line, "||", parts: 2) do
+      [wrong, right] ->
+        wrong = String.trim(wrong)
+        right = String.trim(right)
+
+        if String.length(wrong) >= 12 and String.length(right) >= 12,
+          do: [%{"wrong" => wrong, "right" => right}],
+          else: []
+
+      _ ->
+        []
+    end
+  end
+
   @doc """
   Generates the "teach it in 60 seconds" summary for a game: a map with any of
   the `goal`, `loop`, `win`, `trap` keys the rulebook supports (lines the model
@@ -4910,7 +4989,7 @@ defmodule RuleMaven.LLM do
     prompt =
       RuleMaven.Prompts.render("teach_pitch", %{
         game_name: game_name,
-        rulebook: sample_across(rulebook_text, 14000, 2000)
+        rulebook: sample_across(rulebook_text, 14_000, 2000)
       })
 
     case chat(prompt, "teach_pitch",
@@ -4924,26 +5003,28 @@ defmodule RuleMaven.LLM do
         pitch =
           text
           |> bullet_lines()
-          |> Enum.reduce(%{}, fn line, acc ->
-            case String.split(line, "||", parts: 2) do
-              [key, val] ->
-                k = key |> String.trim() |> String.downcase()
-                v = String.trim(val)
-
-                if k in ~w(goal loop win trap) and String.length(v) >= 8 and
-                     String.downcase(v) != "none",
-                   do: Map.put(acc, k, v),
-                   else: acc
-
-              _ ->
-                acc
-            end
-          end)
+          |> Enum.reduce(%{}, &put_pitch_line/2)
 
         {:ok, pitch}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp put_pitch_line(line, acc) do
+    case String.split(line, "||", parts: 2) do
+      [key, val] ->
+        k = key |> String.trim() |> String.downcase()
+        v = String.trim(val)
+
+        if k in ~w(goal loop win trap) and String.length(v) >= 8 and
+             String.downcase(v) != "none",
+           do: Map.put(acc, k, v),
+           else: acc
+
+      _ ->
+        acc
     end
   end
 
@@ -4957,7 +5038,7 @@ defmodule RuleMaven.LLM do
     prompt =
       RuleMaven.Prompts.render("score_categories", %{
         game_name: game_name,
-        rulebook: sample_across(rulebook_text, 14000, 2000)
+        rulebook: sample_across(rulebook_text, 14_000, 2000)
       })
 
     case chat(prompt, "score_categories",
@@ -4968,42 +5049,45 @@ defmodule RuleMaven.LLM do
            max_tokens: 2000
          ) do
       {:ok, text} ->
-        if String.downcase(String.trim(text)) == "none" do
-          {:ok, []}
-        else
-          cats =
-            text
-            |> bullet_lines()
-            |> Enum.flat_map(fn line ->
-              case String.split(line, "||", parts: 2) do
-                [label, hint] ->
-                  label = label |> String.trim() |> String.replace(~r/^none$/i, "")
-                  hint = String.trim(hint)
-
-                  if label != "" and String.length(label) <= 40,
-                    do: [%{"label" => label, "hint" => hint}],
-                    else: []
-
-                [label] ->
-                  label = String.trim(label)
-
-                  if label != "" and String.downcase(label) != "none" and
-                       String.length(label) <= 40,
-                     do: [%{"label" => label, "hint" => ""}],
-                     else: []
-
-                _ ->
-                  []
-              end
-            end)
-            |> Enum.uniq_by(& &1["label"])
-            |> Enum.take(12)
-
-          {:ok, cats}
-        end
+        {:ok, parse_score_categories(text)}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp parse_score_categories(text) do
+    if String.downcase(String.trim(text)) == "none" do
+      []
+    else
+      text
+      |> bullet_lines()
+      |> Enum.flat_map(&parse_score_category_line/1)
+      |> Enum.uniq_by(& &1["label"])
+      |> Enum.take(12)
+    end
+  end
+
+  defp parse_score_category_line(line) do
+    case String.split(line, "||", parts: 2) do
+      [label, hint] ->
+        label = label |> String.trim() |> String.replace(~r/^none$/i, "")
+        hint = String.trim(hint)
+
+        if label != "" and String.length(label) <= 40,
+          do: [%{"label" => label, "hint" => hint}],
+          else: []
+
+      [label] ->
+        label = String.trim(label)
+
+        if label != "" and String.downcase(label) != "none" and
+             String.length(label) <= 40,
+           do: [%{"label" => label, "hint" => ""}],
+           else: []
+
+      _ ->
+        []
     end
   end
 
@@ -5018,7 +5102,7 @@ defmodule RuleMaven.LLM do
     prompt =
       RuleMaven.Prompts.render("turn_flow", %{
         game_name: game_name,
-        rulebook: sample_across(rulebook_text, 16000, 2000)
+        rulebook: sample_across(rulebook_text, 16_000, 2000)
       })
 
     case chat(prompt, "turn_flow",
@@ -5039,54 +5123,50 @@ defmodule RuleMaven.LLM do
   end
 
   defp parse_turn_flow(text) do
-    json =
-      case Regex.run(~r/\[.*\]/s, text || "") do
-        [match] -> match
-        _ -> text || ""
-      end
+    json = bracketed_json(text)
 
     case Jason.decode(json) do
       {:ok, list} when is_list(list) ->
         list
-        |> Enum.flat_map(fn
-          %{"name" => name, "actions" => actions} = phase
-          when is_binary(name) and is_list(actions) ->
-            clean =
-              actions
-              |> Enum.flat_map(fn
-                %{"label" => label} = a when is_binary(label) ->
-                  label = String.trim(label)
-
-                  if label == "",
-                    do: [],
-                    else: [%{"label" => label, "rule" => String.trim(to_string(a["rule"] || ""))}]
-
-                _ ->
-                  []
-              end)
-              |> Enum.take(12)
-
-            if clean == [] do
-              []
-            else
-              [
-                %{
-                  "name" => String.trim(name),
-                  "note" => String.trim(to_string(Map.get(phase, "note", ""))),
-                  "actions" => clean
-                }
-              ]
-            end
-
-          _ ->
-            []
-        end)
+        |> Enum.flat_map(&parse_turn_phase/1)
         |> Enum.take(10)
 
       _ ->
         []
     end
   end
+
+  defp parse_turn_phase(%{"name" => name, "actions" => actions} = phase)
+       when is_binary(name) and is_list(actions) do
+    clean =
+      actions
+      |> Enum.flat_map(&parse_turn_action/1)
+      |> Enum.take(12)
+
+    if clean == [] do
+      []
+    else
+      [
+        %{
+          "name" => String.trim(name),
+          "note" => String.trim(to_string(Map.get(phase, "note", ""))),
+          "actions" => clean
+        }
+      ]
+    end
+  end
+
+  defp parse_turn_phase(_), do: []
+
+  defp parse_turn_action(%{"label" => label} = a) when is_binary(label) do
+    label = String.trim(label)
+
+    if label == "",
+      do: [],
+      else: [%{"label" => label, "rule" => String.trim(to_string(a["rule"] || ""))}]
+  end
+
+  defp parse_turn_action(_), do: []
 
   @doc """
   Builds a symbol key for `candidates` (code-extracted tokens) from the
@@ -5112,33 +5192,37 @@ defmodule RuleMaven.LLM do
            raw: true
          ) do
       {:ok, text} ->
-        entries =
-          case json_array(to_string(text)) do
-            {:ok, list} ->
-              for %{"token" => t} = e <- list,
-                  is_binary(t),
-                  token = allowed[String.downcase(t)],
-                  token != nil do
-                %{
-                  token: token,
-                  name: str_or_nil(e["name"]),
-                  meaning: str_or_nil(e["meaning"]),
-                  aliases:
-                    e["aliases"] |> List.wrap() |> Enum.filter(&is_binary/1) |> Enum.take(4),
-                  page: if(is_integer(e["page"]), do: e["page"])
-                }
-              end
-              |> Enum.uniq_by(& &1.token)
-
-            _ ->
-              []
-          end
-
-        {:ok, entries}
+        {:ok, parse_symbol_key(text, allowed)}
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp parse_symbol_key(text, allowed) do
+    case json_array(to_string(text)) do
+      {:ok, list} ->
+        for %{"token" => t} = e <- list,
+            is_binary(t),
+            token = allowed[String.downcase(t)],
+            token != nil do
+          symbol_key_entry(token, e)
+        end
+        |> Enum.uniq_by(& &1.token)
+
+      _ ->
+        []
+    end
+  end
+
+  defp symbol_key_entry(token, e) do
+    %{
+      token: token,
+      name: str_or_nil(e["name"]),
+      meaning: str_or_nil(e["meaning"]),
+      aliases: e["aliases"] |> List.wrap() |> Enum.filter(&is_binary/1) |> Enum.take(4),
+      page: if(is_integer(e["page"]), do: e["page"])
+    }
   end
 
   defp str_or_nil(s) when is_binary(s) do
@@ -5159,7 +5243,7 @@ defmodule RuleMaven.LLM do
     prompt =
       RuleMaven.Prompts.render("first_player_picks", %{
         game_name: game_name,
-        rulebook: sample_across(rulebook_text, 12000, 2000)
+        rulebook: sample_across(rulebook_text, 12_000, 2000)
       })
 
     case chat(prompt, "first_player_picks",
@@ -5195,7 +5279,7 @@ defmodule RuleMaven.LLM do
     prompt =
       RuleMaven.Prompts.render("quiz_generate", %{
         game_name: game_name,
-        rulebook: sample_across(rulebook_text, 16000, 2000)
+        rulebook: sample_across(rulebook_text, 16_000, 2000)
       })
 
     case chat(prompt, "quiz_generate",
@@ -5216,29 +5300,34 @@ defmodule RuleMaven.LLM do
   end
 
   defp parse_quiz(text) do
-    json =
-      case Regex.run(~r/\[.*\]/s, text || "") do
-        [match] -> match
-        _ -> text || ""
-      end
+    json = bracketed_json(text)
 
     case Jason.decode(json) do
       {:ok, list} when is_list(list) ->
         list
-        |> Enum.filter(fn
-          %{"q" => q, "choices" => choices, "answer" => a, "why" => why} ->
-            is_binary(q) and is_binary(why) and is_list(choices) and length(choices) >= 2 and
-              Enum.all?(choices, &is_binary/1) and is_integer(a) and a >= 0 and
-              a < length(choices)
-
-          _ ->
-            false
-        end)
+        |> Enum.filter(&valid_quiz_item?/1)
         |> Enum.uniq_by(& &1["q"])
         |> Enum.take(20)
 
       _ ->
         []
+    end
+  end
+
+  defp valid_quiz_item?(%{"q" => q, "choices" => choices, "answer" => a, "why" => why}) do
+    is_binary(q) and is_binary(why) and is_list(choices) and length(choices) >= 2 and
+      Enum.all?(choices, &is_binary/1) and is_integer(a) and a >= 0 and
+      a < length(choices)
+  end
+
+  defp valid_quiz_item?(_), do: false
+
+  # The outermost [...] span of a model reply (tolerates ```fences``` and stray
+  # prose), or the whole text when there is none.
+  defp bracketed_json(text) do
+    case Regex.run(~r/\[.*\]/s, text || "") do
+      [match] -> match
+      _ -> text || ""
     end
   end
 
@@ -5270,7 +5359,7 @@ defmodule RuleMaven.LLM do
            # picker description, and a popularity_rank on top of its style, so a
            # full 12-voice set needs a lot more room. Too low and the JSON
            # truncates mid-array → parse fails → no voices.
-           max_tokens: 18000
+           max_tokens: 18_000
          ) do
       {:ok, text} ->
         {:ok, parse_voices(text)}
@@ -5355,20 +5444,9 @@ defmodule RuleMaven.LLM do
   defp parse_vet_verdicts(text, voices, vettable) do
     sent = MapSet.new(voices, & &1.slug)
 
-    json =
-      case Regex.run(~r/\[.*\]/s, text || "") do
-        [match] -> match
-        _ -> text || ""
-      end
+    json = bracketed_json(text)
 
-    verdicts =
-      case Jason.decode(json) do
-        {:ok, list} when is_list(list) ->
-          for %{"slug" => slug} = v <- list, is_binary(slug), MapSet.member?(sent, slug), do: v
-
-        _ ->
-          []
-      end
+    verdicts = decode_vet_verdicts(json, sent)
 
     real_person = for %{"slug" => slug, "real_person" => true} <- verdicts, do: slug
     flagged = MapSet.new(real_person)
@@ -5382,6 +5460,16 @@ defmodule RuleMaven.LLM do
     %{safe: safe, real_person: real_person}
   end
 
+  defp decode_vet_verdicts(json, sent) do
+    case Jason.decode(json) do
+      {:ok, list} when is_list(list) ->
+        for %{"slug" => slug} = v <- list, is_binary(slug), MapSet.member?(sent, slug), do: v
+
+      _ ->
+        []
+    end
+  end
+
   @doc false
   # Test seam for parse_vet_verdicts/3.
   def __parse_vet_verdicts__(text, voices, vettable \\ nil) do
@@ -5392,11 +5480,7 @@ defmodule RuleMaven.LLM do
   # coerce each entry to a clean voice map. Bad/incomplete entries are dropped;
   # slugs are normalized and de-duplicated; the list is capped at 12 and sorted by popularity_rank.
   defp parse_voices(text) do
-    json =
-      case Regex.run(~r/\[.*\]/s, text || "") do
-        [match] -> match
-        _ -> text || ""
-      end
+    json = bracketed_json(text)
 
     case Jason.decode(json) do
       {:ok, list} when is_list(list) ->
@@ -5428,17 +5512,8 @@ defmodule RuleMaven.LLM do
     loading = m |> Map.get("loading_phrases", []) |> coerce_phrases()
     thanks = m |> Map.get("thanks_phrases", []) |> coerce_phrases()
 
-    description =
-      case Map.get(m, "description") do
-        d when is_binary(d) -> d |> String.trim() |> String.slice(0, 120)
-        _ -> nil
-      end
-
-    popularity_rank =
-      case Map.get(m, "popularity_rank") do
-        r when is_integer(r) -> r
-        _ -> @popularity_rank_fallback
-      end
+    description = voice_description(Map.get(m, "description"))
+    popularity_rank = voice_popularity_rank(Map.get(m, "popularity_rank"))
 
     if label != "" and style != "" and slug != "" do
       %{
@@ -5455,6 +5530,12 @@ defmodule RuleMaven.LLM do
   end
 
   defp coerce_voice(_), do: nil
+
+  defp voice_description(d) when is_binary(d), do: d |> String.trim() |> String.slice(0, 120)
+  defp voice_description(_), do: nil
+
+  defp voice_popularity_rank(r) when is_integer(r), do: r
+  defp voice_popularity_rank(_), do: @popularity_rank_fallback
 
   # Keep only non-blank string phrases, trimmed, capped at 24.
   defp coerce_phrases(list) when is_list(list) do
@@ -5482,16 +5563,14 @@ defmodule RuleMaven.LLM do
   defp parse_keep_indices(text, _count) do
     trimmed = String.trim(text || "")
 
-    cond do
-      Regex.match?(~r/^\s*none\b/i, trimmed) ->
-        MapSet.new()
+    if Regex.match?(~r/^\s*none\b/i, trimmed) do
+      MapSet.new()
+    else
+      nums =
+        Regex.scan(~r/\d+/, trimmed)
+        |> Enum.map(fn [n] -> String.to_integer(n) end)
 
-      true ->
-        nums =
-          Regex.scan(~r/\d+/, trimmed)
-          |> Enum.map(fn [n] -> String.to_integer(n) end)
-
-        if nums == [], do: :all, else: MapSet.new(nums)
+      if nums == [], do: :all, else: MapSet.new(nums)
     end
   end
 
@@ -5515,8 +5594,7 @@ defmodule RuleMaven.LLM do
       step = if count > 1, do: div(max_start, count - 1), else: 0
 
       0..(count - 1)
-      |> Enum.map(fn i -> String.slice(text, i * step, window) end)
-      |> Enum.join("\n...\n")
+      |> Enum.map_join("\n...\n", fn i -> String.slice(text, i * step, window) end)
     end
   end
 
@@ -5559,11 +5637,10 @@ defmodule RuleMaven.LLM do
       if len > 3000 do
         step = div(len - 3000, 4)
 
-        Enum.map([1, 2, 3], fn i ->
+        Enum.map_join([1, 2, 3], "\n...\n", fn i ->
           start = 1500 + i * step
           String.slice(rulebook_text, start, 500)
         end)
-        |> Enum.join("\n...\n")
       else
         ""
       end
@@ -5590,17 +5667,19 @@ defmodule RuleMaven.LLM do
           |> String.split("\n")
           |> Enum.map(&String.trim/1)
           |> Enum.reject(&(&1 == ""))
-          |> Enum.flat_map(fn line ->
-            case String.split(line, ":", parts: 2) do
-              [name, desc] -> [%{name: String.trim(name), description: String.trim(desc)}]
-              _ -> []
-            end
-          end)
+          |> Enum.flat_map(&parse_category_line/1)
 
         {:ok, cats}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp parse_category_line(line) do
+    case String.split(line, ":", parts: 2) do
+      [name, desc] -> [%{name: String.trim(name), description: String.trim(desc)}]
+      _ -> []
     end
   end
 
@@ -5646,21 +5725,7 @@ defmodule RuleMaven.LLM do
   defp fetch_image_data_url(url) do
     case Req.get(url, decode_body: false, max_retries: 2, receive_timeout: 20_000) do
       {:ok, %{status: 200, body: bin, headers: headers}} when is_binary(bin) ->
-        mime =
-          case headers["content-type"] || headers["Content-Type"] do
-            [ct | _] -> ct
-            ct when is_binary(ct) -> ct
-            _ -> guess_mime(url)
-          end
-          |> to_string()
-          |> String.split(";")
-          |> List.first()
-
-        mime =
-          if mime in ["image/jpeg", "image/png", "image/webp", "image/gif"],
-            do: mime,
-            else: guess_mime(url)
-
+        mime = image_mime(headers, url)
         {:ok, "data:#{mime};base64," <> Base.encode64(bin)}
 
       {:ok, %{status: status}} ->
@@ -5669,6 +5734,22 @@ defmodule RuleMaven.LLM do
       {:error, reason} ->
         {:error, {:image_fetch, reason}}
     end
+  end
+
+  defp image_mime(headers, url) do
+    mime =
+      case headers["content-type"] || headers["Content-Type"] do
+        [ct | _] -> ct
+        ct when is_binary(ct) -> ct
+        _ -> guess_mime(url)
+      end
+      |> to_string()
+      |> String.split(";")
+      |> List.first()
+
+    if mime in ["image/jpeg", "image/png", "image/webp", "image/gif"],
+      do: mime,
+      else: guess_mime(url)
   end
 
   defp guess_mime(url) do
@@ -5682,13 +5763,7 @@ defmodule RuleMaven.LLM do
   # The model is asked for raw JSON; tolerate ```fences``` and surrounding prose
   # by extracting the first {...} block before decoding.
   defp parse_theme_anchors(text) do
-    json =
-      case Regex.run(~r/\{.*\}/s, text || "") do
-        [match] -> match
-        _ -> text
-      end
-
-    case Jason.decode(json || "") do
+    case Jason.decode(braced_json(text) || "") do
       {:ok, %{"sets" => sets}} when is_list(sets) and sets != [] ->
         # Per-set contents (anchors, names) are validated downstream by
         # ThemePalette.build_sets/1 — a malformed set drops without failing
@@ -5705,6 +5780,13 @@ defmodule RuleMaven.LLM do
 
       {:error, _} ->
         {:error, :palette_parse_failed}
+    end
+  end
+
+  defp braced_json(text) do
+    case Regex.run(~r/\{.*\}/s, text || "") do
+      [match] -> match
+      _ -> text
     end
   end
 

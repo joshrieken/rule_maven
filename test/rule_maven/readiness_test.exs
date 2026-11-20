@@ -2,7 +2,7 @@ defmodule RuleMaven.ReadinessTest do
   use RuleMaven.DataCase, async: true
 
   alias RuleMaven.{Games, Readiness, Repo, Settings}
-  alias RuleMaven.Games.{Document, Chunk}
+  alias RuleMaven.Games.{Chunk, Document}
   alias RuleMaven.Readiness.Estimator
 
   import RuleMaven.GamesFixtures

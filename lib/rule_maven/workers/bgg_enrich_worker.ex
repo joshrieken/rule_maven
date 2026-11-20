@@ -15,7 +15,8 @@ defmodule RuleMaven.Workers.BggEnrichWorker do
     ]
 
   import Ecto.Query
-  alias RuleMaven.{Games, Jobs}
+  alias RuleMaven.{BGG, Games, Jobs}
+  alias RuleMaven.Workers.ThemePaletteWorker
 
   def topic(game_id), do: "bgg:#{game_id}"
 
@@ -45,36 +46,8 @@ defmodule RuleMaven.Workers.BggEnrichWorker do
 
     Jobs.event(run, :info, "Fetching game details from BoardGameGeek…")
 
-    status =
-      case RuleMaven.BGG.enrich_game(game, force: true) do
-        {:ok, updated} ->
-          # Theme palette is derivable from the BGG cover image alone, so kick it
-          # off right away rather than waiting for the full rulebook pipeline.
-          # `enqueue/1` itself no-ops for expansions (they inherit the base
-          # game's palette) and only a first-time pull needs a fresh generate.
-          # Oban isn't supervised in test (config :rule_maven, Oban, testing:
-          # :manual), so skip there rather than crash on the unconfigured insert.
-          if is_nil(updated.theme_palette) and
-               Application.get_env(:rule_maven, Oban)[:testing] != :manual do
-            RuleMaven.Workers.ThemePaletteWorker.enqueue(updated)
-          end
-
-          {:ok, changed_fields(game, updated)}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-
-    case status do
-      {:ok, []} ->
-        Jobs.finish_run(run, "done", "Enriched from BGG — no field changes.")
-
-      {:ok, fields} ->
-        Jobs.finish_run(run, "done", "Enriched from BGG — updated #{Enum.join(fields, ", ")}.")
-
-      {:error, reason} ->
-        Jobs.finish_run(run, "failed", inspect(reason))
-    end
+    status = enrich(game)
+    finish(run, status)
 
     # Collapse the success payload (changed fields) back to :ok for subscribers.
     status = with {:ok, _} <- status, do: :ok
@@ -86,6 +59,38 @@ defmodule RuleMaven.Workers.BggEnrichWorker do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp enrich(game) do
+    case BGG.enrich_game(game, force: true) do
+      {:ok, updated} ->
+        maybe_enqueue_palette(updated)
+        {:ok, changed_fields(game, updated)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Theme palette is derivable from the BGG cover image alone, so kick it
+  # off right away rather than waiting for the full rulebook pipeline.
+  # `enqueue/1` itself no-ops for expansions (they inherit the base
+  # game's palette) and only a first-time pull needs a fresh generate.
+  # Oban isn't supervised in test (config :rule_maven, Oban, testing:
+  # :manual), so skip there rather than crash on the unconfigured insert.
+  defp maybe_enqueue_palette(updated) do
+    if is_nil(updated.theme_palette) and
+         Application.get_env(:rule_maven, Oban)[:testing] != :manual do
+      ThemePaletteWorker.enqueue(updated)
+    end
+  end
+
+  defp finish(run, {:ok, []}),
+    do: Jobs.finish_run(run, "done", "Enriched from BGG — no field changes.")
+
+  defp finish(run, {:ok, fields}),
+    do: Jobs.finish_run(run, "done", "Enriched from BGG — updated #{Enum.join(fields, ", ")}.")
+
+  defp finish(run, {:error, reason}), do: Jobs.finish_run(run, "failed", inspect(reason))
 
   # Names of the BGG-sourced fields whose value actually changed, for the job
   # summary (so the log says what the enrich did, not just that it ran).

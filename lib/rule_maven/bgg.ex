@@ -167,16 +167,18 @@ defmodule RuleMaven.BGG do
   defp unzip_csv(zip) do
     case :zip.unzip(zip, [:memory]) do
       {:ok, entries} ->
-        csv =
-          Enum.find_value(entries, fn {name, content} ->
-            if String.ends_with?(to_string(name), ".csv"), do: content
-          end)
-
+        csv = find_csv_entry(entries)
         if csv, do: {:ok, csv}, else: {:error, "No CSV found inside the data dump ZIP"}
 
       {:error, reason} ->
         {:error, "Failed to unzip data dump: #{inspect(reason)}"}
     end
+  end
+
+  defp find_csv_entry(entries) do
+    Enum.find_value(entries, fn {name, content} ->
+      if String.ends_with?(to_string(name), ".csv"), do: content
+    end)
   end
 
   @doc """
@@ -235,26 +237,12 @@ defmodule RuleMaven.BGG do
   end
 
   defp fetch_and_enrich(game) do
-    case fetch_game_info(game.bgg_id) do
-      {:ok, info, raw_xml} ->
-        expansion_links = Map.get(info, :expansion_links, [])
-        info = Map.delete(info, :expansion_links)
-        info = Map.put(info, :bgg_data, raw_xml)
-
-        case RuleMaven.Games.update_game(game, info) do
-          {:ok, updated} ->
-            if expansion_links != [] do
-              link_expansions(updated, expansion_links)
-            end
-
-            {:ok, updated}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, info, raw_xml} <- fetch_game_info(game.bgg_id),
+         {expansion_links, info} = Map.pop(info, :expansion_links, []),
+         {:ok, updated} <-
+           RuleMaven.Games.update_game(game, Map.put(info, :bgg_data, raw_xml)) do
+      if expansion_links != [], do: link_expansions(updated, expansion_links)
+      {:ok, updated}
     end
   end
 
@@ -457,8 +445,7 @@ defmodule RuleMaven.BGG do
   defp extract_cookies(headers) do
     headers
     |> set_cookie_values()
-    |> Enum.map(fn v -> v |> String.split(";") |> List.first() end)
-    |> Enum.join("; ")
+    |> Enum.map_join("; ", fn v -> v |> String.split(";") |> List.first() end)
   end
 
   # Req returns response headers either as a list of {name, value} tuples or as

@@ -5,8 +5,8 @@ defmodule RuleMaven.Metrics do
   """
 
   import Ecto.Query
-  alias RuleMaven.Repo
   alias RuleMaven.Metrics.ThemeEvent
+  alias RuleMaven.Repo
 
   # Slug -> human label -> scheme, alphabetical by label. The slug is the
   # `data-theme` value AND the kebab-case of the label — one canonical name per

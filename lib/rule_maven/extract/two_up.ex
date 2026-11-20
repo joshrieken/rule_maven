@@ -52,18 +52,19 @@ defmodule RuleMaven.Extract.TwoUp do
   or `{:error, :no_size}`.
   """
   def parse_sheet_size(pdfinfo_out, sheet) when is_integer(sheet) do
-    with [_, w, h] <-
-           Regex.run(~r/^Page\s+#{sheet} size:\s+([\d.]+) x ([\d.]+) pts/m, pdfinfo_out) do
-      rot =
-        case Regex.run(~r/^Page\s+#{sheet} rot:\s+(\d+)/m, pdfinfo_out) do
-          [_, r] -> String.to_integer(r)
-          _ -> 0
-        end
+    case Regex.run(~r/^Page\s+#{sheet} size:\s+([\d.]+) x ([\d.]+) pts/m, pdfinfo_out) do
+      [_, w, h] ->
+        rot =
+          case Regex.run(~r/^Page\s+#{sheet} rot:\s+(\d+)/m, pdfinfo_out) do
+            [_, r] -> String.to_integer(r)
+            _ -> 0
+          end
 
-      {w, h} = {parse_float(w), parse_float(h)}
-      if rem(rot, 180) == 90, do: {:ok, {h, w}}, else: {:ok, {w, h}}
-    else
-      _ -> {:error, :no_size}
+        {w, h} = {parse_float(w), parse_float(h)}
+        if rem(rot, 180) == 90, do: {:ok, {h, w}}, else: {:ok, {w, h}}
+
+      _ ->
+        {:error, :no_size}
     end
   end
 

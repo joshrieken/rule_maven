@@ -19,7 +19,8 @@ defmodule RuleMaven.Workers.VoiceVetWorker do
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
-  alias RuleMaven.{Jobs, Voices}
+  alias RuleMaven.{Jobs, LLM, Voices}
+  alias RuleMaven.Workers.VoiceSuggestionsWorker
 
   @doc "Enqueue a vet backfill (no-op in test where Oban isn't supervised)."
   def enqueue(game_id) do
@@ -42,41 +43,47 @@ defmodule RuleMaven.Workers.VoiceVetWorker do
             oban_job_id: oban_id
           )
 
-        case RuleMaven.LLM.vet_voice_styles(unvetted, game_id: game_id) do
-          {:ok, %{safe: safe_slugs, real_person: real_person_slugs}} ->
-            Voices.mark_vetted(game_id, safe_slugs, unvetted)
-
-            # Real-person personas flagged on backfill are deleted outright,
-            # and the show page's voice picker is refreshed live.
-            if real_person_slugs != [] do
-              Voices.drop_generated(game_id, real_person_slugs)
-
-              Phoenix.PubSub.broadcast(
-                RuleMaven.PubSub,
-                RuleMaven.Workers.VoiceSuggestionsWorker.topic(game_id),
-                {:voices_ready, Voices.for_game(game_id)}
-              )
-
-              Jobs.event(
-                run,
-                :warn,
-                "Deleted #{length(real_person_slugs)} real-person persona(s): #{Enum.join(real_person_slugs, ", ")}."
-              )
-            end
-
-            Jobs.finish_run(
-              run,
-              "done",
-              "#{length(safe_slugs)}/#{length(unvetted)} styles safe for the single-call ask path."
-            )
-
-            :ok
-
-          {:error, reason} ->
-            Jobs.finish_run(run, "failed", inspect(reason))
-            {:error, reason}
-        end
+        vet(run, game_id, unvetted)
     end
+  end
+
+  defp vet(run, game_id, unvetted) do
+    case LLM.vet_voice_styles(unvetted, game_id: game_id) do
+      {:ok, %{safe: safe_slugs, real_person: real_person_slugs}} ->
+        Voices.mark_vetted(game_id, safe_slugs, unvetted)
+
+        # Real-person personas flagged on backfill are deleted outright,
+        # and the show page's voice picker is refreshed live.
+        if real_person_slugs != [], do: drop_real_person(run, game_id, real_person_slugs)
+
+        Jobs.finish_run(
+          run,
+          "done",
+          "#{length(safe_slugs)}/#{length(unvetted)} styles safe for the single-call ask path."
+        )
+
+        :ok
+
+      {:error, reason} ->
+        Jobs.finish_run(run, "failed", inspect(reason))
+        {:error, reason}
+    end
+  end
+
+  defp drop_real_person(run, game_id, real_person_slugs) do
+    Voices.drop_generated(game_id, real_person_slugs)
+
+    Phoenix.PubSub.broadcast(
+      RuleMaven.PubSub,
+      VoiceSuggestionsWorker.topic(game_id),
+      {:voices_ready, Voices.for_game(game_id)}
+    )
+
+    Jobs.event(
+      run,
+      :warn,
+      "Deleted #{length(real_person_slugs)} real-person persona(s): #{Enum.join(real_person_slugs, ", ")}."
+    )
   end
 
   defp oban_running?, do: Application.get_env(:rule_maven, Oban)[:testing] != :manual

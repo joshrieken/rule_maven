@@ -2,7 +2,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
   use RuleMavenWeb, :live_view
 
   alias Ecto.Adapters.SQL
-  alias RuleMaven.{Audit, Repo, Users}
+  alias RuleMaven.{Audit, Repo, Settings, Users}
 
   # Raw browse caps at this many rows; large tables truncate (newest-first).
   @row_limit 500
@@ -312,20 +312,20 @@ defmodule RuleMavenWeb.AdminLive.Db do
   # nodes, same as a missed invalidation.
   defp bust_caches_after_write("app_settings", key)
        when is_binary(key) and key != @redaction_marker do
-    RuleMaven.Settings.Cache.invalidate(key)
+    Settings.Cache.invalidate(key)
   end
 
   defp bust_caches_after_write("app_settings", _unknown_key),
-    do: RuleMaven.Settings.Cache.flush()
+    do: Settings.Cache.flush()
 
   # AuthCache keys by integer user id; ids arrive as strings from phx-value /
   # the form. `nil` (a fresh insert has no cached entry) is a no-op.
   defp bust_caches_after_write("users", id) when is_integer(id),
-    do: RuleMaven.Users.AuthCache.invalidate(id)
+    do: Users.AuthCache.invalidate(id)
 
   defp bust_caches_after_write("users", id) when is_binary(id) do
     case Integer.parse(id) do
-      {n, _} -> RuleMaven.Users.AuthCache.invalidate(n)
+      {n, _} -> Users.AuthCache.invalidate(n)
       :error -> :ok
     end
   end
@@ -513,14 +513,16 @@ defmodule RuleMavenWeb.AdminLive.Db do
         rows
 
       cols ->
-        Enum.map(rows, fn row ->
-          Enum.reduce(cols, row, fn col, acc ->
-            if Map.has_key?(acc, col) and not is_nil(Map.get(acc, col)),
-              do: Map.put(acc, col, @redaction_marker),
-              else: acc
-          end)
-        end)
+        Enum.map(rows, &redact_row(&1, cols))
     end
+  end
+
+  defp redact_row(row, cols) do
+    Enum.reduce(cols, row, fn col, acc ->
+      if Map.has_key?(acc, col) and not is_nil(Map.get(acc, col)),
+        do: Map.put(acc, col, @redaction_marker),
+        else: acc
+    end)
   end
 
   # ── Helpers ──

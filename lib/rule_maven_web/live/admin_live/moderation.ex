@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.AdminLive.Moderation do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Audit, Users, Games, Moderation, Repo}
+  alias RuleMaven.{Audit, Games, Moderation, Repo, Users}
   alias RuleMaven.Games.QuestionLog
   alias RuleMavenWeb.QuickLoad
 
@@ -147,12 +147,12 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
 
   defp do_event("reapprove_answer", %{"id" => id}, socket) do
     with {qid, _} <- Integer.parse(to_string(id)),
-         %RuleMaven.Games.QuestionLog{} = q <- Repo.get(RuleMaven.Games.QuestionLog, qid),
+         %QuestionLog{} = q <- Repo.get(QuestionLog, qid),
          {:ok, _} <- Games.clear_needs_review(q) do
       Audit.log(socket.assigns.current_user, "question.reapprove",
         target_type: "question",
         target_id: qid,
-        target_label: RuleMaven.Games.QuestionLog.listed_question(q)
+        target_label: QuestionLog.listed_question(q)
       )
 
       {:noreply, socket |> put_flash(:info, "Re-approved — back in the pool.") |> load()}
@@ -182,22 +182,23 @@ defmodule RuleMavenWeb.AdminLive.Moderation do
   defp do_event("delete_flagged", %{"id" => id}, socket) do
     case Integer.parse(to_string(id)) do
       {qid, _} ->
-        case Repo.get(RuleMaven.Games.QuestionLog, qid) do
-          nil ->
-            {:noreply, put_flash(socket, :error, "Answer not found.")}
-
-          q ->
-            case Games.delete_question(q, socket.assigns.current_user) do
-              {:ok, _} ->
-                {:noreply, socket |> put_flash(:info, "Deleted the flagged answer.") |> load()}
-
-              {:error, _} ->
-                {:noreply, put_flash(socket, :error, "Couldn't delete that answer.")}
-            end
+        case Repo.get(QuestionLog, qid) do
+          nil -> {:noreply, put_flash(socket, :error, "Answer not found.")}
+          q -> delete_flagged_question(socket, q)
         end
 
       :error ->
         {:noreply, put_flash(socket, :error, "Invalid answer.")}
+    end
+  end
+
+  defp delete_flagged_question(socket, q) do
+    case Games.delete_question(q, socket.assigns.current_user) do
+      {:ok, _} ->
+        {:noreply, socket |> put_flash(:info, "Deleted the flagged answer.") |> load()}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Couldn't delete that answer.")}
     end
   end
 

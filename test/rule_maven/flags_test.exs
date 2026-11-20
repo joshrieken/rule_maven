@@ -3,6 +3,7 @@ defmodule RuleMaven.FlagsTest do
 
   alias RuleMaven.Flags
   alias RuleMaven.Flags.Registry
+  alias RuleMavenWeb.GameLive.ToolRegistry
 
   defp user(role) do
     {:ok, u} =
@@ -43,7 +44,7 @@ defmodule RuleMaven.FlagsTest do
   end
 
   test "every tool has a matching :tool_* flag and vice versa" do
-    tool_ids = RuleMavenWeb.GameLive.ToolRegistry.ids()
+    tool_ids = ToolRegistry.ids()
     expected_flags_for_tools = Enum.map(tool_ids, &:"tool_#{&1}")
 
     tool_flag_ids =

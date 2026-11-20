@@ -1,7 +1,8 @@
 defmodule RuleMavenWeb.AdminLive.Usage do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Users, LLM, Settings, Audit}
+  alias RuleMaven.{Audit, LLM, Settings, Users}
+  alias RuleMaven.LLM.Savings
   alias RuleMavenWeb.QuickLoad
 
   @impl true
@@ -30,7 +31,7 @@ defmodule RuleMavenWeb.AdminLive.Usage do
       stats: LLM.stats(days),
       by_user: by_user,
       total_cost: Enum.reduce(by_user, 0.0, &(&1.cost + &2)),
-      savings: RuleMaven.LLM.Savings.summary(days),
+      savings: Savings.summary(days),
       ask_stats: LLM.ask_stats(days)
     }
   end

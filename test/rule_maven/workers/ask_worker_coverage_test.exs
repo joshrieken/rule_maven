@@ -4,6 +4,7 @@ defmodule RuleMaven.Workers.AskWorkerCoverageTest do
   import RuleMaven.GamesFixtures
 
   alias RuleMaven.Coverage
+  alias RuleMaven.Games.Document
   alias RuleMaven.Repo
 
   # This proves the wiring CONTRACT AskWorker relies on: `resolve_document_ids/2`
@@ -18,8 +19,8 @@ defmodule RuleMaven.Workers.AskWorkerCoverageTest do
     game = game_fixture()
 
     {:ok, doc} =
-      %RuleMaven.Games.Document{}
-      |> RuleMaven.Games.Document.changeset(%{
+      %Document{}
+      |> Document.changeset(%{
         label: "Rulebook",
         game_id: game.id,
         page_count: 10,

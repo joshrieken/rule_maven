@@ -24,7 +24,7 @@ defmodule RuleMaven.LLMStreamPartialTest do
   end
 
   test "unescapes JSON escapes" do
-    assert LLM.__partial_answer__("{\"answer\": \"line one\\nline \\\"two\\\"") ==
+    assert LLM.__partial_answer__(~s({"answer": "line one\\nline \\"two\\")) ==
              "line one\nline \"two\""
   end
 
@@ -48,7 +48,7 @@ defmodule RuleMaven.LLMStreamPartialTest do
   end
 
   test "styled_answer is nil until its field opens" do
-    assert LLM.__partial_styled_answer__("{\"answer\": \"Roll the d20.\", \"sty") == nil
+    assert LLM.__partial_styled_answer__(~s({"answer": "Roll the d20.", "sty)) == nil
   end
 
   test "the styled_answer key never bleeds into the plain extraction" do
@@ -65,13 +65,13 @@ defmodule RuleMaven.LLMStreamPartialTest do
   test "answer not closed while the string is still open" do
     refute LLM.__answer_closed__("")
     refute LLM.__answer_closed__("{\"answer\": \"Roll the d20 to det")
-    refute LLM.__answer_closed__("{\"answer\": \"escaped quote \\\"still open")
+    refute LLM.__answer_closed__(~s({"answer": "escaped quote \\"still open))
   end
 
   test "answer closed once the closing quote streams" do
-    assert LLM.__answer_closed__("{\"answer\": \"Roll the d20.\"")
-    assert LLM.__answer_closed__("{\"answer\": \"Roll the d20.\", \"cit")
-    assert LLM.__answer_closed__("{\"answer\": \"quote \\\" inside\", \"verdict")
+    assert LLM.__answer_closed__(~s({"answer": "Roll the d20."))
+    assert LLM.__answer_closed__(~s({"answer": "Roll the d20.", "cit))
+    assert LLM.__answer_closed__(~s({"answer": "quote \\" inside", "verdict))
   end
 
   test "styled_answer closure tracked independently" do
@@ -94,8 +94,8 @@ defmodule RuleMaven.LLMStreamPartialTest do
   test "verdict is nil until its string closes" do
     assert LLM.__partial_verdict__("") == nil
     assert LLM.__partial_verdict__("{\"verdict\": \"in") == nil
-    assert LLM.__partial_verdict__("{\"verdict\": \"info\"") == "info"
-    assert LLM.__partial_verdict__("{\"verdict\": \"legal\", \"answer\": \"Ro") == "legal"
+    assert LLM.__partial_verdict__(~s({"verdict": "info")) == "info"
+    assert LLM.__partial_verdict__(~s({"verdict": "legal", "answer": "Ro)) == "legal"
   end
 
   # __partial_display_answer__/1 — what the LiveView shows while streaming.

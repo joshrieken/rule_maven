@@ -8,6 +8,8 @@ defmodule Mix.Tasks.RuleMaven.BackfillEmbeddings do
 
   use Mix.Task
   import Ecto.Query
+  alias RuleMaven.Embed
+  alias RuleMaven.Games.Chunk
   alias RuleMaven.Repo
 
   @impl Mix.Task
@@ -16,7 +18,7 @@ defmodule Mix.Tasks.RuleMaven.BackfillEmbeddings do
 
     chunks =
       Repo.all(
-        from c in RuleMaven.Games.Chunk,
+        from c in Chunk,
           where: is_nil(c.embedding),
           order_by: c.chunk_index
       )
@@ -30,27 +32,31 @@ defmodule Mix.Tasks.RuleMaven.BackfillEmbeddings do
       |> Enum.chunk_every(10)
       |> Enum.with_index(1)
       |> Enum.each(fn {batch, batch_idx} ->
-        texts = Enum.map(batch, & &1.content)
-
-        case RuleMaven.Embed.embed_batch(texts) do
-          {:ok, vectors} ->
-            batch
-            |> Enum.zip(vectors)
-            |> Enum.each(fn {chunk, vec} ->
-              RuleMaven.Games.Chunk.changeset(chunk, %{embedding: vec})
-              |> Repo.update!()
-            end)
-
-            Mix.shell().info("  Batch #{batch_idx}: #{length(batch)} chunks")
-
-          {:error, reason} ->
-            Mix.shell().error("  Batch #{batch_idx} failed: #{reason}")
-        end
-
+        backfill_batch(batch, batch_idx)
         Process.sleep(500)
       end)
 
       Mix.shell().info("Done.")
+    end
+  end
+
+  defp backfill_batch(batch, batch_idx) do
+    texts = Enum.map(batch, & &1.content)
+
+    case Embed.embed_batch(texts) do
+      {:ok, vectors} ->
+        batch
+        |> Enum.zip(vectors)
+        |> Enum.each(fn {chunk, vec} ->
+          chunk
+          |> Chunk.changeset(%{embedding: vec})
+          |> Repo.update!()
+        end)
+
+        Mix.shell().info("  Batch #{batch_idx}: #{length(batch)} chunks")
+
+      {:error, reason} ->
+        Mix.shell().error("  Batch #{batch_idx} failed: #{reason}")
     end
   end
 end

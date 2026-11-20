@@ -12,6 +12,7 @@ defmodule RuleMavenWeb.StandingLiveTest do
 
   alias RuleMaven.Games
   alias RuleMaven.Games.Curation
+  alias RuleMaven.Games.Trust
   alias RuleMaven.Repo
   alias RuleMaven.Users
 
@@ -88,7 +89,7 @@ defmodule RuleMavenWeb.StandingLiveTest do
       })
 
     q |> Ecto.Changeset.change(promoted: true, pooled: true) |> Repo.update!()
-    RuleMaven.Games.Trust.recompute_reputation(asker.id)
+    Trust.recompute_reputation(asker.id)
 
     {:ok, _view, html} = conn |> login(asker) |> live(~p"/standing")
 

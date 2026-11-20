@@ -14,6 +14,8 @@ defmodule RuleMaven.FakeOidc do
   @behaviour Assent.HTTPAdapter
 
   alias Assent.HTTPAdapter.HTTPResponse
+  alias Assent.JWTAdapter.AssentJWT
+  alias RuleMaven.Auth.Oidc
 
   @issuer "https://id.test/application/o/rulemaven/"
   @client_id "rulemaven"
@@ -33,12 +35,12 @@ defmodule RuleMaven.FakeOidc do
     )
 
     Application.put_env(:rule_maven, :oidc_http_adapter, __MODULE__)
-    RuleMaven.Auth.Oidc.clear_cache()
+    Oidc.clear_cache()
 
     ExUnit.Callbacks.on_exit(fn ->
       Application.delete_env(:rule_maven, :oidc)
       Application.delete_env(:rule_maven, :oidc_http_adapter)
-      RuleMaven.Auth.Oidc.clear_cache()
+      Oidc.clear_cache()
     end)
 
     :ok
@@ -89,7 +91,7 @@ defmodule RuleMaven.FakeOidc do
       is_nil(registered) ->
         json(400, %{"error" => "invalid_grant"})
 
-      params["redirect_uri"] != RuleMaven.Auth.Oidc.redirect_uri() ->
+      params["redirect_uri"] != Oidc.redirect_uri() ->
         json(400, %{"error" => "invalid_grant", "error_description" => "redirect_uri"})
 
       challenge(params["code_verifier"]) != registered[:challenge] ->
@@ -134,7 +136,7 @@ defmodule RuleMaven.FakeOidc do
 
   defp sign(claims, which) do
     {:ok, jwt} =
-      Assent.JWTAdapter.AssentJWT.sign(claims, "RS256", pem(key(which)),
+      AssentJWT.sign(claims, "RS256", pem(key(which)),
         json_library: Jason,
         private_key_id: @kid
       )

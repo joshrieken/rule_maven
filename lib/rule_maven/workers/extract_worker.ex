@@ -22,7 +22,7 @@ defmodule RuleMaven.Workers.ExtractWorker do
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
-  alias RuleMaven.{Games, Jobs, RulebookDownloader}
+  alias RuleMaven.{Games, Jobs, LLM, RulebookDownloader}
 
   # Extraction (OCR for scanned PDFs) can take minutes; this is the hard backstop.
   @impl Oban.Worker
@@ -50,24 +50,7 @@ defmodule RuleMaven.Workers.ExtractWorker do
 
         case RulebookDownloader.extract_document(doc, on_progress) do
           {:ok, updated} ->
-            if RuleMaven.LLM.budget_exceeded?() do
-              halt_over_budget(run, updated)
-            else
-              # A doc saved before extraction skipped the insert-time auto-publish
-              # quality check; re-run it now so the doc doesn't sit pending_review
-              # (and thus invisible to retrieval) after a clean extraction.
-              case Games.maybe_auto_publish(updated) do
-                {:ok, %{status: "published"}} when updated.status != "published" ->
-                  Jobs.event(run, "info", "Quality check passed — auto-published.")
-
-                _ ->
-                  :noop
-              end
-
-              # finish_run (kind "extract") advances readiness centrally.
-              Jobs.finish_run(run, "done", "Extracted #{length(updated.pages)} page(s).")
-              :ok
-            end
+            finish_extracted(run, updated)
 
           {:error, reason} ->
             # Leave the doc unextracted so the prepare page still offers Extract;
@@ -77,6 +60,29 @@ defmodule RuleMaven.Workers.ExtractWorker do
             :ok
         end
     end
+  end
+
+  defp finish_extracted(run, updated) do
+    if LLM.budget_exceeded?(),
+      do: halt_over_budget(run, updated),
+      else: publish_extracted(run, updated)
+  end
+
+  defp publish_extracted(run, updated) do
+    # A doc saved before extraction skipped the insert-time auto-publish
+    # quality check; re-run it now so the doc doesn't sit pending_review
+    # (and thus invisible to retrieval) after a clean extraction.
+    case Games.maybe_auto_publish(updated) do
+      {:ok, %{status: "published"}} when updated.status != "published" ->
+        Jobs.event(run, "info", "Quality check passed — auto-published.")
+
+      _ ->
+        :noop
+    end
+
+    # finish_run (kind "extract") advances readiness centrally.
+    Jobs.finish_run(run, "done", "Extracted #{length(updated.pages)} page(s).")
+    :ok
   end
 
   # The document's LLM call budget ran out mid-extraction. Policy is stop and

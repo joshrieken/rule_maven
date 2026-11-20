@@ -13,7 +13,8 @@ defmodule RuleMaven.ExpansionDelta do
   "rules" => [string]}`.
   """
 
-  alias RuleMaven.{Games, Settings, LLM}
+  alias RuleMaven.{Games, LLM, Settings}
+  alias RuleMaven.Workers.ExpansionDeltaWorker
 
   @doc "Seeds the state machine and enqueues durable generation."
   def generate_async(game) do
@@ -24,7 +25,7 @@ defmodule RuleMaven.ExpansionDelta do
 
     if Application.get_env(:rule_maven, Oban)[:testing] != :manual do
       %{game_id: game_id}
-      |> RuleMaven.Workers.ExpansionDeltaWorker.new()
+      |> ExpansionDeltaWorker.new()
       |> Oban.insert()
     end
 
@@ -75,15 +76,16 @@ defmodule RuleMaven.ExpansionDelta do
              system: system,
              max_tokens: 8000
            ) do
-        {:ok, content} ->
-          case parse_sections(content) do
-            nil -> {:error, "Could not parse the expansion delta. Please retry."}
-            map -> {:ok, Jason.encode!(map)}
-          end
-
-        {:error, reason} ->
-          {:error, reason}
+        {:ok, content} -> encode_sections(content)
+        {:error, reason} -> {:error, reason}
       end
+    end
+  end
+
+  defp encode_sections(content) do
+    case parse_sections(content) do
+      nil -> {:error, "Could not parse the expansion delta. Please retry."}
+      map -> {:ok, Jason.encode!(map)}
     end
   end
 
@@ -93,39 +95,7 @@ defmodule RuleMaven.ExpansionDelta do
   def parse_sections(content) do
     lines = String.split(to_string(content), ~r/\r?\n/)
 
-    {comps, setup, rules, _section} =
-      Enum.reduce(lines, {[], [], [], nil}, fn line, {comps, setup, rules, section} ->
-        trimmed = String.trim(line)
-        header = normalize_header(trimmed)
-        item = trimmed |> bullet_text() |> strip_md()
-
-        cond do
-          is_nil(item) and String.starts_with?(header, "component") ->
-            {comps, setup, rules, :components}
-
-          is_nil(item) and String.starts_with?(header, "rule") ->
-            {comps, setup, rules, :rules}
-
-          is_nil(item) and
-              (String.starts_with?(header, "step") or String.contains?(header, "setup")) ->
-            {comps, setup, rules, :setup}
-
-          item == nil ->
-            {comps, setup, rules, section}
-
-          section == :components ->
-            {[item | comps], setup, rules, section}
-
-          section == :setup ->
-            {comps, [parse_step(item) | setup], rules, section}
-
-          section == :rules ->
-            {comps, setup, [item | rules], section}
-
-          true ->
-            {comps, setup, rules, section}
-        end
-      end)
+    {comps, setup, rules, _section} = Enum.reduce(lines, {[], [], [], nil}, &classify_line/2)
 
     comps = Enum.reverse(comps)
     setup = setup |> Enum.reverse() |> Enum.reject(&(&1["title"] in [nil, "", "nil"]))
@@ -135,6 +105,41 @@ defmodule RuleMaven.ExpansionDelta do
       do: nil,
       else: %{"components" => comps, "setup" => setup, "rules" => rules}
   end
+
+  defp classify_line(line, acc) do
+    trimmed = String.trim(line)
+    item = trimmed |> bullet_text() |> strip_md()
+
+    if is_nil(item),
+      do: classify_header(normalize_header(trimmed), acc),
+      else: add_item(item, acc)
+  end
+
+  # Only non-bullet lines are header candidates.
+  defp classify_header(header, {comps, setup, rules, section}) do
+    cond do
+      String.starts_with?(header, "component") ->
+        {comps, setup, rules, :components}
+
+      String.starts_with?(header, "rule") ->
+        {comps, setup, rules, :rules}
+
+      String.starts_with?(header, "step") or String.contains?(header, "setup") ->
+        {comps, setup, rules, :setup}
+
+      true ->
+        {comps, setup, rules, section}
+    end
+  end
+
+  defp add_item(item, {comps, setup, rules, :components}),
+    do: {[item | comps], setup, rules, :components}
+
+  defp add_item(item, {comps, setup, rules, :setup}),
+    do: {comps, [parse_step(item) | setup], rules, :setup}
+
+  defp add_item(item, {comps, setup, rules, :rules}), do: {comps, setup, [item | rules], :rules}
+  defp add_item(_item, acc), do: acc
 
   # ── shared shapes with Setup's parser ──
 

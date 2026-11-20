@@ -17,7 +17,7 @@ defmodule Mix.Tasks.RuleMaven.PurgeRealPersonVoices do
 
   use Mix.Task
   import Ecto.Query
-  alias RuleMaven.{Repo, Voices}
+  alias RuleMaven.{LLM, Repo, Voices}
   alias RuleMaven.Voices.GameVoice
 
   @impl Mix.Task
@@ -30,27 +30,31 @@ defmodule Mix.Tasks.RuleMaven.PurgeRealPersonVoices do
     if game_ids == [] do
       Mix.shell().info("No games have generated voices.")
     else
-      Enum.each(game_ids, fn game_id ->
-        voices = Voices.all_generated(game_id)
-
-        case RuleMaven.LLM.vet_voice_styles(voices, game_id: game_id) do
-          {:ok, %{real_person: []}} ->
-            Mix.shell().info("game #{game_id}: #{length(voices)} voices, none flagged.")
-
-          {:ok, %{real_person: slugs}} ->
-            if dry_run? do
-              Mix.shell().info(
-                "game #{game_id}: WOULD delete #{Enum.join(slugs, ", ")} (dry run)."
-              )
-            else
-              Voices.drop_generated(game_id, slugs)
-              Mix.shell().info("game #{game_id}: deleted #{Enum.join(slugs, ", ")}.")
-            end
-
-          {:error, reason} ->
-            Mix.shell().error("game #{game_id}: vet failed (#{inspect(reason)}) — skipped.")
-        end
-      end)
+      Enum.each(game_ids, &purge_game(&1, dry_run?))
     end
+  end
+
+  defp purge_game(game_id, dry_run?) do
+    voices = Voices.all_generated(game_id)
+
+    case LLM.vet_voice_styles(voices, game_id: game_id) do
+      {:ok, %{real_person: []}} ->
+        Mix.shell().info("game #{game_id}: #{length(voices)} voices, none flagged.")
+
+      {:ok, %{real_person: slugs}} ->
+        drop_flagged(game_id, slugs, dry_run?)
+
+      {:error, reason} ->
+        Mix.shell().error("game #{game_id}: vet failed (#{inspect(reason)}) — skipped.")
+    end
+  end
+
+  defp drop_flagged(game_id, slugs, true = _dry_run?) do
+    Mix.shell().info("game #{game_id}: WOULD delete #{Enum.join(slugs, ", ")} (dry run).")
+  end
+
+  defp drop_flagged(game_id, slugs, false = _dry_run?) do
+    Voices.drop_generated(game_id, slugs)
+    Mix.shell().info("game #{game_id}: deleted #{Enum.join(slugs, ", ")}.")
   end
 end

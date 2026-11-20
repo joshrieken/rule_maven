@@ -3,8 +3,8 @@ defmodule RuleMaven.GamesResetPreparationTest do
 
   import Ecto.Query
 
-  alias RuleMaven.{Games, Settings, Repo}
-  alias RuleMaven.Games.{Document, Chunk, GameCategory}
+  alias RuleMaven.{Games, Repo, Settings}
+  alias RuleMaven.Games.{Chunk, Document, GameCategory}
   alias RuleMaven.Voices.GameVoice
 
   defp game,

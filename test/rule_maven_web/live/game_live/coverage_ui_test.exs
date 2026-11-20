@@ -4,6 +4,7 @@ defmodule RuleMavenWeb.GameLive.CoverageUiTest do
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
 
+  alias RuleMaven.Games.Document
   alias RuleMaven.Repo
 
   # GameLive tests authenticate by seeding the plug session directly
@@ -23,8 +24,8 @@ defmodule RuleMavenWeb.GameLive.CoverageUiTest do
 
   defp published_doc(game, page_count) do
     {:ok, doc} =
-      %RuleMaven.Games.Document{game_id: game.id}
-      |> RuleMaven.Games.Document.changeset(%{
+      %Document{game_id: game.id}
+      |> Document.changeset(%{
         label: "Rulebook",
         status: "published",
         page_count: page_count

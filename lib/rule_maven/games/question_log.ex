@@ -333,10 +333,10 @@ defmodule RuleMaven.Games.QuestionLog do
       Map.has_key?(changeset.params || %{}, "browsable") or
         Map.has_key?(changeset.params || %{}, :browsable)
 
-    if not explicit? do
-      put_change(changeset, :browsable, false)
-    else
+    if explicit? do
       changeset
+    else
+      put_change(changeset, :browsable, false)
     end
   end
 

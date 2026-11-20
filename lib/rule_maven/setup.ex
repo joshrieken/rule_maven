@@ -9,7 +9,8 @@ defmodule RuleMaven.Setup do
   "detail"}]}`.
   """
 
-  alias RuleMaven.{Games, Settings, LLM}
+  alias RuleMaven.{Games, LLM, Settings}
+  alias RuleMaven.Workers.SetupChecklistWorker
 
   @doc "Seeds the state machine and enqueues durable generation."
   def generate_async(game) do
@@ -20,7 +21,7 @@ defmodule RuleMaven.Setup do
 
     if Application.get_env(:rule_maven, Oban)[:testing] != :manual do
       %{game_id: game_id}
-      |> RuleMaven.Workers.SetupChecklistWorker.new()
+      |> SetupChecklistWorker.new()
       |> Oban.insert()
     end
 
@@ -77,15 +78,16 @@ defmodule RuleMaven.Setup do
              system: system,
              max_tokens: 8000
            ) do
-        {:ok, content} ->
-          case parse_sections(content) do
-            nil -> {:error, "Could not parse the setup checklist. Please retry."}
-            map -> {:ok, Jason.encode!(verify_checklist(game, text, map))}
-          end
-
-        {:error, reason} ->
-          {:error, reason}
+        {:ok, content} -> parse_and_verify(game, text, content)
+        {:error, reason} -> {:error, reason}
       end
+    end
+  end
+
+  defp parse_and_verify(game, text, content) do
+    case parse_sections(content) do
+      nil -> {:error, "Could not parse the setup checklist. Please retry."}
+      map -> {:ok, Jason.encode!(verify_checklist(game, text, map))}
     end
   end
 
@@ -97,37 +99,7 @@ defmodule RuleMaven.Setup do
   def parse_sections(content) do
     lines = String.split(to_string(content), ~r/\r?\n/)
 
-    {components, steps, _section} =
-      Enum.reduce(lines, {[], [], nil}, fn line, {comps, steps, section} ->
-        trimmed = String.trim(line)
-        header = normalize_header(trimmed)
-        item = trimmed |> bullet_text() |> strip_md()
-
-        cond do
-          # Section headers are non-bullet lines. Match loosely: the model often
-          # wraps them in markdown (**, ##) or uses synonyms ("Components needed",
-          # "Setup steps", "Game setup"). Guard on is_nil(item) so a bulleted line
-          # like "- Setup the board" isn't mistaken for the "setup" header.
-          is_nil(item) and String.starts_with?(header, "component") ->
-            {comps, steps, :components}
-
-          is_nil(item) and
-              (String.starts_with?(header, "step") or String.contains?(header, "setup")) ->
-            {comps, steps, :steps}
-
-          item == nil ->
-            {comps, steps, section}
-
-          section == :components ->
-            {[item | comps], steps, section}
-
-          section == :steps ->
-            {comps, [parse_step(item) | steps], section}
-
-          true ->
-            {comps, steps, section}
-        end
-      end)
+    {components, steps, _section} = Enum.reduce(lines, {[], [], nil}, &classify_line/2)
 
     components = Enum.reverse(components)
     steps = steps |> Enum.reverse() |> Enum.reject(&(&1["title"] in [nil, "", "nil"]))
@@ -136,6 +108,36 @@ defmodule RuleMaven.Setup do
       do: parse_headerless(lines),
       else: %{"components" => components, "setup" => steps}
   end
+
+  defp classify_line(line, acc) do
+    trimmed = String.trim(line)
+    item = trimmed |> bullet_text() |> strip_md()
+
+    if is_nil(item),
+      do: classify_header(normalize_header(trimmed), acc),
+      else: add_item(item, acc)
+  end
+
+  # Section headers are non-bullet lines. Match loosely: the model often
+  # wraps them in markdown (**, ##) or uses synonyms ("Components needed",
+  # "Setup steps", "Game setup"). Only non-bullet lines reach here, so a bulleted
+  # line like "- Setup the board" isn't mistaken for the "setup" header.
+  defp classify_header(header, {comps, steps, section}) do
+    cond do
+      String.starts_with?(header, "component") ->
+        {comps, steps, :components}
+
+      String.starts_with?(header, "step") or String.contains?(header, "setup") ->
+        {comps, steps, :steps}
+
+      true ->
+        {comps, steps, section}
+    end
+  end
+
+  defp add_item(item, {comps, steps, :components}), do: {[item | comps], steps, :components}
+  defp add_item(item, {comps, steps, :steps}), do: {comps, [parse_step(item) | steps], :steps}
+  defp add_item(_item, acc), do: acc
 
   # The reasoning model sometimes emits both lists as one bare bullet run with
   # no section headers at all (seen with Ethnos: 2nd Edition), which the header
@@ -227,29 +229,26 @@ defmodule RuleMaven.Setup do
              system: RuleMaven.Prompts.template("setup_verify_system"),
              max_tokens: 600
            ) do
-        {:ok, out} ->
-          case keep_indices(out) do
-            :all ->
-              map
-
-            keep ->
-              nc = length(comps)
-              kept_comps = filter_by_index(comps, 1, keep)
-              kept_steps = filter_by_index(steps, nc + 1, keep)
-
-              # Guard: never let the checker wipe the whole checklist.
-              if kept_comps == [] and kept_steps == [],
-                do: map,
-                else: %{map | "components" => kept_comps, "setup" => kept_steps}
-          end
-
-        {:error, _} ->
-          map
+        {:ok, out} -> apply_verdict(map, keep_indices(out))
+        {:error, _} -> map
       end
     end
   end
 
   defp verify_checklist(_game, _text, map), do: map
+
+  defp apply_verdict(map, :all), do: map
+
+  defp apply_verdict(%{"components" => comps, "setup" => steps} = map, keep) do
+    nc = length(comps)
+    kept_comps = filter_by_index(comps, 1, keep)
+    kept_steps = filter_by_index(steps, nc + 1, keep)
+
+    # Guard: never let the checker wipe the whole checklist.
+    if kept_comps == [] and kept_steps == [],
+      do: map,
+      else: %{map | "components" => kept_comps, "setup" => kept_steps}
+  end
 
   defp step_text(%{"title" => t, "detail" => d}) do
     [t, d] |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join(" — ")
@@ -270,13 +269,11 @@ defmodule RuleMaven.Setup do
   defp keep_indices(text) do
     trimmed = String.trim(text || "")
 
-    cond do
-      Regex.match?(~r/^\s*none\b/i, trimmed) ->
-        MapSet.new()
-
-      true ->
-        nums = Regex.scan(~r/\d+/, trimmed) |> Enum.map(fn [n] -> String.to_integer(n) end)
-        if nums == [], do: :all, else: MapSet.new(nums)
+    if Regex.match?(~r/^\s*none\b/i, trimmed) do
+      MapSet.new()
+    else
+      nums = Regex.scan(~r/\d+/, trimmed) |> Enum.map(fn [n] -> String.to_integer(n) end)
+      if nums == [], do: :all, else: MapSet.new(nums)
     end
   end
 

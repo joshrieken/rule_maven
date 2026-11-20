@@ -143,8 +143,7 @@ defmodule RuleMavenWeb.AdminLive.Audit do
   defp format_meta(meta) do
     meta
     |> Enum.reject(fn {k, _v} -> to_string(k) in @redacted_meta_keys end)
-    |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
-    |> Enum.join(", ")
+    |> Enum.map_join(", ", fn {k, v} -> "#{k}=#{v}" end)
   end
 
   defp th, do: "padding:0.45rem 0.6rem;font-weight:600;color:var(--text-muted)"

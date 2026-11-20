@@ -91,8 +91,8 @@ defmodule RuleMavenWeb do
       import RuleMavenWeb.CoreComponents
 
       # Common modules used in templates
-      alias RuleMavenWeb.Layouts
       alias Phoenix.LiveView.JS
+      alias RuleMavenWeb.Layouts
 
       # Routes generation with the ~p sigil
       unquote(verified_routes())

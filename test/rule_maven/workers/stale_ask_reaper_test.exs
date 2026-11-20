@@ -7,8 +7,8 @@ defmodule RuleMaven.Workers.StaleAskReaperTest do
   use RuleMaven.DataCase, async: false
   use Oban.Testing, repo: RuleMaven.Repo
 
-  alias RuleMaven.Games.QuestionLog
   alias RuleMaven.{Games, Repo, Users}
+  alias RuleMaven.Games.QuestionLog
   alias RuleMaven.Workers.{AskWorker, StaleAskReaper}
 
   setup do

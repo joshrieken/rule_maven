@@ -22,8 +22,8 @@ defmodule RuleMaven.Jobs do
   import Ecto.Query
   require Logger
 
+  alias RuleMaven.Jobs.{JobEvent, JobRun}
   alias RuleMaven.Repo
-  alias RuleMaven.Jobs.{JobRun, JobEvent}
 
   @admin_topic "jobs"
 

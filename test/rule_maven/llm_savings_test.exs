@@ -75,7 +75,7 @@ defmodule RuleMaven.LLMSavingsTest do
   end
 
   describe "record_call_savings/3 (cheap_route)" do
-    alias RuleMaven.{LLM, Settings, Repo}
+    alias RuleMaven.{LLM, Repo, Settings}
 
     test "records cheap_route when the call ran on the cheap model" do
       Settings.put("llm_cheap_model_openrouter", "google/gemini-2.0-flash")

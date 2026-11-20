@@ -29,13 +29,13 @@ defmodule RuleMaven.GamesChunkTest do
   describe "chunking" do
     test "creates chunks from document text", %{doc: doc} do
       chunks = Repo.all(from c in Chunk, where: c.document_id == ^doc.id)
-      assert length(chunks) > 0
+      assert chunks != []
     end
 
     test "detects section labels", %{doc: doc} do
       chunks = Repo.all(from c in Chunk, where: c.document_id == ^doc.id)
       labels = Enum.map(chunks, & &1.section_label) |> Enum.reject(&is_nil/1)
-      assert length(labels) > 0
+      assert labels != []
     end
 
     test "detects cross-references", %{doc: doc} do
@@ -71,7 +71,7 @@ defmodule RuleMaven.GamesChunkTest do
     test "keyword retrieval returns chunks", %{game: game} do
       # Embedding will fail without API key, falls back to keyword
       results = Games.retrieve_chunks(game, "move spaces")
-      assert length(results) > 0
+      assert results != []
     end
 
     test "cross-reference pull adds referenced chunks", %{game: game} do
@@ -79,7 +79,7 @@ defmodule RuleMaven.GamesChunkTest do
       results = Games.retrieve_chunks(game, "movement rules", 3)
 
       # At least some chunks should be returned
-      assert length(results) > 0
+      assert results != []
     end
   end
 end

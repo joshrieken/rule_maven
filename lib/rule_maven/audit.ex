@@ -11,8 +11,8 @@ defmodule RuleMaven.Audit do
   import Ecto.Query, warn: false
   require Logger
 
-  alias RuleMaven.Repo
   alias RuleMaven.Audit.AuditLog
+  alias RuleMaven.Repo
 
   # Cap on delete snapshots question_history/2 loads (newest-first). Served by
   # the partial expression index audit_logs_qdelete_game_idx.
