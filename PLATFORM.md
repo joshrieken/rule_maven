@@ -39,6 +39,10 @@ something breaks): `OPERATIONS.md` in the hub repo.
 
 - **Every app signs in through Authentik** at `id.lowcalcalzonezone.com` (OpenID Connect, code flow + PKCE +
   state + nonce). When configured it's the only way in: no app passwords, registration, resets or invites.
+- **How people get in:** an app admin's invite link from the hub (Invites: pick which of their apps; one use, 7
+  days; `identity/blueprints/invites.yaml`), a hub access request an app admin approves, or an Authentik admin
+  adding them to `<app>-users`. Accounts made from an invite have an unchecked email (path `users/invited`): an
+  app's email mapping claims `email_verified` only for the default path `users`.
 - **One blueprint per app** in `identity/blueprints/<app>.yaml` (copy `drawburn.yaml`): provider, application,
   groups `<app>-users` and `<app>-admins`, a rule that only those groups may open the app, strict redirect URI
   `<APP_URL>/auth/oidc/callback`, logout redirect `<APP_URL>/login`.
@@ -46,7 +50,7 @@ something breaks): `OPERATIONS.md` in the hub repo.
   group claim at every sign-in; admin = `<app>-admins`, re-synced each time. Sign-on sessions last 7 days.
   Two levels when an app needs them: plain admins run content and moderation; **super admins** (also in
   `<app>-superadmins`, env `<APP>_OIDC_SUPERADMIN_GROUP`; unset = every admin is super) also own settings, AI and
-  spending, backups, invites and accounts. Super implies admin; never demote the last super admin.
+  spending, backups and accounts. Super implies admin; never demote the last super admin.
   Signing out also ends the Authentik session (end-session with `id_token_hint`). **Sign out everywhere:** when an
   Authentik session ends (signed out in any app, expired after its 7 days, or ended by an admin under Directory → Users →
   Sessions), Authentik's worker POSTs a signed logout token to each app's `POST /auth/oidc/backchannel` over the internal
