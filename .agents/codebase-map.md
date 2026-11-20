@@ -10,7 +10,8 @@ Progressive disclosure: scan this file to locate target modules. Load only what 
 Copied from `hub/platform/elixir/lccz` by `hub/ops/sync-platform.sh`; edit and test it there. Rule Maven binds it:
 `RuleMaven.Auth.Oidc` = `use Lccz.Oidc` (sign-in protocol, logout tokens), `RuleMavenWeb.SilentSignIn` = `use Lccz.SilentSignIn`,
 `RuleMavenWeb.LiveSessions` → `Lccz.LiveSessions`, `RuleMaven.Changelog` → `Lccz.Changelog` (parser, audience rules),
-`HubController` → `Lccz.Hub.serve/3`, `OidcController.backchannel/2` → `Lccz.Backchannel.serve/3`, `SignOn` groups → `Lccz.Groups.level/2`.
+`HubController` → `Lccz.Hub.serve/3`, `OidcController.backchannel/2` → `Lccz.Backchannel.serve/3`, `SignOn` groups → `Lccz.Groups.level/2`,
+`Layouts.webring/1` → `Lccz.Webring.links/3`.
 
 ## Context Modules (business logic — `lib/rule_maven/`)
 
@@ -93,7 +94,7 @@ Copied from `hub/platform/elixir/lccz` by `hub/ops/sync-platform.sh`; edit and t
 | Module | File | Responsibility |
 |--------|------|----------------|
 | `CoreComponents` | `core_components.ex` | Shared UI: buttons, modals, forms, icons; `citation_pages/1`, `citation_chip/1` ("Rulebook p.4 · Official FAQ p.2" — names the source), `citation_cards` (optional `symbol_marks` → icon chips in quotes) |
-| `Layouts` | `layouts.ex` + `layouts/` | Root layout, app shell; `version_link/1` (signed-in only; header "vX.Y.Z" → /changelog, red dot while `Changelog.unseen_for?/2`) |
+| `Layouts` | `layouts.ex` + `layouts/` | Root layout, app shell; `webring/1` (Calzone Zone Ring: faint ◀ 🥟 ▶, last row of `.app-shell`, CSS `.webring*`); `version_link/1` (signed-in only; header "vX.Y.Z" → /changelog, red dot while `Changelog.unseen_for?/2`) |
 
 ## Workers — Oban (`lib/rule_maven/workers/`)
 
