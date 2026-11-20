@@ -339,7 +339,9 @@ Everything lives in the hub repo's `dev/`:
 
 ```sh
 hub/dev/setup.sh      # once (re-run after adding an app): local secrets (hub/dev/.env), local Authentik's app addresses
-hub/dev/up.sh         # start: local Authentik + Traefik + every app (or name some: hub/dev/up.sh drawburn hub)
+hub/dev/up.sh         # start: refresh, then local Authentik + Traefik + every app (or name some: hub/dev/up.sh drawburn hub)
+hub/dev/refresh.sh    # fast-forward every clean checkout on its default branch to its remote (up.sh runs it first)
+hub/dev/check.sh      # is every address answering? names the app that isn't and its logs command
 hub/dev/down.sh       # stop the containers (--all stops the local Authentik too); deps, builds and data stay
 hub/dev/native.sh <app>   # run that app natively instead (fastest reloads), same address, same settings
 hub/ops/pull-prod-all.sh  # production data into dev (§8); the containers use the same files and databases
@@ -367,6 +369,11 @@ hub/ops/pull-prod-all.sh  # production data into dev (§8); the containers use t
   Mac's Postgres (`rule_maven_dev`, Postgres 18 like production) via `PGHOST=host.docker.internal`.
 - **Dependencies** live in volumes (Linux builds of native modules); they reinstall only when the lockfile changes.
   First start: a few minutes (installs, Rule Maven compiles); later starts: about a minute.
+- **It keeps working as code moves.** Every app container runs `dev/images/run.sh`: deps, database and pending
+  migrations on start, and it restarts the server by itself when `mix.lock`, `config/*.exs` or the migrations change
+  under it (a pull, a release, a Dependabot merge); a failing setup retries every 15 s. Releases are mostly pushed
+  from other worktrees, so `refresh.sh` (run by `up.sh`) fast-forwards the checkouts; it never touches one with
+  uncommitted changes, on another branch, or diverged. If something still looks wrong: `hub/dev/check.sh`.
 - **Tests and tools still run natively by default** (fast). For exact parity, run them in the container:
   `docker compose -f hub/dev/compose.yaml exec <app> mix test`.
 - **`curl` inside a container can't test `*.localhost` names** (it always uses loopback for them); the apps
