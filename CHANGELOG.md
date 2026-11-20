@@ -17,6 +17,10 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## Unreleased
+### Admins
+- Removed: the old invite codes' table (unused since v0.6.5). Group invite links are unchanged.
+
 ## v0.6.6 (2026-11-19)
 ### Everyone
 - Fixed: re-asking or regenerating a follow-up question now remembers the conversation before it, so the new answer builds on the earlier questions like the first one did.
