@@ -17,7 +17,7 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
-## Unreleased
+## v0.6.5 (2026-11-19)
 ### Admins
 - Removed: the old sign-up invite codes (the Invite Codes admin page and the invite-code registration
   page). Access comes from the Low-Cal Calzone Zone sign-in: people ask from the hub and an admin
