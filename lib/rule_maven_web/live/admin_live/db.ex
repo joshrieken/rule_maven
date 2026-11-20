@@ -31,7 +31,7 @@ defmodule RuleMavenWeb.AdminLive.Db do
     answer_favorites answer_voices app_settings cheatsheet_versions chunks
     documents expansion_selections extract_calibrations game_categories
     game_expansion_links game_support_requests game_voices games
-    house_rule_deltas house_rules injection_patterns invite_codes job_events
+    house_rule_deltas house_rules injection_patterns job_events
     job_runs llm_logs llm_savings persona_events question_category_tags
     question_flags question_mismatch_reports question_votes questions_log
     theme_events user_collections user_favorites

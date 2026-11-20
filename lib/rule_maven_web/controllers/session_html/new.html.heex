@@ -107,7 +107,7 @@
         above scrolls past it. `position: sticky` (not fixed) keeps it in flow,
         so it can't overlap the pitch's last line and needs no viewport math. --%>
   <%!-- Single sign-on configured: the only way in (no passwords, registration or resets
-        here; accounts and invitations live at the shared sign-in). --%>
+        here; accounts and access live at the shared sign-in). --%>
   <div :if={@sso} class="login-bar">
     <.form for={%{}} action={~p"/auth/oidc"} class="login-bar-form">
       <input type="hidden" name="mode" value="login" />
@@ -152,8 +152,6 @@
       <a href="/reset-password">Forgot your password?</a>
       <span aria-hidden="true">·</span>
       <a href="/magic-link">Email me a sign-in link</a>
-      <span aria-hidden="true">·</span>
-      <a href="/register">Register with an invite code</a>
     </div>
   </div>
 </div>

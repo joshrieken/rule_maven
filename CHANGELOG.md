@@ -17,6 +17,12 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## Unreleased
+### Admins
+- Removed: the old sign-up invite codes (the Invite Codes admin page and the invite-code registration
+  page). Access comes from the Low-Cal Calzone Zone sign-in: people ask from the hub and an admin
+  approves. Old /register links now open the sign-in page. Group invite links are unchanged.
+
 ## v0.6.4 (2026-11-19)
 ### Admins
 - Import tasks and import-prepare scripts refuse to write to the dev database; production is the source of truth. Put `bin/prod` in front of the command (or `RULEMAVEN_DEV_WRITE=1` for a deliberate dev experiment).

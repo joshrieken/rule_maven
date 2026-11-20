@@ -66,7 +66,7 @@ defmodule RuleMavenWeb.LiveNavigationTest do
   test "DB Admin's table tabs patch the page in place", %{conn: conn} do
     {:ok, view, _html} = live(login(conn, super_admin()), ~p"/admin/db")
 
-    view |> element(~s(a[href="/admin/db?table=invite_codes"])) |> render_click()
-    assert_patch(view, ~p"/admin/db?table=invite_codes")
+    view |> element(~s(a[href="/admin/db?table=games"])) |> render_click()
+    assert_patch(view, ~p"/admin/db?table=games")
   end
 end

@@ -228,8 +228,8 @@ Auth.Oidc.settings/0 non-nil) = the ONLY way in:
        "_rule_maven_oidc_id" (7d)
      mode=link (signed-in password user, Settings "Link your … account") → SignOn.link → /settings
   Password routes (POST /login, /reset-password*, /magic-link*, /confirm/:token, /auto-login)
-     → Plugs.PasswordAuth refuses (flash → /login); RegistrationLive, Settings change_password,
-     admin create_user refuse too
+     → Plugs.PasswordAuth refuses (flash → /login); Settings change_password,
+     admin create_user refuse too. No sign-up here: GET /register (old invite links) → /login
   GET /logout → AuthController.logout: clears session + ID-token cookie, sets rulemaven_sso_tried
      → 302 to the provider's end_session_endpoint?id_token_hint=…&post_logout_redirect_uri=<public_url>/login
   Silent sign-in (RuleMavenWeb.SilentSignIn): a signed-out visit that would go to /login

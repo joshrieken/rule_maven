@@ -53,9 +53,8 @@ defmodule RuleMavenWeb.PasswordAuthTest do
     refute_received {:email, _}
   end
 
-  test "registration refuses", %{conn: conn} do
-    assert {:error, {:redirect, %{to: "/login", flash: flash}}} = live(conn, ~p"/register")
-    assert flash["error"] =~ "Sign in with Low-Cal Calzone Zone"
+  test "an old sign-up link lands on /login", %{conn: conn} do
+    assert conn |> get("/register?code=abc") |> redirected_to() == "/login"
   end
 
   test "the header no longer offers Register", %{conn: conn} do

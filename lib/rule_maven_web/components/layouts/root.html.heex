@@ -91,7 +91,6 @@
                   <div class="user-dropdown-section">Manage</div>
                   <.link navigate={~p"/admin/users"} class="user-dropdown-link">Users</.link>
                   <.link navigate={~p"/admin/groups"} class="user-dropdown-link">Groups</.link>
-                  <.link navigate={~p"/admin/invites"} class="user-dropdown-link">Invites</.link>
                   <.link navigate={~p"/admin/catalog"} class="user-dropdown-link">Catalog</.link>
                   <.link navigate={~p"/admin/requests"} class="user-dropdown-link">Requests</.link>
                   <div :if={RuleMaven.Users.can?(me, :superadmin)} class="user-dropdown-section">
@@ -272,14 +271,6 @@
                   </div>
                 </details>
               <% true -> %>
-                <.link
-                  :if={!RuleMaven.Auth.Oidc.enabled?()}
-                  href={~p"/register"}
-                  class="nav-link"
-                  style="color:var(--text-muted)"
-                >
-                  Register
-                </.link>
                 <%!-- With single sign-on, Log in starts it straight away (the /login page only
                       repeats the same button). --%>
                 <.form
@@ -319,7 +310,6 @@
             <div class="drawer-section">Manage</div>
             <.link navigate={~p"/admin/users"} class="drawer-link">Manage Users</.link>
             <.link navigate={~p"/admin/groups"} class="drawer-link">Groups</.link>
-            <.link navigate={~p"/admin/invites"} class="drawer-link">Invite Codes</.link>
             <.link navigate={~p"/admin/catalog"} class="drawer-link">Game Catalog</.link>
             <.link navigate={~p"/admin/requests"} class="drawer-link">Support Requests</.link>
             <div :if={RuleMaven.Users.can?(me, :superadmin)} class="drawer-section">
@@ -395,9 +385,6 @@
             </.form>
             <.link :if={!RuleMaven.Auth.Oidc.enabled?()} href={~p"/login"} class="drawer-link">
               Log in
-            </.link>
-            <.link :if={!RuleMaven.Auth.Oidc.enabled?()} href={~p"/register"} class="drawer-link">
-              Register
             </.link>
           <% end %>
         </nav>

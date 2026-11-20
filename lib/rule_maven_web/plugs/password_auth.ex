@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.Plugs.PasswordAuth do
   @moduledoc """
   Guards the app's own credential routes (password login, password reset, emailed sign-in
-  links, email confirmation, registration's auto-login): while single sign-on is configured
+  links, email confirmation, the signed-token auto-login): while single sign-on is configured
   (`RuleMaven.Auth.Oidc.enabled?/0`) they refuse and send people to /login, where the only way
   in is the sign-on button. The code stays for when sign-on is off (dev, tests).
   """

@@ -390,12 +390,6 @@ defmodule RuleMavenWeb.AdminLive.Index do
           desc="View every crew, manage members, rename or delete."
         />
         <.card
-          navigate={~p"/admin/invites"}
-          icon="🎟️"
-          title="Invite Codes"
-          desc="Generate invite codes for new user registration."
-        />
-        <.card
           navigate={~p"/admin/catalog"}
           icon="📦"
           title="Game Catalog"

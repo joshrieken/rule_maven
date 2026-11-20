@@ -125,8 +125,8 @@ outermost wrapper div that always exists (even if hidden with `display:none`).
 
 - Every signed-in LiveView is in the one `live_session :app` (router); admin
   and super-admin gates are `UserLiveAuth` on_mount, never a separate
-  live_session (a boundary forces a full page load). `:public` holds only
-  `/register` (signed-out).
+  live_session (a boundary forces a full page load). There is no signed-out
+  LiveView (`/register` is a plain redirect to `/login` for old sign-up links).
 - Links to LiveView pages are `<.link navigate={…}>` (or `patch` within the
   same page, e.g. DB Admin's table tabs), including the header and drawer in
   `root.html.heex`. Plain `href` only for controller pages (`/help`,

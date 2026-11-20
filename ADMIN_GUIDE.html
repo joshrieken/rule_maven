@@ -62,7 +62,7 @@
   <a href="#faqpromo">Promoting to FAQ</a>
   <a href="#staleness">After rulebook edits</a>
   <h2>People &amp; catalog</h2>
-  <a href="#users">Users &amp; invites</a>
+  <a href="#users">Users &amp; access</a>
   <a href="#catalog">Catalog &amp; requests</a>
   <a href="#security">Security &amp; system</a>
 </nav>
@@ -91,7 +91,6 @@
   <tr><td><code>/admin/questions</code></td><td>Moderate questions across all games.</td></tr>
   <tr><td><code>/admin/threads</code></td><td>Review conversation threads.</td></tr>
   <tr><td><code>/admin/users</code></td><td>Manage users and roles.</td></tr>
-  <tr><td><code>/admin/invites</code></td><td>Issue and revoke invite codes.</td></tr>
   <tr><td><code>/admin/catalog</code> &amp; <code>/admin/requests</code></td><td>Curate the game catalog; handle user support requests.</td></tr>
   <tr><td><code>/admin/security</code></td><td>Security overview.</td></tr>
   <tr><td><code>/admin/db</code>, <code>/oban</code></td><td>Database inspector and background-job dashboard.</td></tr>
@@ -147,11 +146,10 @@
 <div class="note warn"><b>Important.</b> Cached answers were written against specific rulebook text. When you add, edit, clean, or delete rulebook content, the app <b>invalidates the answer pool</b> for that game: auto-generated cached answers are demoted, and community answers are flagged <code>needs_review</code> and skipped until you re-approve them. So after a meaningful edit, expect to revisit the affected community answers and re-approve the ones that still hold.</div>
 <p>You don't have to hunt for them: <code>/admin/questions</code> shows a <b>review-backlog badge</b> with the count of <code>needs_review</code> answers, and clicking it deep-links straight to that filter. Work the list down to clear the backlog.</p>
 
-<h2 id="users">Users &amp; invites</h2>
+<h2 id="users">Users &amp; access</h2>
 <ul>
   <li><b><code>/admin/users</code></b> — see accounts and change roles. Granting the admin role gives the <code>admin</code> capability (all the powers in this guide).</li>
-  <li><b><code>/admin/invites</code></b> — registration can require an invite code. Issue codes to onboard people and revoke ones you no longer want used.</li>
-  <li><b>Single sign-on</b> — once the Low-Cal Calzone Zone account is turned on, it is the only way in: no passwords, registration or invite codes. Let someone in by adding them to the <code>rulemaven-users</code> group in the account admin; members of <code>rulemaven-admins</code> are admins here (checked at every sign-in, so Promote/Demote on <code>/admin/users</code> only lasts until their next sign-in). Existing accounts link from Settings or with <code>mix rule_maven.link_sso</code>; never by matching email.</li>
+  <li><b>Single sign-on</b> — once the Low-Cal Calzone Zone account is turned on, it is the only way in: no passwords or sign-up here. People ask for access from the hub (lowcalcalzonezone.com) and an admin approves it, or you add them to the <code>rulemaven-users</code> group in the account admin; members of <code>rulemaven-admins</code> are admins here (checked at every sign-in, so Promote/Demote on <code>/admin/users</code> only lasts until their next sign-in). Existing accounts link from Settings or with <code>mix rule_maven.link_sso</code>; never by matching email.</li>
 </ul>
 <p class="muted">Voter influence scales with reputation: contributors whose answers earn net upvotes have their votes weighted more heavily (up to a cap), so established users help surface good answers faster.</p>
 <div class="note"><b>Who can vote.</b> Only users who have <b>confirmed their email</b> count toward verifying an answer (and in prod, accounts must clear a minimum age). Promotion to community-verified also needs a <b>quorum</b> of distinct eligible voters, and each voter's effect on another user's reputation is capped — together these stop throwaway or colluding accounts from rigging the tally. Users can't vote on their own answers.</div>

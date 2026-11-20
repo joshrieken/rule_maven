@@ -11,6 +11,9 @@ defmodule RuleMavenWeb.SessionController do
     end
   end
 
+  @doc "Old sign-up links (`/register?code=...`) go to /login."
+  def register(conn, _params), do: redirect(conn, to: ~p"/login")
+
   alias RuleMaven.Auth.LoginThrottle
 
   def create(conn, %{"session" => %{"username" => username, "password" => password}}) do

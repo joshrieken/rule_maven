@@ -1,7 +1,6 @@
 defmodule RuleMavenWeb.UserLiveAuth do
   @moduledoc """
-  LiveView sign-in hooks: `:app` (signed-in pages, plus the admin gate) and `:public`. A
-  signed-out first render of an `:app` page goes to `/login`, or to the silent sign-in
+  LiveView sign-in hook `:app` (signed-in pages, plus the admin gate). A signed-out first render of an `:app` page goes to `/login`, or to the silent sign-in
   (`RuleMavenWeb.SilentSignIn`) when that page load qualifies.
   """
   import Phoenix.Component, only: [assign: 3]
@@ -50,10 +49,6 @@ defmodule RuleMavenWeb.UserLiveAuth do
       user ->
         mount_app(socket, user, session)
     end
-  end
-
-  def on_mount(:public, _params, session, socket) do
-    {:cont, assign(socket, :current_user, active_user(session))}
   end
 
   defp mount_app(socket, user, session) do

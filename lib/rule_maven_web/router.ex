@@ -42,6 +42,9 @@ defmodule RuleMavenWeb.Router do
     get "/help", PageController, :help
     get "/changelog", ChangelogController, :show
     get "/login", SessionController, :new
+    # Old sign-up links (/register?code=...) may still be out there; access is granted at the
+    # shared sign-in now, so they just land on /login.
+    get "/register", SessionController, :register
     get "/logout", AuthController, :logout
     # Single sign-on (RuleMaven.Auth.Oidc): the button's sign-in is a CSRF-protected POST.
     post "/auth/oidc", OidcController, :start
@@ -59,12 +62,6 @@ defmodule RuleMavenWeb.Router do
     get "/symbols/:id/image", SymbolController, :image
     # Theme picker pings this on change so we can track theme usage.
     post "/theme-events", MetricsController, :theme
-
-    live_session :public,
-      on_mount: [{RuleMavenWeb.UserLiveAuth, :public}],
-      session: {RuleMavenWeb.UserLiveAuth, :get_session, []} do
-      live "/register", RegistrationLive, :index
-    end
 
     # One live_session for every logged-in LiveView, admin or not. LiveView can
     # only reuse the open socket when both routes share a live_session; across a
@@ -103,7 +100,6 @@ defmodule RuleMavenWeb.Router do
       live "/admin/users", AdminLive.Users, :index
       live "/admin/groups", AdminLive.Groups, :index
       live "/admin/groups/:token", AdminLive.GroupShow, :show
-      live "/admin/invites", AdminLive.Invites, :index
       live "/admin/catalog", AdminLive.Catalog, :index
       live "/admin/themes", AdminLive.Themes, :index
       live "/admin/requests", AdminLive.Requests, :index

@@ -66,7 +66,6 @@ Copied from `hub/platform/elixir/lccz` by `hub/ops/sync-platform.sh`; edit and t
 | `AdminLive.Db` | `admin_live/db.ex` | 540 | `/admin/db` | Browse/edit DB tables (CRUD), extended/table view |
 | `AdminLive.Threads` | `admin_live/threads.ex` | 195 | `/admin/threads` | Review Q&A threads with followups, merge into FAQ |
 | `AdminLive.Users` | `admin_live/users.ex` | 124 | `/admin/users` | User list with promote/demote role management |
-| `AdminLive.Invites` | `admin_live/invites.ex` | 139 | `/admin/invites` | Generate and deactivate invite codes |
 | `SettingsLive` | `settings_live.ex` | 605 | `/settings` | App settings: LLM keys, provider, models |
 | `UserLiveAuth` | `user_live_auth.ex` | — | (session helper) | LiveView session auth, assigns `current_user`; public `active_user/1` (suspension, force-logout, `SessionLifetime`); `get_session/1` adds `silent_sign_in` for a signed-out page load, `:app` redirects there on the dead render |
 
