@@ -6,6 +6,8 @@ defmodule RuleMaven.GamesFixtures do
 
   import Ecto.Query
 
+  alias RuleMaven.Games.Document
+
   @doc """
   Generate a game.
   """
@@ -30,8 +32,8 @@ defmodule RuleMaven.GamesFixtures do
     game = game_fixture(attrs)
 
     {:ok, _doc} =
-      %RuleMaven.Games.Document{}
-      |> RuleMaven.Games.Document.changeset(%{
+      %Document{}
+      |> Document.changeset(%{
         label: "Rulebook",
         full_text: "Test rulebook text.",
         game_id: game.id,

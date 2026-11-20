@@ -4,8 +4,8 @@ defmodule RuleMaven.Groups do
   cache.
   """
   import Ecto.Query
-  alias RuleMaven.Repo
   alias RuleMaven.Groups.{Group, Membership}
+  alias RuleMaven.Repo
 
   # Advisory locks live in ONE flat 64-bit keyspace, so a single-argument
   # `pg_advisory_xact_lock(id)` keyed on a group id collides with the same call
@@ -492,10 +492,7 @@ defmodule RuleMaven.Groups do
       if is_nil(current_owner) or current_owner.user_id != actor.id do
         Repo.rollback(:forbidden)
       else
-        case do_transfer_ownership(group, current_owner, new_owner_user_id) do
-          {:ok, group} -> group
-          {:error, reason} -> Repo.rollback(reason)
-        end
+        transfer_or_rollback(group, current_owner, new_owner_user_id)
       end
     end)
   end
@@ -510,12 +507,16 @@ defmodule RuleMaven.Groups do
       Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@group_lock_class, group.id])
 
       current_owner = Repo.get_by(Membership, group_id: group.id, role: "owner")
-
-      case do_transfer_ownership(group, current_owner, new_owner_user_id) do
-        {:ok, group} -> group
-        {:error, reason} -> Repo.rollback(reason)
-      end
+      transfer_or_rollback(group, current_owner, new_owner_user_id)
     end)
+  end
+
+  # Inside the transaction: the updated group, or roll back with the reason.
+  defp transfer_or_rollback(group, current_owner, new_owner_user_id) do
+    case do_transfer_ownership(group, current_owner, new_owner_user_id) do
+      {:ok, group} -> group
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   # Runs holding the group's advisory lock (both callers above take it

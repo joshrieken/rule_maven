@@ -14,6 +14,7 @@ defmodule RuleMaven.GroupPrivacyTest do
 
   alias RuleMaven.{Faq, Games, GamesFixtures, GroupsFixtures, Repo}
   alias RuleMaven.Games.QuestionVote
+  alias RuleMaven.Workers.SuggestionsWorker
 
   defp create_user(prefix) do
     n = System.unique_integer([:positive])
@@ -148,7 +149,7 @@ defmodule RuleMaven.GroupPrivacyTest do
       on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
       assert :ok =
-               RuleMaven.Workers.SuggestionsWorker.perform(%Oban.Job{
+               SuggestionsWorker.perform(%Oban.Job{
                  id: nil,
                  args: %{"game_id" => game.id}
                })

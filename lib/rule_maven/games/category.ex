@@ -1,4 +1,9 @@
 defmodule RuleMaven.Games.Category do
+  @moduledoc """
+  The fixed list of game categories (value/label pairs) and which game
+  metadata (BGG lookup, player counts) makes sense for each.
+  """
+
   @categories [
     {"board_game", "Board Game"},
     {"card_game", "Card Game"},

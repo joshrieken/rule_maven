@@ -400,7 +400,7 @@ defmodule RuleMaven.TrustTest do
     end
 
     defp confirm(user) do
-      {:ok, u} = user |> RuleMaven.Users.User.confirm_changeset() |> Repo.update()
+      {:ok, u} = user |> User.confirm_changeset() |> Repo.update()
       u
     end
 

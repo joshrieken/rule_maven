@@ -385,10 +385,7 @@ defmodule RuleMaven.LLM.QuestionFacets do
     sq = Enum.sort(q)
     sc = Enum.sort(c)
 
-    cond do
-      sq == sc -> true
-      true -> typo_pairable?(sq -- sc, sc -- sq)
-    end
+    sq == sc or typo_pairable?(sq -- sc, sc -- sq)
   end
 
   defp typo_pairable?(da, db) when length(da) != length(db) or length(da) > 2, do: false
@@ -459,16 +456,26 @@ defmodule RuleMaven.LLM.QuestionFacets do
     c = tokens(candidate)
 
     Polarity.compatible?(question, candidate) and
-      numbers_agree?(q, c) and
+      quantities_agree?(question, candidate, q, c) and
+      markers_agree?(q, c)
+  end
+
+  # Every pure function of the questions, so splitting the chain in two keeps
+  # the verdict identical.
+  defp quantities_agree?(question, candidate, q, c) do
+    numbers_agree?(q, c) and
       ratios_agree?(question, candidate) and
       trade_pairs_agree?(q, c) and
       bounds_agree?(q, c) and
-      compass_agree?(q, c) and
-      ordinals_agree?(q, c) and
-      frequencies_agree?(q, c) and
       dice_agree?(q, c) and
       fractions_agree?(q, c) and
-      multipliers_agree?(q, c) and
+      multipliers_agree?(q, c)
+  end
+
+  defp markers_agree?(q, c) do
+    compass_agree?(q, c) and
+      ordinals_agree?(q, c) and
+      frequencies_agree?(q, c) and
       letter_ids_agree?(q, c) and
       turn_ownership_agrees?(q, c) and
       role_order_agrees?(q, c) and
@@ -499,18 +506,26 @@ defmodule RuleMaven.LLM.QuestionFacets do
     w = tokens(rewrite)
 
     Polarity.compatible?(raw, rewrite) and
-      MapSet.subset?(numbers(w), numbers(r)) and
+      rewrite_adds_no_quantities?(raw, rewrite, r, w) and
+      rewrite_adds_no_markers?(r, w)
+  end
+
+  defp rewrite_adds_no_quantities?(raw, rewrite, r, w) do
+    MapSet.subset?(numbers(w), numbers(r)) and
       MapSet.subset?(unit_numbers(w), unit_numbers(r)) and
       numbers_keep_bindings?(r, w) and
       MapSet.subset?(ratios(rewrite), ratios(raw)) and
       MapSet.subset?(trade_pairs(w), trade_pairs(r)) and
       MapSet.subset?(bound_preds(w), bound_preds(r)) and
+      MapSet.subset?(dice(w), dice(r)) and
+      MapSet.subset?(fractions(w), fractions(r))
+  end
+
+  defp rewrite_adds_no_markers?(r, w) do
+    MapSet.subset?(multipliers(w), multipliers(r)) and
       MapSet.subset?(compass_dirs(w), compass_dirs(r)) and
       MapSet.subset?(ordinals(w), ordinals(r)) and
       MapSet.subset?(frequencies(w), frequencies(r)) and
-      MapSet.subset?(dice(w), dice(r)) and
-      MapSet.subset?(fractions(w), fractions(r)) and
-      MapSet.subset?(multipliers(w), multipliers(r)) and
       MapSet.subset?(letter_ids(w), letter_ids(r)) and
       turn_ownership_agrees?(r, w) and
       role_order_agrees?(r, w) and
@@ -526,47 +541,28 @@ defmodule RuleMaven.LLM.QuestionFacets do
     q = tokens(question)
     c = tokens(candidate)
 
-    cond do
-      not Polarity.compatible?(question, candidate) ->
-        :negation
+    # Checked in this order; the first that fails names the conflict.
+    checks = [
+      negation: fn -> Polarity.compatible?(question, candidate) end,
+      number: fn -> numbers_agree?(q, c) end,
+      ratio: fn -> ratios_agree?(question, candidate) end,
+      trade_pair: fn -> trade_pairs_agree?(q, c) end,
+      dice: fn -> dice_agree?(q, c) end,
+      fraction: fn -> fractions_agree?(q, c) end,
+      multiplier: fn -> multipliers_agree?(q, c) end,
+      letter_id: fn -> letter_ids_agree?(q, c) end,
+      turn_ownership: fn -> turn_ownership_agrees?(q, c) end,
+      role_order: fn -> role_order_agrees?(q, c) end,
+      compass: fn -> compass_agree?(q, c) end,
+      ordinal: fn -> ordinals_agree?(q, c) end,
+      frequency: fn -> frequencies_agree?(q, c) end
+    ]
 
-      not numbers_agree?(q, c) ->
-        :number
+    case Enum.find(checks, fn {_axis, agrees?} -> not agrees?.() end) do
+      {axis, _} ->
+        axis
 
-      not ratios_agree?(question, candidate) ->
-        :ratio
-
-      not trade_pairs_agree?(q, c) ->
-        :trade_pair
-
-      not dice_agree?(q, c) ->
-        :dice
-
-      not fractions_agree?(q, c) ->
-        :fraction
-
-      not multipliers_agree?(q, c) ->
-        :multiplier
-
-      not letter_ids_agree?(q, c) ->
-        :letter_id
-
-      not turn_ownership_agrees?(q, c) ->
-        :turn_ownership
-
-      not role_order_agrees?(q, c) ->
-        :role_order
-
-      not compass_agree?(q, c) ->
-        :compass
-
-      not ordinals_agree?(q, c) ->
-        :ordinal
-
-      not frequencies_agree?(q, c) ->
-        :frequency
-
-      true ->
+      nil ->
         Enum.find(Map.keys(@axes), &(not axis_agrees?(&1, q, c))) ||
           if(not bounds_agree?(q, c), do: :bound)
     end
@@ -657,24 +653,32 @@ defmodule RuleMaven.LLM.QuestionFacets do
   defp bound_preds(toks) do
     toks_t = List.to_tuple(toks)
     n = tuple_size(toks_t)
-    num? = fn i -> i >= 0 and i < n and to_number(elem(toks_t, i)) != nil end
 
-    toks
-    |> Enum.with_index()
-    |> Enum.reduce(MapSet.new(), fn {t, i}, acc ->
-      pair = if i + 1 < n, do: [t, elem(toks_t, i + 1)], else: nil
-      single = @bound_single[t]
-      after_c = pair && @bound_after[pair]
-      before_c = pair && @bound_before[pair]
-
-      cond do
-        single -> if num?.(i + 1), do: MapSet.put(acc, single), else: acc
-        after_c -> if num?.(i + 2), do: MapSet.put(acc, after_c), else: acc
-        before_c -> if num?.(i - 1), do: MapSet.put(acc, before_c), else: acc
-        true -> acc
-      end
-    end)
+    for {t, i} <- Enum.with_index(toks),
+        pair = if(i + 1 < n, do: [t, elem(toks_t, i + 1)], else: :none),
+        {pred, offset} <- [bound_candidate(t, pair)],
+        number_at?(toks_t, i + offset),
+        into: MapSet.new(),
+        do: pred
   end
+
+  # The bound a token (or token pair) would mark, with the offset where its
+  # number must sit: a single word ("over 7") or "at least 7" look ahead, a
+  # trailing "7 or more" looks back. The first matching form wins.
+  # `:none` = no following token (a truthy placeholder: `for` filters on nil).
+  defp bound_candidate(t, :none), do: if(@bound_single[t], do: {@bound_single[t], 1})
+
+  defp bound_candidate(t, pair) do
+    cond do
+      @bound_single[t] -> {@bound_single[t], 1}
+      @bound_after[pair] -> {@bound_after[pair], 2}
+      @bound_before[pair] -> {@bound_before[pair], -1}
+      true -> nil
+    end
+  end
+
+  defp number_at?(toks_t, i),
+    do: i >= 0 and i < tuple_size(toks_t) and to_number(elem(toks_t, i)) != nil
 
   # Numbers ARE the rule in a rules question: 7 cards, 4:1, 2 dice, 10 points.
   # An embedding barely moves between "more than 7 cards" and "more than 9 cards"
@@ -864,22 +868,18 @@ defmodule RuleMaven.LLM.QuestionFacets do
     toks_t = List.to_tuple(tokens)
     n = tuple_size(toks_t)
 
-    tokens
-    |> Enum.with_index()
-    |> Enum.reduce(MapSet.new(), fn {t, i}, acc ->
-      case Map.fetch(@roman, t) do
-        :error ->
-          acc
+    for {t, i} <- Enum.with_index(tokens),
+        {:ok, v} <- [Map.fetch(@roman, t)],
+        roman_counts?(t, i, toks_t, n),
+        into: MapSet.new(),
+        do: v
+  end
 
-        {:ok, v} ->
-          cond do
-            t not in @roman_ambiguous -> MapSet.put(acc, v)
-            i > 0 and elem(toks_t, i - 1) in @period_nouns -> MapSet.put(acc, v)
-            i + 1 < n and elem(toks_t, i + 1) in @period_nouns -> MapSet.put(acc, v)
-            true -> acc
-          end
-      end
-    end)
+  # An ambiguous numeral (i/v/x) only counts beside a period noun ("age ii").
+  defp roman_counts?(t, i, toks_t, n) do
+    t not in @roman_ambiguous or
+      (i > 0 and elem(toks_t, i - 1) in @period_nouns) or
+      (i + 1 < n and elem(toks_t, i + 1) in @period_nouns)
   end
 
   # Ordinals name a POSITION, and the number guard never sees them: "fourth" is
@@ -956,15 +956,22 @@ defmodule RuleMaven.LLM.QuestionFacets do
       next = if i + 1 < n, do: elem(toks_t, i + 1), else: nil
       next2 = if i + 2 < n, do: elem(toks_t, i + 2), else: nil
 
-      cond do
-        Map.has_key?(@freq_words, t) -> MapSet.put(acc, @freq_words[t])
-        next == "times" && to_number(t) -> MapSet.put(acc, to_number(t))
-        t == "once" && next == "per" -> MapSet.put(acc, 1)
-        t == "once" && next in ~w(a an every) && next2 in @freq_periods -> MapSet.put(acc, 1)
-        true -> acc
+      case frequency_at(t, next, next2) do
+        nil -> acc
+        freq -> MapSet.put(acc, freq)
       end
     end)
   end
+
+  defp frequency_at(t, _next, _next2) when is_map_key(@freq_words, t), do: @freq_words[t]
+  defp frequency_at(t, "times", _next2), do: to_number(t)
+  defp frequency_at("once", "per", _next2), do: 1
+
+  defp frequency_at("once", next, next2)
+       when next in ~w(a an every) and next2 in @freq_periods,
+       do: 1
+
+  defp frequency_at(_t, _next, _next2), do: nil
 
   defp frequencies_agree?(q, c) do
     fq = frequencies(q)
@@ -1043,24 +1050,21 @@ defmodule RuleMaven.LLM.QuestionFacets do
   defp fractions(tokens) do
     toks_t = List.to_tuple(tokens)
 
-    tokens
-    |> Enum.with_index()
-    |> Enum.reduce(MapSet.new(), fn {t, i}, acc ->
-      case Map.fetch(@fraction_words, t) do
-        :error ->
-          acc
+    for {t, i} <- Enum.with_index(tokens),
+        {:ok, frac} <- [Map.fetch(@fraction_words, t)],
+        value <- [fraction_value(t, if(i > 0, do: elem(toks_t, i - 1)), frac)],
+        value != nil,
+        into: MapSet.new(),
+        do: value
+  end
 
-        {:ok, frac} ->
-          prev = if i > 0, do: elem(toks_t, i - 1)
-
-          cond do
-            t in @fraction_unconditional -> MapSet.put(acc, {to_number(prev) || 1, frac})
-            prev in @fraction_amounts -> MapSet.put(acc, {1, frac})
-            to_number(prev) -> MapSet.put(acc, {to_number(prev), frac})
-            true -> acc
-          end
-      end
-    end)
+  defp fraction_value(t, prev, frac) do
+    cond do
+      t in @fraction_unconditional -> {to_number(prev) || 1, frac}
+      prev in @fraction_amounts -> {1, frac}
+      to_number(prev) -> {to_number(prev), frac}
+      true -> nil
+    end
   end
 
   defp fractions_agree?(q, c) do

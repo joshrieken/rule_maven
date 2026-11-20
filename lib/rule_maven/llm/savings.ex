@@ -17,6 +17,7 @@ defmodule RuleMaven.LLM.Savings do
   import Ecto.Query
   require Logger
 
+  alias RuleMaven.LLM.Pricing
   alias RuleMaven.Repo
 
   # Cold-start fallback per operation: {prompt_tokens, completion_tokens}.
@@ -139,7 +140,7 @@ defmodule RuleMaven.LLM.Savings do
           {avg(rows, & &1.prompt_tokens), avg(rows, & &1.completion_tokens)}
       end
 
-    %{tokens: p + c, usd: RuleMaven.LLM.Pricing.cost(model, p, c), model: model}
+    %{tokens: p + c, usd: Pricing.cost(model, p, c), model: model}
   end
 
   # Narrow select: the estimation math only reads prompt/completion tokens, and

@@ -15,7 +15,7 @@ defmodule RuleMaven.Workers.CheatSheetWorker do
 
   use Oban.Worker, queue: :cheatsheet, max_attempts: 2
 
-  alias RuleMaven.{Games, CheatSheet, Jobs}
+  alias RuleMaven.{CheatSheet, Games, Jobs}
 
   @impl Oban.Worker
   def perform(%Oban.Job{id: oban_id, args: %{"document_id" => doc_id}}) do

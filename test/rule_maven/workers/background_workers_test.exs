@@ -4,11 +4,17 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
   alias RuleMaven.{Games, Settings}
 
   alias RuleMaven.Workers.{
-    SuggestionsWorker,
     CategoriesWorker,
     CheatSheetGenWorker,
     CheatSheetWorker,
-    DownloadWorker
+    CommonMistakesWorker,
+    DownloadWorker,
+    FirstPlayerWorker,
+    QuizWorker,
+    ScoreCategoriesWorker,
+    SuggestionsWorker,
+    TeachPitchWorker,
+    TurnFlowWorker
   }
 
   # Stub the LLM at the do_request boundary. Each test sets its own answer.
@@ -54,11 +60,11 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
 
       Phoenix.PubSub.subscribe(
         RuleMaven.PubSub,
-        RuleMaven.Workers.FirstPlayerWorker.topic(game.id)
+        FirstPlayerWorker.topic(game.id)
       )
 
       assert :ok =
-               RuleMaven.Workers.FirstPlayerWorker.perform(%Oban.Job{
+               FirstPlayerWorker.perform(%Oban.Job{
                  args: %{"game_id" => game.id}
                })
 
@@ -81,11 +87,11 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
 
       Phoenix.PubSub.subscribe(
         RuleMaven.PubSub,
-        RuleMaven.Workers.CommonMistakesWorker.topic(game.id)
+        CommonMistakesWorker.topic(game.id)
       )
 
       assert :ok =
-               RuleMaven.Workers.CommonMistakesWorker.perform(%Oban.Job{
+               CommonMistakesWorker.perform(%Oban.Job{
                  args: %{"game_id" => game.id}
                })
 
@@ -110,11 +116,11 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
 
       Phoenix.PubSub.subscribe(
         RuleMaven.PubSub,
-        RuleMaven.Workers.TeachPitchWorker.topic(game.id)
+        TeachPitchWorker.topic(game.id)
       )
 
       assert :ok =
-               RuleMaven.Workers.TeachPitchWorker.perform(%Oban.Job{
+               TeachPitchWorker.perform(%Oban.Job{
                  args: %{"game_id" => game.id}
                })
 
@@ -142,11 +148,11 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
 
       Phoenix.PubSub.subscribe(
         RuleMaven.PubSub,
-        RuleMaven.Workers.TurnFlowWorker.topic(game.id)
+        TurnFlowWorker.topic(game.id)
       )
 
       assert :ok =
-               RuleMaven.Workers.TurnFlowWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
+               TurnFlowWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
 
       assert_received {:turn_flow_ready, phases}
       assert length(phases) == 2
@@ -171,11 +177,11 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
 
       Phoenix.PubSub.subscribe(
         RuleMaven.PubSub,
-        RuleMaven.Workers.ScoreCategoriesWorker.topic(game.id)
+        ScoreCategoriesWorker.topic(game.id)
       )
 
       assert :ok =
-               RuleMaven.Workers.ScoreCategoriesWorker.perform(%Oban.Job{
+               ScoreCategoriesWorker.perform(%Oban.Job{
                  args: %{"game_id" => game.id}
                })
 
@@ -190,7 +196,7 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
       game = game_with_rulebook()
 
       assert :ok =
-               RuleMaven.Workers.ScoreCategoriesWorker.perform(%Oban.Job{
+               ScoreCategoriesWorker.perform(%Oban.Job{
                  args: %{"game_id" => game.id}
                })
 
@@ -208,10 +214,10 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
       ]))
 
       game = game_with_rulebook()
-      Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.Workers.QuizWorker.topic(game.id))
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, QuizWorker.topic(game.id))
 
       assert :ok =
-               RuleMaven.Workers.QuizWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
+               QuizWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
 
       assert_received {:quiz_ready, [entry]}
       assert entry["q"] == "When do you refill your hand?"
@@ -224,7 +230,7 @@ defmodule RuleMaven.Workers.BackgroundWorkersTest do
       game = game_with_rulebook()
 
       assert {:cancel, :no_usable_questions} =
-               RuleMaven.Workers.QuizWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
+               QuizWorker.perform(%Oban.Job{args: %{"game_id" => game.id}})
 
       assert Settings.get("quiz_#{game.id}") in [nil, ""]
 

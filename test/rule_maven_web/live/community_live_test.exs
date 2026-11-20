@@ -5,8 +5,8 @@ defmodule RuleMavenWeb.CommunityLiveTest do
   import RuleMaven.GroupsFixtures
 
   alias RuleMaven.Games
+  alias RuleMaven.Games.{GameCategory, QuestionCategoryTag, QuestionLog}
   alias RuleMaven.Repo
-  alias RuleMaven.Games.{GameCategory, QuestionCategoryTag}
 
   defp category(game, name) do
     Repo.insert!(%GameCategory{game_id: game.id, name: name, description: "#{name} rules."})
@@ -377,7 +377,7 @@ defmodule RuleMavenWeb.CommunityLiveTest do
 
       html = render_click(view, "switch_tab", %{"tab" => "unverified"})
 
-      assert html =~ RuleMaven.Games.QuestionLog.display_question(unverified)
+      assert html =~ QuestionLog.display_question(unverified)
     end
   end
 

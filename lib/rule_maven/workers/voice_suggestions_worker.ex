@@ -57,45 +57,7 @@ defmodule RuleMaven.Workers.VoiceSuggestionsWorker do
 
     case RuleMaven.LLM.generate_voices(game.name, text) do
       {:ok, voices} when voices != [] ->
-        # The vet gates the single-call persona path (style inlined into the
-        # ask prompt) AND flags real-person personas, which are dropped before
-        # they're ever stored. A vet failure isn't fatal — voices land
-        # unvetted and keep the restyle path; VoiceVetWorker retries the vet
-        # lazily (including the real-person purge) on the next ask that uses
-        # one of them.
-        voices =
-          case RuleMaven.LLM.vet_voice_styles(voices, game_id: game_id) do
-            {:ok, %{safe: safe_slugs, real_person: real_person_slugs}} ->
-              flagged = MapSet.new(real_person_slugs)
-
-              if MapSet.size(flagged) > 0 do
-                Jobs.event(
-                  run,
-                  :warn,
-                  "Dropped #{MapSet.size(flagged)} real-person persona(s): #{Enum.join(real_person_slugs, ", ")}."
-                )
-              end
-
-              safe = MapSet.new(safe_slugs)
-              voices = Enum.reject(voices, &MapSet.member?(flagged, &1.slug))
-
-              Jobs.event(
-                run,
-                :info,
-                "Style vet: #{MapSet.size(safe)}/#{length(voices)} safe for the single-call ask path."
-              )
-
-              Enum.map(voices, &Map.put(&1, :vetted, MapSet.member?(safe, &1.slug)))
-
-            {:error, reason} ->
-              Jobs.event(
-                run,
-                :warn,
-                "Style vet failed (#{inspect(reason)}) — all voices take the restyle path for now."
-              )
-
-              voices
-          end
+        voices = vet_voices(run, voices, game_id)
 
         Voices.replace_generated(game_id, voices)
         defs = Voices.for_game(game_id)
@@ -113,6 +75,46 @@ defmodule RuleMaven.Workers.VoiceSuggestionsWorker do
       {:error, reason} ->
         Jobs.finish_run(run, "failed", inspect(reason))
         {:error, reason}
+    end
+  end
+
+  # The vet gates the single-call persona path (style inlined into the ask
+  # prompt) AND flags real-person personas, which are dropped before they're
+  # ever stored. A vet failure isn't fatal — voices land unvetted and keep the
+  # restyle path; VoiceVetWorker retries the vet lazily (including the
+  # real-person purge) on the next ask that uses one of them.
+  defp vet_voices(run, voices, game_id) do
+    case RuleMaven.LLM.vet_voice_styles(voices, game_id: game_id) do
+      {:ok, %{safe: safe_slugs, real_person: real_person_slugs}} ->
+        flagged = MapSet.new(real_person_slugs)
+
+        if MapSet.size(flagged) > 0 do
+          Jobs.event(
+            run,
+            :warn,
+            "Dropped #{MapSet.size(flagged)} real-person persona(s): #{Enum.join(real_person_slugs, ", ")}."
+          )
+        end
+
+        safe = MapSet.new(safe_slugs)
+        voices = Enum.reject(voices, &MapSet.member?(flagged, &1.slug))
+
+        Jobs.event(
+          run,
+          :info,
+          "Style vet: #{MapSet.size(safe)}/#{length(voices)} safe for the single-call ask path."
+        )
+
+        Enum.map(voices, &Map.put(&1, :vetted, MapSet.member?(safe, &1.slug)))
+
+      {:error, reason} ->
+        Jobs.event(
+          run,
+          :warn,
+          "Style vet failed (#{inspect(reason)}) — all voices take the restyle path for now."
+        )
+
+        voices
     end
   end
 

@@ -355,24 +355,7 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
       #
       # ONLY on a bare "yes". Anything else is withheld but left intact — see above.
       if normalized == "yes" do
-        {unpooled, _} =
-          Repo.update_all(
-            from(q in QuestionLog,
-              where: q.id == ^ql.id,
-              where: q.pooled == true
-            ),
-            set: [pooled: false]
-          )
-
-        if unpooled == 1 do
-          Jobs.finish_run(
-            run,
-            "done",
-            "Flagged — question withheld AND the answer pulled from the pool (it was written from text the screen flagged)."
-          )
-        else
-          Jobs.finish_run(run, "done", "Flagged — left unbrowsable.")
-        end
+        unpool_flagged_answer(run, ql)
       else
         Jobs.finish_run(
           run,
@@ -383,5 +366,26 @@ defmodule RuleMaven.Workers.PublishCheckWorker do
     end
 
     :ok
+  end
+
+  defp unpool_flagged_answer(run, ql) do
+    {unpooled, _} =
+      Repo.update_all(
+        from(q in QuestionLog,
+          where: q.id == ^ql.id,
+          where: q.pooled == true
+        ),
+        set: [pooled: false]
+      )
+
+    if unpooled == 1 do
+      Jobs.finish_run(
+        run,
+        "done",
+        "Flagged — question withheld AND the answer pulled from the pool (it was written from text the screen flagged)."
+      )
+    else
+      Jobs.finish_run(run, "done", "Flagged — left unbrowsable.")
+    end
   end
 end

@@ -11,8 +11,8 @@ defmodule RuleMaven.RuleOfTheDay do
 
   import Ecto.Query
 
-  alias RuleMaven.{Repo, Settings}
   alias RuleMaven.Games.Game
+  alias RuleMaven.{Repo, Settings}
   alias RuleMaven.Settings.AppSetting
 
   @doc """

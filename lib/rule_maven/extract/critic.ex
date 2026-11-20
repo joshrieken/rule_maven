@@ -57,21 +57,24 @@ defmodule RuleMaven.Extract.Critic do
         # growth and limits how much critic-authored text re-enters the model.
         guidance = defects |> Enum.take(12) |> Enum.join("\n")
 
-        case transcribe_fn.(image, guidance) do
-          {:ok, repaired} when is_binary(repaired) ->
-            if String.trim(repaired) == "" do
-              # Repair came back empty — keep the candidate, report the defects.
-              %{text: candidate, residual_defects: defects, rounds: round + 1, verified?: false}
-            else
-              loop(image, repaired, round + 1, max_rounds, critique_fn, transcribe_fn)
-            end
+        case usable_repair(transcribe_fn.(image, guidance)) do
+          {:ok, repaired} ->
+            loop(image, repaired, round + 1, max_rounds, critique_fn, transcribe_fn)
 
-          _ ->
-            # Re-transcribe failed; keep the candidate with its known defects.
+          :error ->
+            # Re-transcribe failed or came back empty; keep the candidate with
+            # its known defects.
             %{text: candidate, residual_defects: defects, rounds: round + 1, verified?: false}
         end
     end
   end
+
+  # A repair is usable only when it's non-blank text.
+  defp usable_repair({:ok, repaired}) when is_binary(repaired) do
+    if String.trim(repaired) == "", do: :error, else: {:ok, repaired}
+  end
+
+  defp usable_repair(_), do: :error
 
   defp default_critique(image, text, game_id),
     do: RuleMaven.LLM.critique_page(image, text, game_id: game_id)

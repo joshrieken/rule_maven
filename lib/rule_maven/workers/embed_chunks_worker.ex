@@ -22,8 +22,9 @@ defmodule RuleMaven.Workers.EmbedChunksWorker do
     ]
 
   import Ecto.Query
-  alias RuleMaven.Repo
+  alias Ecto.Adapters.SQL
   alias RuleMaven.{Games, Jobs}
+  alias RuleMaven.Repo
 
   @embed_batch_size 100
 
@@ -105,7 +106,7 @@ defmodule RuleMaven.Workers.EmbedChunksWorker do
   defp persist_batch(batch, vectors) do
     ids = Enum.map(batch, & &1.id)
 
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       Repo,
       """
       UPDATE chunks AS c

@@ -1,8 +1,8 @@
 defmodule RuleMavenWeb.PasswordResetController do
   use RuleMavenWeb, :controller
 
-  alias RuleMaven.Users
   alias RuleMaven.Auth.LoginThrottle
+  alias RuleMaven.Users
 
   @doc "Form to request a reset link."
   def new(conn, _params) do
@@ -40,25 +40,23 @@ defmodule RuleMavenWeb.PasswordResetController do
   def update(conn, %{"token" => token, "reset" => params}) do
     %{"password" => password, "password_confirmation" => confirmation} = params
 
-    cond do
-      password != confirmation ->
-        render(conn, :edit, token: token, error: "Passwords don't match.")
+    if password != confirmation do
+      render(conn, :edit, token: token, error: "Passwords don't match.")
+    else
+      case Users.reset_password(token, password) do
+        {:ok, _user} ->
+          conn
+          |> put_flash(:info, "Password updated — you can log in now.")
+          |> redirect(to: ~p"/login")
 
-      true ->
-        case Users.reset_password(token, password) do
-          {:ok, _user} ->
-            conn
-            |> put_flash(:info, "Password updated — you can log in now.")
-            |> redirect(to: ~p"/login")
+        {:error, _changeset} ->
+          render(conn, :edit, token: token, error: "Password must be 4–128 characters.")
 
-          {:error, _changeset} ->
-            render(conn, :edit, token: token, error: "Password must be 4–128 characters.")
-
-          :error ->
-            conn
-            |> put_flash(:error, "That reset link is invalid or has expired.")
-            |> redirect(to: ~p"/reset-password")
-        end
+        :error ->
+          conn
+          |> put_flash(:error, "That reset link is invalid or has expired.")
+          |> redirect(to: ~p"/reset-password")
+      end
     end
   end
 end

@@ -2,6 +2,7 @@ defmodule RuleMavenWeb.SettingsLive do
   use RuleMavenWeb, :live_view
 
   alias RuleMaven.Auth.Oidc
+  alias RuleMaven.Games.Curation
   alias RuleMaven.Users
 
   @impl true
@@ -21,7 +22,7 @@ defmodule RuleMavenWeb.SettingsLive do
        # Single sign-on settings (nil = off): passwords are the provider's then, and an
        # account not linked yet gets the "Link your … account" button.
        sso: Oidc.settings(),
-       curator_stats: RuleMaven.Games.Curation.curator_stats(user.id)
+       curator_stats: Curation.curator_stats(user.id)
      )}
   end
 
@@ -40,10 +41,7 @@ defmodule RuleMavenWeb.SettingsLive do
          )}
 
       {:error, changeset} ->
-        msg =
-          changeset.errors
-          |> Enum.map(fn {f, {m, _}} -> "#{f}: #{m}" end)
-          |> Enum.join(", ")
+        msg = Enum.map_join(changeset.errors, ", ", fn {f, {m, _}} -> "#{f}: #{m}" end)
 
         {:noreply, assign(socket, profile_error: msg, profile_msg: nil)}
     end
@@ -62,25 +60,22 @@ defmodule RuleMavenWeb.SettingsLive do
         %{"current_password" => current, "new_password" => new, "confirm_password" => confirm},
         socket
       ) do
-    cond do
-      new != confirm ->
-        {:noreply,
-         assign(socket, password_error: "New passwords don't match.", password_msg: nil)}
+    if new != confirm do
+      {:noreply, assign(socket, password_error: "New passwords don't match.", password_msg: nil)}
+    else
+      user = socket.assigns.current_user
 
-      true ->
-        user = socket.assigns.current_user
+      case Users.change_password(user, current, new) do
+        {:ok, _} ->
+          {:noreply,
+           assign(socket,
+             password_msg: "Password changed.",
+             password_error: nil
+           )}
 
-        case Users.change_password(user, current, new) do
-          {:ok, _} ->
-            {:noreply,
-             assign(socket,
-               password_msg: "Password changed.",
-               password_error: nil
-             )}
-
-          {:error, reason} ->
-            {:noreply, assign(socket, password_error: reason, password_msg: nil)}
-        end
+        {:error, reason} ->
+          {:noreply, assign(socket, password_error: reason, password_msg: nil)}
+      end
     end
   end
 

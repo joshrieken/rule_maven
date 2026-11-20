@@ -1,7 +1,9 @@
 defmodule RuleMavenWeb.AdminLive.Security do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Audit, Security, Games, Users}
+  alias RuleMaven.{Audit, Games, Security, Users}
+  alias RuleMaven.Games.QuestionLog
+  alias RuleMaven.Workers.AskWorker
 
   @impl true
   def mount(_params, _session, socket) do
@@ -51,14 +53,14 @@ defmodule RuleMavenWeb.AdminLive.Security do
             Audit.log(socket.assigns.current_user, "security.unblock",
               target_type: "question",
               target_id: q.id,
-              target_label: RuleMaven.Games.QuestionLog.listed_question(q)
+              target_label: QuestionLog.listed_question(q)
             )
 
             expansion_ids = []
             recent_context = []
 
             Oban.insert(
-              RuleMaven.Workers.AskWorker.new(%{
+              AskWorker.new(%{
                 "game_id" => updated.game_id,
                 "question" => updated.question,
                 "question_log_id" => updated.id,
@@ -94,7 +96,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
             Audit.log(socket.assigns.current_user, "security.delete_blocked",
               target_type: "question",
               target_id: q.id,
-              target_label: RuleMaven.Games.QuestionLog.listed_question(q)
+              target_label: QuestionLog.listed_question(q)
             )
 
             {:noreply, load_blocked(socket)}
@@ -268,7 +270,7 @@ defmodule RuleMavenWeb.AdminLive.Security do
                         "—"}</span>
                     </td>
                     <td style="padding:0.45rem 0.75rem;overflow:hidden">
-                      <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:0.8rem;color:var(--text)">{RuleMaven.Games.QuestionLog.listed_question(
+                      <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:0.8rem;color:var(--text)">{QuestionLog.listed_question(
                         q
                       )}</span>
                     </td>

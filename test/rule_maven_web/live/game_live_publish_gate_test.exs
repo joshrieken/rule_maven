@@ -10,8 +10,8 @@ defmodule RuleMavenWeb.GameLivePublishGateTest do
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
 
-  alias RuleMaven.Repo
   alias RuleMaven.Games.QuestionLog
+  alias RuleMaven.Repo
 
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
 

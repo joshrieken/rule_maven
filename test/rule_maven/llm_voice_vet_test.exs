@@ -1,7 +1,7 @@
 defmodule RuleMaven.LLMVoiceVetTest do
   use RuleMaven.DataCase
 
-  alias RuleMaven.{LLM, Games, Voices}
+  alias RuleMaven.{Games, LLM, Voices}
 
   # Single-call persona path for generated (g:) voices, gated on the style vet
   # (see LLM.voice_style_block/2 and LLM.vet_voice_styles/2).

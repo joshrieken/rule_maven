@@ -102,16 +102,18 @@ defmodule RuleMavenWeb.AdminApiController do
   thumbed down that nobody has reviewed yet (`ManualImport.Corrections`).
   """
   def corrections(conn, params) do
-    with {:ok, opts} <- game_filter(params["game"]) do
-      queue = Corrections.queue(opts)
-      names = Corrections.game_names(queue)
+    case game_filter(params["game"]) do
+      {:ok, opts} ->
+        queue = Corrections.queue(opts)
+        names = Corrections.game_names(queue)
 
-      json(conn, %{
-        queue:
-          Enum.map(queue, &Corrections.entry_payload(&1, names, fn id -> Hashid.encode(id) end))
-      })
-    else
-      _ -> error(conn, 404, :not_found)
+        json(conn, %{
+          queue:
+            Enum.map(queue, &Corrections.entry_payload(&1, names, fn id -> Hashid.encode(id) end))
+        })
+
+      _ ->
+        error(conn, 404, :not_found)
     end
   end
 

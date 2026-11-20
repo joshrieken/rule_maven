@@ -20,8 +20,8 @@ defmodule RuleMaven.Workers.CleanupWorker do
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
-  alias RuleMaven.{Games, Jobs, Settings}
   alias RuleMaven.Extract.Calibrate
+  alias RuleMaven.{Games, Jobs, Settings}
 
   # LLM fan-out within a single job process; the writes back to the document are
   # funneled through Enum.each below, so they stay serialized (no embeds race).
@@ -67,28 +67,12 @@ defmodule RuleMaven.Workers.CleanupWorker do
     mode = Map.get(args, "mode", "raw")
     page_index = Map.get(args, "page_index")
 
-    label =
-      if is_integer(page_index),
-        do: "Clean page #{page_index + 1} — #{doc.label}",
-        else: "Clean up — #{doc.label}"
+    run =
+      Jobs.start_run("cleanup", {"document", doc_id}, run_label(doc, page_index),
+        oban_job_id: oban_id
+      )
 
-    run = Jobs.start_run("cleanup", {"document", doc_id}, label, oban_job_id: oban_id)
-
-    # Which pages to (re)clean and what text to feed the cleaner:
-    #   page_index — a single-page clean (enqueue_cleanup_page/3): just that
-    #             page, always from its original extraction, cleaned or not.
-    #   "raw"   — a fresh clean from the original extraction. enqueue_cleanup/3
-    #             nulled all `cleaned` first, so todo is every page (a resumed
-    #             run skips pages a prior attempt already persisted).
-    #   "again" — a second pass over the *current* cleaned text to scrub leftover
-    #             junk. Cleaned text is kept (it's the input), so reprocess every
-    #             page and feed its effective (cleaned||text) copy.
-    todo =
-      cond do
-        is_integer(page_index) -> Enum.filter(doc.pages, &(&1.index == page_index))
-        mode == "again" -> doc.pages
-        true -> Enum.reject(doc.pages, &is_binary(&1.cleaned))
-      end
+    todo = pages_todo(doc, page_index, mode)
 
     # A page run's progress counts against just its own page, not the book.
     total = if is_integer(page_index), do: length(todo), else: length(doc.pages)
@@ -105,10 +89,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
     RuleMaven.LLM.start_call_budget(max(length(todo), 1) * llm_calls_per_page())
     budget = RuleMaven.LLM.call_budget_handle()
 
-    # Progress is funneled through this serial Enum.reduce (the async fan-out is
-    # above), so the counter increments without races. Each step persists the
-    # page, advances the durable counter, and broadcasts {done, total} — the
-    # single source of truth for the UI, realtime and after a refresh.
+    # Progress is funneled through a serial reduce (fold_page_result/3).
     init = %{
       done: start_done,
       removed: 0,
@@ -119,6 +100,8 @@ defmodule RuleMaven.Workers.CleanupWorker do
       flagged: 0,
       skipped: 0
     }
+
+    ctx = %{doc_id: doc_id, total: total, run: run, topic: topic}
 
     stats =
       todo
@@ -133,85 +116,7 @@ defmodule RuleMaven.Workers.CleanupWorker do
         on_timeout: :kill_task,
         zip_input_on_exit: true
       )
-      |> Enum.reduce(init, fn
-        {:ok, {index, {:ok, cleaned, meta}}}, acc ->
-          done = min(acc.done + 1, total)
-          defects = meta[:defects] || []
-          # Defects go onto the page itself (not just the job log) so the
-          # Prepare page's ⚠ review UI (page_needs_review?) surfaces them.
-          Games.set_page_cleaned(doc_id, index, cleaned, defects)
-          # Periodic refresh so a mid-run crash leaves full_text at most
-          # @full_text_refresh_every pages behind the cleaned pages.
-          if rem(done, @full_text_refresh_every) == 0,
-            do: Games.refresh_full_text(doc_id)
-
-          Games.set_cleaning_done(doc_id, done)
-          Jobs.event(run, event_level(meta.status), page_event_msg(index, meta, done, total))
-
-          if defects != [] do
-            Jobs.event(
-              run,
-              "warn",
-              "Page #{index + 1} — cleanup review flagged #{length(defects)} issue(s): #{Enum.join(defects, " | ")}"
-            )
-          end
-
-          Phoenix.PubSub.broadcast(
-            RuleMaven.PubSub,
-            topic,
-            {:page_cleaned, doc_id, index, cleaned, done, total}
-          )
-
-          acc
-          |> Map.put(:done, done)
-          |> Map.update!(:removed, &(&1 + max(meta.in - meta.out, 0)))
-          |> Map.update!(:flagged, &(&1 + if(defects == [], do: 0, else: 1)))
-          |> Map.update(meta.status, 1, &(&1 + 1))
-
-        # Skipped (vision-lane): no LLM call, no cleaned layer — effective text
-        # falls back to the raw extraction, which is already model output.
-        {:ok, {index, :skipped}}, acc ->
-          done = min(acc.done + 1, total)
-          Games.set_cleaning_done(doc_id, done)
-
-          Jobs.event(
-            run,
-            "info",
-            "Page #{index + 1} — skipped (vision-transcribed, already clean) · #{done}/#{total} done"
-          )
-
-          Phoenix.PubSub.broadcast(
-            RuleMaven.PubSub,
-            topic,
-            {:page_cleaned, doc_id, index, nil, done, total}
-          )
-
-          acc |> Map.put(:done, done) |> Map.update(:skipped, 1, &(&1 + 1))
-
-        # LLM failed for this page: leave `cleaned` nil rather than baking the raw
-        # text in. Retrieval/display already fall back to `text` (effective text =
-        # cleaned||text), and the page stays eligible for a later re-clean instead
-        # of looking permanently "cleaned" after a transient blip. Don't advance
-        # the counter — it reflects pages actually persisted.
-        {:ok, {index, :failed}}, acc ->
-          Jobs.event(
-            run,
-            "warn",
-            "Page #{index + 1} failed to clean — left as-is, will retry on re-clean"
-          )
-
-          Map.update!(acc, :failed, &(&1 + 1))
-
-        # A killed/exited task: same — leave it nil so a re-run retries it.
-        {:exit, {page, _reason}}, acc ->
-          Jobs.event(
-            run,
-            "warn",
-            "Page #{page.index + 1} timed out/crashed — left as-is, will retry on re-clean"
-          )
-
-          Map.update!(acc, :failed, &(&1 + 1))
-      end)
+      |> Enum.reduce(init, &fold_page_result(&1, &2, ctx))
 
     # Fold every persisted page into the derived full_text once, now the run is
     # over (set_page_cleaned/4 skips the per-page rebuild). Must happen before
@@ -236,6 +141,121 @@ defmodule RuleMaven.Workers.CleanupWorker do
     # Clear the durable counter now the run is finished (idle = nil).
     Games.set_cleaning_done(doc_id, nil)
 
+    finish_cleanup_run(run, doc, stats, total, rechunked?)
+
+    Phoenix.PubSub.broadcast(RuleMaven.PubSub, topic, {:cleanup_done, doc_id})
+    :ok
+  end
+
+  defp run_label(doc, page_index) when is_integer(page_index),
+    do: "Clean page #{page_index + 1} — #{doc.label}"
+
+  defp run_label(doc, _page_index), do: "Clean up — #{doc.label}"
+
+  # Which pages to (re)clean and what text to feed the cleaner:
+  #   page_index — a single-page clean (enqueue_cleanup_page/3): just that
+  #             page, always from its original extraction, cleaned or not.
+  #   "raw"   — a fresh clean from the original extraction. enqueue_cleanup/3
+  #             nulled all `cleaned` first, so todo is every page (a resumed
+  #             run skips pages a prior attempt already persisted).
+  #   "again" — a second pass over the *current* cleaned text to scrub leftover
+  #             junk. Cleaned text is kept (it's the input), so reprocess every
+  #             page and feed its effective (cleaned||text) copy.
+  defp pages_todo(doc, page_index, _mode) when is_integer(page_index),
+    do: Enum.filter(doc.pages, &(&1.index == page_index))
+
+  defp pages_todo(doc, _page_index, "again"), do: doc.pages
+  defp pages_todo(doc, _page_index, _mode), do: Enum.reject(doc.pages, &is_binary(&1.cleaned))
+
+  # Progress is funneled through this serial reduce (the async fan-out is
+  # above), so the counter increments without races. Each step persists the
+  # page, advances the durable counter, and broadcasts {done, total} — the
+  # single source of truth for the UI, realtime and after a refresh.
+  defp fold_page_result({:ok, {index, {:ok, cleaned, meta}}}, acc, ctx) do
+    %{doc_id: doc_id, total: total, run: run, topic: topic} = ctx
+    done = min(acc.done + 1, total)
+    defects = meta[:defects] || []
+    # Defects go onto the page itself (not just the job log) so the
+    # Prepare page's ⚠ review UI (page_needs_review?) surfaces them.
+    Games.set_page_cleaned(doc_id, index, cleaned, defects)
+    # Periodic refresh so a mid-run crash leaves full_text at most
+    # @full_text_refresh_every pages behind the cleaned pages.
+    if rem(done, @full_text_refresh_every) == 0,
+      do: Games.refresh_full_text(doc_id)
+
+    Games.set_cleaning_done(doc_id, done)
+    Jobs.event(run, event_level(meta.status), page_event_msg(index, meta, done, total))
+
+    if defects != [] do
+      Jobs.event(
+        run,
+        "warn",
+        "Page #{index + 1} — cleanup review flagged #{length(defects)} issue(s): #{Enum.join(defects, " | ")}"
+      )
+    end
+
+    Phoenix.PubSub.broadcast(
+      RuleMaven.PubSub,
+      topic,
+      {:page_cleaned, doc_id, index, cleaned, done, total}
+    )
+
+    acc
+    |> Map.put(:done, done)
+    |> Map.update!(:removed, &(&1 + max(meta.in - meta.out, 0)))
+    |> Map.update!(:flagged, &(&1 + if(defects == [], do: 0, else: 1)))
+    |> Map.update(meta.status, 1, &(&1 + 1))
+  end
+
+  # Skipped (vision-lane): no LLM call, no cleaned layer — effective text
+  # falls back to the raw extraction, which is already model output.
+  defp fold_page_result({:ok, {index, :skipped}}, acc, ctx) do
+    %{doc_id: doc_id, total: total, run: run, topic: topic} = ctx
+    done = min(acc.done + 1, total)
+    Games.set_cleaning_done(doc_id, done)
+
+    Jobs.event(
+      run,
+      "info",
+      "Page #{index + 1} — skipped (vision-transcribed, already clean) · #{done}/#{total} done"
+    )
+
+    Phoenix.PubSub.broadcast(
+      RuleMaven.PubSub,
+      topic,
+      {:page_cleaned, doc_id, index, nil, done, total}
+    )
+
+    acc |> Map.put(:done, done) |> Map.update(:skipped, 1, &(&1 + 1))
+  end
+
+  # LLM failed for this page: leave `cleaned` nil rather than baking the raw
+  # text in. Retrieval/display already fall back to `text` (effective text =
+  # cleaned||text), and the page stays eligible for a later re-clean instead
+  # of looking permanently "cleaned" after a transient blip. Don't advance
+  # the counter — it reflects pages actually persisted.
+  defp fold_page_result({:ok, {index, :failed}}, acc, ctx) do
+    Jobs.event(
+      ctx.run,
+      "warn",
+      "Page #{index + 1} failed to clean — left as-is, will retry on re-clean"
+    )
+
+    Map.update!(acc, :failed, &(&1 + 1))
+  end
+
+  # A killed/exited task: same — leave it nil so a re-run retries it.
+  defp fold_page_result({:exit, {page, _reason}}, acc, ctx) do
+    Jobs.event(
+      ctx.run,
+      "warn",
+      "Page #{page.index + 1} timed out/crashed — left as-is, will retry on re-clean"
+    )
+
+    Map.update!(acc, :failed, &(&1 + 1))
+  end
+
+  defp finish_cleanup_run(run, doc, stats, total, rechunked?) do
     if RuleMaven.LLM.budget_exceeded?() do
       # Stop and mark for review, never silent truncation. Every page cleaned
       # before the budget ran out is already persisted by set_page_cleaned/3;
@@ -257,9 +277,6 @@ defmodule RuleMaven.Workers.CleanupWorker do
     else
       Jobs.finish_run(run, "done", finish_summary(stats, total, rechunked?))
     end
-
-    Phoenix.PubSub.broadcast(RuleMaven.PubSub, topic, {:cleanup_done, doc_id})
-    :ok
   end
 
   alias RuleMaven.Extract.CleanCheck
@@ -345,24 +362,28 @@ defmodule RuleMaven.Workers.CleanupWorker do
             finish(body, first, [first])
 
           {:retry, next_level, first} ->
-            case attempt(body, next_level, page, game_id) do
-              # Retry call failed — fall back to the judged first attempt.
-              :failed ->
-                finish(body, first, [first])
+            retry_auto(body, first, next_level, page, game_id)
+        end
+    end
+  end
 
-              {:ok, second} ->
-                case critic_verdict(body, second, game_id) do
-                  {:ok, verdict} ->
-                    second = %{second | verdict: verdict}
-                    best = Enum.max_by([first, second], &rank/1)
-                    finish(body, best, [first, second])
+  defp retry_auto(body, first, next_level, page, game_id) do
+    case attempt(body, next_level, page, game_id) do
+      # Retry call failed — fall back to the judged first attempt.
+      :failed ->
+        finish(body, first, [first])
 
-                  # Second attempt's critic call failed — it's unranked/unverified,
-                  # so don't let it compete with the already-judged first attempt.
-                  :error ->
-                    finish(body, first, [first])
-                end
-            end
+      {:ok, second} ->
+        case critic_verdict(body, second, game_id) do
+          {:ok, verdict} ->
+            second = %{second | verdict: verdict}
+            best = Enum.max_by([first, second], &rank/1)
+            finish(body, best, [first, second])
+
+          # Second attempt's critic call failed — it's unranked/unverified,
+          # so don't let it compete with the already-judged first attempt.
+          :error ->
+            finish(body, first, [first])
         end
     end
   end

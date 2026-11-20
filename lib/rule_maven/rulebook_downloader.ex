@@ -5,9 +5,9 @@ defmodule RuleMaven.RulebookDownloader do
   using LLM knowledge and BGG.
   """
 
+  alias RuleMaven.Extract.{Calibrate, Critic, Gate, Native, TwoUp}
   alias RuleMaven.Games
   alias RuleMaven.Games.Document
-  alias RuleMaven.Extract.{Calibrate, Critic, Gate, Native, TwoUp}
 
   @bgg_base "https://boardgamegeek.com"
   @pdf_link_re ~r{<a[^>]*href="([^"]*\.pdf)"[^>]*>(.*?)</a>}s
@@ -71,19 +71,25 @@ defmodule RuleMaven.RulebookDownloader do
         if text == "" or String.contains?(text, "UNKNOWN") do
           {:error, "No known rulebook URL for #{game.name}"}
         else
-          case Regex.run(~r{https?://[^\s"'<>]+}i, text) do
-            [url | _] ->
-              url = String.trim(url, "\"'.,;)")
-              Logger.debug("LLM returned URL: #{url}")
-              {:ok, url}
-
-            _ ->
-              {:error, "No URL found in LLM response"}
-          end
+          first_url_in(text)
         end
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp first_url_in(text) do
+    require Logger
+
+    case Regex.run(~r{https?://[^\s"'<>]+}i, text) do
+      [url | _] ->
+        url = String.trim(url, "\"'.,;)")
+        Logger.debug("LLM returned URL: #{url}")
+        {:ok, url}
+
+      _ ->
+        {:error, "No URL found in LLM response"}
     end
   end
 
@@ -300,24 +306,25 @@ defmodule RuleMaven.RulebookDownloader do
   # MIME type from the stored file's extension, for the Document.content_type
   # field. Defaults to application/pdf (the historical assumption and URL-download
   # case).
+  @content_types %{
+    ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".odt" => "application/vnd.oasis.opendocument.text",
+    ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".csv" => "text/csv",
+    ".html" => "text/html",
+    ".htm" => "text/html",
+    ".txt" => "text/plain",
+    ".md" => "text/markdown",
+    ".markdown" => "text/markdown",
+    ".png" => "image/png",
+    ".jpg" => "image/jpeg",
+    ".jpeg" => "image/jpeg",
+    ".webp" => "image/webp",
+    ".gif" => "image/gif"
+  }
+
   defp content_type_for(path) do
-    case Path.extname(path) |> String.downcase() do
-      ".docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-      ".odt" -> "application/vnd.oasis.opendocument.text"
-      ".xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      ".csv" -> "text/csv"
-      ".html" -> "text/html"
-      ".htm" -> "text/html"
-      ".txt" -> "text/plain"
-      ".md" -> "text/markdown"
-      ".markdown" -> "text/markdown"
-      ".png" -> "image/png"
-      ".jpg" -> "image/jpeg"
-      ".jpeg" -> "image/jpeg"
-      ".webp" -> "image/webp"
-      ".gif" -> "image/gif"
-      _ -> "application/pdf"
-    end
+    Map.get(@content_types, path |> Path.extname() |> String.downcase(), "application/pdf")
   end
 
   @doc """
@@ -333,39 +340,7 @@ defmodule RuleMaven.RulebookDownloader do
 
     pages = String.split(text, "\f")
 
-    {paragraphs, _para_num} =
-      pages
-      |> Enum.reduce({[], 1}, fn page_chunk, {acc, para_num} ->
-        # The chunk's marker ("===== SHEET 1 PAGE 1 =====") carries the real page
-        # label. Use it for the divider, then strip it from the body so the raw
-        # sigil doesn't show. (Positional indexing was off-by-one because the
-        # text starts with a leading \f → empty first chunk.)
-        {label, body} = page_label_and_body(page_chunk)
-        body = String.trim(body)
-
-        if body == "" do
-          {acc, para_num}
-        else
-          page_paras =
-            body
-            |> String.split(~r{\n\s*\n})
-            |> Enum.map(&String.trim/1)
-            |> Enum.reject(&(&1 == ""))
-
-          divider = "<div class=\"page-break\">— #{label} —</div>"
-
-          {page_acc, next_para} =
-            Enum.reduce(page_paras, {[divider | acc], para_num}, fn para, {list, pn} ->
-              # PDF text is untrusted (rulebooks come from the internet): escape it.
-              text = para |> Plug.HTML.html_escape() |> String.replace("\n", "<br>")
-              para_html = "<p id=\"p#{pn}\" data-page=\"#{label}\">#{text}</p>"
-
-              {[para_html | list], pn + 1}
-            end)
-
-          {page_acc, next_para}
-        end
-      end)
+    {paragraphs, _para_num} = Enum.reduce(pages, {[], 1}, &page_chunk_html/2)
 
     paragraphs_html = paragraphs |> Enum.reverse() |> Enum.join("\n")
 
@@ -375,6 +350,34 @@ defmodule RuleMaven.RulebookDownloader do
     html_path
   rescue
     _ -> nil
+  end
+
+  # Prepends one page chunk's divider + paragraphs (reversed) to `acc`.
+  defp page_chunk_html(page_chunk, {acc, para_num}) do
+    # The chunk's marker ("===== SHEET 1 PAGE 1 =====") carries the real page
+    # label. Use it for the divider, then strip it from the body so the raw
+    # sigil doesn't show. (Positional indexing was off-by-one because the
+    # text starts with a leading \f → empty first chunk.)
+    {label, body} = page_label_and_body(page_chunk)
+    body = String.trim(body)
+
+    if body == "" do
+      {acc, para_num}
+    else
+      divider = "<div class=\"page-break\">— #{label} —</div>"
+
+      body
+      |> String.split(~r{\n\s*\n})
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.reduce({[divider | acc], para_num}, fn para, {list, pn} ->
+        # PDF text is untrusted (rulebooks come from the internet): escape it.
+        text = para |> Plug.HTML.html_escape() |> String.replace("\n", "<br>")
+        para_html = "<p id=\"p#{pn}\" data-page=\"#{label}\">#{text}</p>"
+
+        {[para_html | list], pn + 1}
+      end)
+    end
   end
 
   # Wraps the rendered paragraphs in a self-contained, themeable HTML document.
@@ -615,21 +618,26 @@ defmodule RuleMaven.RulebookDownloader do
       headers: add_browser_headers([])
     ]
 
-    case Req.get(url, opts) do
-      {:ok, %{status: 200, body: body}} ->
-        body = if is_binary(body), do: body, else: IO.iodata_to_binary(body)
+    url |> Req.get(opts) |> fetch_result()
+  end
 
-        cond do
-          byte_size(body) == 0 ->
-            {:error, "Server returned an empty response"}
+  defp fetch_result({:ok, %{status: 200, body: body}}) do
+    body = if is_binary(body), do: body, else: IO.iodata_to_binary(body)
 
-          byte_size(body) > @max_pdf_bytes ->
-            {:error, "PDF is too large (> #{div(@max_pdf_bytes, 1024 * 1024)} MB)"}
+    cond do
+      byte_size(body) == 0 ->
+        {:error, "Server returned an empty response"}
 
-          true ->
-            {:ok, body}
-        end
+      byte_size(body) > @max_pdf_bytes ->
+        {:error, "PDF is too large (> #{div(@max_pdf_bytes, 1024 * 1024)} MB)"}
 
+      true ->
+        {:ok, body}
+    end
+  end
+
+  defp fetch_result(result) do
+    case result do
       {:ok, %{status: status}} when status in 300..399 ->
         {:error, "Server kept redirecting (status #{status}) — link may be broken"}
 
@@ -878,23 +886,23 @@ defmodule RuleMaven.RulebookDownloader do
           {:error, "PDF produced no pages to extract"}
 
         {:ok, sheets} ->
-          # A 2-up book reads as two logical pages per physical sheet; every
-          # page index from here down (budget, layer alignment, render, meta)
-          # is logical. `layout` carries the per-sheet media-box sizes read
-          # once here, so per-page renders never re-probe pdfinfo.
-          case build_layout(full_path, sheets, two_up) do
-            {:ok, layout} ->
-              run_crosscheck(full_path, on_progress, game_id, layout, sheets)
-
-            {:error, reason} ->
-              {:error, reason}
-          end
+          crosscheck_sheets(full_path, on_progress, game_id, two_up, sheets)
 
         {:error, reason} ->
           {:error, reason}
       end
     else
       {:error, :no_renderer}
+    end
+  end
+
+  # A 2-up book reads as two logical pages per physical sheet; every page index
+  # from here down (budget, layer alignment, render, meta) is logical. `layout`
+  # carries the per-sheet media-box sizes read once here, so per-page renders
+  # never re-probe pdfinfo.
+  defp crosscheck_sheets(full_path, on_progress, game_id, two_up, sheets) do
+    with {:ok, layout} <- build_layout(full_path, sheets, two_up) do
+      run_crosscheck(full_path, on_progress, game_id, layout, sheets)
     end
   end
 
@@ -964,7 +972,7 @@ defmodule RuleMaven.RulebookDownloader do
         _ -> %{text: "", confidence: 0.0, lane: "vision", source: "error"}
       end)
 
-    text = results |> Enum.map(& &1.text) |> Enum.join("\f")
+    text = Enum.map_join(results, "\f", & &1.text)
 
     if String.trim(text) == "" do
       {:error, "Extraction produced no readable text"}
@@ -1002,17 +1010,18 @@ defmodule RuleMaven.RulebookDownloader do
   defp sheet_count(full_path) do
     if System.find_executable("pdfinfo") do
       case cmd("pdfinfo", [full_path], @pdftotext_timeout) do
-        {:ok, {out, 0}} ->
-          case Regex.run(~r/^Pages:\s+(\d+)/m, out) do
-            [_, n] -> {:ok, String.to_integer(n)}
-            _ -> {:error, "could not read PDF page count"}
-          end
-
-        _ ->
-          {:error, "pdfinfo failed — PDF may be corrupt"}
+        {:ok, {out, 0}} -> parse_page_count(out)
+        _ -> {:error, "pdfinfo failed — PDF may be corrupt"}
       end
     else
       {:error, :no_pdfinfo}
+    end
+  end
+
+  defp parse_page_count(pdfinfo_out) do
+    case Regex.run(~r/^Pages:\s+(\d+)/m, pdfinfo_out) do
+      [_, n] -> {:ok, String.to_integer(n)}
+      _ -> {:error, "could not read PDF page count"}
     end
   end
 
@@ -1055,21 +1064,23 @@ defmodule RuleMaven.RulebookDownloader do
       Enum.flat_map(1..sheets, fn sheet ->
         {w, h} = Map.fetch!(sizes, sheet)
 
-        Enum.map([:left, :right], fn half ->
-          args =
-            ["-layout", "-f", to_string(sheet), "-l", to_string(sheet)] ++
-              TwoUp.crop_args(w, h, 72, half) ++ [full_path, "-"]
-
-          case cmd("pdftotext", args, @pdftotext_timeout) do
-            # Trailing \f from the single-page run would smuggle in an empty
-            # extra "page" and break 1:1 alignment.
-            {:ok, {text, 0}} -> String.trim_trailing(text, "\f")
-            _ -> :error
-          end
-        end)
+        Enum.map([:left, :right], &pdftext_half(full_path, sheet, w, h, &1))
       end)
 
     if :error in pages, do: [], else: pages
+  end
+
+  defp pdftext_half(full_path, sheet, w, h, half) do
+    args =
+      ["-layout", "-f", to_string(sheet), "-l", to_string(sheet)] ++
+        TwoUp.crop_args(w, h, 72, half) ++ [full_path, "-"]
+
+    case cmd("pdftotext", args, @pdftotext_timeout) do
+      # Trailing \f from the single-page run would smuggle in an empty
+      # extra "page" and break 1:1 alignment.
+      {:ok, {text, 0}} -> String.trim_trailing(text, "\f")
+      _ -> :error
+    end
   end
 
   @doc """
@@ -1126,17 +1137,17 @@ defmodule RuleMaven.RulebookDownloader do
 
     with true <- System.find_executable("pdfinfo") != nil,
          {:ok, {out, 0}} <- cmd("pdfinfo", args, @pdftotext_timeout) do
-      sizes =
-        Enum.reduce_while(first..last, %{}, fn sheet, acc ->
-          case TwoUp.parse_sheet_size(out, sheet) do
-            {:ok, wh} -> {:cont, Map.put(acc, sheet, wh)}
-            {:error, _} -> {:halt, :error}
-          end
-        end)
-
+      sizes = Enum.reduce_while(first..last, %{}, &put_sheet_size(out, &1, &2))
       if sizes == :error, do: {:error, :no_size}, else: {:ok, sizes}
     else
       _ -> {:error, :no_pdfinfo}
+    end
+  end
+
+  defp put_sheet_size(pdfinfo_out, sheet, acc) do
+    case TwoUp.parse_sheet_size(pdfinfo_out, sheet) do
+      {:ok, wh} -> {:cont, Map.put(acc, sheet, wh)}
+      {:error, _} -> {:halt, :error}
     end
   end
 
@@ -1585,21 +1596,22 @@ defmodule RuleMaven.RulebookDownloader do
           crop_args ++ [pdf_path, prefix]
 
       case cmd("pdftoppm", args, @pdftoppm_timeout) do
-        {:ok, {_, 0}} ->
-          tmp
-          |> File.ls!()
-          |> Enum.filter(&String.starts_with?(&1, Path.basename(prefix)))
-          |> Enum.sort()
-          |> case do
-            [img | _] -> {:ok, Path.join(tmp, img)}
-            [] -> {:error, :no_image}
-          end
-
-        _ ->
-          {:error, :render_failed}
+        {:ok, {_, 0}} -> first_rendered_image(tmp, prefix)
+        _ -> {:error, :render_failed}
       end
     else
       {:error, :no_renderer}
+    end
+  end
+
+  defp first_rendered_image(tmp, prefix) do
+    tmp
+    |> File.ls!()
+    |> Enum.filter(&String.starts_with?(&1, Path.basename(prefix)))
+    |> Enum.sort()
+    |> case do
+      [img | _] -> {:ok, Path.join(tmp, img)}
+      [] -> {:error, :no_image}
     end
   end
 
@@ -1721,66 +1733,71 @@ defmodule RuleMaven.RulebookDownloader do
           {:error, "OCR produced no text — PDF may be image-based with no readable content"}
 
         {:ok, images} ->
-          # OCR pages in parallel across cores (tesseract is single-threaded per
-          # invocation), preserving page order. Cuts an N-page scan from N×t to
-          # roughly N/cores × t.
-          ocr_pages =
-            images
-            |> Task.async_stream(
-              fn img ->
-                case cmd(
-                       "tesseract",
-                       [img, "stdout", "-l", "eng", "--psm", "6"],
-                       @tesseract_timeout,
-                       stderr_to_stdout: true
-                     ) do
-                  {:ok, {t, _}} -> t
-                  {:error, :timeout} -> ""
-                end
-              end,
-              max_concurrency: System.schedulers_online(),
-              ordered: true,
-              timeout: :infinity
-            )
-            |> Enum.map(fn
-              {:ok, t} -> t
-              _ -> ""
-            end)
-
-          # Vision fallback for the pages OCR mangled (heavy graphics / overlaid
-          # decorative text) or couldn't read at all. Only the bad pages hit the
-          # vision model, so cost stays bounded. On any failure we keep the OCR
-          # text. Capped concurrency: these are remote LLM calls, not local CPU.
-          text =
-            Enum.zip(images, ocr_pages)
-            |> Task.async_stream(
-              fn {img, ocr} ->
-                if ocr_junk?(ocr), do: vision_or_ocr(img, ocr, game_id), else: ocr
-              end,
-              max_concurrency: @vision_concurrency,
-              ordered: true,
-              timeout: :infinity
-            )
-            |> Enum.map(fn
-              {:ok, t} -> t
-              _ -> ""
-            end)
-            |> Enum.join("\f")
-
-          # Cleanup temp images
-          Enum.each(images, &File.rm/1)
-
-          if String.trim(text) == "" do
-            {:error, "OCR produced no text — PDF may be image-based with no readable content"}
-          else
-            {:ok, text}
-          end
+          ocr_images(images, game_id)
 
         {:error, reason} ->
           {:error, reason}
       end
     else
       {:error, "PDF has no text layer. Install tesseract for OCR: brew install tesseract"}
+    end
+  end
+
+  defp ocr_images(images, game_id) do
+    # OCR pages in parallel across cores (tesseract is single-threaded per
+    # invocation), preserving page order. Cuts an N-page scan from N×t to
+    # roughly N/cores × t.
+    ocr_pages =
+      images
+      |> Task.async_stream(
+        &tesseract_page/1,
+        max_concurrency: System.schedulers_online(),
+        ordered: true,
+        timeout: :infinity
+      )
+      |> Enum.map(fn
+        {:ok, t} -> t
+        _ -> ""
+      end)
+
+    # Vision fallback for the pages OCR mangled (heavy graphics / overlaid
+    # decorative text) or couldn't read at all. Only the bad pages hit the
+    # vision model, so cost stays bounded. On any failure we keep the OCR
+    # text. Capped concurrency: these are remote LLM calls, not local CPU.
+    text =
+      Enum.zip(images, ocr_pages)
+      |> Task.async_stream(
+        fn {img, ocr} ->
+          if ocr_junk?(ocr), do: vision_or_ocr(img, ocr, game_id), else: ocr
+        end,
+        max_concurrency: @vision_concurrency,
+        ordered: true,
+        timeout: :infinity
+      )
+      |> Enum.map_join("\f", fn
+        {:ok, t} -> t
+        _ -> ""
+      end)
+
+    # Cleanup temp images
+    Enum.each(images, &File.rm/1)
+
+    if String.trim(text) == "" do
+      {:error, "OCR produced no text — PDF may be image-based with no readable content"}
+    else
+      {:ok, text}
+    end
+  end
+
+  defp tesseract_page(img) do
+    case cmd(
+           "tesseract",
+           [img, "stdout", "-l", "eng", "--psm", "6"],
+           @tesseract_timeout,
+           stderr_to_stdout: true
+         ) do
+      {:ok, {t, _}} -> t
+      {:error, :timeout} -> ""
     end
   end
 

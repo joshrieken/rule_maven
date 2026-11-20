@@ -49,7 +49,7 @@ defmodule Mix.Tasks.CleanGateAb do
     if pages == [], do: Mix.raise("no pageN_pdftotext.md / pageN_vision.md pairs in #{full_dir}")
 
     info("Dump: #{full_dir}")
-    info("Pages: #{pages |> Enum.map(& &1.page) |> Enum.join(", ")}")
+    info("Pages: #{Enum.map_join(pages, ", ", & &1.page)}")
     info("Skip rule candidate: wordish >= T AND tokens >= #{min_tokens}\n")
 
     scored = Enum.map(pages, &score_page(&1, min_tokens))

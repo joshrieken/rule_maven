@@ -4,7 +4,9 @@ defmodule RuleMaven.CheatSheet do
   Serves as HTML via browser.
   """
 
+  alias RuleMaven.CheatSheet.CheatSheetVersion
   alias RuleMaven.{Games, Repo, Settings}
+  alias RuleMaven.Workers.CheatSheetGenWorker
   import Ecto.Query
 
   # ── Cheatsheet version management ──
@@ -16,14 +18,14 @@ defmodule RuleMaven.CheatSheet do
     # If this is the first version, mark it active
     active =
       Repo.aggregate(
-        from(v in RuleMaven.CheatSheet.CheatSheetVersion,
+        from(v in CheatSheetVersion,
           where: v.document_id == ^document_id
         ),
         :count
       ) == 0
 
-    %RuleMaven.CheatSheet.CheatSheetVersion{}
-    |> RuleMaven.CheatSheet.CheatSheetVersion.changeset(%{
+    %CheatSheetVersion{}
+    |> CheatSheetVersion.changeset(%{
       document_id: document_id,
       content: content,
       level: level,
@@ -37,7 +39,7 @@ defmodule RuleMaven.CheatSheet do
   """
   def list_versions(document_id) do
     Repo.all(
-      from v in RuleMaven.CheatSheet.CheatSheetVersion,
+      from v in CheatSheetVersion,
         where: v.document_id == ^document_id,
         order_by: [desc: v.inserted_at]
     )
@@ -48,7 +50,7 @@ defmodule RuleMaven.CheatSheet do
   """
   def active_version(document_id) do
     Repo.one(
-      from v in RuleMaven.CheatSheet.CheatSheetVersion,
+      from v in CheatSheetVersion,
         where: v.document_id == ^document_id and v.active == true
     )
   end
@@ -63,7 +65,7 @@ defmodule RuleMaven.CheatSheet do
 
   def any_active?(document_ids) when is_list(document_ids) do
     Repo.exists?(
-      from v in RuleMaven.CheatSheet.CheatSheetVersion,
+      from v in CheatSheetVersion,
         where: v.document_id in ^document_ids and v.active == true
     )
   end
@@ -77,7 +79,7 @@ defmodule RuleMaven.CheatSheet do
   """
   def get_version_for_game(%Games.Game{id: game_id}, id) do
     Repo.one(
-      from v in RuleMaven.CheatSheet.CheatSheetVersion,
+      from v in CheatSheetVersion,
         join: d in Games.Document,
         on: d.id == v.document_id,
         where: v.id == ^id and d.game_id == ^game_id
@@ -87,21 +89,21 @@ defmodule RuleMaven.CheatSheet do
   @doc """
   Sets one version as active, deactivates all others for this document.
   """
-  def set_active(%RuleMaven.CheatSheet.CheatSheetVersion{} = version) do
+  def set_active(%CheatSheetVersion{} = version) do
     Repo.update_all(
-      from(v in RuleMaven.CheatSheet.CheatSheetVersion,
+      from(v in CheatSheetVersion,
         where: v.document_id == ^version.document_id
       ),
       set: [active: false]
     )
 
-    Repo.update(RuleMaven.CheatSheet.CheatSheetVersion.changeset(version, %{active: true}))
+    Repo.update(CheatSheetVersion.changeset(version, %{active: true}))
   end
 
   @doc """
   Deletes a version.
   """
-  def delete_version(%RuleMaven.CheatSheet.CheatSheetVersion{} = version) do
+  def delete_version(%CheatSheetVersion{} = version) do
     Repo.delete(version)
   end
 
@@ -126,7 +128,7 @@ defmodule RuleMaven.CheatSheet do
 
     if Application.get_env(:rule_maven, Oban)[:testing] != :manual do
       %{game_id: game_id, level: level, expansion_ids: expansion_ids}
-      |> RuleMaven.Workers.CheatSheetGenWorker.new()
+      |> CheatSheetGenWorker.new()
       |> Oban.insert()
     end
 
@@ -243,9 +245,8 @@ defmodule RuleMaven.CheatSheet do
     else
       annotated = annotate_pages(full_text)
 
-      with {:ok, compressed} <- compress_text(game.name, annotated, game.id),
-           {:ok, content} <- generate_cheat_sheet_content(game.name, compressed, level, game.id) do
-        {:ok, content}
+      with {:ok, compressed} <- compress_text(game.name, annotated, game.id) do
+        generate_cheat_sheet_content(game.name, compressed, level, game.id)
       end
     end
   end
@@ -259,10 +260,9 @@ defmodule RuleMaven.CheatSheet do
     else
       pages
       |> Enum.with_index(1)
-      |> Enum.map(fn {page_text, n} ->
+      |> Enum.map_join("\n\n", fn {page_text, n} ->
         "[Page #{n}]\n#{String.trim(page_text)}"
       end)
-      |> Enum.join("\n\n")
     end
   end
 

@@ -1,7 +1,7 @@
 defmodule RuleMaven.LLMCostTest do
   use RuleMaven.DataCase, async: true
 
-  alias RuleMaven.{LLM, Users, Repo}
+  alias RuleMaven.{LLM, Repo, Users}
   alias RuleMaven.LLM.Pricing
 
   defp user_fixture(name) do
@@ -49,12 +49,12 @@ defmodule RuleMaven.LLMCostTest do
     test "saves the discount between full and cached input rate" do
       # gemini-2.5-flash input rate is 0.30 / Mtok. Cached billed at 25% of that,
       # so the saving is 75% of the full input cost of the cached tokens.
-      saved = RuleMaven.LLM.Pricing.cached_savings("google/gemini-2.5-flash", 1_000_000)
+      saved = Pricing.cached_savings("google/gemini-2.5-flash", 1_000_000)
       assert_in_delta saved, 0.30 * 0.75, 0.0001
     end
 
     test "zero cached tokens saves nothing" do
-      assert RuleMaven.LLM.Pricing.cached_savings("gemini-2.5-flash", 0) == 0.0
+      assert Pricing.cached_savings("gemini-2.5-flash", 0) == 0.0
     end
   end
 

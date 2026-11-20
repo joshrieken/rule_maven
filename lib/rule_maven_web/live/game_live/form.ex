@@ -1,9 +1,23 @@
 defmodule RuleMavenWeb.GameLive.Form do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Games, Repo, RulebookDownloader, Settings, CheatSheet}
   import Ecto.Query
+
+  alias RuleMaven.{CheatSheet, Games, Repo, RulebookDownloader, Settings}
   alias RuleMaven.Games.Document
+
+  alias RuleMaven.Workers.{
+    BggEnrichWorker,
+    CategoriesWorker,
+    CheatSheetGenWorker,
+    DidYouKnowWorker,
+    DownloadWorker,
+    ExpansionSyncWorker,
+    ReextractPageWorker,
+    SuggestionsWorker,
+    ThemePaletteWorker
+  }
+
   alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
 
   @max_pdfs 10
@@ -130,228 +144,201 @@ defmodule RuleMavenWeb.GameLive.Form do
     end
   end
 
-  defp do_handle_params(params, socket) do
+  defp do_handle_params(%{"id" => id} = params, socket) do
+    game = Games.get_game_by_token!(id)
+
+    # Cleaned text is persisted straight into each document's pages, so the
+    # source entries already carry it — no overlay needed.
+    entries =
+      game
+      |> Games.list_rulebook_sources()
+      |> Enum.with_index()
+      |> Enum.map(fn {s, i} -> source_entry(s, i) end)
+
+    cheat = cheat_assigns(game)
+
     socket =
-      case params do
-        %{"id" => id} ->
-          game = Games.get_game_by_token!(id)
+      assign(
+        socket,
+        [
+          game: game,
+          source_entries: entries,
+          expansions: Games.expansions_for(game),
+          cheat_expansions: Games.expansions_with_documents(game),
+          game_changeset: Games.change_game(game),
+          question_count: Games.question_count(game)
+        ] ++ cheat
+      )
 
-          sources =
-            game
-            |> Games.list_rulebook_sources()
-            |> Enum.with_index()
-            |> Enum.map(fn {s, i} -> source_entry(s, i) end)
-
-          # Cleaned text is persisted straight into each document's pages, so the
-          # source entries already carry it — no overlay needed.
-          entries = sources
-
-          cheat_status = CheatSheet.status(game.id)
-          cheat_content = CheatSheet.stored_content(game.id)
-          cheat_error = CheatSheet.stored_error(game.id)
-          cheat_provider = CheatSheet.stored_provider(game.id)
-          cheat_model = CheatSheet.stored_model(game.id)
-          cheat_elapsed = CheatSheet.stored_elapsed(game.id)
-          cheat_started_at = CheatSheet.stored_started(game.id)
-          cheat_level = CheatSheet.stored_level(game.id) || "compact"
-          cancelled = CheatSheet.cancelled?(game.id)
-
-          {cheat_status, cheat_content, cheat_error} =
-            if cancelled && cheat_status in ["compressing", "generating"] do
-              CheatSheet.clear(game.id)
-              {nil, nil, nil}
-            else
-              {cheat_status, cheat_content, cheat_error}
-            end
-
-          socket =
-            assign(socket,
-              game: game,
-              source_entries: entries,
-              expansions: Games.expansions_for(game),
-              cheat_expansions: Games.expansions_with_documents(game),
-              game_changeset: Games.change_game(game),
-              question_count: Games.question_count(game),
-              cheat_status: cheat_status,
-              cheat_content: cheat_content,
-              cheat_error: cheat_error,
-              cheat_provider: cheat_provider,
-              cheat_model: cheat_model,
-              cheat_elapsed: cheat_elapsed,
-              cheat_started_at: cheat_started_at,
-              cheat_level: cheat_level
-            )
-
-          # The game only becomes known here, so the tools mount here too —
-          # but exactly once. Re-running it on every tab patch would reset
-          # whatever windows the user has open.
-          socket =
-            if Map.has_key?(socket.assigns, :tool_states) do
-              socket
-            else
-              socket |> ToolHost.mount_header(game) |> ToolHost.mount_tools(game)
-            end
-
-          if cheat_status in ["compressing", "generating"] do
-            Process.send_after(self(), :poll_cheat_status, 2000)
-          end
-
-          # Follow any in-flight cleanup for this game. Subscribe once (this runs
-          # again on every tab patch), and seed the progress map from Settings so
-          # a remount immediately shows "Cleaning d/t…" instead of the button.
-          socket =
-            if connected?(socket) and not socket.assigns.cleanup_subscribed do
-              Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game_cleanup:#{game.id}")
-              # Results of the suggestion/category/cheat-sheet Oban workers arrive
-              # via PubSub (the workers can't message this LiveView's pid).
-              Phoenix.PubSub.subscribe(
-                RuleMaven.PubSub,
-                RuleMaven.Workers.SuggestionsWorker.topic(game.id)
-              )
-
-              Phoenix.PubSub.subscribe(
-                RuleMaven.PubSub,
-                RuleMaven.Workers.CategoriesWorker.topic(game.id)
-              )
-
-              Phoenix.PubSub.subscribe(
-                RuleMaven.PubSub,
-                RuleMaven.Workers.CheatSheetGenWorker.topic(game.id)
-              )
-
-              Phoenix.PubSub.subscribe(
-                RuleMaven.PubSub,
-                RuleMaven.Workers.DidYouKnowWorker.topic(game.id)
-              )
-
-              Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.Setup.topic(game.id))
-
-              Phoenix.PubSub.subscribe(
-                RuleMaven.PubSub,
-                RuleMaven.Workers.DownloadWorker.topic(game.id)
-              )
-
-              Phoenix.PubSub.subscribe(
-                RuleMaven.PubSub,
-                RuleMaven.Workers.BggEnrichWorker.topic(game.id)
-              )
-
-              Phoenix.PubSub.subscribe(
-                RuleMaven.PubSub,
-                RuleMaven.Workers.ThemePaletteWorker.topic(game.id)
-              )
-
-              Phoenix.PubSub.subscribe(
-                RuleMaven.PubSub,
-                RuleMaven.Workers.ExpansionSyncWorker.topic(game.id)
-              )
-
-              # Re-seed an in-flight expansion sync so a remount shows progress.
-              progress = Settings.get(RuleMaven.Workers.ExpansionSyncWorker.key(game.id))
-
-              socket
-              |> assign(
-                cleanup_subscribed: true,
-                exp_syncing: not is_nil(progress),
-                exp_sync_progress: progress
-              )
-            else
-              socket
-            end
-
-          socket =
-            assign(socket,
-              cleaning: seed_cleaning(entries),
-              reextracting: seed_reextracting(entries)
-            )
-
-          # Follow an in-flight download (durable Oban job) across a remount.
-          socket =
-            assign(socket,
-              downloading: RuleMaven.Workers.DownloadWorker.running?(game.id),
-              download_error: Settings.get("download_error_#{game.id}")
-            )
-
-          # Tab restore: an explicit ?tab= wins (in-app navigation), else the
-          # per-game choice remembered in localStorage, else a sensible default
-          # (Manage once a rulebook exists, else Upload).
-          default_tab = if entries == [], do: "rulebook", else: "manage"
-          tab = params["tab"] || restore_edit_tab(socket, game.id) || default_tab
-
-          # Seed the per-source last page/sheet from localStorage, but only on the
-          # first load — later patches (e.g. tab switches) must not stomp the
-          # page the user has navigated to this session.
-          source_page =
-            if socket.assigns.source_page == %{},
-              do: restore_source_page(socket, game.id),
-              else: socket.assigns.source_page
-
-          socket = assign(socket, tab: tab, source_page: source_page)
-
-          suggestions =
-            case RuleMaven.Settings.get("suggestions_#{game.id}") do
-              nil ->
-                []
-
-              json ->
-                json
-                |> Jason.decode!()
-                |> Enum.map(fn %{"category" => c, "questions" => qs} ->
-                  %{category: c, questions: qs}
-                end)
-            end
-
-          dyk_facts =
-            case RuleMaven.Settings.get("did_you_know_#{game.id}") do
-              nil -> []
-              json -> Jason.decode!(json)
-            end
-
-          # Re-seed the in-flight "Generating…" state from the durable Oban job so
-          # it survives a refresh instead of falling back to the "Generate" button.
-          socket =
-            assign(socket,
-              suggestions: suggestions,
-              dyk_facts: dyk_facts,
-              regenerating_dyk: RuleMaven.Workers.DidYouKnowWorker.running?(game.id),
-              regenerating_theme: RuleMaven.Workers.ThemePaletteWorker.running?(game.id),
-              setup_checklist: RuleMaven.Setup.stored_checklist(game.id),
-              regenerating_setup: RuleMaven.Setup.status(game.id) == "generating"
-            )
-
-          draft_categories =
-            case RuleMaven.Settings.get("categories_#{game.id}") do
-              nil ->
-                []
-
-              json ->
-                json
-                |> Jason.decode!()
-                |> Enum.map(fn %{"name" => n, "description" => d} ->
-                  %{name: n, description: d}
-                end)
-            end
-
-          saved_categories = RuleMaven.Games.list_game_categories(game)
-
-          socket =
-            assign(socket, draft_categories: draft_categories, saved_categories: saved_categories)
-
-          assign_parent_state(socket, game)
-
-        _ ->
-          changeset = Games.change_game(%Games.Game{})
-
-          assign(socket,
-            game: nil,
-            source_entries: [],
-            expansions: [],
-            cheat_expansions: [],
-            game_changeset: changeset
-          )
+    # The game only becomes known here, so the tools mount here too —
+    # but exactly once. Re-running it on every tab patch would reset
+    # whatever windows the user has open.
+    socket =
+      if Map.has_key?(socket.assigns, :tool_states) do
+        socket
+      else
+        socket |> ToolHost.mount_header(game) |> ToolHost.mount_tools(game)
       end
 
-    {:noreply, socket}
+    if cheat[:cheat_status] in ["compressing", "generating"] do
+      Process.send_after(self(), :poll_cheat_status, 2000)
+    end
+
+    socket =
+      socket
+      |> maybe_subscribe_game(game)
+      |> assign(
+        cleaning: seed_cleaning(entries),
+        reextracting: seed_reextracting(entries)
+      )
+      # Follow an in-flight download (durable Oban job) across a remount.
+      |> assign(
+        downloading: DownloadWorker.running?(game.id),
+        download_error: Settings.get("download_error_#{game.id}")
+      )
+      |> assign_tab_state(params, game, entries)
+      # Re-seed the in-flight "Generating…" state from the durable Oban job so
+      # it survives a refresh instead of falling back to the "Generate" button.
+      |> assign(
+        suggestions: stored_suggestions(game.id),
+        dyk_facts: stored_dyk_facts(game.id),
+        regenerating_dyk: DidYouKnowWorker.running?(game.id),
+        regenerating_theme: ThemePaletteWorker.running?(game.id),
+        setup_checklist: RuleMaven.Setup.stored_checklist(game.id),
+        regenerating_setup: RuleMaven.Setup.status(game.id) == "generating"
+      )
+      |> assign(
+        draft_categories: stored_draft_categories(game.id),
+        saved_categories: RuleMaven.Games.list_game_categories(game)
+      )
+
+    {:noreply, assign_parent_state(socket, game)}
+  end
+
+  defp do_handle_params(_params, socket) do
+    changeset = Games.change_game(%Games.Game{})
+
+    {:noreply,
+     assign(socket,
+       game: nil,
+       source_entries: [],
+       expansions: [],
+       cheat_expansions: [],
+       game_changeset: changeset
+     )}
+  end
+
+  # The stored cheat-sheet state machine, cleared if a cancelled run was left
+  # mid-flight.
+  defp cheat_assigns(game) do
+    cheat_status = CheatSheet.status(game.id)
+    cheat_content = CheatSheet.stored_content(game.id)
+    cheat_error = CheatSheet.stored_error(game.id)
+    cheat_provider = CheatSheet.stored_provider(game.id)
+    cheat_model = CheatSheet.stored_model(game.id)
+    cheat_elapsed = CheatSheet.stored_elapsed(game.id)
+    cheat_started_at = CheatSheet.stored_started(game.id)
+    cheat_level = CheatSheet.stored_level(game.id) || "compact"
+    cancelled = CheatSheet.cancelled?(game.id)
+
+    {cheat_status, cheat_content, cheat_error} =
+      if cancelled && cheat_status in ["compressing", "generating"] do
+        CheatSheet.clear(game.id)
+        {nil, nil, nil}
+      else
+        {cheat_status, cheat_content, cheat_error}
+      end
+
+    [
+      cheat_status: cheat_status,
+      cheat_content: cheat_content,
+      cheat_error: cheat_error,
+      cheat_provider: cheat_provider,
+      cheat_model: cheat_model,
+      cheat_elapsed: cheat_elapsed,
+      cheat_started_at: cheat_started_at,
+      cheat_level: cheat_level
+    ]
+  end
+
+  # Follow any in-flight cleanup for this game. Subscribe once (this runs
+  # again on every tab patch), and seed the progress map from Settings so
+  # a remount immediately shows "Cleaning d/t…" instead of the button.
+  defp maybe_subscribe_game(socket, game) do
+    if connected?(socket) and not socket.assigns.cleanup_subscribed do
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, "game_cleanup:#{game.id}")
+      # Results of the suggestion/category/cheat-sheet Oban workers arrive
+      # via PubSub (the workers can't message this LiveView's pid).
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, SuggestionsWorker.topic(game.id))
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, CategoriesWorker.topic(game.id))
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, CheatSheetGenWorker.topic(game.id))
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, DidYouKnowWorker.topic(game.id))
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.Setup.topic(game.id))
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, DownloadWorker.topic(game.id))
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, BggEnrichWorker.topic(game.id))
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, ThemePaletteWorker.topic(game.id))
+      Phoenix.PubSub.subscribe(RuleMaven.PubSub, ExpansionSyncWorker.topic(game.id))
+
+      # Re-seed an in-flight expansion sync so a remount shows progress.
+      progress = Settings.get(ExpansionSyncWorker.key(game.id))
+
+      assign(socket,
+        cleanup_subscribed: true,
+        exp_syncing: not is_nil(progress),
+        exp_sync_progress: progress
+      )
+    else
+      socket
+    end
+  end
+
+  defp assign_tab_state(socket, params, game, entries) do
+    # Tab restore: an explicit ?tab= wins (in-app navigation), else the
+    # per-game choice remembered in localStorage, else a sensible default
+    # (Manage once a rulebook exists, else Upload).
+    default_tab = if entries == [], do: "rulebook", else: "manage"
+    tab = params["tab"] || restore_edit_tab(socket, game.id) || default_tab
+
+    # Seed the per-source last page/sheet from localStorage, but only on the
+    # first load — later patches (e.g. tab switches) must not stomp the
+    # page the user has navigated to this session.
+    source_page =
+      if socket.assigns.source_page == %{},
+        do: restore_source_page(socket, game.id),
+        else: socket.assigns.source_page
+
+    assign(socket, tab: tab, source_page: source_page)
+  end
+
+  defp stored_suggestions(game_id) do
+    case RuleMaven.Settings.get("suggestions_#{game_id}") do
+      nil ->
+        []
+
+      json ->
+        json
+        |> Jason.decode!()
+        |> Enum.map(fn %{"category" => c, "questions" => qs} -> %{category: c, questions: qs} end)
+    end
+  end
+
+  defp stored_dyk_facts(game_id) do
+    case RuleMaven.Settings.get("did_you_know_#{game_id}") do
+      nil -> []
+      json -> Jason.decode!(json)
+    end
+  end
+
+  defp stored_draft_categories(game_id) do
+    case RuleMaven.Settings.get("categories_#{game_id}") do
+      nil ->
+        []
+
+      json ->
+        json
+        |> Jason.decode!()
+        |> Enum.map(fn %{"name" => n, "description" => d} -> %{name: n, description: d} end)
+    end
   end
 
   # Table tools (sub-bar → floating windows) are shared by every game screen.
@@ -389,19 +376,7 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     entries =
       Enum.map(socket.assigns.source_entries, fn e ->
-        if e.id == id do
-          # Persist immediately for an already-saved source, so the kind sticks
-          # without routing through the label-keyed form save. New, unsaved
-          # entries persist on save instead.
-          if e[:source_id] do
-            doc = Games.get_document!(e.source_id)
-            Games.update_document(doc, %{kind: kind})
-          end
-
-          %{e | kind: kind}
-        else
-          e
-        end
+        if e.id == id, do: set_entry_kind(e, kind), else: e
       end)
 
     {:noreply, assign(socket, source_entries: entries)}
@@ -507,7 +482,7 @@ defmodule RuleMavenWeb.GameLive.Form do
   # detail. Durable + non-blocking via Oban; progress arrives over PubSub.
   def handle_event("pull_expansions", _params, socket) do
     if socket.assigns.game do
-      RuleMaven.Workers.ExpansionSyncWorker.enqueue(socket.assigns.game.id)
+      ExpansionSyncWorker.enqueue(socket.assigns.game.id)
 
       {:noreply,
        socket
@@ -528,7 +503,7 @@ defmodule RuleMavenWeb.GameLive.Form do
     # Durable + non-blocking: enqueue the BGG pull and let the result arrive over
     # PubSub (subscribed in mount) instead of blocking the LiveView process.
     %{game_id: socket.assigns.game.id}
-    |> RuleMaven.Workers.BggEnrichWorker.new()
+    |> BggEnrichWorker.new()
     |> Oban.insert()
 
     # Mark this as a user-initiated refresh so the enrich result can offer to
@@ -675,15 +650,7 @@ defmodule RuleMavenWeb.GameLive.Form do
         text = params[target] || ""
         field = if layer == "orig", do: :text, else: :cleaned
 
-        entries =
-          Enum.map(socket.assigns.source_entries, fn e ->
-            if e.id == id and idx < length(e.pages) do
-              pages = List.update_at(e.pages, idx, &Map.put(&1, field, text))
-              %{e | pages: pages, text: Games.rebuild_full_text(pages)}
-            else
-              e
-            end
-          end)
+        entries = put_page_field(socket.assigns.source_entries, id, idx, field, text)
 
         {:noreply, assign(socket, source_entries: entries)}
 
@@ -759,10 +726,7 @@ defmodule RuleMavenWeb.GameLive.Form do
       {%{source_id: sid}, {sheet, _}} when is_integer(sid) and sheet >= 1 ->
         {:ok, _doc} = Games.set_printed_anchor(Games.get_document!(sid), sheet)
 
-        entries =
-          Enum.map(socket.assigns.source_entries, fn e ->
-            if e.id == id, do: reload_entry(e), else: e
-          end)
+        entries = update_entry(socket.assigns.source_entries, id, &reload_entry/1)
 
         {:noreply,
          socket
@@ -773,10 +737,7 @@ defmodule RuleMavenWeb.GameLive.Form do
         pages = Games.assign_printed_from_anchor(entry.pages, sheet)
         new_entry = %{entry | pages: pages, text: Games.rebuild_full_text(pages)}
 
-        entries =
-          Enum.map(socket.assigns.source_entries, fn e ->
-            if e.id == id, do: new_entry, else: e
-          end)
+        entries = replace_entry(socket.assigns.source_entries, id, new_entry)
 
         {:noreply,
          socket
@@ -855,7 +816,7 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     with %{source_id: sid} when is_integer(sid) <- entry,
          %{index: index} <- Enum.at(entry.pages, page) do
-      RuleMaven.Workers.ReextractPageWorker.enqueue(sid, index)
+      ReextractPageWorker.enqueue(sid, index)
 
       {:noreply,
        socket
@@ -875,7 +836,7 @@ defmodule RuleMavenWeb.GameLive.Form do
 
     with %{source_id: sid} when is_integer(sid) <- entry,
          flagged when flagged != [] <- Enum.filter(entry.pages, & &1[:needs_review]) do
-      Enum.each(flagged, &RuleMaven.Workers.ReextractPageWorker.enqueue(sid, &1.index))
+      Enum.each(flagged, &ReextractPageWorker.enqueue(sid, &1.index))
       n = length(flagged)
 
       {:noreply,
@@ -1167,7 +1128,7 @@ defmodule RuleMavenWeb.GameLive.Form do
       {:noreply,
        assign(socket, downloading: false, download_stage: nil, download_error: "Enter a PDF URL")}
     else
-      RuleMaven.Workers.DownloadWorker.enqueue(socket.assigns.game.id, "url", url, label)
+      DownloadWorker.enqueue(socket.assigns.game.id, "url", url, label)
       {:noreply, socket}
     end
   end
@@ -1182,13 +1143,13 @@ defmodule RuleMavenWeb.GameLive.Form do
         download_ok: nil
       )
 
-    RuleMaven.Workers.DownloadWorker.enqueue(socket.assigns.game.id, "find")
+    DownloadWorker.enqueue(socket.assigns.game.id, "find")
     {:noreply, socket}
   end
 
   @impl true
   def handle_event("cancel_download", _params, socket) do
-    RuleMaven.Workers.DownloadWorker.cancel(socket.assigns.game.id)
+    DownloadWorker.cancel(socket.assigns.game.id)
 
     {:noreply,
      assign(socket,
@@ -1270,7 +1231,7 @@ defmodule RuleMavenWeb.GameLive.Form do
     url = String.trim(url)
     label = String.trim(label)
     socket = assign(socket, downloading: true, download_stage: "Starting…", download_error: nil)
-    RuleMaven.Workers.DownloadWorker.enqueue(socket.assigns.game.id, "url", url, label)
+    DownloadWorker.enqueue(socket.assigns.game.id, "url", url, label)
     {:noreply, socket}
   end
 
@@ -1282,50 +1243,7 @@ defmodule RuleMavenWeb.GameLive.Form do
     game_params =
       Map.merge(game_params, extra |> Enum.into(%{}, fn {k, v} -> {to_string(k), v} end))
 
-    source_map =
-      socket.assigns.source_entries
-      |> Enum.map(fn entry ->
-        label = all_params["label_#{entry.id}"] || ""
-
-        # All three layers are kept current in socket state (edit_page + cleanup),
-        # synced across the inline + expanded editors, so build straight from there.
-        # Carry every page field through (lane/confidence/gate decision log,
-        # cleanup_defects…) — the embed replace on save persists exactly this
-        # map, and dropping extraction metadata makes cleanup-skipped pages
-        # (confident vision lane, cleaned: nil) read as never cleaned, knocking
-        # the prepare pipeline back to Pending after a label-only save.
-        # :needs_review is a derived display flag, not a Page field.
-        pages =
-          entry.pages
-          |> Enum.with_index()
-          |> Enum.map(fn {p, i} ->
-            p
-            |> Map.drop([:needs_review])
-            |> Map.merge(%{index: i, text: p.text || "", cleaned: p[:cleaned]})
-          end)
-
-        {label, entry[:source_id],
-         %{
-           full_text: Games.rebuild_full_text(pages),
-           pages: pages,
-           pdf_path: nil,
-           kind: entry[:kind] || "rulebook"
-         }}
-      end)
-      |> Enum.filter(fn {l, source_id, %{pages: pages}} ->
-        # Only new, never-saved entries (blank "add source" slots with no
-        # source_id) need real content before they're worth keeping. Existing
-        # persisted documents must never be dropped here just because they
-        # haven't finished extraction yet (pages still empty) — save_game
-        # prunes anything missing from source_map, so dropping them here
-        # would delete the document outright.
-        String.trim(l) != "" and
-          (source_id != nil or
-             Enum.any?(pages, &(String.trim(Games.effective_page_text(&1)) != "")))
-      end)
-      |> Enum.map(fn {l, source_id, attrs} ->
-        Map.merge(attrs, %{label: l, source_id: source_id})
-      end)
+    source_map = source_map(socket.assigns.source_entries, all_params)
 
     # Copy any pending PDF uploads into place now (consume_uploaded_entries deletes
     # the temp file once the callback returns). The source rows are created below,
@@ -1644,64 +1562,7 @@ defmodule RuleMavenWeb.GameLive.Form do
     game = socket.assigns.game
 
     if game do
-      case CheatSheet.status(game.id) do
-        "done" ->
-          content = CheatSheet.stored_content(game.id)
-          provider = CheatSheet.stored_provider(game.id)
-          model = CheatSheet.stored_model(game.id)
-          elapsed = CheatSheet.stored_elapsed(game.id)
-
-          {:noreply,
-           socket
-           |> assign(
-             cheat_status: nil,
-             cheat_content: content,
-             cheat_error: nil,
-             cheat_provider: provider,
-             cheat_model: model,
-             cheat_elapsed: elapsed,
-             cheat_started_at: nil
-           )
-           |> put_flash(
-             :info,
-             "Content generated! Review and edit below, then click Save Cheat Sheet."
-           )}
-
-        "error" ->
-          error = CheatSheet.stored_error(game.id)
-
-          {:noreply, assign(socket, cheat_status: nil, cheat_error: error)}
-
-        status when status in ["compressing", "generating"] ->
-          started = socket.assigns.cheat_started_at || CheatSheet.stored_started(game.id)
-          stuck? = started && System.system_time(:second) - started > 600
-          provider = CheatSheet.stored_provider(game.id)
-          model = CheatSheet.stored_model(game.id)
-          elapsed = started && System.system_time(:second) - started
-
-          if stuck? do
-            CheatSheet.clear(game.id)
-
-            {:noreply,
-             assign(socket,
-               cheat_status: nil,
-               cheat_error: "Generation timed out after 10 minutes. Try again."
-             )}
-          else
-            Process.send_after(self(), :poll_cheat_status, 2000)
-
-            {:noreply,
-             assign(socket,
-               cheat_status: status,
-               cheat_provider: provider,
-               cheat_model: model,
-               cheat_elapsed: elapsed
-             )}
-          end
-
-        _ ->
-          {:noreply, socket}
-      end
+      poll_cheat_status(socket, game, CheatSheet.status(game.id))
     else
       {:noreply, socket}
     end
@@ -1906,10 +1767,7 @@ defmodule RuleMavenWeb.GameLive.Form do
          not Map.has_key?(socket.assigns.cleaning, sid) do
       {:ok, _job} = Games.enqueue_cleanup(Games.get_document!(sid), :auto, mode)
 
-      entries =
-        Enum.map(socket.assigns.source_entries, fn e ->
-          if e.source_id == sid, do: reset_cleaned(e), else: e
-        end)
+      entries = Enum.map(socket.assigns.source_entries, &reset_cleaned_if(&1, sid))
 
       assign(socket,
         source_entries: entries,
@@ -1938,6 +1796,148 @@ defmodule RuleMavenWeb.GameLive.Form do
 
   # Null a source's cleaned layer in the open form (mirrors a fresh re-clean in
   # the DB) so the progress indicator tracks from 0.
+  defp poll_cheat_status(socket, game, "done") do
+    content = CheatSheet.stored_content(game.id)
+    provider = CheatSheet.stored_provider(game.id)
+    model = CheatSheet.stored_model(game.id)
+    elapsed = CheatSheet.stored_elapsed(game.id)
+
+    {:noreply,
+     socket
+     |> assign(
+       cheat_status: nil,
+       cheat_content: content,
+       cheat_error: nil,
+       cheat_provider: provider,
+       cheat_model: model,
+       cheat_elapsed: elapsed,
+       cheat_started_at: nil
+     )
+     |> put_flash(
+       :info,
+       "Content generated! Review and edit below, then click Save Cheat Sheet."
+     )}
+  end
+
+  defp poll_cheat_status(socket, game, "error") do
+    error = CheatSheet.stored_error(game.id)
+
+    {:noreply, assign(socket, cheat_status: nil, cheat_error: error)}
+  end
+
+  defp poll_cheat_status(socket, game, status) when status in ["compressing", "generating"] do
+    started = socket.assigns.cheat_started_at || CheatSheet.stored_started(game.id)
+    stuck? = started && System.system_time(:second) - started > 600
+    provider = CheatSheet.stored_provider(game.id)
+    model = CheatSheet.stored_model(game.id)
+    elapsed = started && System.system_time(:second) - started
+
+    if stuck? do
+      CheatSheet.clear(game.id)
+
+      {:noreply,
+       assign(socket,
+         cheat_status: nil,
+         cheat_error: "Generation timed out after 10 minutes. Try again."
+       )}
+    else
+      Process.send_after(self(), :poll_cheat_status, 2000)
+
+      {:noreply,
+       assign(socket,
+         cheat_status: status,
+         cheat_provider: provider,
+         cheat_model: model,
+         cheat_elapsed: elapsed
+       )}
+    end
+  end
+
+  defp poll_cheat_status(socket, _game, _status), do: {:noreply, socket}
+
+  # Persist immediately for an already-saved source, so the kind sticks
+  # without routing through the label-keyed form save. New, unsaved
+  # entries persist on save instead.
+  defp set_entry_kind(e, kind) do
+    if e[:source_id] do
+      doc = Games.get_document!(e.source_id)
+      Games.update_document(doc, %{kind: kind})
+    end
+
+    %{e | kind: kind}
+  end
+
+  # The form's sources as save_game attrs, minus blank unsaved slots.
+  defp source_map(entries, all_params) do
+    entries
+    |> Enum.map(&entry_source(&1, all_params))
+    |> Enum.filter(&keep_source?/1)
+    |> Enum.map(fn {l, source_id, attrs} ->
+      Map.merge(attrs, %{label: l, source_id: source_id})
+    end)
+  end
+
+  defp entry_source(entry, all_params) do
+    label = all_params["label_#{entry.id}"] || ""
+
+    # All three layers are kept current in socket state (edit_page + cleanup),
+    # synced across the inline + expanded editors, so build straight from there.
+    # Carry every page field through (lane/confidence/gate decision log,
+    # cleanup_defects…) — the embed replace on save persists exactly this
+    # map, and dropping extraction metadata makes cleanup-skipped pages
+    # (confident vision lane, cleaned: nil) read as never cleaned, knocking
+    # the prepare pipeline back to Pending after a label-only save.
+    # :needs_review is a derived display flag, not a Page field.
+    pages =
+      entry.pages
+      |> Enum.with_index()
+      |> Enum.map(fn {p, i} ->
+        p
+        |> Map.drop([:needs_review])
+        |> Map.merge(%{index: i, text: p.text || "", cleaned: p[:cleaned]})
+      end)
+
+    {label, entry[:source_id],
+     %{
+       full_text: Games.rebuild_full_text(pages),
+       pages: pages,
+       pdf_path: nil,
+       kind: entry[:kind] || "rulebook"
+     }}
+  end
+
+  # Only new, never-saved entries (blank "add source" slots with no
+  # source_id) need real content before they're worth keeping. Existing
+  # persisted documents must never be dropped here just because they
+  # haven't finished extraction yet (pages still empty) — save_game
+  # prunes anything missing from source_map, so dropping them here
+  # would delete the document outright.
+  defp keep_source?({l, source_id, %{pages: pages}}) do
+    String.trim(l) != "" and
+      (source_id != nil or
+         Enum.any?(pages, &(String.trim(Games.effective_page_text(&1)) != "")))
+  end
+
+  defp replace_entry(entries, id, new_entry), do: update_entry(entries, id, fn _ -> new_entry end)
+
+  defp update_entry(entries, id, fun),
+    do: Enum.map(entries, fn e -> if e.id == id, do: fun.(e), else: e end)
+
+  # Sets one page layer (`field`) on entry `id`, keeping its full text current.
+  defp put_page_field(entries, id, idx, field, text) do
+    Enum.map(entries, fn e ->
+      if e.id == id and idx < length(e.pages) do
+        pages = List.update_at(e.pages, idx, &Map.put(&1, field, text))
+        %{e | pages: pages, text: Games.rebuild_full_text(pages)}
+      else
+        e
+      end
+    end)
+  end
+
+  defp reset_cleaned_if(%{source_id: sid} = entry, sid), do: reset_cleaned(entry)
+  defp reset_cleaned_if(entry, _sid), do: entry
+
   defp reset_cleaned(entry) do
     pages = Enum.map(entry.pages, &Map.put(&1, :cleaned, nil))
     %{entry | pages: pages, text: Games.rebuild_full_text(pages)}
@@ -2175,7 +2175,7 @@ defmodule RuleMavenWeb.GameLive.Form do
   defp seed_reextracting(entries) do
     for %{source_id: sid} <- entries,
         not is_nil(sid),
-        n = RuleMaven.Workers.ReextractPageWorker.active_count(sid),
+        n = ReextractPageWorker.active_count(sid),
         n > 0,
         into: %{},
         do: {sid, n}
@@ -2253,25 +2253,7 @@ defmodule RuleMavenWeb.GameLive.Form do
 
         existing_by_id = Map.new(existing, &{&1.id, &1})
 
-        Enum.each(source_list, fn attrs ->
-          case Map.fetch(existing_by_id, attrs.source_id) do
-            {:ok, doc} ->
-              # Persist the label (may have changed) + the page layers
-              # (original/cleaned/edited) + derived full_text; leave
-              # pdf_path/metadata intact. update_document re-chunks only
-              # when full_text actually changes. Matching by id (not label)
-              # is what lets a rename survive save instead of looking like
-              # the old document was removed and a blank one added.
-              Games.update_document(doc, %{
-                label: attrs.label,
-                full_text: attrs.full_text,
-                pages: attrs.pages
-              })
-
-            :error ->
-              Games.create_rulebook_source(Map.put(attrs, :game_id, game.id))
-          end
-        end)
+        Enum.each(source_list, &save_source(&1, existing_by_id, game))
 
         {:ok,
          socket
@@ -2283,6 +2265,26 @@ defmodule RuleMavenWeb.GameLive.Form do
          socket
          |> assign(game_changeset: changeset)
          |> put_flash(:error, "Couldn't save: #{changeset_error_summary(changeset)}")}
+    end
+  end
+
+  defp save_source(attrs, existing_by_id, game) do
+    case Map.fetch(existing_by_id, attrs.source_id) do
+      {:ok, doc} ->
+        # Persist the label (may have changed) + the page layers
+        # (original/cleaned/edited) + derived full_text; leave
+        # pdf_path/metadata intact. update_document re-chunks only
+        # when full_text actually changes. Matching by id (not label)
+        # is what lets a rename survive save instead of looking like
+        # the old document was removed and a blank one added.
+        Games.update_document(doc, %{
+          label: attrs.label,
+          full_text: attrs.full_text,
+          pages: attrs.pages
+        })
+
+      :error ->
+        Games.create_rulebook_source(Map.put(attrs, :game_id, game.id))
     end
   end
 

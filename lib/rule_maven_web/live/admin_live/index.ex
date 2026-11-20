@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.AdminLive.Index do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Users, Games, Settings, Audit}
+  alias RuleMaven.{Audit, Games, Settings, Users}
 
   @impl true
   def mount(_params, _session, socket) do

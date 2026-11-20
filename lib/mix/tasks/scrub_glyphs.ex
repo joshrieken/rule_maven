@@ -87,18 +87,18 @@ defmodule Mix.Tasks.RuleMaven.ScrubGlyphs do
             {aff, tot + 1}
 
           changes ->
-            unless dry_run? do
-              Repo.update_all(
-                from(r in QuestionLog, where: r.id == ^q.id),
-                set: Map.to_list(changes)
-              )
-            end
-
+            update_question_log(dry_run?, q.id, changes)
             {aff + 1, tot + 1}
         end
       end)
 
     Mix.shell().info("Question log: #{affected}/#{total} rows contain glyphs.")
+  end
+
+  defp update_question_log(true = _dry_run?, _id, _changes), do: :ok
+
+  defp update_question_log(_dry_run?, id, changes) do
+    Repo.update_all(from(r in QuestionLog, where: r.id == ^id), set: Map.to_list(changes))
   end
 
   # Keyset loop: `WHERE id > last ORDER BY id LIMIT @batch_size`, selecting only

@@ -4,6 +4,7 @@ defmodule RuleMavenWeb.OidcControllerTest do
 
   import Phoenix.LiveViewTest, only: [live: 2]
 
+  alias RuleMaven.Auth.{Oidc, SignOn}
   alias RuleMaven.{FakeOidc, Repo, Users}
   alias RuleMaven.Users.User
 
@@ -94,7 +95,7 @@ defmodule RuleMavenWeb.OidcControllerTest do
       assert params["response_type"] == "code"
       assert params["client_id"] == "rulemaven"
       # From configuration (:public_url), never from the request's Host header.
-      assert params["redirect_uri"] == RuleMaven.Auth.Oidc.redirect_uri()
+      assert params["redirect_uri"] == Oidc.redirect_uri()
       assert params["redirect_uri"] =~ ~r{^http://localhost:\d+/auth/oidc/callback$}
       assert params["code_challenge_method"] == "S256"
       assert byte_size(params["code_challenge"]) == 43
@@ -214,7 +215,7 @@ defmodule RuleMavenWeb.OidcControllerTest do
     test "a super admin's role is never changed by the sync", %{conn: conn} do
       owner = password_user()
       {:ok, owner} = Users.set_super_admin(owner, true)
-      {:ok, _} = RuleMaven.Auth.SignOn.link_user(owner, "sub-owner")
+      {:ok, _} = SignOn.link_user(owner, "sub-owner")
 
       conn = sign_in(conn, claims("sub-owner", ["rulemaven-users"]))
       assert get_session(conn, :user_id) == owner.id
@@ -223,7 +224,7 @@ defmodule RuleMavenWeb.OidcControllerTest do
 
     test "refuses a suspended account", %{conn: conn} do
       user = password_user()
-      {:ok, _} = RuleMaven.Auth.SignOn.link_user(user, "sub-1")
+      {:ok, _} = SignOn.link_user(user, "sub-1")
       {:ok, _} = Users.suspend_user(user)
 
       conn = sign_in(conn, claims("sub-1", ["rulemaven-users"]))
@@ -346,7 +347,7 @@ defmodule RuleMavenWeb.OidcControllerTest do
 
     test "refuses a sign-on account that already belongs to someone else", %{conn: conn} do
       other = password_user(%{username: "bob", email: "bob@example.com"})
-      {:ok, _} = RuleMaven.Auth.SignOn.link_user(other, "sub-taken")
+      {:ok, _} = SignOn.link_user(other, "sub-taken")
       user = password_user()
 
       conn =
@@ -377,7 +378,7 @@ defmodule RuleMavenWeb.OidcControllerTest do
       assert html =~ "Link your Low-Cal Calzone Zone account"
       refute html =~ ~s(name="new_password")
 
-      {:ok, _} = RuleMaven.Auth.SignOn.link_user(user, "sub-alice")
+      {:ok, _} = SignOn.link_user(user, "sub-alice")
       {:ok, _view, html} = build_conn() |> signed_in(user) |> live(~p"/settings")
       refute html =~ "Link your Low-Cal Calzone Zone account"
       assert html =~ "You sign in with your Low-Cal Calzone Zone account"
@@ -392,7 +393,7 @@ defmodule RuleMavenWeb.OidcControllerTest do
       url = redirected_to(conn, 302)
       assert String.starts_with?(url, FakeOidc.end_session_endpoint() <> "?")
       query = URI.decode_query(URI.parse(url).query)
-      assert query["post_logout_redirect_uri"] == RuleMaven.Auth.Oidc.post_logout_redirect_uri()
+      assert query["post_logout_redirect_uri"] == Oidc.post_logout_redirect_uri()
       assert query["post_logout_redirect_uri"] =~ ~r{/login$}
       assert [_, _, _] = String.split(query["id_token_hint"], ".")
       refute get_session(conn, :user_id)
@@ -446,7 +447,7 @@ defmodule RuleMavenWeb.OidcControllerTest do
 
     defp linked_user(sub) do
       {:ok, user} =
-        RuleMaven.Auth.SignOn.sign_in(
+        SignOn.sign_in(
           %{"sub" => sub, "groups" => ["rulemaven-users"], "preferred_username" => sub},
           group: "rulemaven-users",
           admin_group: "rulemaven-admins"

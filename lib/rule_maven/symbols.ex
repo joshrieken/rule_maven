@@ -71,12 +71,7 @@ defmodule RuleMaven.Symbols do
         entries
         |> Enum.with_index()
         |> Enum.map(fn {e, i} ->
-          attrs = Map.merge(e, %{game_id: game_id, position: i, source: source})
-
-          case %Symbol{} |> Symbol.changeset(attrs) |> Repo.insert() do
-            {:ok, s} -> s
-            {:error, cs} -> Repo.rollback(cs)
-          end
+          insert_or_rollback(Map.merge(e, %{game_id: game_id, position: i, source: source}))
         end)
       end)
 
@@ -84,6 +79,13 @@ defmodule RuleMaven.Symbols do
       kept = MapSet.new(symbols, & &1.image_path)
       for path <- old_images, not MapSet.member?(kept, path), do: delete_file(path)
       {:ok, symbols}
+    end
+  end
+
+  defp insert_or_rollback(attrs) do
+    case %Symbol{} |> Symbol.changeset(attrs) |> Repo.insert() do
+      {:ok, s} -> s
+      {:error, cs} -> Repo.rollback(cs)
     end
   end
 
@@ -130,8 +132,9 @@ defmodule RuleMaven.Symbols do
   def candidate_tokens(text) do
     Regex.scan(~r/\[[^\[\]\n]{2,100}\]/u, text)
     |> Enum.map(fn [t] -> t end)
-    |> Enum.reject(&Regex.match?(@structural, &1))
-    |> Enum.reject(&Regex.match?(~r/^\[(\w|\d+|callout .*)\]$/u, &1))
+    |> Enum.reject(
+      &(Regex.match?(@structural, &1) or Regex.match?(~r/^\[(\w|\d+|callout .*)\]$/u, &1))
+    )
     |> Enum.map(&String.replace(&1, ~r/\d+/, "{n}"))
     |> Enum.uniq_by(&String.downcase/1)
   end

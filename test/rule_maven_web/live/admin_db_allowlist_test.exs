@@ -6,6 +6,7 @@ defmodule RuleMavenWeb.AdminDbAllowlistTest do
   """
   use RuleMaven.DataCase, async: true
 
+  alias Ecto.Adapters.SQL
   alias RuleMavenWeb.AdminLive.Db
 
   @never_writable ~w(users user_tokens audit_logs schema_migrations)
@@ -23,7 +24,7 @@ defmodule RuleMavenWeb.AdminDbAllowlistTest do
 
   test "every allowlisted table actually exists" do
     %{rows: rows} =
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         RuleMaven.Repo,
         "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
         []

@@ -14,6 +14,7 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
   import Phoenix.LiveView
 
   alias RuleMaven.TableSession
+  alias RuleMaven.Workers.DidYouKnowWorker
   alias RuleMavenWeb.GameLive.ToolRegistry
 
   # Volatile per-tool state worth carrying across page navigations. Checklist
@@ -192,10 +193,7 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
     states =
       if socket.assigns.single_panel? do
         top = snap |> Map.get(:tool_order, []) |> List.last()
-
-        for {id, st} <- states, into: %{} do
-          if st == :expanded and id != top, do: {id, :minimized}, else: {id, st}
-        end
+        Map.new(states, &demote_unless_top(&1, top))
       else
         states
       end
@@ -214,6 +212,9 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
       fp_pick: Map.get(snap, :fp_pick, nil)
     )
   end
+
+  defp demote_unless_top({id, :expanded}, top) when id != top, do: {id, :minimized}
+  defp demote_unless_top(entry, _top), do: entry
 
   defp persist(socket) do
     with %{id: uid} <- socket.assigns.current_user,
@@ -598,7 +599,7 @@ defmodule RuleMavenWeb.GameLive.ToolHost do
         if sources != [] and connected? do
           Phoenix.PubSub.subscribe(
             RuleMaven.PubSub,
-            RuleMaven.Workers.DidYouKnowWorker.topic(game.id)
+            DidYouKnowWorker.topic(game.id)
           )
         end
 
