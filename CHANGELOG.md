@@ -17,6 +17,10 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## v0.7.0 (2026-11-19)
+### Everyone
+- New: a secret way to wander the Low-Cal Calzone Zone. Look very closely at the bottom of any page.
+
 ## v0.6.7 (2026-11-19)
 ### Admins
 - Removed: the old invite codes' table (unused since v0.6.5). Group invite links are unchanged.
