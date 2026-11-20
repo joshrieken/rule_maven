@@ -17,6 +17,12 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## v0.8.0 (2026-11-20)
+### Everyone
+- Removed: the webring links at the foot of every page.
+### Admins
+- New: in the dev copy, a strip at the top of every page says it's the dev copy.
+
 ## v0.7.1 (2026-11-19)
 ### Admins
 - Improved: Internal improvements.
