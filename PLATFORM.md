@@ -91,10 +91,11 @@ Authorization: Bearer <APP>_HUB_SECRET          (unset = always 401)
 - The hub holds the same secret as `HUB_<APP>_SUMMARY_SECRET` and the URL as `HUB_<APP>_SUMMARY_URL`
   (`http://<service>:<port>/api/hub/summary`). It treats every answer as untrusted text.
 - Request access: pending = membership of `<app>-requests`; app admins approve in the hub (hub `README.md`).
-- **Webring**: every app shows the Calzone Zone Ring (`Lccz.Webring.links("<slug>")`: previous, next, random
-  and the hub) at the very foot of its pages, small and faint (a ◀ 🥟 ▶ that brightens and names its links on
-  hover or focus): an easter egg, not navigation. The hub shows it openly in its footer. A new app adds itself to
-  the ring in `platform/elixir/lccz/lib/lccz/webring.ex` (then sync) and to its own footer.
+- **Webring**: the Calzone Zone Ring is a secret webring of made-up 1990s homepages on the hub
+  (`/ring`, hub's `Hub.Ring`). Every app's only part in it is one faint grey 🥟 at the very foot of its pages
+  (`<a href={Lccz.Webring.url()} aria-label="Calzone Zone Ring">🥟</a>`: small, greyscale, low opacity, no
+  label or reveal on hover), the hub's included: an easter egg, not navigation. A new app adds the 🥟 to its
+  footer; the ring's sites are the hub's business.
 
 ## 4. Versions, changelog, What's new
 
@@ -288,8 +289,8 @@ or the server; everything else an agent does in the repos. In order:
    deploys once `ops/autodeploy.sh` lists the app (or `./scripts/deploy.sh` the first time).
 4. **Hub.** `ops/autodeploy.sh`, `zone.sh` and `bootstrap.sh` list it (new-app); the hub's `compose.yaml` /
    `compose.prod.yaml` pass `HUB_<SLUG>_SUMMARY_URL/_SECRET`. A place on the map is a small hub change, by hand:
-   the `Hub.Apps` entry (new-app prints it), its illustration in `HubWeb.Art`, the map's tests, and its place in
-   the webring (`Lccz.Webring`, then the faint ◀ 🥟 ▶ in the app's own footer: §3). **Owner:**
+   the `Hub.Apps` entry (new-app prints it), its illustration in `HubWeb.Art`, and the map's tests. The app's own
+   footer gets the faint 🥟 into the Calzone Zone Ring (§3). **Owner:**
    `HUB_<SLUG>_SUMMARY_SECRET` in `/opt/hub/.env` = `<SLUG>_HUB_SECRET` in `/opt/<slug>/.env` (generated on the server).
    Release the hub.
 5. **Monitoring.** `ops/healthcheck.sh` (new-app: the site's `/api/health`, its containers, error and connection

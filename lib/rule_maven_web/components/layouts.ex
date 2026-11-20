@@ -57,40 +57,15 @@ defmodule RuleMavenWeb.Layouts do
     """
   end
 
-  attr :links, :map, default: nil, doc: "`Lccz.Webring.links/3`'s map (default: this app's)"
-
   @doc """
-  The Calzone Zone Ring (PLATFORM.md §3): a faint ◀ 🥟 ▶ at the foot of every page (root
-  layout, below the page content) that brightens and names its links on hover or keyboard
-  focus. An easter egg, not navigation. Styles: `.webring*` in app.css.
+  The secret way into the Calzone Zone Ring (PLATFORM.md §3, `Lccz.Webring`): one faint grey 🥟
+  at the foot of every page (root layout, below the page content), no label, nothing on hover,
+  that lands on a random site in the ring. An easter egg, not navigation. Styles: `.webring` in
+  app.css.
   """
   def webring(assigns) do
-    assigns = assign(assigns, :links, assigns.links || Lccz.Webring.links("rulemaven"))
-
     ~H"""
-    <nav class="webring" aria-label="Calzone Zone Ring">
-      <a
-        href={@links.prev.url}
-        class="webring__link"
-        aria-label={"Previous site in the Calzone Zone Ring: #{@links.prev.name}"}
-      >
-        <span aria-hidden="true">◀</span><span class="webring__name">{@links.prev.name}</span>
-      </a>
-      <a
-        href={@links.random.url}
-        class="webring__link"
-        aria-label={"A random site in the Calzone Zone Ring: #{@links.random.name}"}
-      >
-        <span aria-hidden="true">🥟</span><span class="webring__name">Calzone Zone Ring · random</span>
-      </a>
-      <a
-        href={@links.next.url}
-        class="webring__link"
-        aria-label={"Next site in the Calzone Zone Ring: #{@links.next.name}"}
-      >
-        <span class="webring__name">{@links.next.name}</span><span aria-hidden="true">▶</span>
-      </a>
-    </nav>
+    <a href={Lccz.Webring.url()} class="webring" aria-label="Calzone Zone Ring">🥟</a>
     """
   end
 
