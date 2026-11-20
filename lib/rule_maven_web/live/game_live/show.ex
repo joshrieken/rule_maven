@@ -2656,16 +2656,13 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     # Computed here, not earlier: the filter needs the DESTINATION group, which
     # only exists once the row's boundary has been resolved. An unscreened crew
-    # turn must not ride into a solo re-ask's prompt. Context is scoped to the
-    # retried thread only, taken from the conversation minus the retried row.
+    # turn must not ride into a solo re-ask's prompt. Context is the thread's
+    # turns BEFORE the retried row (`reask_prior_turns/2`), as a fresh ask uses
+    # the turns before it. (It used to drop the retried row and then keep only
+    # the retried row, so a re-ask always went out with no context.)
     recent =
       socket.assigns.conversation
-      |> Enum.reject(fn
-        %{id: ^id} -> true
-        _ -> false
-      end)
-      |> Enum.filter(fn m -> m.id == id end)
-      |> Enum.reject(& &1[:pending])
+      |> reask_prior_turns(id)
       |> build_recent_pairs(group_id)
 
     case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
@@ -5543,6 +5540,17 @@ defmodule RuleMavenWeb.GameLive.Show do
   which needs a live LLM. Exposed so the rule itself can be asserted directly.
   """
   def recent_pairs_for_test(msgs, dest_group_id), do: build_recent_pairs(msgs, dest_group_id)
+
+  @doc """
+  The turns a re-ask of row `id` may quote: the (per-thread) conversation's turns before that
+  row, without in-flight or superseded ones. `build_recent_pairs/2` then filters them by
+  destination and keeps the last two pairs.
+  """
+  def reask_prior_turns(conversation, id) do
+    conversation
+    |> Enum.take_while(&(&1[:id] != id))
+    |> Enum.reject(&(&1[:pending] || &1[:history]))
+  end
 
   defp build_recent_pairs(msgs, dest_group_id) do
     msgs

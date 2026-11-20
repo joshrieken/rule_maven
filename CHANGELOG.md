@@ -17,6 +17,13 @@ Each production deploy is a `Release vX.Y.Z` commit that bumps `VERSION` and add
 Notes for the next release go under `## Unreleased` (the app ignores it); the release commit
 renames that heading to the new version and date.
 
+## Unreleased
+### Everyone
+- Fixed: re-asking or regenerating a follow-up question now remembers the conversation before it, so the new answer builds on the earlier questions like the first one did.
+
+### Admins
+- Improved: internal code cleanup with no change in behaviour (every `mix credo --strict` finding fixed).
+
 ## v0.6.5 (2026-11-19)
 ### Admins
 - Removed: the old sign-up invite codes (the Invite Codes admin page and the invite-code registration
