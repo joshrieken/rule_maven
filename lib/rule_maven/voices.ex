@@ -95,7 +95,8 @@ defmodule RuleMaven.Voices do
     "Aligning the hex grid…",
     "Untangling the turn order…",
     "Waking the rules lawyer…",
-    "Calibrating the dice…"
+    "Calibrating the dice…",
+    "Muttering Sal’s fourth word: LIGHT…"
   ]
 
   # id => %{label, emoji, style}. "neutral" is the canonical default and is NOT
