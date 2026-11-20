@@ -4,31 +4,60 @@ defmodule RuleMaven.Games do
   """
 
   import Ecto.Query, warn: false
-  alias RuleMaven.Repo
-  alias RuleMaven.Workers.PdfCompressWorker
+
+  alias Oban
+  alias RuleMaven.Audit
+
+  alias RuleMaven.Games.{
+    AnswerFavorite,
+    Chunk,
+    Curation,
+    Document,
+    ExpansionLink,
+    ExpansionSelection,
+    Game,
+    GameCategory,
+    QuestionCategoryTag,
+    QuestionFlag,
+    QuestionLog,
+    QuestionMismatchReport,
+    QuestionVote,
+    RankCSV,
+    SupportRequest,
+    Trust,
+    UserCollection,
+    UserFavorite
+  }
+
+  alias RuleMaven.LLM.QuestionFacets
+  alias RuleMaven.{Repo, Settings, Users}
+  alias RuleMaven.Settings.Cache, as: SettingsCache
+
+  alias RuleMaven.Workers.{
+    AskWorker,
+    CategoriesWorker,
+    CheatSheetWorker,
+    CleanupWorker,
+    CommonMistakesWorker,
+    DidYouKnowWorker,
+    EmbedChunksWorker,
+    EmbedQuestionWorker,
+    ExtractWorker,
+    FirstPlayerWorker,
+    PdfCompressWorker,
+    PoolRebuildWorker,
+    QuizWorker,
+    ScoreCategoriesWorker,
+    SettleVotesWorker,
+    SuggestionsWorker,
+    TeachPitchWorker,
+    TurnFlowWorker,
+    VoiceSuggestionsWorker
+  }
 
   # See the note in `log_question_with_rate_limit/2`: advisory-lock class for
   # per-user locks. `RuleMaven.Groups` owns class 2 for per-group locks.
   @user_lock_class 1
-
-  alias RuleMaven.Games.Game
-  alias RuleMaven.Games.QuestionLog
-  alias RuleMaven.Games.QuestionMismatchReport
-  alias RuleMaven.Games.QuestionVote
-  alias RuleMaven.Games.QuestionFlag
-  alias RuleMaven.Games.GameCategory
-  alias RuleMaven.Games.QuestionCategoryTag
-  alias RuleMaven.Games.Document
-  alias RuleMaven.Games.Chunk
-  alias RuleMaven.Games.UserCollection
-  alias RuleMaven.Games.UserFavorite
-  alias RuleMaven.Games.AnswerFavorite
-  alias RuleMaven.Games.SupportRequest
-  alias RuleMaven.Games.ExpansionLink
-  alias RuleMaven.Games.ExpansionSelection
-  alias RuleMaven.Audit
-  alias RuleMaven.Settings.Cache, as: SettingsCache
-  alias Oban
 
   NimbleCSV.define(RuleMaven.Games.RankCSV, separator: ",", escape: "\"")
 
@@ -613,7 +642,7 @@ defmodule RuleMaven.Games do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     csv_binary
-    |> RuleMaven.Games.RankCSV.parse_string(skip_headers: true)
+    |> RankCSV.parse_string(skip_headers: true)
     |> Stream.map(&dump_row_to_attrs(&1, now))
     |> Stream.reject(&is_nil/1)
     |> Stream.chunk_every(2000)
@@ -801,7 +830,7 @@ defmodule RuleMaven.Games do
 
   # Every Document field except the two heavyweight text payloads. Derived via
   # schema reflection so a newly added scalar column rides along automatically.
-  @document_summary_fields RuleMaven.Games.Document.__schema__(:fields) -- [:pages, :full_text]
+  @document_summary_fields Document.__schema__(:fields) -- [:pages, :full_text]
 
   @doc """
   Same rows (query, filter, ordering) as `list_documents/1`, but selected
@@ -864,18 +893,9 @@ defmodule RuleMaven.Games do
     # the absence of real full_text.
     extracted? = is_binary(attrs[:full_text]) and String.trim(attrs[:full_text]) != ""
 
-    # Auto-publish if quality looks good (only an extracted source can qualify).
-    status =
-      if extracted? and RuleMaven.Settings.get("auto_approve_documents") != "false" and
-           quality_ok?(attrs[:full_text] || "") do
-        "published"
-      else
-        "pending_review"
-      end
-
     result =
       %Document{}
-      |> Document.changeset(Map.put(attrs, :status, status))
+      |> Document.changeset(Map.put(attrs, :status, initial_status(attrs, extracted?)))
       |> Repo.insert()
 
     with {:ok, %Document{pdf_path: path} = doc} when is_binary(path) <- result,
@@ -890,21 +910,34 @@ defmodule RuleMaven.Games do
         {:ok, doc}
 
       {:ok, doc} ->
-        chunk_document(doc)
-        # A new/corrected rulebook can make previously cached answers stale.
-        invalidate_pool(doc.game_id)
-
-        # Enqueue cheatsheet generation (skip in test)
-        if cheat_sheet? and not testing?() do
-          %{document_id: doc.id}
-          |> RuleMaven.Workers.CheatSheetWorker.new()
-          |> Oban.insert()
-        end
-
+        after_extracted_insert(doc, cheat_sheet?)
         {:ok, doc}
 
       error ->
         error
+    end
+  end
+
+  # Auto-publish if quality looks good (only an extracted source can qualify).
+  defp initial_status(attrs, extracted?) do
+    if extracted? and RuleMaven.Settings.get("auto_approve_documents") != "false" and
+         quality_ok?(attrs[:full_text] || "") do
+      "published"
+    else
+      "pending_review"
+    end
+  end
+
+  defp after_extracted_insert(doc, cheat_sheet?) do
+    chunk_document(doc)
+    # A new/corrected rulebook can make previously cached answers stale.
+    invalidate_pool(doc.game_id)
+
+    # Enqueue cheatsheet generation (skip in test)
+    if cheat_sheet? and not testing?() do
+      %{document_id: doc.id}
+      |> CheatSheetWorker.new()
+      |> Oban.insert()
     end
   end
 
@@ -1095,7 +1128,7 @@ defmodule RuleMaven.Games do
     if pending? do
       unless testing?() do
         %{document_id: doc_id}
-        |> RuleMaven.Workers.EmbedChunksWorker.new()
+        |> EmbedChunksWorker.new()
         |> Oban.insert()
       end
 
@@ -1177,16 +1210,16 @@ defmodule RuleMaven.Games do
   and no-ops in test, so repeat finalizes coalesce safely.
   """
   def generate_all(game_id) do
-    RuleMaven.Workers.SuggestionsWorker.enqueue(game_id)
-    RuleMaven.Workers.CategoriesWorker.enqueue(game_id)
-    RuleMaven.Workers.DidYouKnowWorker.enqueue(game_id)
-    RuleMaven.Workers.VoiceSuggestionsWorker.enqueue(game_id)
-    RuleMaven.Workers.FirstPlayerWorker.enqueue(game_id)
-    RuleMaven.Workers.CommonMistakesWorker.enqueue(game_id)
-    RuleMaven.Workers.QuizWorker.enqueue(game_id)
-    RuleMaven.Workers.TeachPitchWorker.enqueue(game_id)
-    RuleMaven.Workers.ScoreCategoriesWorker.enqueue(game_id)
-    RuleMaven.Workers.TurnFlowWorker.enqueue(game_id)
+    SuggestionsWorker.enqueue(game_id)
+    CategoriesWorker.enqueue(game_id)
+    DidYouKnowWorker.enqueue(game_id)
+    VoiceSuggestionsWorker.enqueue(game_id)
+    FirstPlayerWorker.enqueue(game_id)
+    CommonMistakesWorker.enqueue(game_id)
+    QuizWorker.enqueue(game_id)
+    TeachPitchWorker.enqueue(game_id)
+    ScoreCategoriesWorker.enqueue(game_id)
+    TurnFlowWorker.enqueue(game_id)
 
     case Repo.get(Game, game_id) do
       %Game{} = game -> RuleMaven.Setup.generate_async(game)
@@ -1420,7 +1453,7 @@ defmodule RuleMaven.Games do
     # worker is debounced (a page-by-page cleanup invalidates once per page) and
     # no-ops when there is nothing pooled to rebuild, which is the case for every
     # game still being ingested.
-    RuleMaven.Workers.PoolRebuildWorker.enqueue(game_id)
+    PoolRebuildWorker.enqueue(game_id)
 
     demoted + staled + flagged
   end
@@ -1475,7 +1508,7 @@ defmodule RuleMaven.Games do
         group_id: updated.group_id,
         voice: nil
       }
-      |> RuleMaven.Workers.AskWorker.new()
+      |> AskWorker.new()
       |> Oban.insert()
     end
 
@@ -1780,21 +1813,25 @@ defmodule RuleMaven.Games do
         false
 
       %QuestionLog{} = q ->
-        case pool_tier(q) do
-          :provisional ->
-            set_needs_review(question_log_id)
-            true
+        pull_by_tier(pool_tier(q), question_log_id)
+    end
+  end
 
-          :trusted ->
-            quorum = parse_limit(RuleMaven.Settings.get("flag_quorum"), @flag_quorum_default)
+  # A provisional answer is pulled on the first flag; a trusted one only once
+  # enough distinct users have flagged it.
+  defp pull_by_tier(:provisional, question_log_id) do
+    set_needs_review(question_log_id)
+    true
+  end
 
-            if open_flagger_count(question_log_id) >= quorum do
-              set_needs_review(question_log_id)
-              true
-            else
-              false
-            end
-        end
+  defp pull_by_tier(:trusted, question_log_id) do
+    quorum = parse_limit(RuleMaven.Settings.get("flag_quorum"), @flag_quorum_default)
+
+    if open_flagger_count(question_log_id) >= quorum do
+      set_needs_review(question_log_id)
+      true
+    else
+      false
     end
   end
 
@@ -1986,41 +2023,45 @@ defmodule RuleMaven.Games do
       doc = lock_document!(doc_id)
       page = Enum.find(doc.pages, &(&1.index == index))
 
-      cond do
-        is_nil(page) ->
-          doc
-
-        page.cleaned == cleaned and (not is_list(defects) or page.cleanup_defects == defects) ->
-          doc
-
-        true ->
-          pages =
-            Enum.map(doc.pages, fn p ->
-              attrs = page_attrs(p)
-
-              cond do
-                p.index != index ->
-                  attrs
-
-                # A defects list (possibly empty) is the cleanup critic's verdict for
-                # this pass — it replaces whatever was recorded before, so a faithful
-                # re-clean un-flags the page. `nil` (manual edits) leaves it alone.
-                is_list(defects) ->
-                  %{attrs | cleaned: cleaned, cleanup_defects: defects}
-
-                true ->
-                  %{attrs | cleaned: cleaned}
-              end
-            end)
-
-          case doc
-               |> Document.changeset(%{pages: pages})
-               |> Repo.update() do
-            {:ok, updated} -> updated
-            {:error, changeset} -> Repo.rollback(changeset)
-          end
+      if is_nil(page) or cleaned_unchanged?(page, cleaned, defects) do
+        doc
+      else
+        save_cleaned_page!(doc, index, cleaned, defects)
       end
     end)
+  end
+
+  defp save_cleaned_page!(doc, index, cleaned, defects) do
+    pages = Enum.map(doc.pages, &cleaned_page_attrs(&1, index, cleaned, defects))
+
+    case doc
+         |> Document.changeset(%{pages: pages})
+         |> Repo.update() do
+      {:ok, updated} -> updated
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
+  end
+
+  defp cleaned_unchanged?(page, cleaned, defects) do
+    page.cleaned == cleaned and (not is_list(defects) or page.cleanup_defects == defects)
+  end
+
+  defp cleaned_page_attrs(p, index, cleaned, defects) do
+    attrs = page_attrs(p)
+
+    cond do
+      p.index != index ->
+        attrs
+
+      # A defects list (possibly empty) is the cleanup critic's verdict for
+      # this pass — it replaces whatever was recorded before, so a faithful
+      # re-clean un-flags the page. `nil` (manual edits) leaves it alone.
+      is_list(defects) ->
+        %{attrs | cleaned: cleaned, cleanup_defects: defects}
+
+      true ->
+        %{attrs | cleaned: cleaned}
+    end
   end
 
   @doc """
@@ -2203,7 +2244,7 @@ defmodule RuleMaven.Games do
     set_cleaning_done(doc.id, 0)
 
     %{document_id: doc.id, game_id: doc.game_id, level: to_string(level), mode: to_string(mode)}
-    |> RuleMaven.Workers.CleanupWorker.new()
+    |> CleanupWorker.new()
     |> Oban.insert()
   end
 
@@ -2224,7 +2265,7 @@ defmodule RuleMaven.Games do
       mode: "raw",
       page_index: index
     }
-    |> RuleMaven.Workers.CleanupWorker.new()
+    |> CleanupWorker.new()
     |> Oban.insert()
   end
 
@@ -2254,7 +2295,7 @@ defmodule RuleMaven.Games do
       :ok
     else
       %{document_id: doc.id, game_id: doc.game_id}
-      |> RuleMaven.Workers.ExtractWorker.new()
+      |> ExtractWorker.new()
       |> Oban.insert()
     end
   end
@@ -2315,15 +2356,11 @@ defmodule RuleMaven.Games do
       # id. Class 1 is the per-user quota lock.
       Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@user_lock_class, user.id])
 
-      case check_rate_limit(user) do
-        :ok ->
-          case log_question(attrs) do
-            {:ok, question_log} -> question_log
-            {:error, changeset} -> Repo.rollback(changeset)
-          end
-
-        {:error, reason} ->
-          Repo.rollback(reason)
+      with :ok <- check_rate_limit(user),
+           {:ok, question_log} <- log_question(attrs) do
+        question_log
+      else
+        {:error, reason_or_changeset} -> Repo.rollback(reason_or_changeset)
       end
     end)
   end
@@ -2404,15 +2441,7 @@ defmodule RuleMaven.Games do
     all
     |> Enum.group_by(&String.downcase(String.trim(&1.question)))
     |> Enum.map(fn {_key, entries} ->
-      sorted =
-        entries
-        |> Enum.sort(fn a, b ->
-          case {a.verified, b.verified} do
-            {true, false} -> true
-            {false, true} -> false
-            _ -> newest_first?(a, b)
-          end
-        end)
+      sorted = Enum.sort(entries, &verified_then_newest?/2)
 
       primary = List.first(sorted)
       history = if length(sorted) > 1, do: tl(sorted), else: []
@@ -2420,6 +2449,15 @@ defmodule RuleMaven.Games do
       %{primary: primary, history: history, followups: []}
     end)
     |> Enum.sort(&newest_first?(&1.primary, &2.primary))
+  end
+
+  # A verified answer sorts ahead of an unverified one; otherwise newest first.
+  defp verified_then_newest?(a, b) do
+    case {a.verified, b.verified} do
+      {true, false} -> true
+      {false, true} -> false
+      _ -> newest_first?(a, b)
+    end
   end
 
   # `inserted_at` is `:utc_datetime` — SECOND precision. Two regens of the same
@@ -2490,7 +2528,7 @@ defmodule RuleMaven.Games do
     attrs = %{verified: true, promoted: true, pooled: true}
 
     with {:ok, updated} <- Repo.update(QuestionLog.changeset(q, attrs)) do
-      RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :confirmed)
+      SettleVotesWorker.enqueue(updated.id, :confirmed)
       finalize_verify_toggle(updated)
     end
   end
@@ -2561,11 +2599,11 @@ defmodule RuleMaven.Games do
         })
         |> Repo.update()
 
-      RuleMaven.Games.Trust.recompute_trust(updated)
-      RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :rejected)
+      Trust.recompute_trust(updated)
+      SettleVotesWorker.enqueue(updated.id, :rejected)
     end)
 
-    RuleMaven.Games.Trust.recompute_reputation(user_id)
+    Trust.recompute_reputation(user_id)
 
     rows
     |> Enum.map(& &1.game_id)
@@ -2589,8 +2627,8 @@ defmodule RuleMaven.Games do
   end
 
   defp finalize_verify_toggle(%QuestionLog{} = updated) do
-    RuleMaven.Games.Trust.recompute_trust(updated)
-    if updated.user_id, do: RuleMaven.Games.Trust.recompute_reputation(updated.user_id)
+    Trust.recompute_trust(updated)
+    if updated.user_id, do: Trust.recompute_reputation(updated.user_id)
     {:ok, updated}
   end
 
@@ -2615,8 +2653,8 @@ defmodule RuleMaven.Games do
     attrs = %{browsable: true, pooled: q.citation_valid}
 
     with {:ok, updated} <- q |> QuestionLog.changeset(attrs) |> Repo.update() do
-      RuleMaven.Games.Trust.recompute_trust(updated)
-      if updated.user_id, do: RuleMaven.Games.Trust.recompute_reputation(updated.user_id)
+      Trust.recompute_trust(updated)
+      if updated.user_id, do: Trust.recompute_reputation(updated.user_id)
       {:ok, updated}
     end
   end
@@ -2629,10 +2667,10 @@ defmodule RuleMaven.Games do
   """
   def demote_question(%QuestionLog{} = q) do
     with {:ok, updated} <- q |> QuestionLog.changeset(%{promoted: false}) |> Repo.update() do
-      RuleMaven.Games.Trust.recompute_trust(updated)
-      if updated.user_id, do: RuleMaven.Games.Trust.recompute_reputation(updated.user_id)
+      Trust.recompute_trust(updated)
+      if updated.user_id, do: Trust.recompute_reputation(updated.user_id)
       # Demoting a row that WAS promoted rejects the upvotes that promoted it.
-      if q.promoted, do: RuleMaven.Workers.SettleVotesWorker.enqueue(updated.id, :rejected)
+      if q.promoted, do: SettleVotesWorker.enqueue(updated.id, :rejected)
       {:ok, updated}
     end
   end
@@ -2659,7 +2697,7 @@ defmodule RuleMaven.Games do
     # after, may -> must), the row would serve the wrong verdict for the new
     # key. Refuse — the answer must be regenerated for that question, not
     # relabelled onto it. A blank value reverts to the original, so it can't flip.
-    if new_cq && RuleMaven.LLM.QuestionFacets.conflict(new_cq, q.question) do
+    if new_cq && QuestionFacets.conflict(new_cq, q.question) do
       {:error, :canonical_question_conflicts_answer}
     else
       do_update_canonical(q, new_cq, blank_to_nil(canonical_answer))
@@ -2672,7 +2710,7 @@ defmodule RuleMaven.Games do
     with {:ok, updated} <- q |> QuestionLog.changeset(attrs) |> Repo.update() do
       # Skip the re-embed enqueue under manual Oban (tests); enqueue in prod.
       unless Application.get_env(:rule_maven, Oban)[:testing] == :manual do
-        RuleMaven.Workers.EmbedQuestionWorker.enqueue(updated.id)
+        EmbedQuestionWorker.enqueue(updated.id)
       end
 
       # VoiceWorker restyles `canonical_answer || answer` and caches per
@@ -2697,9 +2735,6 @@ defmodule RuleMaven.Games do
   def check_rate_limit(nil), do: {:error, "Not logged in."}
 
   def check_rate_limit(user) do
-    alias RuleMaven.Users
-    alias RuleMaven.Settings
-
     if Users.can?(user, :admin) do
       :ok
     else
@@ -2715,7 +2750,7 @@ defmodule RuleMaven.Games do
       # plus this month's earned curator bonus (capped in Curation).
       monthly_limit =
         (user.monthly_quota || 200) +
-          RuleMaven.Games.Curation.bonus_asks_this_month(user.id)
+          Curation.bonus_asks_this_month(user.id)
 
       # Daily $ budget cap (0 = disabled). Estimated from logged token usage.
       cost_cap = parse_cost(Settings.get("user_daily_cost_cap"), 0.0)
@@ -2797,12 +2832,12 @@ defmodule RuleMaven.Games do
   def unverified_pool_questions(%Game{} = game, limit \\ 200) do
     Repo.all(
       from q in QuestionLog,
-        where:
-          q.game_id == ^game.id and q.pooled == true and q.browsable == true and
-            not q.promoted and
-            q.refused == false and q.needs_review == false and q.blocked == false and
-            q.stale == false and is_nil(q.error_kind) and is_nil(q.pool_source_id) and
-            q.trust_score > -1.0,
+        where: q.game_id == ^game.id,
+        where: q.pooled == true and q.browsable == true and not q.promoted,
+        where: q.refused == false and q.needs_review == false and q.blocked == false,
+        where: q.stale == false and is_nil(q.error_kind),
+        where: is_nil(q.pool_source_id),
+        where: q.trust_score > -1.0,
         order_by: [desc: q.trust_score, desc: q.inserted_at],
         limit: ^limit,
         select: struct(q, ^@question_list_fields)
@@ -2816,68 +2851,7 @@ defmodule RuleMaven.Games do
   system-triggered deletes (retries, dedup redirects).
   """
   def delete_question(%QuestionLog{} = q, actor \\ nil, extra_metadata \\ %{}) do
-    {up, down} =
-      Repo.one(
-        from v in QuestionVote,
-          where: v.question_log_id == ^q.id,
-          select: {
-            sum(fragment("CASE WHEN ? = 'up' THEN 1 ELSE 0 END", v.value)),
-            sum(fragment("CASE WHEN ? = 'down' THEN 1 ELSE 0 END", v.value))
-          }
-      ) || {0, 0}
-
-    metadata =
-      Map.merge(
-        %{
-          # game_id + all question text variants (untruncated, unlike
-          # target_label) let the admin-only history view
-          # (Audit.question_history/2) recover every prior version of a Q&A
-          # even though regenerated rows share no id/foreign-key link with
-          # what they replaced. All three texts must be snapshotted: a
-          # regenerate resubmits the *displayed* (canonical/cleaned) text as
-          # the next row's raw question, so history is chained through them.
-          game_id: q.game_id,
-          user_id: q.user_id,
-          question: q.question,
-          cleaned_question: q.cleaned_question,
-          canonical_question: q.canonical_question,
-          answer: q.answer,
-          canonical_answer: q.canonical_answer,
-          pooled: q.pooled,
-          needs_review: q.needs_review,
-          verified: q.verified,
-          trust_score: q.trust_score,
-          upvotes: up || 0,
-          downvotes: down || 0,
-          via: if(actor, do: "manual", else: "system"),
-          # Full field snapshot (everything the admin audit-trail modal renders
-          # for a live row EXCEPT the embedding) so a deleted prior version shows
-          # the same stats. The row is hard-deleted below, so these must be
-          # captured here; the LLM-call trace + cost survive on their own by
-          # question_log_id (llm_logs has no cascade) and are re-fetched by id.
-          asked_at: q.inserted_at,
-          group_id: q.group_id,
-          browsable: q.browsable,
-          promoted: q.promoted,
-          question_normalized: q.question_normalized,
-          verdict: q.verdict,
-          llm_model: q.llm_model,
-          llm_provider: q.llm_provider,
-          refused: q.refused,
-          blocked: q.blocked,
-          stale: q.stale,
-          error_kind: q.error_kind,
-          mismatch_count: q.mismatch_count,
-          favorited: q.favorited,
-          pool_source_id: q.pool_source_id,
-          source_chunk_ids: q.source_chunk_ids,
-          cited_source: q.cited_source,
-          cited_page: q.cited_page,
-          citations: q.citations,
-          retracted_at: q.retracted_at
-        },
-        extra_metadata
-      )
+    metadata = Map.merge(deletion_snapshot(q, actor), extra_metadata)
 
     Audit.log(actor, "question.delete",
       target_type: "question",
@@ -2887,6 +2861,73 @@ defmodule RuleMaven.Games do
     )
 
     Repo.delete(q)
+  end
+
+  defp vote_tally(question_log_id) do
+    {up, down} =
+      Repo.one(
+        from v in QuestionVote,
+          where: v.question_log_id == ^question_log_id,
+          select: {
+            sum(fragment("CASE WHEN ? = 'up' THEN 1 ELSE 0 END", v.value)),
+            sum(fragment("CASE WHEN ? = 'down' THEN 1 ELSE 0 END", v.value))
+          }
+      ) || {0, 0}
+
+    {up || 0, down || 0}
+  end
+
+  defp deletion_snapshot(q, actor) do
+    {up, down} = vote_tally(q.id)
+
+    %{
+      # game_id + all question text variants (untruncated, unlike
+      # target_label) let the admin-only history view
+      # (Audit.question_history/2) recover every prior version of a Q&A
+      # even though regenerated rows share no id/foreign-key link with
+      # what they replaced. All three texts must be snapshotted: a
+      # regenerate resubmits the *displayed* (canonical/cleaned) text as
+      # the next row's raw question, so history is chained through them.
+      game_id: q.game_id,
+      user_id: q.user_id,
+      question: q.question,
+      cleaned_question: q.cleaned_question,
+      canonical_question: q.canonical_question,
+      answer: q.answer,
+      canonical_answer: q.canonical_answer,
+      pooled: q.pooled,
+      needs_review: q.needs_review,
+      verified: q.verified,
+      trust_score: q.trust_score,
+      upvotes: up,
+      downvotes: down,
+      via: if(actor, do: "manual", else: "system"),
+      # Full field snapshot (everything the admin audit-trail modal renders
+      # for a live row EXCEPT the embedding) so a deleted prior version shows
+      # the same stats. The row is hard-deleted right after, so these must be
+      # captured here; the LLM-call trace + cost survive on their own by
+      # question_log_id (llm_logs has no cascade) and are re-fetched by id.
+      asked_at: q.inserted_at,
+      group_id: q.group_id,
+      browsable: q.browsable,
+      promoted: q.promoted,
+      question_normalized: q.question_normalized,
+      verdict: q.verdict,
+      llm_model: q.llm_model,
+      llm_provider: q.llm_provider,
+      refused: q.refused,
+      blocked: q.blocked,
+      stale: q.stale,
+      error_kind: q.error_kind,
+      mismatch_count: q.mismatch_count,
+      favorited: q.favorited,
+      pool_source_id: q.pool_source_id,
+      source_chunk_ids: q.source_chunk_ids,
+      cited_source: q.cited_source,
+      cited_page: q.cited_page,
+      citations: q.citations,
+      retracted_at: q.retracted_at
+    }
   end
 
   @doc """
@@ -2909,153 +2950,154 @@ defmodule RuleMaven.Games do
     group_id = Keyword.get(opts, :group_id)
 
     if group_id do
-      # The group feed: every question asked with this group active, for this
-      # game, newest first, attributed. Scoped by game+group so one group's
-      # rows never leak into another group's (or another game's) feed.
-      # List fields, not feed fields: the group feed renders question + answer
-      # summaries only (ToolPanel's :group_feed clause) and never reaches the
-      # raw_response debug view (`own_raw_response/2` consumes the MAIN branch
-      # below via load_conversation), so hauling the full LLM JSON envelope
-      # per row was pure waste.
-      query =
-        from q in QuestionLog,
-          where: q.game_id == ^game.id and q.group_id == ^group_id,
-          where: q.refused == false and q.blocked == false,
-          # desc: q.id breaks second-precision `inserted_at` ties (see
-          # `newest_first?/2`); without it the `limit` cut point among rows
-          # sharing a timestamp is whatever order the plan produced.
-          order_by: [desc: q.inserted_at, desc: q.id],
-          preload: [:user],
-          select: struct(q, ^@question_list_fields)
-
-      query = if limit, do: from(q in query, limit: ^limit), else: query
-
-      Repo.all(query)
+      group_feed(game, group_id, limit)
     else
-      user_id = Keyword.get(opts, :user_id)
-      id = Keyword.get(opts, :id)
-
-      base =
-        from q in QuestionLog,
-          where: q.game_id == ^game.id,
-          order_by: [desc: q.inserted_at, desc: q.id],
-          preload: [:user],
-          select: struct(q, ^@question_feed_fields)
-
-      base = if id, do: from(q in base, where: q.id == ^id), else: base
-      base = if limit, do: from(q in base, limit: ^limit), else: base
-
-      query =
-        if user_id do
-          # Own questions, community questions, plus other users' pooled answers
-          # this user upvoted from the Rules Q&A browse page — an upvote is
-          # the explicit "add this to my list" gesture (viewing alone never adds).
-          #
-          # The upvoted-pooled branch additionally requires `browsable`: a GROUP
-          # row is pooled by design (its answer feeds the shared cache), and an
-          # upvote on it is a normal flow — the Helpful thumb on a pool hit
-          # targets the pool source, which may be a group member's row. Without
-          # this gate a non-member would pull that row into their own sidebar
-          # and read the asker's raw wording. `browsable` stays false until
-          # PublishCheckWorker clears the scrubbed text.
-          upvoted =
-            from v in QuestionVote,
-              where: v.user_id == ^user_id and v.value == "up",
-              select: v.question_log_id
-
-          from q in base,
-            where:
-              q.user_id == ^user_id or q.promoted or
-                (q.pooled == true and q.refused == false and q.blocked == false and
-                   q.browsable == true and q.id in subquery(upvoted))
-        else
-          base
-        end
-
-      Repo.all(query)
+      personal_feed(game, limit, Keyword.get(opts, :user_id), Keyword.get(opts, :id))
     end
+  end
+
+  # The group feed: every question asked with this group active, for this
+  # game, newest first, attributed. Scoped by game+group so one group's
+  # rows never leak into another group's (or another game's) feed.
+  # List fields, not feed fields: the group feed renders question + answer
+  # summaries only (ToolPanel's :group_feed clause) and never reaches the
+  # raw_response debug view (`own_raw_response/2` consumes `personal_feed/4`
+  # below via load_conversation), so hauling the full LLM JSON envelope
+  # per row was pure waste.
+  defp group_feed(game, group_id, limit) do
+    query =
+      from q in QuestionLog,
+        where: q.game_id == ^game.id and q.group_id == ^group_id,
+        where: q.refused == false and q.blocked == false,
+        # desc: q.id breaks second-precision `inserted_at` ties (see
+        # `newest_first?/2`); without it the `limit` cut point among rows
+        # sharing a timestamp is whatever order the plan produced.
+        order_by: [desc: q.inserted_at, desc: q.id],
+        preload: [:user],
+        select: struct(q, ^@question_list_fields)
+
+    query = if limit, do: from(q in query, limit: ^limit), else: query
+
+    Repo.all(query)
+  end
+
+  defp personal_feed(game, limit, user_id, id) do
+    base =
+      from q in QuestionLog,
+        where: q.game_id == ^game.id,
+        order_by: [desc: q.inserted_at, desc: q.id],
+        preload: [:user],
+        select: struct(q, ^@question_feed_fields)
+
+    base = if id, do: from(q in base, where: q.id == ^id), else: base
+    base = if limit, do: from(q in base, limit: ^limit), else: base
+
+    base
+    |> visible_to_user(user_id)
+    |> Repo.all()
+  end
+
+  defp visible_to_user(base, user_id) when user_id in [nil, false], do: base
+
+  # Own questions, community questions, plus other users' pooled answers
+  # this user upvoted from the Rules Q&A browse page — an upvote is
+  # the explicit "add this to my list" gesture (viewing alone never adds).
+  #
+  # The upvoted-pooled branch additionally requires `browsable`: a GROUP
+  # row is pooled by design (its answer feeds the shared cache), and an
+  # upvote on it is a normal flow — the Helpful thumb on a pool hit
+  # targets the pool source, which may be a group member's row. Without
+  # this gate a non-member would pull that row into their own sidebar
+  # and read the asker's raw wording. `browsable` stays false until
+  # PublishCheckWorker clears the scrubbed text.
+  defp visible_to_user(base, user_id) do
+    upvoted =
+      from v in QuestionVote,
+        where: v.user_id == ^user_id and v.value == "up",
+        select: v.question_log_id
+
+    from q in base,
+      where:
+        q.user_id == ^user_id or q.promoted or
+          (q.pooled == true and q.refused == false and q.blocked == false and
+             q.browsable == true and q.id in subquery(upvoted))
   end
 
   def admin_list_questions(opts \\ []) do
     limit = Keyword.get(opts, :limit, 100)
     offset = Keyword.get(opts, :offset, 0)
-    game_id = Keyword.get(opts, :game_id)
-    user_id = Keyword.get(opts, :user_id)
-    group_id = Keyword.get(opts, :group_id)
-    status = Keyword.get(opts, :status)
-    search = Keyword.get(opts, :search)
 
-    query =
-      from q in base_question_query(),
-        limit: ^limit,
-        offset: ^offset,
-        preload: [:game, :user],
-        select: struct(q, ^@question_list_fields)
+    from(q in base_question_query(),
+      limit: ^limit,
+      offset: ^offset,
+      preload: [:game, :user],
+      select: struct(q, ^@question_list_fields)
+    )
+    |> filter_eq(:game_id, Keyword.get(opts, :game_id))
+    |> filter_eq(:user_id, Keyword.get(opts, :user_id))
+    |> filter_eq(:group_id, Keyword.get(opts, :group_id))
+    |> filter_status(Keyword.get(opts, :status))
+    |> filter_search(Keyword.get(opts, :search))
+    |> Repo.all()
+  end
 
-    query =
-      if game_id, do: from(q in query, where: q.game_id == ^game_id), else: query
+  defp filter_eq(query, _field, value) when value in [nil, false], do: query
+  defp filter_eq(query, field, value), do: from(q in query, where: field(q, ^field) == ^value)
 
-    query =
-      if user_id, do: from(q in query, where: q.user_id == ^user_id), else: query
+  defp filter_status(query, "pending") do
+    from(q in query, where: q.answer == "Thinking...")
+  end
 
-    query =
-      if group_id, do: from(q in query, where: q.group_id == ^group_id), else: query
+  defp filter_status(query, "refused") do
+    from(q in query, where: q.refused == true)
+  end
 
-    query =
-      case status do
-        "pending" ->
-          from(q in query, where: q.answer == "Thinking...")
+  defp filter_status(query, "error") do
+    from(q in query, where: like(q.answer, "⚠️%"))
+  end
 
-        "refused" ->
-          from(q in query, where: q.refused == true)
+  defp filter_status(query, "answered") do
+    from(q in query,
+      where: q.answer != "Thinking..." and q.refused == false and not like(q.answer, "⚠️%")
+    )
+  end
 
-        "error" ->
-          from(q in query, where: like(q.answer, "⚠️%"))
+  defp filter_status(query, "needs_review") do
+    from(q in query, where: q.needs_review == true)
+  end
 
-        "answered" ->
-          from(q in query,
-            where: q.answer != "Thinking..." and q.refused == false and not like(q.answer, "⚠️%")
+  defp filter_status(query, "pooled") do
+    from(q in query, where: q.pooled == true)
+  end
+
+  defp filter_status(query, "publish_pending") do
+    from(q in query,
+      where:
+        q.browsable == false and q.citation_valid == true and
+          not is_nil(q.cleaned_question)
+    )
+  end
+
+  defp filter_status(query, _status), do: query
+
+  defp filter_search(query, search) when search in [nil, false, ""], do: query
+
+  defp filter_search(query, search) do
+    term = "%#{search}%"
+
+    # This endpoint is gated to `:admin`/`:superadmin` at the LiveView mount
+    # (admin_live/questions.ex), so the withholding gate that keeps crew
+    # question/answer text out of *other users'* view (`QuestionLog.listed_question/1`
+    # / `listed_answer/1`) doesn't apply here — admins may search and read the
+    # raw columns directly.
+    from(q in query,
+      where:
+        ilike(coalesce(q.canonical_answer, q.answer), ^term) or
+          ilike(
+            coalesce(q.canonical_question, coalesce(q.cleaned_question, q.question)),
+            ^term
           )
-
-        "needs_review" ->
-          from(q in query, where: q.needs_review == true)
-
-        "pooled" ->
-          from(q in query, where: q.pooled == true)
-
-        "publish_pending" ->
-          from(q in query,
-            where:
-              q.browsable == false and q.citation_valid == true and
-                not is_nil(q.cleaned_question)
-          )
-
-        _ ->
-          query
-      end
-
-    query =
-      if search && search != "" do
-        term = "%#{search}%"
-
-        # This endpoint is gated to `:admin`/`:superadmin` at the LiveView mount
-        # (admin_live/questions.ex), so the withholding gate that keeps crew
-        # question/answer text out of *other users'* view (`QuestionLog.listed_question/1`
-        # / `listed_answer/1`) doesn't apply here — admins may search and read the
-        # raw columns directly.
-        from(q in query,
-          where:
-            ilike(coalesce(q.canonical_answer, q.answer), ^term) or
-              ilike(
-                coalesce(q.canonical_question, coalesce(q.cleaned_question, q.question)),
-                ^term
-              )
-        )
-      else
-        query
-      end
-
-    Repo.all(query)
+    )
   end
 
   def delete_all_questions(%Game{} = game) do
@@ -3353,7 +3395,7 @@ defmodule RuleMaven.Games do
   (cosine similarity, default 0.92); cosine distance = 1 - similarity.
   """
   def find_similar_question_in_pool(game_id, question_embedding, opts \\ []) do
-    floor = RuleMaven.Games.Trust.trusted_floor()
+    floor = Trust.trusted_floor()
 
     game_id
     |> find_pool_candidates(question_embedding, opts)
@@ -3372,8 +3414,8 @@ defmodule RuleMaven.Games do
   def best_by_trust([], _floor), do: nil
 
   def best_by_trust(candidates, floor) do
-    floor = floor || RuleMaven.Games.Trust.trusted_floor()
-    quorum = RuleMaven.Games.Trust.promotion_quorum()
+    floor = floor || Trust.trusted_floor()
+    quorum = Trust.promotion_quorum()
 
     # Quorum only decides the tier for rows that would earn :trusted by votes:
     # community/verified rows are unconditionally trusted and below-floor rows
@@ -3386,7 +3428,7 @@ defmodule RuleMaven.Games do
             (row.trust_score || 0.0) >= floor,
           do: row
 
-    counts = RuleMaven.Games.Trust.eligible_voter_counts(needing_quorum)
+    counts = Trust.eligible_voter_counts(needing_quorum)
 
     {row, _sim, tier} =
       candidates
@@ -3532,17 +3574,7 @@ defmodule RuleMaven.Games do
 
     row =
       Repo.one(
-        from q in QuestionLog,
-          where: q.game_id == ^game_id and q.user_id == ^user_id,
-          where: q.expansion_ids == ^expansion_ids,
-          where:
-            q.refused == false and q.blocked == false and q.needs_review == false and
-              q.stale == false,
-          where: q.answer != "Thinking..." and not is_nil(q.answer),
-          # A failed answer must never be served as a cache hit — a repeat ask
-          # would collapse onto the error row with no way to re-ask out of it.
-          # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
-          where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
+        from q in servable_user_answers(game_id, user_id, expansion_ids),
           where:
             fragment("lower(?) = ?", q.cleaned_question, ^cleaned) or
               (is_nil(q.cleaned_question) and fragment("lower(?) = ?", q.question, ^raw)),
@@ -3577,21 +3609,27 @@ defmodule RuleMaven.Games do
     expansion_ids = Enum.sort(expansion_ids)
 
     Repo.one(
-      from q in QuestionLog,
-        where: q.game_id == ^game_id and q.user_id == ^user_id,
-        where: q.expansion_ids == ^expansion_ids,
-        where:
-          q.refused == false and q.blocked == false and q.needs_review == false and
-            q.stale == false,
-        where: q.answer != "Thinking..." and not is_nil(q.answer),
-        # A failed answer must never be served as a cache hit — a repeat ask
-        # would collapse onto the error row with no way to re-ask out of it.
-        # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
-        where: is_nil(q.error_kind) and not like(q.answer, "⚠️%"),
+      from q in servable_user_answers(game_id, user_id, expansion_ids),
         where: fragment("lower(?) = ?", q.question, ^raw),
         order_by: [desc: q.inserted_at, desc: q.id],
         limit: 1
     )
+  end
+
+  # This user's answered rows for the game + expansion set that are fit to serve
+  # again: not refused/blocked/needs_review/stale, a real answer, not an error.
+  defp servable_user_answers(game_id, user_id, expansion_ids) do
+    from q in QuestionLog,
+      where: q.game_id == ^game_id and q.user_id == ^user_id,
+      where: q.expansion_ids == ^expansion_ids,
+      where:
+        q.refused == false and q.blocked == false and q.needs_review == false and
+          q.stale == false,
+      where: q.answer != "Thinking..." and not is_nil(q.answer),
+      # A failed answer must never be served as a cache hit — a repeat ask
+      # would collapse onto the error row with no way to re-ask out of it.
+      # The ⚠️-prefix guard covers legacy rows persisted before `error_kind`.
+      where: is_nil(q.error_kind) and not like(q.answer, "⚠️%")
   end
 
   @doc """
@@ -3711,7 +3749,7 @@ defmodule RuleMaven.Games do
   above the trust floor) or `:provisional` (citation-backed but unreviewed).
   """
   def pool_tier(%QuestionLog{} = q, floor \\ nil) do
-    floor = floor || RuleMaven.Games.Trust.trusted_floor()
+    floor = floor || Trust.trusted_floor()
 
     cond do
       # Admin-curated tiers are unconditionally trusted.
@@ -3721,8 +3759,8 @@ defmodule RuleMaven.Games do
       # Earning trust by votes also requires a quorum of distinct, eligible
       # voters — so a single (or sybil) vote can't flip the label to trusted.
       (q.trust_score || 0.0) >= floor and
-          RuleMaven.Games.Trust.eligible_voter_count(q) >=
-            RuleMaven.Games.Trust.promotion_quorum() ->
+          Trust.eligible_voter_count(q) >=
+            Trust.promotion_quorum() ->
         :trusted
 
       true ->
@@ -4145,23 +4183,22 @@ defmodule RuleMaven.Games do
   def assign_printed_from_anchor(pages, page_one_sheet) when is_integer(page_one_sheet) do
     anchor = max(page_one_sheet, 1)
 
-    Enum.map(pages, fn p ->
-      printed =
-        cond do
-          p.sheet < anchor ->
-            nil
+    Enum.map(pages, &Map.put(&1, :printed, printed_from_anchor(&1, anchor)))
+  end
 
-          # 2-up page (physical sheet + half): two printed pages per sheet,
-          # printed 1 = left half of the anchor sheet.
-          Map.get(p, :half) in ["left", "right"] ->
-            2 * (p.sheet - anchor) + if(p.half == "left", do: 1, else: 2)
+  defp printed_from_anchor(p, anchor) do
+    cond do
+      p.sheet < anchor ->
+        nil
 
-          true ->
-            p.sheet - anchor + 1
-        end
+      # 2-up page (physical sheet + half): two printed pages per sheet,
+      # printed 1 = left half of the anchor sheet.
+      Map.get(p, :half) in ["left", "right"] ->
+        2 * (p.sheet - anchor) + if(p.half == "left", do: 1, else: 2)
 
-      Map.put(p, :printed, printed)
-    end)
+      true ->
+        p.sheet - anchor + 1
+    end
   end
 
   @doc """
@@ -4234,34 +4271,37 @@ defmodule RuleMaven.Games do
       pages =
         doc.pages
         |> Enum.sort_by(& &1.index)
-        |> Enum.map(fn p ->
-          if p.index == index do
-            %{
-              page_attrs(p)
-              | text: fields.text,
-                cleaned: nil,
-                confidence: fields.confidence,
-                lane: fields.lane,
-                source: fields.source,
-                # A re-extract is a fresh decision: overwrite the detail (Map.get so
-                # callers passing only the core fields clear stale signals to nil).
-                gate_agreement: Map.get(fields, :gate_agreement),
-                gate_coverage: Map.get(fields, :gate_coverage),
-                escalated: Map.get(fields, :escalated),
-                critic_rounds: Map.get(fields, :critic_rounds),
-                residual_defects: Map.get(fields, :residual_defects),
-                reviewed: nil
-            }
-          else
-            page_attrs(p)
-          end
-        end)
+        |> Enum.map(&replaced_page_attrs(&1, index, fields))
 
       case update_document(doc, %{pages: pages, full_text: rebuild_full_text(pages)}) do
         {:ok, updated} -> updated
         {:error, changeset} -> Repo.rollback(changeset)
       end
     end)
+  end
+
+  defp replaced_page_attrs(%{index: index} = p, index, fields),
+    do: reextracted_page_attrs(p, fields)
+
+  defp replaced_page_attrs(p, _index, _fields), do: page_attrs(p)
+
+  defp reextracted_page_attrs(p, fields) do
+    %{
+      page_attrs(p)
+      | text: fields.text,
+        cleaned: nil,
+        confidence: fields.confidence,
+        lane: fields.lane,
+        source: fields.source,
+        # A re-extract is a fresh decision: overwrite the detail (Map.get so
+        # callers passing only the core fields clear stale signals to nil).
+        gate_agreement: Map.get(fields, :gate_agreement),
+        gate_coverage: Map.get(fields, :gate_coverage),
+        escalated: Map.get(fields, :escalated),
+        critic_rounds: Map.get(fields, :critic_rounds),
+        residual_defects: Map.get(fields, :residual_defects),
+        reviewed: nil
+    }
   end
 
   @doc """
@@ -4277,12 +4317,7 @@ defmodule RuleMaven.Games do
 
     if Enum.any?(segments, &(split_page_marker(&1) != nil)) do
       segments
-      |> Enum.flat_map(fn seg ->
-        case split_page_marker(seg) do
-          {sheet, printed, body} -> [%{sheet: sheet, printed: printed, text: body}]
-          nil -> []
-        end
-      end)
+      |> Enum.flat_map(&marked_page/1)
       |> Enum.with_index()
       |> Enum.map(fn {p, i} -> Map.put(p, :index, i) end)
     else
@@ -4291,6 +4326,13 @@ defmodule RuleMaven.Games do
       |> Enum.map(fn {text, i} ->
         %{index: i, sheet: i + 1, printed: nil, text: text}
       end)
+    end
+  end
+
+  defp marked_page(seg) do
+    case split_page_marker(seg) do
+      {sheet, printed, body} -> [%{sheet: sheet, printed: printed, text: body}]
+      nil -> []
     end
   end
 
@@ -4317,8 +4359,7 @@ defmodule RuleMaven.Games do
     |> Enum.reject(fn {line, i} ->
       MapSet.member?(zone, i) and line_page_number(String.trim(line)) == printed
     end)
-    |> Enum.map(&elem(&1, 0))
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", &elem(&1, 0))
   end
 
   @doc """
@@ -4379,29 +4420,37 @@ defmodule RuleMaven.Games do
         %{}
 
       runs ->
-        min_lo = runs |> Enum.map(fn {_o, lo, _hi, _n} -> lo end) |> Enum.min()
-        max_hi = runs |> Enum.map(fn {_o, _lo, hi, _n} -> hi end) |> Enum.max()
-
-        runs
-        # Stretch only the leading run back to sheet 1 and the trailing run out
-        # to the last sheet; interior runs keep their observed span.
-        |> Enum.map(fn {offset, lo, hi, support} ->
-          lo = if lo == min_lo, do: 1, else: lo
-          hi = if hi == max_hi, do: n, else: hi
-          {offset, lo, hi, support}
-        end)
-        # Strongest run first so it wins any sheet-span overlap.
-        |> Enum.sort_by(fn {_offset, _lo, _hi, support} -> -support end)
-        |> Enum.reduce(%{}, fn {offset, lo, hi, _support}, acc ->
-          Enum.reduce(lo..hi, acc, fn sheet, acc ->
-            printed = sheet - offset
-
-            if printed >= 1 and not Map.has_key?(acc, sheet),
-              do: Map.put(acc, sheet, printed),
-              else: acc
-          end)
-        end)
+        printed_from_runs(runs, n)
     end
+  end
+
+  defp printed_from_runs(runs, n) do
+    min_lo = runs |> Enum.map(fn {_o, lo, _hi, _n} -> lo end) |> Enum.min()
+    max_hi = runs |> Enum.map(fn {_o, _lo, hi, _n} -> hi end) |> Enum.max()
+
+    runs
+    # Stretch only the leading run back to sheet 1 and the trailing run out
+    # to the last sheet; interior runs keep their observed span.
+    |> Enum.map(fn {offset, lo, hi, support} ->
+      lo = if lo == min_lo, do: 1, else: lo
+      hi = if hi == max_hi, do: n, else: hi
+      {offset, lo, hi, support}
+    end)
+    # Strongest run first so it wins any sheet-span overlap.
+    |> Enum.sort_by(fn {_offset, _lo, _hi, support} -> -support end)
+    |> Enum.reduce(%{}, &fill_run/2)
+  end
+
+  # Maps each sheet in the run's span to its printed page, leaving sheets a
+  # stronger run already claimed (and pages that would be < 1) alone.
+  defp fill_run({offset, lo, hi, _support}, acc) do
+    Enum.reduce(lo..hi, acc, fn sheet, acc ->
+      printed = sheet - offset
+
+      if printed >= 1 and not Map.has_key?(acc, sheet),
+        do: Map.put(acc, sheet, printed),
+        else: acc
+    end)
   end
 
   # `[{sheet, printed_candidate}]` for every sheet that yielded a number.
@@ -4494,6 +4543,23 @@ defmodule RuleMaven.Games do
     end
   end
 
+  # {page_num, text} pairs from a legacy "\f"-joined full_text blob: by its page
+  # markers when it has them, else by position.
+  defp legacy_text_pages(full_text) do
+    segments = String.split(full_text, "\f")
+
+    if Enum.any?(segments, &(split_page_marker(&1) != nil)) do
+      segments
+      |> Enum.map(&split_page_marker/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(fn {sheet, printed, text} -> {printed || sheet, text} end)
+    else
+      segments
+      |> Enum.with_index(1)
+      |> Enum.map(fn {text, idx} -> {idx, text} end)
+    end
+  end
+
   def chunk_document(%Document{} = doc) do
     # Prefer first-class pages; fall back to parsing the legacy full_text blob
     # for documents not yet backfilled.
@@ -4514,18 +4580,7 @@ defmodule RuleMaven.Games do
           end)
 
         _ ->
-          segments = String.split(doc.full_text, "\f")
-
-          if Enum.any?(segments, &(split_page_marker(&1) != nil)) do
-            segments
-            |> Enum.map(&split_page_marker/1)
-            |> Enum.reject(&is_nil/1)
-            |> Enum.map(fn {sheet, printed, text} -> {printed || sheet, text} end)
-          else
-            segments
-            |> Enum.with_index(1)
-            |> Enum.map(fn {text, idx} -> {idx, text} end)
-          end
+          legacy_text_pages(doc.full_text)
       end
 
     chunks_with_meta =
@@ -4573,7 +4628,7 @@ defmodule RuleMaven.Games do
     # Enqueue embedding generation as Oban job (skip in test)
     unless testing?() do
       %{document_id: doc.id}
-      |> RuleMaven.Workers.EmbedChunksWorker.new()
+      |> EmbedChunksWorker.new()
       |> Oban.insert()
     end
   end
@@ -4843,19 +4898,23 @@ defmodule RuleMaven.Games do
 
         {matches, _rest} ->
           winner = pick_authoritative([chunk | matches], base_game_id, rank)
-          # Preserve relevance order: the survivor takes the EARLIEST position
-          # among the colliding cluster's members in `kept`, rather than being
-          # appended to the end. Appending would push a top-ranked cluster's
-          # survivor past `limit` in the caller's `Enum.take(limit)` and
-          # silently drop it, as well as scrambling result ordering.
-          matched_indices = for {k, i} <- Enum.with_index(kept), k in matches, do: i
-          insert_at = Enum.min(matched_indices)
-
-          kept
-          |> Enum.reject(&(&1 in matches))
-          |> List.insert_at(insert_at, winner)
+          collapse_cluster(kept, matches, winner)
       end
     end)
+  end
+
+  # Preserve relevance order: the survivor takes the EARLIEST position
+  # among the colliding cluster's members in `kept`, rather than being
+  # appended to the end. Appending would push a top-ranked cluster's
+  # survivor past `limit` in the caller's `Enum.take(limit)` and
+  # silently drop it, as well as scrambling result ordering.
+  defp collapse_cluster(kept, matches, winner) do
+    matched_indices = for {k, i} <- Enum.with_index(kept), k in matches, do: i
+    insert_at = Enum.min(matched_indices)
+
+    kept
+    |> Enum.reject(&(&1 in matches))
+    |> List.insert_at(insert_at, winner)
   end
 
   # Pure vector search can rank the actually-correct chunk outside `limit`
@@ -4879,19 +4938,14 @@ defmodule RuleMaven.Games do
       chunks
     else
       case best_lexical_candidate(game_ids, question_words, top) do
-        nil ->
-          chunks
-
-        winner ->
-          rest = Enum.drop(chunks, limit)
-
-          case top do
-            [] -> [winner | rest]
-            _ -> List.replace_at(top, -1, winner) ++ rest
-          end
+        nil -> chunks
+        winner -> substitute_weakest(top, winner, Enum.drop(chunks, limit))
       end
     end
   end
+
+  defp substitute_weakest([], winner, rest), do: [winner | rest]
+  defp substitute_weakest(top, winner, rest), do: List.replace_at(top, -1, winner) ++ rest
 
   defp lexical_hit?(content, question_words) do
     relevance_score(content, question_words) >= @lexical_rescue_min_overlap
@@ -4982,7 +5036,7 @@ defmodule RuleMaven.Games do
   # semantic search ranked closest to the question.
   defp pick_authoritative(candidates, base_game_id, rank) do
     Enum.min_by(candidates, fn c ->
-      {RuleMaven.Games.Document.authority(c.kind), if(c.game_id == base_game_id, do: 0, else: 1),
+      {Document.authority(c.kind), if(c.game_id == base_game_id, do: 0, else: 1),
        Map.get(rank, c.id, 0)}
     end)
   end
@@ -5314,16 +5368,7 @@ defmodule RuleMaven.Games do
               select: {c.id, fragment("cosine_distance(?, ?::vector)", c.name_embedding, ^q_vec)}
           )
 
-        matches =
-          case Enum.filter(ranked, fn {_, d} -> d <= @category_match_distance end) do
-            [] ->
-              ranked
-              |> Enum.take(1)
-              |> Enum.filter(fn {_, d} -> d <= @category_fallback_distance end)
-
-            strict ->
-              strict
-          end
+        matches = category_matches(ranked)
 
         Enum.each(matches, fn {cat_id, _} ->
           %QuestionCategoryTag{}
@@ -5344,6 +5389,20 @@ defmodule RuleMaven.Games do
         end
 
         {:ok, length(matches)}
+    end
+  end
+
+  # Up to two categories inside the strict bar; failing that, the single
+  # nearest one if it clears the loose fallback bar.
+  defp category_matches(ranked) do
+    case Enum.filter(ranked, fn {_, d} -> d <= @category_match_distance end) do
+      [] ->
+        ranked
+        |> Enum.take(1)
+        |> Enum.filter(fn {_, d} -> d <= @category_fallback_distance end)
+
+      strict ->
+        strict
     end
   end
 
@@ -5518,6 +5577,24 @@ defmodule RuleMaven.Games do
   defp do_set_community_vote(%QuestionLog{id: question_log_id} = q, user_id, value, admin?) do
     existing = get_user_community_vote(question_log_id, user_id)
 
+    weight = community_vote_weight(q, user_id, admin?)
+    result = write_community_vote(existing, question_log_id, user_id, value, weight)
+
+    # Recompute the row's trust_score and the answer author's reputation so
+    # ranking/promotion react immediately. The vote writes above never touch
+    # questions_log columns, so the struct we already hold is current for the
+    # fields recompute_trust reads (id, citation_valid, verified) — no re-fetch
+    # (which used to pull the embedding + raw_response a second time). If the
+    # row was deleted concurrently, recompute_trust's update_all matches zero
+    # rows and recompute_reputation just recounts the author's surviving rows —
+    # both harmless.
+    Trust.recompute_trust(q)
+    if q.user_id, do: Trust.recompute_reputation(q.user_id)
+
+    result
+  end
+
+  defp community_vote_weight(q, user_id, admin?) do
     # A non-admin asker's vote on their own row is pure display metadata
     # ("asker confirmed") — weight 0 keeps it out of trust_score. Reputation
     # and promotion quorum already exclude self-votes independently.
@@ -5538,56 +5615,43 @@ defmodule RuleMaven.Games do
     # toward a promotion quorum on text nobody screened.
     unreviewable? = QuestionLog.crew_origin?(q) and not q.browsable
 
-    weight =
-      if self_vote? or unreviewable? do
-        0.0
-      else
-        RuleMaven.Games.Trust.vote_weight(Repo.get(RuleMaven.Users.User, user_id))
-      end
+    if self_vote? or unreviewable? do
+      0.0
+    else
+      Trust.vote_weight(Repo.get(RuleMaven.Users.User, user_id))
+    end
+  end
 
-    result =
-      cond do
-        existing && existing.value == value ->
-          Repo.delete(existing)
-          nil
+  defp write_community_vote(existing, question_log_id, user_id, value, weight) do
+    cond do
+      existing && existing.value == value ->
+        Repo.delete(existing)
+        nil
 
-        existing ->
-          existing
-          |> QuestionVote.changeset(%{value: value, weight: weight})
-          |> Repo.update!()
+      existing ->
+        existing
+        |> QuestionVote.changeset(%{value: value, weight: weight})
+        |> Repo.update!()
 
-          value
+        value
 
-        true ->
-          # Upsert on the (question_log_id, user_id) unique index so a concurrent
-          # double-submit updates the existing vote instead of raising.
-          %QuestionVote{}
-          |> QuestionVote.changeset(%{
-            question_log_id: question_log_id,
-            user_id: user_id,
-            value: value,
-            weight: weight
-          })
-          |> Repo.insert!(
-            on_conflict: {:replace, [:value, :weight, :updated_at]},
-            conflict_target: [:question_log_id, :user_id]
-          )
+      true ->
+        # Upsert on the (question_log_id, user_id) unique index so a concurrent
+        # double-submit updates the existing vote instead of raising.
+        %QuestionVote{}
+        |> QuestionVote.changeset(%{
+          question_log_id: question_log_id,
+          user_id: user_id,
+          value: value,
+          weight: weight
+        })
+        |> Repo.insert!(
+          on_conflict: {:replace, [:value, :weight, :updated_at]},
+          conflict_target: [:question_log_id, :user_id]
+        )
 
-          value
-      end
-
-    # Recompute the row's trust_score and the answer author's reputation so
-    # ranking/promotion react immediately. The vote writes above never touch
-    # questions_log columns, so the struct we already hold is current for the
-    # fields recompute_trust reads (id, citation_valid, verified) — no re-fetch
-    # (which used to pull the embedding + raw_response a second time). If the
-    # row was deleted concurrently, recompute_trust's update_all matches zero
-    # rows and recompute_reputation just recounts the author's surviving rows —
-    # both harmless.
-    RuleMaven.Games.Trust.recompute_trust(q)
-    if q.user_id, do: RuleMaven.Games.Trust.recompute_reputation(q.user_id)
-
-    result
+        value
+    end
   end
 
   def community_vote_maps([], _user_id), do: {%{}, %{}, MapSet.new()}

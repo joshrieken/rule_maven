@@ -1,7 +1,7 @@
 defmodule RuleMaven.LLMTest do
   use RuleMaven.DataCase
 
-  alias RuleMaven.{LLM, Games, Repo}
+  alias RuleMaven.{Games, LLM, Repo}
   alias RuleMaven.Games.{Chunk, QuestionLog}
 
   describe "response parsing" do
@@ -1507,17 +1507,15 @@ defmodule RuleMaven.LLMTest do
         |> String.trim()
 
       mock_llm(fn body ->
-        cond do
-          body[:model] == LLM.model(:cheap) ->
-            {:ok, %{answer: "VERDICT: grounded"}}
-
-          true ->
-            {:ok,
-             %{
-               answer: long_answer,
-               citations: [%{"quote" => "Draw three cards.", "page" => 4, "source" => "Core"}],
-               verdict: "info"
-             }}
+        if body[:model] == LLM.model(:cheap) do
+          {:ok, %{answer: "VERDICT: grounded"}}
+        else
+          {:ok,
+           %{
+             answer: long_answer,
+             citations: [%{"quote" => "Draw three cards.", "page" => 4, "source" => "Core"}],
+             verdict: "info"
+           }}
         end
       end)
 
@@ -1574,24 +1572,22 @@ defmodule RuleMaven.LLMTest do
 
     test "a hallucination that survives the retry falls back to refusal", %{game: game} do
       mock_llm(fn body ->
-        cond do
-          body[:model] == LLM.model(:cheap) ->
-            {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: defeating a Monster lowers Terror."}}
-
-          true ->
-            {:ok,
-             %{
-               answer:
-                 "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
-               citations: [
-                 %{
-                   "quote" => "Move the Terror Marker up one space.",
-                   "page" => 9,
-                   "source" => "Core"
-                 }
-               ],
-               verdict: "info"
-             }}
+        if body[:model] == LLM.model(:cheap) do
+          {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: defeating a Monster lowers Terror."}}
+        else
+          {:ok,
+           %{
+             answer:
+               "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
+             citations: [
+               %{
+                 "quote" => "Move the Terror Marker up one space.",
+                 "page" => 9,
+                 "source" => "Core"
+               }
+             ],
+             verdict: "info"
+           }}
         end
       end)
 
@@ -1637,27 +1633,25 @@ defmodule RuleMaven.LLMTest do
       on_exit(fn -> Application.delete_env(:rule_maven, :embed_mock) end)
 
       mock_llm(fn body ->
-        cond do
-          body[:model] == LLM.model(:cheap) ->
-            {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: defeating a Monster lowers Terror."}}
-
-          true ->
-            {:ok,
-             %{
-               answer:
-                 "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
-               citations: [
-                 %{
-                   "quote" => "Move the Terror Marker up one space.",
-                   "page" => 9,
-                   "source" => "Core"
-                 }
-               ],
-               cited_passage: "Move the Terror Marker up one space.",
-               cited_page: 9,
-               cited_source: "Core",
-               verdict: "info"
-             }}
+        if body[:model] == LLM.model(:cheap) do
+          {:ok, %{answer: "VERDICT: hallucinated\nFLAGGED: defeating a Monster lowers Terror."}}
+        else
+          {:ok,
+           %{
+             answer:
+               "Terror rises when a Hero or Citizen is defeated, and lowers when a Monster is defeated.",
+             citations: [
+               %{
+                 "quote" => "Move the Terror Marker up one space.",
+                 "page" => 9,
+                 "source" => "Core"
+               }
+             ],
+             cited_passage: "Move the Terror Marker up one space.",
+             cited_page: 9,
+             cited_source: "Core",
+             verdict: "info"
+           }}
         end
       end)
 

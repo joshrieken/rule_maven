@@ -1,7 +1,7 @@
 defmodule RuleMavenWeb.AdminLive.Flags do
   use RuleMavenWeb, :live_view
 
-  alias RuleMaven.{Flags, Users, Audit}
+  alias RuleMaven.{Audit, Flags, Users}
   alias RuleMaven.Flags.Registry
   alias RuleMaven.Progress
   alias RuleMaven.Workers.MasteryBackfillWorker
@@ -73,27 +73,8 @@ defmodule RuleMavenWeb.AdminLive.Flags do
       _ = Registry.fetch!(flag)
 
       case Integer.parse(user_id) do
-        {int, ""} ->
-          case Users.get_user(int) do
-            nil ->
-              Flags.revoke_actor_id(flag, int)
-              Audit.log(socket.assigns.current_user, "flag.revoke_actor", target_label: id)
-
-              socket
-              |> assign(flags: load_flags())
-              |> put_flash(:info, "Revoked orphaned grant.")
-
-            user ->
-              Flags.revoke_actor(flag, user)
-              Audit.log(socket.assigns.current_user, "flag.revoke_actor", target_label: id)
-
-              socket
-              |> assign(flags: load_flags())
-              |> put_flash(:info, "Revoked #{id} from #{user.username}.")
-          end
-
-        _ ->
-          socket
+        {int, ""} -> revoke_actor(socket, id, flag, int, Users.get_user(int))
+        _ -> socket
       end
     end)
   end
@@ -143,6 +124,25 @@ defmodule RuleMavenWeb.AdminLive.Flags do
 
   defp catch_up_percentage(flag, pct) when pct > 0, do: catch_up(flag)
   defp catch_up_percentage(_flag, _pct), do: :ok
+
+  # The grant's user may be gone (deleted account): revoke the bare id then.
+  defp revoke_actor(socket, id, flag, user_id, nil) do
+    Flags.revoke_actor_id(flag, user_id)
+    Audit.log(socket.assigns.current_user, "flag.revoke_actor", target_label: id)
+
+    socket
+    |> assign(flags: load_flags())
+    |> put_flash(:info, "Revoked orphaned grant.")
+  end
+
+  defp revoke_actor(socket, id, flag, _user_id, user) do
+    Flags.revoke_actor(flag, user)
+    Audit.log(socket.assigns.current_user, "flag.revoke_actor", target_label: id)
+
+    socket
+    |> assign(flags: load_flags())
+    |> put_flash(:info, "Revoked #{id} from #{user.username}.")
+  end
 
   # Re-check admin capability on every event, then run fun/0 which returns a socket.
   defp with_admin(socket, fun) do

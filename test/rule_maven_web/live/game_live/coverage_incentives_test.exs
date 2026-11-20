@@ -5,12 +5,13 @@ defmodule RuleMavenWeb.GameLive.CoverageIncentivesTest do
   import Ecto.Query
   alias RuleMaven.Coverage
   alias RuleMaven.Coverage.UserPageCoverage
+  alias RuleMaven.Games.Document
   alias RuleMaven.Repo
 
   defp published_doc(game) do
     {:ok, doc} =
-      %RuleMaven.Games.Document{game_id: game.id}
-      |> RuleMaven.Games.Document.changeset(%{
+      %Document{game_id: game.id}
+      |> Document.changeset(%{
         label: "Rulebook",
         status: "published",
         page_count: 10

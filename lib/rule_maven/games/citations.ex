@@ -42,45 +42,58 @@ defmodule RuleMaven.Games.Citations do
   strings (wrapped as `%{label: nil, content: s}` for backward compatibility).
   """
   def valid?(passage, cited_page, source_chunks, cited_source) do
-    maps = to_chunk_maps(source_chunks)
-    scoped = scope_chunks(maps, cited_source)
+    texts =
+      source_chunks
+      |> to_chunk_maps()
+      |> scope_chunks(cited_source)
+      |> Enum.map(& &1.content)
 
-    texts = Enum.map(scoped, & &1.content)
-    chunks = normalize_chunks(texts)
-    has_passage = is_binary(passage) and String.trim(passage) != ""
+    p = check_passage(passage, normalize_chunks(texts))
+
     has_page = is_integer(cited_page)
-
-    needle = passage_needle(passage)
-    checkable_passage = has_passage and String.length(needle) >= @min_needle_len
-    passage_match = checkable_passage and Enum.any?(chunks, &String.contains?(&1, needle))
-    passage_bad = checkable_passage and not passage_match
-
     page_match = has_page and cited_page in chunk_pages(texts)
     page_bad = has_page and not page_match
 
-    # A short passage can't ground on its own, and a bare page number is far too
-    # weak to ground it either: `chunk_pages/1` only asks whether the cited page
-    # appears ANYWHERE in the retrieved context, which with 10-25 chunks in play
-    # is nearly always true. That let a fabricated short quote ("Draw one card")
-    # ride a plausible page number to `citation_valid: true` — which is the sole
-    # gate on pooling and the citation trust bonus. So when a short passage IS
-    # given, require it to appear in a chunk carrying the cited page.
-    short_passage_match =
-      has_passage and not checkable_passage and page_match and
-        Enum.any?(page_scoped_chunks(texts, cited_page), &String.contains?(&1, needle))
-
-    grounded =
-      cond do
-        passage_match -> true
-        # Page-only citation (no passage offered): the page must exist.
-        not has_passage -> page_match
-        # Passage offered but unverifiable on its own: must land on the cited page.
-        not checkable_passage -> short_passage_match
-        true -> false
-      end
-
-    grounded and not passage_bad and not page_bad
+    grounded?(p, page_match, texts, cited_page) and not p.bad and not page_bad
   end
+
+  # What the cited passage offers: whether one was given, its normalized
+  # needle, whether it is long enough to verify, and whether it was found.
+  defp check_passage(passage, chunks) do
+    given = is_binary(passage) and String.trim(passage) != ""
+    needle = passage_needle(passage)
+    checkable = given and String.length(needle) >= @min_needle_len
+    match = checkable and Enum.any?(chunks, &String.contains?(&1, needle))
+
+    %{
+      given: given,
+      needle: needle,
+      checkable: checkable,
+      match: match,
+      bad: checkable and not match
+    }
+  end
+
+  defp grounded?(%{match: true}, _page_match, _texts, _cited_page), do: true
+
+  # Page-only citation (no passage offered): the page must exist.
+  defp grounded?(%{given: false}, page_match, _texts, _cited_page), do: page_match
+
+  # Passage offered but unverifiable on its own: must land on the cited page.
+  #
+  # A short passage can't ground on its own, and a bare page number is far too
+  # weak to ground it either: `chunk_pages/1` only asks whether the cited page
+  # appears ANYWHERE in the retrieved context, which with 10-25 chunks in play
+  # is nearly always true. That let a fabricated short quote ("Draw one card")
+  # ride a plausible page number to `citation_valid: true` — which is the sole
+  # gate on pooling and the citation trust bonus. So when a short passage IS
+  # given, require it to appear in a chunk carrying the cited page.
+  defp grounded?(%{checkable: false, needle: needle}, page_match, texts, cited_page) do
+    page_match and
+      Enum.any?(page_scoped_chunks(texts, cited_page), &String.contains?(&1, needle))
+  end
+
+  defp grounded?(_passage, _page_match, _texts, _cited_page), do: false
 
   # Normalized chunks that carry a `[Page N]` marker for `page`.
   defp page_scoped_chunks(texts, page) when is_integer(page) do

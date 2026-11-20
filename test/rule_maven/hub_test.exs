@@ -4,6 +4,7 @@ defmodule RuleMaven.HubTest do
 
   import RuleMaven.GamesFixtures
 
+  alias RuleMaven.Auth.SignOn
   alias RuleMaven.{Changelog, Hub, Repo, Users}
   alias RuleMaven.Games.QuestionLog
 
@@ -14,7 +15,7 @@ defmodule RuleMaven.HubTest do
     {:ok, alice} =
       Users.create_user(%{username: "alice", email: "a@example.com", password: "correct horse 1"})
 
-    {:ok, alice} = RuleMaven.Auth.SignOn.link_user(alice, "sub-alice")
+    {:ok, alice} = SignOn.link_user(alice, "sub-alice")
     %{alice: alice, game: game_fixture(%{name: "Wingspan"})}
   end
 

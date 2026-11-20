@@ -17,6 +17,7 @@ defmodule RuleMaven.Mailer do
   require Logger
 
   alias RuleMaven.Settings
+  alias RuleMaven.Workers.MailerWorker
 
   @doc """
   Delivers an email. Normally enqueues a `MailerWorker` job (`{:ok, job}`) so
@@ -32,7 +33,7 @@ defmodule RuleMaven.Mailer do
   """
   def deliver_email(%Swoosh.Email{} = email) do
     if async?() do
-      RuleMaven.Workers.MailerWorker.enqueue(email)
+      MailerWorker.enqueue(email)
     else
       deliver_email_now(email)
     end

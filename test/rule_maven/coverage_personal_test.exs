@@ -6,13 +6,14 @@ defmodule RuleMaven.CoveragePersonalTest do
 
   alias RuleMaven.Coverage
   alias RuleMaven.Coverage.UserPageCoverage
+  alias RuleMaven.Games.Document
   alias RuleMaven.Repo
 
   # Mirror the doc/user setup style already in test/rule_maven/coverage_test.exs.
   defp published_doc(game, attrs \\ %{}) do
     {:ok, doc} =
-      %RuleMaven.Games.Document{}
-      |> RuleMaven.Games.Document.changeset(
+      %Document{}
+      |> Document.changeset(
         Map.merge(
           %{label: "Rulebook", game_id: game.id, page_count: 10, status: "published"},
           attrs

@@ -1,9 +1,9 @@
 defmodule RuleMaven.UsersTest do
   use RuleMaven.DataCase, async: true
 
+  alias RuleMaven.Repo
   alias RuleMaven.Users
   alias RuleMaven.Users.User
-  alias RuleMaven.Repo
 
   describe "user management" do
     setup do

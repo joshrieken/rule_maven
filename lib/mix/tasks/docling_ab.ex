@@ -46,23 +46,16 @@ defmodule Mix.Tasks.DoclingAb do
 
     Mix.Task.run("app.start")
 
-    pdf = opts[:pdf] || Mix.raise("--pdf required")
-    full_pdf = if Path.type(pdf) == :absolute, do: pdf, else: Path.join(File.cwd!(), pdf)
+    full_pdf = full_pdf_path(opts[:pdf] || Mix.raise("--pdf required"))
     skip_docling? = opts[:skip_docling] || false
 
     python =
       (opts[:docling_python] || System.get_env("DOCLING_PYTHON") || @default_python)
       |> abs_path()
 
-    pages =
-      (opts[:pages] || @default_pages)
-      |> String.split(",", trim: true)
-      |> Enum.map(&String.to_integer(String.trim(&1)))
+    pages = parse_pages(opts[:pages] || @default_pages)
 
-    unless File.exists?(full_pdf), do: Mix.raise("PDF not found: #{full_pdf}")
-    unless System.find_executable("pdftoppm"), do: Mix.raise("pdftoppm not on PATH")
-    unless System.find_executable("pdftotext"), do: Mix.raise("pdftotext not on PATH")
-    unless skip_docling?, do: preflight_docling(python)
+    preflight!(full_pdf, python, skip_docling?)
 
     out_dir = abs_path(opts[:out] || Path.join(["tmp", "docling_ab"]))
     File.mkdir_p!(out_dir)
@@ -75,6 +68,23 @@ defmodule Mix.Tasks.DoclingAb do
     results = Enum.map(pages, &run_page(full_pdf, &1, python, out_dir, skip_docling?))
     summarize(results)
     info("\nFull reads written under #{out_dir}/")
+  end
+
+  defp full_pdf_path(pdf) do
+    if Path.type(pdf) == :absolute, do: pdf, else: Path.join(File.cwd!(), pdf)
+  end
+
+  defp parse_pages(spec) do
+    spec
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.to_integer(String.trim(&1)))
+  end
+
+  defp preflight!(full_pdf, python, skip_docling?) do
+    unless File.exists?(full_pdf), do: Mix.raise("PDF not found: #{full_pdf}")
+    unless System.find_executable("pdftoppm"), do: Mix.raise("pdftoppm not on PATH")
+    unless System.find_executable("pdftotext"), do: Mix.raise("pdftotext not on PATH")
+    unless skip_docling?, do: preflight_docling(python)
   end
 
   defp run_page(full_pdf, page, python, out_dir, skip_docling?) do

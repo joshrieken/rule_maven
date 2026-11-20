@@ -12,8 +12,8 @@ defmodule RuleMaven.Workers.PoolRebuildWorkerTest do
   use RuleMaven.DataCase, async: false
   use Oban.Testing, repo: RuleMaven.Repo
 
-  alias RuleMaven.Games.QuestionLog
   alias RuleMaven.{Games, Repo, Users}
+  alias RuleMaven.Games.QuestionLog
   alias RuleMaven.Workers.{AskWorker, PoolRebuildWorker}
 
   # Oban isn't supervised in test, and both the invalidation hook and the worker

@@ -28,7 +28,7 @@ defmodule RuleMaven.Voices do
 
   import Ecto.Query
   require Logger
-  alias RuleMaven.{Repo, LLM}
+  alias RuleMaven.{LLM, Repo}
   alias RuleMaven.Voices.{AnswerVoice, GameVoice, PersonaEvent}
 
   @game_prefix "g:"
@@ -693,24 +693,31 @@ defmodule RuleMaven.Voices do
         vetted: Map.get(v, :vetted, false)
       }
 
-      case Map.get(by_slug, v.slug) do
-        nil ->
-          %GameVoice{} |> GameVoice.changeset(attrs) |> Repo.insert()
-
-        %GameVoice{style: old_style, label: old_label} = row ->
-          # A style OR label change invalidates cached restyles for this slug. Label
-          # is included because a slug can be reused for a different persona whose
-          # style text happens to match byte-for-byte (or nearly so) — the label is
-          # the user-visible identity, so a change there means the cache no longer
-          # belongs to "this" persona even if the style prose is unchanged.
-          if old_style != v.style or old_label != v.label,
-            do: clear_for_voice(game_id, @game_prefix <> v.slug)
-
-          row |> GameVoice.changeset(attrs) |> Repo.update()
-      end
+      upsert_generated_voice(Map.get(by_slug, v.slug), game_id, v, attrs)
     end)
 
     :ok
+  end
+
+  defp upsert_generated_voice(nil, _game_id, _v, attrs) do
+    %GameVoice{} |> GameVoice.changeset(attrs) |> Repo.insert()
+  end
+
+  defp upsert_generated_voice(
+         %GameVoice{style: old_style, label: old_label} = row,
+         game_id,
+         v,
+         attrs
+       ) do
+    # A style OR label change invalidates cached restyles for this slug. Label
+    # is included because a slug can be reused for a different persona whose
+    # style text happens to match byte-for-byte (or nearly so) — the label is
+    # the user-visible identity, so a change there means the cache no longer
+    # belongs to "this" persona even if the style prose is unchanged.
+    if old_style != v.style or old_label != v.label,
+      do: clear_for_voice(game_id, @game_prefix <> v.slug)
+
+    row |> GameVoice.changeset(attrs) |> Repo.update()
   end
 
   @doc "A game's generated voices that haven't passed the style vet yet."

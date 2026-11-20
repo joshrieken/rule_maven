@@ -1,6 +1,7 @@
 defmodule Mix.Tasks.RuleMaven.Flags.SyncTest do
   use RuleMaven.DataCase, async: false
 
+  alias Mix.Tasks.RuleMaven.Flags.Sync
   alias RuleMaven.Flags.Registry
 
   defp create_user(prefix, attrs \\ %{}) do
@@ -28,12 +29,12 @@ defmodule Mix.Tasks.RuleMaven.Flags.SyncTest do
     {:ok, before} = FunWithFlags.all_flag_names()
     refute :tool_quiz in before
 
-    Mix.Tasks.RuleMaven.Flags.Sync.run([])
+    Sync.run([])
 
     assert RuleMaven.Flags.enabled?(:tool_quiz, nil)
 
     # second run must not raise or change state
-    Mix.Tasks.RuleMaven.Flags.Sync.run([])
+    Sync.run([])
     assert RuleMaven.Flags.enabled?(:tool_quiz, nil)
 
     {:ok, after_names} = FunWithFlags.all_flag_names()
@@ -48,7 +49,7 @@ defmodule Mix.Tasks.RuleMaven.Flags.SyncTest do
     FunWithFlags.clear(:tool_quiz)
 
     assert_raise Mix.Error, fn ->
-      Mix.Tasks.RuleMaven.Flags.Sync.run(["--check"])
+      Sync.run(["--check"])
     end
   end
 
@@ -58,7 +59,7 @@ defmodule Mix.Tasks.RuleMaven.Flags.SyncTest do
 
     {:ok, _} = RuleMaven.Flags.disable(:asks)
 
-    Mix.Tasks.RuleMaven.Flags.Sync.run([])
+    Sync.run([])
 
     assert RuleMaven.Flags.enabled?(:asks, admin)
     refute RuleMaven.Flags.enabled?(:asks, regular)

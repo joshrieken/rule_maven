@@ -3,8 +3,8 @@ defmodule RuleMaven.ManualImportCorrectionsTest do
 
   import Ecto.Query
 
-  alias RuleMaven.{Games, ManualImport, Repo, Users}
   alias RuleMaven.Audit.AuditLog
+  alias RuleMaven.{Games, ManualImport, Repo, Users}
   alias RuleMaven.Games.{QuestionFlag, QuestionLog}
   alias RuleMaven.ManualImport.Corrections
 

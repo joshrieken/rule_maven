@@ -11,8 +11,10 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
 
   use Oban.Worker, queue: :clustering, max_attempts: 3
   import Ecto.Query
-  alias RuleMaven.Games.QuestionLog
+  alias RuleMaven.Games.{QuestionLog, Trust}
+  alias RuleMaven.LLM.QuestionFacets
   alias RuleMaven.Repo
+  alias RuleMaven.Workers.{EmbedQuestionWorker, SettleVotesWorker}
 
   @default_cluster_similarity 0.85
 
@@ -67,8 +69,8 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
   end
 
   defp promote_clusters(rows) do
-    floor = RuleMaven.Games.Trust.promotion_floor()
-    quorum = RuleMaven.Games.Trust.promotion_quorum()
+    floor = Trust.promotion_floor()
+    quorum = Trust.promotion_quorum()
 
     rows
     |> cluster_by_similarity()
@@ -80,7 +82,7 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
       # quorum of distinct, eligible, non-author voters — so a single (or single
       # high-rep / sybil) vote can't auto-promote.
       if max_trust >= floor and
-           RuleMaven.Games.Trust.eligible_voter_count(best.id, best.user_id) >= quorum do
+           Trust.eligible_voter_count(best.id, best.user_id) >= quorum do
         promote(best)
       end
     end)
@@ -97,18 +99,9 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
 
     {clusters, count} =
       Enum.reduce(rows, {%{}, 0}, fn row, {clusters, count} ->
-        vec = row.embedding
-
         idx =
           Enum.find(0..(count - 1)//1, fn i ->
-            Enum.any?(clusters[i], fn m ->
-              # Near embeddings alone don't merge: a one-token flip (before/after,
-              # may/must) barely moves the vector, so also require the questions
-              # be facet-compatible. Otherwise a flipped row inherits the
-              # cluster's trust and one representative promotes for both verdicts.
-              cosine_distance(vec, m.embedding) <= threshold and
-                RuleMaven.LLM.QuestionFacets.compatible?(row.text, m.text)
-            end)
+            Enum.any?(clusters[i], &same_question?(row, &1, threshold))
           end)
 
         case idx do
@@ -118,6 +111,15 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
       end)
 
     Enum.map(0..(count - 1)//1, &clusters[&1])
+  end
+
+  # Near embeddings alone don't merge: a one-token flip (before/after,
+  # may/must) barely moves the vector, so also require the questions
+  # be facet-compatible. Otherwise a flipped row inherits the
+  # cluster's trust and one representative promotes for both verdicts.
+  defp same_question?(row, member, threshold) do
+    cosine_distance(row.embedding, member.embedding) <= threshold and
+      QuestionFacets.compatible?(row.text, member.text)
   end
 
   # Prefer an admin-curated row, then highest trust, then most recent.
@@ -161,13 +163,13 @@ defmodule RuleMaven.Workers.DirectPromotionWorker do
   defp finalize_promotion(best) do
     # Re-embed the promoted canonical (skip in test — Oban not running).
     unless Application.get_env(:rule_maven, Oban)[:testing] == :manual do
-      RuleMaven.Workers.EmbedQuestionWorker.enqueue(best.id)
+      EmbedQuestionWorker.enqueue(best.id)
     end
 
     # Promotion rewards the author's reputation.
-    if best.user_id, do: RuleMaven.Games.Trust.recompute_reputation(best.user_id)
+    if best.user_id, do: Trust.recompute_reputation(best.user_id)
 
-    RuleMaven.Workers.SettleVotesWorker.enqueue(best.id, :confirmed)
+    SettleVotesWorker.enqueue(best.id, :confirmed)
   end
 
   defp cosine_distance(a, b) do

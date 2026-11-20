@@ -1,4 +1,9 @@
 defmodule RuleMaven.Security do
+  @moduledoc """
+  Prompt-injection defences: the admin-managed injection patterns and the log of
+  questions they blocked (shown on the admin Security page).
+  """
+
   import Ecto.Query
 
   # The Security page lists the newest blocked questions only.

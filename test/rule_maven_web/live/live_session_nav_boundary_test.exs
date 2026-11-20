@@ -83,8 +83,10 @@ defmodule RuleMavenWeb.LiveSessionNavBoundaryTest do
   test "no /admin route escapes the gate" do
     admin_paths =
       Router.__routes__()
-      |> Enum.filter(&String.starts_with?(&1.path, "/admin"))
-      |> Enum.filter(&match?({_, _, _, _}, &1.metadata[:phoenix_live_view]))
+      |> Enum.filter(
+        &(String.starts_with?(&1.path, "/admin") and
+            match?({_, _, _, _}, &1.metadata[:phoenix_live_view]))
+      )
 
     assert admin_paths != []
 

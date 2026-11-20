@@ -65,17 +65,19 @@ defmodule Mix.Tasks.VisionAb do
     info("PAGE #{page}")
     info(String.duplicate("=", 70))
 
-    with {:ok, image} <- render_page(full_pdf, page) do
-      base_res = transcribe(image, baseline)
-      cand_res = transcribe(image, candidate)
-      File.rm(image)
+    case render_page(full_pdf, page) do
+      {:ok, image} ->
+        base_res = transcribe(image, baseline)
+        cand_res = transcribe(image, candidate)
+        File.rm(image)
 
-      write(out_dir, page, "baseline", baseline, base_res)
-      write(out_dir, page, "candidate", candidate, cand_res)
+        write(out_dir, page, "baseline", baseline, base_res)
+        write(out_dir, page, "candidate", candidate, cand_res)
 
-      report(base_res, cand_res)
-    else
-      {:error, reason} -> info("  render failed: #{inspect(reason)}")
+        report(base_res, cand_res)
+
+      {:error, reason} ->
+        info("  render failed: #{inspect(reason)}")
     end
   end
 

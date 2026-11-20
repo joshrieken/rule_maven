@@ -13,6 +13,8 @@ defmodule RuleMaven.Extract.Native do
 
   NimbleCSV.define(RuleMaven.Extract.Native.CSV, separator: ",", escape: "\"")
 
+  alias RuleMaven.Extract.Native.CSV
+
   # Cap on total decompressed bytes for an office archive (docx/odt/xlsx) — guards
   # against a zip bomb expanding to gigabytes in memory. Rulebooks are far smaller.
   @max_unzip_bytes 200 * 1024 * 1024
@@ -89,7 +91,7 @@ defmodule RuleMaven.Extract.Native do
 
   @doc "A Markdown table from CSV text. Empty input → \"\"."
   def csv_to_table(binary) do
-    rows = RuleMaven.Extract.Native.CSV.parse_string(binary, skip_headers: false)
+    rows = CSV.parse_string(binary, skip_headers: false)
     rows_to_markdown(rows)
   end
 

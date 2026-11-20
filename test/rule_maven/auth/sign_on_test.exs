@@ -1,6 +1,7 @@
 defmodule RuleMaven.Auth.SignOnTest do
   use RuleMaven.DataCase, async: true
 
+  alias Mix.Tasks.RuleMaven.LinkSso
   alias RuleMaven.Auth.SignOn
   alias RuleMaven.Users
   alias RuleMaven.Users.User
@@ -119,15 +120,15 @@ defmodule RuleMaven.Auth.SignOnTest do
     Mix.shell(Mix.Shell.Process)
     on_exit(fn -> Mix.shell(Mix.Shell.IO) end)
 
-    Mix.Tasks.RuleMaven.LinkSso.run(["carol", "s-carol"])
+    LinkSso.run(["carol", "s-carol"])
     assert_received {:mix_shell, :info, ["Linked carol to sign-on id s-carol."]}
     assert Users.get_user(carol.id).oidc_sub == "s-carol"
 
-    Mix.Tasks.RuleMaven.LinkSso.run(["carol", "--unlink"])
+    LinkSso.run(["carol", "--unlink"])
     assert Users.get_user(carol.id).oidc_sub == nil
 
     assert_raise Mix.Error, ~r/No user named/, fn ->
-      Mix.Tasks.RuleMaven.LinkSso.run(["nobody", "s-x"])
+      LinkSso.run(["nobody", "s-x"])
     end
   end
 end

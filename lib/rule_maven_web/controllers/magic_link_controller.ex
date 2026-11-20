@@ -1,8 +1,8 @@
 defmodule RuleMavenWeb.MagicLinkController do
   use RuleMavenWeb, :controller
 
-  alias RuleMaven.Users
   alias RuleMaven.Auth.LoginThrottle
+  alias RuleMaven.Users
 
   @doc "Form to request a sign-in link."
   def new(conn, _params) do

@@ -84,61 +84,7 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
     # retry — re-extraction is a best-effort, user-triggered action.
     outcome =
       try do
-        case Enum.find(doc.pages, &(&1.index == index)) do
-          nil ->
-            :noop
-
-          page ->
-            # page.sheet is the physical PDF sheet; page.half ("left"/"right")
-            # is set on pages extracted from a 2-up book and tells
-            # reextract_page which half of the sheet to render. Stored layout,
-            # not doc.two_up — the flag may have been flipped since extraction.
-            half = Map.get(page, :half)
-
-            label =
-              cond do
-                page.printed && half -> "page #{page.printed} (sheet #{page.sheet}, #{half} half)"
-                page.printed -> "sheet #{page.sheet} (page #{page.printed})"
-                half -> "sheet #{page.sheet} (#{half} half)"
-                true -> "sheet #{page.sheet}"
-              end
-
-            log.("Re-extracting #{label} with the stronger model…", "info")
-
-            case RulebookDownloader.reextract_page(doc.pdf_path, page.sheet,
-                   on_log: log,
-                   label: label,
-                   game_id: doc.game_id,
-                   half: half
-                 ) do
-              {:ok, result} ->
-                case Games.replace_page(doc, index, result) do
-                  {:error, :empty_extraction} ->
-                    # The page kept its existing text rather than being blanked.
-                    Logger.warning("Re-extract page #{index} produced empty text — page kept")
-
-                    log.(
-                      "Failed — #{label}: re-extraction produced no text; the existing text was kept.",
-                      "error"
-                    )
-
-                    {:error, "empty extraction"}
-
-                  _ ->
-                    log.(
-                      "Done — #{label} re-extracted (confidence #{fmt_conf(page.confidence)} → #{fmt_conf(result[:confidence])}).",
-                      "done"
-                    )
-
-                    :ok
-                end
-
-              {:error, reason} ->
-                Logger.warning("Re-extract page #{index} failed: #{reason}")
-                log.("Failed — #{label}: #{reason}.", "error")
-                {:error, to_string(reason)}
-            end
-        end
+        reextract(doc, index, log)
       rescue
         e ->
           Logger.error("Re-extract page #{index} crashed: #{Exception.message(e)}")
@@ -158,6 +104,71 @@ defmodule RuleMaven.Workers.ReextractPageWorker do
     )
 
     :ok
+  end
+
+  defp reextract(doc, index, log) do
+    case Enum.find(doc.pages, &(&1.index == index)) do
+      nil -> :noop
+      page -> reextract_page(doc, index, page, log)
+    end
+  end
+
+  defp reextract_page(doc, index, page, log) do
+    # page.sheet is the physical PDF sheet; page.half ("left"/"right")
+    # is set on pages extracted from a 2-up book and tells
+    # reextract_page which half of the sheet to render. Stored layout,
+    # not doc.two_up — the flag may have been flipped since extraction.
+    half = Map.get(page, :half)
+    label = page_label(page, half)
+
+    log.("Re-extracting #{label} with the stronger model…", "info")
+
+    case RulebookDownloader.reextract_page(doc.pdf_path, page.sheet,
+           on_log: log,
+           label: label,
+           game_id: doc.game_id,
+           half: half
+         ) do
+      {:ok, result} ->
+        store_reextracted(doc, index, page, result, label, log)
+
+      {:error, reason} ->
+        Logger.warning("Re-extract page #{index} failed: #{reason}")
+        log.("Failed — #{label}: #{reason}.", "error")
+        {:error, to_string(reason)}
+    end
+  end
+
+  defp page_label(page, half) do
+    cond do
+      page.printed && half -> "page #{page.printed} (sheet #{page.sheet}, #{half} half)"
+      page.printed -> "sheet #{page.sheet} (page #{page.printed})"
+      half -> "sheet #{page.sheet} (#{half} half)"
+      true -> "sheet #{page.sheet}"
+    end
+  end
+
+  defp store_reextracted(doc, index, page, result, label, log) do
+    case Games.replace_page(doc, index, result) do
+      {:error, :empty_extraction} ->
+        # The page kept its existing text rather than being blanked.
+        Logger.warning("Re-extract page #{index} produced empty text — page kept")
+
+        log.(
+          "Failed — #{label}: re-extraction produced no text; the existing text was kept.",
+          "error"
+        )
+
+        {:error, "empty extraction"}
+
+      _ ->
+        log.(
+          "Done — #{label} re-extracted (confidence #{fmt_conf(page.confidence)} → #{fmt_conf(result[:confidence])}).",
+          "done"
+        )
+
+        :ok
+    end
   end
 
   defp fmt_conf(c) when is_number(c), do: :erlang.float_to_binary(c / 1, decimals: 2)

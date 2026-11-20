@@ -21,6 +21,7 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
   alias RuleMaven.{Games, Repo}
   alias RuleMaven.Games.QuestionLog
   alias RuleMaven.Games.QuestionVote
+  alias RuleMaven.Workers.AskWorker
 
   @raw "SECRETWORDING will Dave's smuggler get caught"
 
@@ -331,7 +332,7 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
 
     {:ok, answered} = Games.log_question_update(q, %{answer: "Yes, on a failed roll."})
 
-    RuleMaven.Workers.AskWorker.broadcast_complete(answered, %{
+    AskWorker.broadcast_complete(answered, %{
       faq_hit: false,
       pool_hit: false,
       tier: nil,
@@ -357,7 +358,7 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
 
     {:ok, answered} = Games.log_question_update(q, %{answer: "Yes, on a failed roll."})
 
-    RuleMaven.Workers.AskWorker.broadcast_complete(answered, %{
+    AskWorker.broadcast_complete(answered, %{
       faq_hit: false,
       pool_hit: false,
       tier: nil,
@@ -454,7 +455,7 @@ defmodule RuleMavenWeb.GameLiveGroupPrivacyTest do
 
     on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
-    RuleMaven.Workers.AskWorker.perform(%Oban.Job{
+    AskWorker.perform(%Oban.Job{
       id: nil,
       args: %{
         "game_id" => ctx.game.id,

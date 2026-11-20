@@ -56,8 +56,10 @@ defmodule RuleMaven.Workers.PoolRebuildWorker do
 
   import Ecto.Query
 
-  alias RuleMaven.Games.QuestionLog
   alias RuleMaven.{Games, Jobs, Repo}
+  alias RuleMaven.Games.QuestionLog
+  alias RuleMaven.LLM.QuestionFacets
+  alias RuleMaven.Workers.AskWorker
 
   # The invalidation usually arrives mid-pipeline: chunking and embedding may
   # still be running behind it. Re-asking before the new chunks are embedded
@@ -213,7 +215,7 @@ defmodule RuleMaven.Workers.PoolRebuildWorker do
     |> RuleMaven.Games.pooled_equivalents(emb, exp)
     |> Enum.any?(fn live ->
       live_text = live.canonical_question || live.cleaned_question || live.question
-      RuleMaven.LLM.QuestionFacets.compatible?(text, live_text)
+      QuestionFacets.compatible?(text, live_text)
     end)
   end
 
@@ -240,7 +242,7 @@ defmodule RuleMaven.Workers.PoolRebuildWorker do
           user_id: nil,
           group_id: nil
         }
-        |> RuleMaven.Workers.AskWorker.new()
+        |> AskWorker.new()
         |> Oban.insert()
         |> case do
           {:ok, _job} ->

@@ -1,4 +1,8 @@
 defmodule RuleMaven.Workers.TagQuestionWorker do
+  @moduledoc """
+  Tags a question with its game's categories (`Games.tag_question/2`, pure
+  pgvector, no LLM call) in the background, off the ask path.
+  """
   use Oban.Worker, queue: :default, max_attempts: 3
   alias RuleMaven.Games
 

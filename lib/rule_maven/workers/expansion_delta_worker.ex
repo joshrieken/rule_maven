@@ -12,7 +12,7 @@ defmodule RuleMaven.Workers.ExpansionDeltaWorker do
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
-  alias RuleMaven.{Games, Jobs, Settings, ExpansionDelta}
+  alias RuleMaven.{ExpansionDelta, Games, Jobs, Settings}
 
   def enqueue(game_id) do
     %{game_id: game_id} |> new() |> Oban.insert()

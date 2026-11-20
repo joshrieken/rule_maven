@@ -2,6 +2,7 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
   use RuleMaven.DataCase
   use Oban.Testing, repo: RuleMaven.Repo
 
+  alias RuleMaven.Extract.{CleanCheck, Gate}
   alias RuleMaven.Games
   alias RuleMaven.Jobs
   alias RuleMaven.Workers.CleanupWorker
@@ -189,34 +190,38 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
     {:ok, agent} = Agent.start_link(fn -> %{critic: critic_replies, calls: []} end)
 
     Application.put_env(:rule_maven, :llm_mock, fn body ->
-      system =
-        body.messages
-        |> Enum.find(&(&1.role == "system" or &1[:role] == "system"))
-        |> then(&(&1 && (&1[:content] || &1.content))) || ""
-
-      cond do
-        system =~ "adversarial reviewer" ->
-          Agent.get_and_update(agent, fn %{critic: [h | t]} = s ->
-            reply = if match?({:error, _}, h), do: h, else: {:ok, %{answer: h}}
-            {reply, %{s | critic: t, calls: s.calls ++ [:critic]}}
-          end)
-
-        system =~ "MARK_LIGHT" ->
-          Agent.update(agent, &%{&1 | calls: &1.calls ++ [:light]})
-          {:ok, %{answer: script.light}}
-
-        system =~ "MARK_AGGRESSIVE" ->
-          Agent.update(agent, &%{&1 | calls: &1.calls ++ [:aggressive]})
-          {:ok, %{answer: script.aggressive}}
-
-        true ->
-          Agent.update(agent, &%{&1 | calls: &1.calls ++ [:standard]})
-          {:ok, %{answer: script.standard}}
-      end
+      auto_mock_reply(agent, script, system_prompt(body))
     end)
 
     on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
     agent
+  end
+
+  defp system_prompt(body) do
+    body.messages
+    |> Enum.find(&(&1.role == "system" or &1[:role] == "system"))
+    |> then(&(&1 && (&1[:content] || &1.content))) || ""
+  end
+
+  defp auto_mock_reply(agent, script, system) do
+    cond do
+      system =~ "adversarial reviewer" -> pop_critic_reply(agent)
+      system =~ "MARK_LIGHT" -> record_clean(agent, :light, script.light)
+      system =~ "MARK_AGGRESSIVE" -> record_clean(agent, :aggressive, script.aggressive)
+      true -> record_clean(agent, :standard, script.standard)
+    end
+  end
+
+  defp pop_critic_reply(agent) do
+    Agent.get_and_update(agent, fn %{critic: [h | t]} = s ->
+      reply = if match?({:error, _}, h), do: h, else: {:ok, %{answer: h}}
+      {reply, %{s | critic: t, calls: s.calls ++ [:critic]}}
+    end)
+  end
+
+  defp record_clean(agent, level, answer) do
+    Agent.update(agent, &%{&1 | calls: &1.calls ++ [level]})
+    {:ok, %{answer: answer}}
   end
 
   defp calls(agent), do: Agent.get(agent, & &1.calls)
@@ -418,8 +423,8 @@ defmodule RuleMaven.Workers.CleanupWorkerTest do
         "\n"
       )
 
-    assert RuleMaven.Extract.Gate.wordish_ratio(fixture) < 0.6
-    assert RuleMaven.Extract.CleanCheck.garble_lines(fixture) == 0
+    assert Gate.wordish_ratio(fixture) < 0.6
+    assert CleanCheck.garble_lines(fixture) == 0
 
     agent =
       install_auto_mock(%{standard: fixture, light: "L", aggressive: "A"}, [

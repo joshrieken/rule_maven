@@ -4,9 +4,8 @@ defmodule RuleMaven.HouseRules do
   classifying it against rules-as-written (see Workers.HouseRuleCheckWorker).
   """
   import Ecto.Query
-  alias RuleMaven.Repo
+  alias RuleMaven.{Games, Repo, Security, Workers}
   alias RuleMaven.Games.{HouseRule, HouseRuleDelta, QuestionLog}
-  alias RuleMaven.{Games, Security, Workers}
 
   # Rules whose body embeds within this cosine similarity of a question's
   # embedding are surfaced as an overlay under that answer. Rule↔question
@@ -129,18 +128,22 @@ defmodule RuleMaven.HouseRules do
       new_body = to_string(attrs["body"] || attrs[:body] || hr.body)
 
       if new_body != hr.body do
-        with :ok <- injection_guard(new_body),
-             :ok <- Games.check_rate_limit(user),
-             {:ok, hr} <- __MODULE__.update(hr, attrs),
-             {:ok, hr} <- mark_pending(hr) do
-          enqueue_check(hr)
-          {:ok, hr}
-        end
+        update_body_and_recheck(user, hr, attrs, new_body)
       else
         __MODULE__.update(hr, attrs)
       end
     else
       {:error, :not_owner}
+    end
+  end
+
+  defp update_body_and_recheck(user, hr, attrs, new_body) do
+    with :ok <- injection_guard(new_body),
+         :ok <- Games.check_rate_limit(user),
+         {:ok, hr} <- __MODULE__.update(hr, attrs),
+         {:ok, hr} <- mark_pending(hr) do
+      enqueue_check(hr)
+      {:ok, hr}
     end
   end
 

@@ -1,6 +1,7 @@
 defmodule RuleMaven.GamesDocumentTest do
   use RuleMaven.DataCase
   alias RuleMaven.Games
+  alias RuleMaven.Games.Chunk
 
   setup do
     {:ok, game} = Games.create_game(%{name: "Doc Test"})
@@ -142,8 +143,8 @@ defmodule RuleMaven.GamesDocumentTest do
       {:ok, doc} = Games.create_document(%{game_id: game.id, label: "Rules"})
 
       {:ok, _} =
-        %RuleMaven.Games.Chunk{}
-        |> RuleMaven.Games.Chunk.changeset(%{
+        %Chunk{}
+        |> Chunk.changeset(%{
           document_id: doc.id,
           chunk_index: 0,
           content: "rule text",
@@ -158,8 +159,8 @@ defmodule RuleMaven.GamesDocumentTest do
       {:ok, doc} = Games.create_document(%{game_id: game.id, label: "Rules"})
 
       {:ok, _} =
-        %RuleMaven.Games.Chunk{}
-        |> RuleMaven.Games.Chunk.changeset(%{
+        %Chunk{}
+        |> Chunk.changeset(%{
           document_id: doc.id,
           chunk_index: 0,
           content: "rule text"

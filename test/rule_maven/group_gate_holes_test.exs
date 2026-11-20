@@ -12,7 +12,9 @@ defmodule RuleMaven.GroupGateHolesTest do
   use RuleMaven.DataCase, async: false
 
   alias RuleMaven.{Games, GamesFixtures, Groups, GroupsFixtures, Repo}
-  alias RuleMaven.Games.QuestionLog
+  alias RuleMaven.Games.{QuestionLog, Trust}
+  alias RuleMaven.Workers.{AskWorker, PublishCheckWorker, SuggestionsWorker}
+  alias RuleMavenWeb.GameLive.Show
 
   defp create_user(prefix) do
     n = System.unique_integer([:positive])
@@ -241,7 +243,7 @@ defmodule RuleMaven.GroupGateHolesTest do
       on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
       assert :ok =
-               RuleMaven.Workers.SuggestionsWorker.perform(%Oban.Job{
+               SuggestionsWorker.perform(%Oban.Job{
                  id: nil,
                  args: %{"game_id" => game.id}
                })
@@ -420,7 +422,7 @@ defmodule RuleMaven.GroupGateHolesTest do
 
       on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
-      RuleMaven.Workers.AskWorker.perform(%Oban.Job{
+      AskWorker.perform(%Oban.Job{
         id: nil,
         args: %{
           "game_id" => ctx.game.id,
@@ -526,7 +528,7 @@ defmodule RuleMaven.GroupGateHolesTest do
       on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
       assert :ok =
-               RuleMaven.Workers.PublishCheckWorker.perform(%Oban.Job{
+               PublishCheckWorker.perform(%Oban.Job{
                  id: nil,
                  args: %{"question_log_id" => q.id}
                })
@@ -544,7 +546,7 @@ defmodule RuleMaven.GroupGateHolesTest do
       on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
       assert :ok =
-               RuleMaven.Workers.PublishCheckWorker.perform(%Oban.Job{
+               PublishCheckWorker.perform(%Oban.Job{
                  id: nil,
                  args: %{"question_log_id" => q.id}
                })
@@ -565,7 +567,7 @@ defmodule RuleMaven.GroupGateHolesTest do
       on_exit(fn -> Application.delete_env(:rule_maven, :llm_mock) end)
 
       assert :ok =
-               RuleMaven.Workers.PublishCheckWorker.perform(%Oban.Job{
+               PublishCheckWorker.perform(%Oban.Job{
                  id: nil,
                  args: %{"question_log_id" => q.id}
                })
@@ -633,7 +635,7 @@ defmodule RuleMaven.GroupGateHolesTest do
                :count
              ) == 2
 
-      assert RuleMaven.Games.Trust.eligible_voter_count(q.id, ctx.member.id) == 0,
+      assert Trust.eligible_voter_count(q.id, ctx.member.id) == 0,
              "an invisible crew row reached the promotion quorum on votes nobody outside could see"
     end
   end
@@ -670,7 +672,7 @@ defmodule RuleMaven.GroupGateHolesTest do
       )
 
       assert :ok =
-               RuleMaven.Workers.PublishCheckWorker.perform(%Oban.Job{
+               PublishCheckWorker.perform(%Oban.Job{
                  id: 1,
                  args: %{"question_log_id" => q.id}
                })
@@ -895,7 +897,7 @@ defmodule RuleMaven.GroupGateHolesTest do
       ]
 
       # dest_group_id: nil = a solo ask, which is born browsable and gets pooled.
-      solo = RuleMavenWeb.GameLive.Show.recent_pairs_for_test(convo, nil)
+      solo = Show.recent_pairs_for_test(convo, nil)
 
       refute Enum.any?(solo, &(&1.q =~ "Dave")),
              "a screen-rejected crew question rode into a poolable solo ask's prompt"
@@ -926,7 +928,7 @@ defmodule RuleMaven.GroupGateHolesTest do
         %{id: rejected.id, role: :assistant, content: rejected.answer}
       ]
 
-      same_crew = RuleMavenWeb.GameLive.Show.recent_pairs_for_test(convo, ctx.grp.id)
+      same_crew = Show.recent_pairs_for_test(convo, ctx.grp.id)
 
       assert [%{q: "Can Dave's rogue steal from Sarah's satchel?"}] = same_crew
     end

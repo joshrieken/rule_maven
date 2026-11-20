@@ -4,6 +4,9 @@ defmodule RuleMaven.Embed do
   embeddings endpoint). Configured via DB settings.
   """
 
+  alias RuleMaven.Embed.Cache
+  alias RuleMaven.LLM.Log
+
   @default_model "openai/text-embedding-3-small"
 
   # Stored vectors and the pgvector columns are fixed at this dimension. Switching
@@ -40,7 +43,7 @@ defmodule RuleMaven.Embed do
     # stable per model — the cache key has to carry it.
     model = model()
 
-    case RuleMaven.Embed.Cache.get(model, text) do
+    case Cache.get(model, text) do
       {:ok, vec} ->
         {:ok, vec}
 
@@ -48,7 +51,7 @@ defmodule RuleMaven.Embed do
         text
         |> embed_real()
         |> tap(fn
-          {:ok, vec} -> RuleMaven.Embed.Cache.put(model, text, vec)
+          {:ok, vec} -> Cache.put(model, text, vec)
           {:error, _} -> :ok
         end)
     end
@@ -81,7 +84,7 @@ defmodule RuleMaven.Embed do
     looked_up =
       texts
       |> Enum.with_index()
-      |> Enum.map(fn {text, i} -> {text, i, RuleMaven.Embed.Cache.get(model, text)} end)
+      |> Enum.map(fn {text, i} -> {text, i, Cache.get(model, text)} end)
 
     {hits, misses} = Enum.split_with(looked_up, fn {_, _, res} -> match?({:ok, _}, res) end)
 
@@ -93,7 +96,7 @@ defmodule RuleMaven.Embed do
           misses
           |> Enum.zip(fresh_vectors)
           |> Enum.map(fn {{text, i, :miss}, vec} ->
-            RuleMaven.Embed.Cache.put(model, text, vec)
+            Cache.put(model, text, vec)
             {i, vec}
           end)
 
@@ -180,8 +183,8 @@ defmodule RuleMaven.Embed do
           {:error, reason} -> {false, to_string(reason)}
         end
 
-      %RuleMaven.LLM.Log{}
-      |> RuleMaven.LLM.Log.changeset(%{
+      %Log{}
+      |> Log.changeset(%{
         provider: provider(),
         model: model,
         operation: "embed",

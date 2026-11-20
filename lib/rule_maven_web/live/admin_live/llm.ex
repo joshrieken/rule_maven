@@ -32,6 +32,58 @@ defmodule RuleMavenWeb.AdminLive.Llm do
     {"deepseek/deepseek-r1", "DeepSeek R1 — $0.70/$2.50, reasoning (text only)", false}
   ]
 
+  # Every setting the page edits: {assign key, settings key, value when unset}.
+  @settings_fields [
+    {:llm_provider, "llm_provider", "openrouter"},
+    {:llm_key_openrouter, "llm_api_key_openrouter", ""},
+    {:llm_key_groq, "llm_api_key_groq", ""},
+    {:llm_key_gemini, "llm_api_key_gemini", ""},
+    {:llm_model_openrouter, "llm_model_openrouter", "google/gemini-2.5-flash"},
+    {:llm_model_groq, "llm_model_groq", "llama-3.3-70b-versatile"},
+    {:llm_model_gemini, "llm_model_gemini", "gemini-2.5-flash"},
+    {:llm_model_ollama, "llm_model_ollama", "mistral"},
+    # Optional per-provider override for rulebook cleanup. Blank = use the
+    # answering model above.
+    {:llm_cleanup_model_openrouter, "llm_cleanup_model_openrouter", ""},
+    {:llm_cleanup_model_groq, "llm_cleanup_model_groq", ""},
+    {:llm_cleanup_model_gemini, "llm_cleanup_model_gemini", ""},
+    {:llm_cleanup_model_ollama, "llm_cleanup_model_ollama", ""},
+    # Optional per-provider override for vision OCR (re-reading graphic pages).
+    # Blank = use the answering model above; it MUST be multimodal.
+    {:llm_vision_model_openrouter, "llm_vision_model_openrouter", ""},
+    {:llm_vision_model_groq, "llm_vision_model_groq", ""},
+    {:llm_vision_model_gemini, "llm_vision_model_gemini", ""},
+    {:llm_vision_model_ollama, "llm_vision_model_ollama", ""},
+    # Stronger/higher-res model used only to re-read pages the default vision
+    # model failed on. Blank = reuse the vision model above; MUST be multimodal.
+    {:llm_vision_escalate_model_openrouter, "llm_vision_escalate_model_openrouter", ""},
+    {:llm_vision_escalate_model_groq, "llm_vision_escalate_model_groq", ""},
+    {:llm_vision_escalate_model_gemini, "llm_vision_escalate_model_gemini", ""},
+    {:llm_vision_escalate_model_ollama, "llm_vision_escalate_model_ollama", ""},
+    # Stronger text model used only to recheck a refusal on a question the
+    # cheap classifier judged answerable by combining stated rules (the
+    # multi-hop miss). Blank = reuse the answering model above.
+    {:llm_escalate_model_openrouter, "llm_escalate_model_openrouter", ""},
+    {:llm_escalate_model_groq, "llm_escalate_model_groq", ""},
+    {:llm_escalate_model_gemini, "llm_escalate_model_gemini", ""},
+    {:llm_escalate_model_ollama, "llm_escalate_model_ollama", ""},
+    # Cheap text model for classify/normalize side jobs. Blank = the cleanup
+    # model, then the answering model.
+    {:llm_cheap_model_openrouter, "llm_cheap_model_openrouter", ""},
+    {:llm_cheap_model_groq, "llm_cheap_model_groq", ""},
+    {:llm_cheap_model_gemini, "llm_cheap_model_gemini", ""},
+    {:llm_cheap_model_ollama, "llm_cheap_model_ollama", ""},
+    # Grounding-critic model, separate from :cheap because the two cheap jobs
+    # fail in opposite directions. Blank = the cheap model chain.
+    {:llm_critic_model_openrouter, "llm_critic_model_openrouter", ""},
+    {:llm_critic_model_groq, "llm_critic_model_groq", ""},
+    {:llm_critic_model_gemini, "llm_critic_model_gemini", ""},
+    {:llm_critic_model_ollama, "llm_critic_model_ollama", ""},
+    # Rulebook extraction mode: "vision" (transcribe every page image — highest
+    # accuracy) or "ocr" (pdftotext + OCR, vision only on junk pages).
+    {:rulebook_extract_mode, "rulebook_extract_mode", "vision"}
+  ]
+
   # <option> list for an OpenRouter model <select>. Marks the current value
   # selected; pass `vision_only` to limit it to multimodal models.
   attr :selected, :string, default: ""
@@ -58,62 +110,18 @@ defmodule RuleMavenWeb.AdminLive.Llm do
   def mount(_params, _session, socket) do
     if Users.can?(socket.assigns.current_user, :superadmin) do
       {:ok,
-       assign(socket,
-         page_title: "LLM Provider",
-         saved: false,
-         llm_provider: Settings.get("llm_provider") || "openrouter",
-         llm_key_openrouter: Settings.get("llm_api_key_openrouter") || "",
-         llm_key_groq: Settings.get("llm_api_key_groq") || "",
-         llm_key_gemini: Settings.get("llm_api_key_gemini") || "",
-         llm_model_openrouter: Settings.get("llm_model_openrouter") || "google/gemini-2.5-flash",
-         llm_model_groq: Settings.get("llm_model_groq") || "llama-3.3-70b-versatile",
-         llm_model_gemini: Settings.get("llm_model_gemini") || "gemini-2.5-flash",
-         llm_model_ollama: Settings.get("llm_model_ollama") || "mistral",
-         # Optional per-provider override for rulebook cleanup. Blank = use the
-         # answering model above.
-         llm_cleanup_model_openrouter: Settings.get("llm_cleanup_model_openrouter") || "",
-         llm_cleanup_model_groq: Settings.get("llm_cleanup_model_groq") || "",
-         llm_cleanup_model_gemini: Settings.get("llm_cleanup_model_gemini") || "",
-         llm_cleanup_model_ollama: Settings.get("llm_cleanup_model_ollama") || "",
-         # Optional per-provider override for vision OCR (re-reading graphic pages).
-         # Blank = use the answering model above; it MUST be multimodal.
-         llm_vision_model_openrouter: Settings.get("llm_vision_model_openrouter") || "",
-         llm_vision_model_groq: Settings.get("llm_vision_model_groq") || "",
-         llm_vision_model_gemini: Settings.get("llm_vision_model_gemini") || "",
-         llm_vision_model_ollama: Settings.get("llm_vision_model_ollama") || "",
-         # Stronger/higher-res model used only to re-read pages the default vision
-         # model failed on. Blank = reuse the vision model above; MUST be multimodal.
-         llm_vision_escalate_model_openrouter:
-           Settings.get("llm_vision_escalate_model_openrouter") || "",
-         llm_vision_escalate_model_groq: Settings.get("llm_vision_escalate_model_groq") || "",
-         llm_vision_escalate_model_gemini: Settings.get("llm_vision_escalate_model_gemini") || "",
-         llm_vision_escalate_model_ollama: Settings.get("llm_vision_escalate_model_ollama") || "",
-         # Stronger text model used only to recheck a refusal on a question the
-         # cheap classifier judged answerable by combining stated rules (the
-         # multi-hop miss). Blank = reuse the answering model above.
-         llm_escalate_model_openrouter: Settings.get("llm_escalate_model_openrouter") || "",
-         llm_escalate_model_groq: Settings.get("llm_escalate_model_groq") || "",
-         llm_escalate_model_gemini: Settings.get("llm_escalate_model_gemini") || "",
-         llm_escalate_model_ollama: Settings.get("llm_escalate_model_ollama") || "",
-         # Cheap text model for classify/normalize side jobs. Blank = the cleanup
-         # model, then the answering model.
-         llm_cheap_model_openrouter: Settings.get("llm_cheap_model_openrouter") || "",
-         llm_cheap_model_groq: Settings.get("llm_cheap_model_groq") || "",
-         llm_cheap_model_gemini: Settings.get("llm_cheap_model_gemini") || "",
-         llm_cheap_model_ollama: Settings.get("llm_cheap_model_ollama") || "",
-         # Grounding-critic model, separate from :cheap because the two cheap jobs
-         # fail in opposite directions. Blank = the cheap model chain.
-         llm_critic_model_openrouter: Settings.get("llm_critic_model_openrouter") || "",
-         llm_critic_model_groq: Settings.get("llm_critic_model_groq") || "",
-         llm_critic_model_gemini: Settings.get("llm_critic_model_gemini") || "",
-         llm_critic_model_ollama: Settings.get("llm_critic_model_ollama") || "",
-         # Rulebook extraction mode: "vision" (transcribe every page image — highest
-         # accuracy) or "ocr" (pdftotext + OCR, vision only on junk pages).
-         rulebook_extract_mode: Settings.get("rulebook_extract_mode") || "vision"
-       )}
+       socket
+       |> assign(page_title: "LLM Provider", saved: false)
+       |> assign(settings_assigns())}
     else
       {:ok, push_navigate(socket, to: ~p"/")}
     end
+  end
+
+  defp settings_assigns do
+    Enum.map(@settings_fields, fn {assign_key, setting_key, default} ->
+      {assign_key, Settings.get(setting_key) || default}
+    end)
   end
 
   @impl true
