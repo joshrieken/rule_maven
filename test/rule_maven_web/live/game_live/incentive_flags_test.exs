@@ -11,6 +11,7 @@ defmodule RuleMavenWeb.GameLive.IncentiveFlagsTest do
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
 
+  alias RuleMaven.Games.Document
   alias RuleMaven.Repo
 
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
@@ -40,8 +41,8 @@ defmodule RuleMavenWeb.GameLive.IncentiveFlagsTest do
 
   defp published_doc(game, page_count) do
     {:ok, doc} =
-      %RuleMaven.Games.Document{game_id: game.id}
-      |> RuleMaven.Games.Document.changeset(%{
+      %Document{game_id: game.id}
+      |> Document.changeset(%{
         label: "Rulebook",
         status: "published",
         page_count: page_count

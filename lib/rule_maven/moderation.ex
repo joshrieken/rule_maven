@@ -10,10 +10,10 @@ defmodule RuleMaven.Moderation do
   """
 
   import Ecto.Query, warn: false
-  alias RuleMaven.Repo
-  alias RuleMaven.Users
   alias RuleMaven.Games.{QuestionLog, QuestionVote}
   alias RuleMaven.Games.Trust
+  alias RuleMaven.Repo
+  alias RuleMaven.Users
 
   @doc """
   Per-user moderation signals, highest risk first. Each row merges the user's

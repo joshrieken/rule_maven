@@ -128,37 +128,47 @@ defmodule RuleMavenWeb.AuditModal do
       game_id: m["game_id"],
       user_id: m["user_id"],
       group_id: m["group_id"],
-      browsable: m["browsable"] || false,
-      promoted: m["promoted"] || false,
-      question_normalized: m["question_normalized"] || false,
+      browsable: flag(m, "browsable"),
+      promoted: flag(m, "promoted"),
+      question_normalized: flag(m, "question_normalized"),
       verdict: m["verdict"],
       llm_model: m["llm_model"],
       llm_provider: m["llm_provider"],
-      refused: m["refused"] || false,
-      blocked: m["blocked"] || false,
-      needs_review: m["needs_review"] || false,
-      stale: m["stale"] || false,
+      refused: flag(m, "refused"),
+      blocked: flag(m, "blocked"),
+      needs_review: flag(m, "needs_review"),
+      stale: flag(m, "stale"),
       error_kind: m["error_kind"],
-      verified: m["verified"] || false,
-      favorited: m["favorited"] || false,
-      pooled: m["pooled"] || false,
+      verified: flag(m, "verified"),
+      favorited: flag(m, "favorited"),
+      pooled: flag(m, "pooled"),
       pool_source_id: m["pool_source_id"],
-      source_chunk_ids: m["source_chunk_ids"] || [],
-      citations: m["citations"] || [],
+      source_chunk_ids: list(m, "source_chunk_ids"),
+      citations: list(m, "citations"),
       cited_source: m["cited_source"],
       cited_page: m["cited_page"],
-      trust_score: (m["trust_score"] || 0.0) / 1.0,
-      mismatch_count: m["mismatch_count"] || 0,
+      trust_score: number(m, "trust_score", 0.0) / 1.0,
+      mismatch_count: number(m, "mismatch_count", 0),
       retracted_at: parse_dt(m["retracted_at"])
     })
   end
+
+  defp flag(m, key), do: m[key] || false
+  defp list(m, key), do: m[key] || []
+  defp number(m, key, default), do: m[key] || default
 
   defp parse_dt(nil), do: nil
 
   defp parse_dt(s) when is_binary(s) do
     case NaiveDateTime.from_iso8601(s) do
-      {:ok, dt} -> dt
-      _ -> with {:ok, dt, _} <- DateTime.from_iso8601(s), do: dt, else: (_ -> nil)
+      {:ok, dt} ->
+        dt
+
+      _ ->
+        case DateTime.from_iso8601(s) do
+          {:ok, dt, _} -> dt
+          _ -> nil
+        end
     end
   end
 

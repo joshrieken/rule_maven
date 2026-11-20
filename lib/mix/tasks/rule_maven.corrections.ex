@@ -16,8 +16,8 @@ defmodule Mix.Tasks.RuleMaven.Corrections do
   use Mix.Task
 
   alias Mix.Tasks.RuleMaven.ResetPrepared
-  alias RuleMaven.Repo
   alias RuleMaven.ManualImport.Corrections
+  alias RuleMaven.Repo
   alias RuleMaven.Users.User
 
   @impl Mix.Task

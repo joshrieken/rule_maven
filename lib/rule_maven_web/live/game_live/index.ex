@@ -3,6 +3,8 @@ defmodule RuleMavenWeb.GameLive.Index do
 
   alias RuleMaven.Games
   alias RuleMaven.Settings
+  alias RuleMaven.Workers.BggEnrichWorker
+  alias RuleMaven.Workers.ExpansionSyncWorker
 
   @impl true
   def mount(_params, _session, socket) do
@@ -56,14 +58,7 @@ defmodule RuleMavenWeb.GameLive.Index do
   # progress and re-subscribes for live updates instead of going dark.
   defp resume_exp_syncs(socket) do
     if connected?(socket) do
-      active =
-        Settings.with_prefix("exp_sync:")
-        |> Enum.flat_map(fn {k, v} ->
-          case Regex.run(~r/^exp_sync:(\d+)$/, k) do
-            [_, id] -> [{String.to_integer(id), parse_progress(v)}]
-            _ -> []
-          end
-        end)
+      active = Enum.flat_map(Settings.with_prefix("exp_sync:"), &active_exp_sync/1)
 
       Enum.each(active, fn {id, _} ->
         Phoenix.PubSub.subscribe(RuleMaven.PubSub, exp_sync_topic(id))
@@ -81,14 +76,21 @@ defmodule RuleMavenWeb.GameLive.Index do
     end
   end
 
+  defp active_exp_sync({k, v}) do
+    case Regex.run(~r/^exp_sync:(\d+)$/, k) do
+      [_, id] -> [{String.to_integer(id), parse_progress(v)}]
+      _ -> []
+    end
+  end
+
   # Re-seed the "Pulling…" indicator from in-flight Oban jobs after a remount, so
   # the spinner survives navigation instead of going dark mid-pull.
   defp resume_bgg_pulls(socket) do
     if connected?(socket) do
-      pulling = RuleMaven.Workers.BggEnrichWorker.running_game_ids()
+      pulling = BggEnrichWorker.running_game_ids()
 
       Enum.each(pulling, fn id ->
-        Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.Workers.BggEnrichWorker.topic(id))
+        Phoenix.PubSub.subscribe(RuleMaven.PubSub, BggEnrichWorker.topic(id))
       end)
 
       assign(socket, bgg_pulling: pulling)
@@ -366,28 +368,10 @@ defmodule RuleMavenWeb.GameLive.Index do
         {:noreply, assign(socket, selected_id: nil)}
 
       "Enter" ->
-        case selected_game(socket, visible) do
-          nil ->
-            {:noreply, socket}
-
-          game ->
-            source_count = Map.get(socket.assigns.source_counts, game.id, 0)
-
-            dest =
-              if source_count == 0 and RuleMaven.Users.can?(socket.assigns.current_user, :admin),
-                do: ~p"/games/#{game}/edit",
-                else: ~p"/games/#{game}"
-
-            {:noreply, push_navigate(socket, to: dest)}
-        end
+        open_selected(socket, selected_game(socket, visible))
 
       "e" ->
-        with true <- RuleMaven.Users.can?(socket.assigns.current_user, :admin),
-             %{} = game <- selected_game(socket, visible) do
-          {:noreply, push_navigate(socket, to: ~p"/games/#{game}/edit")}
-        else
-          _ -> {:noreply, socket}
-        end
+        edit_selected(socket, visible)
 
       _ ->
         {:noreply, socket}
@@ -517,11 +501,11 @@ defmodule RuleMavenWeb.GameLive.Index do
       # Durable + non-blocking: enqueue the (throttled, retry-prone) BGG pull and
       # refresh when {:bgg_enriched, ...} arrives, instead of blocking the LV.
       if connected?(socket) do
-        Phoenix.PubSub.subscribe(RuleMaven.PubSub, RuleMaven.Workers.BggEnrichWorker.topic(id))
+        Phoenix.PubSub.subscribe(RuleMaven.PubSub, BggEnrichWorker.topic(id))
       end
 
       %{game_id: id}
-      |> RuleMaven.Workers.BggEnrichWorker.new()
+      |> BggEnrichWorker.new()
       |> Oban.insert()
 
       {:noreply,
@@ -601,6 +585,28 @@ defmodule RuleMavenWeb.GameLive.Index do
   defp selected_game(socket, visible),
     do: Enum.find(visible, &(&1.id == socket.assigns.selected_id))
 
+  defp open_selected(socket, nil), do: {:noreply, socket}
+
+  defp open_selected(socket, game) do
+    source_count = Map.get(socket.assigns.source_counts, game.id, 0)
+
+    dest =
+      if source_count == 0 and RuleMaven.Users.can?(socket.assigns.current_user, :admin),
+        do: ~p"/games/#{game}/edit",
+        else: ~p"/games/#{game}"
+
+    {:noreply, push_navigate(socket, to: dest)}
+  end
+
+  defp edit_selected(socket, visible) do
+    with true <- RuleMaven.Users.can?(socket.assigns.current_user, :admin),
+         %{} = game <- selected_game(socket, visible) do
+      {:noreply, push_navigate(socket, to: ~p"/games/#{game}/edit")}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
   defp move_selection(socket, [], _step), do: {:noreply, socket}
 
   defp move_selection(socket, visible, step) do
@@ -673,7 +679,7 @@ defmodule RuleMavenWeb.GameLive.Index do
     # resume_exp_syncs/1). The durable Oban worker survives server restarts and
     # drives the same progress broadcasts.
     Settings.put(key, "0/#{total}")
-    RuleMaven.Workers.ExpansionSyncWorker.enqueue(id)
+    ExpansionSyncWorker.enqueue(id)
 
     {:noreply,
      socket

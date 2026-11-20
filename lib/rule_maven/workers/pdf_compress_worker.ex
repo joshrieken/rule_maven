@@ -10,8 +10,8 @@ defmodule RuleMaven.Workers.PdfCompressWorker do
     max_attempts: 2,
     unique: [period: 3600, keys: [:document_id]]
 
-  alias RuleMaven.{Jobs, PdfCompress, Repo}
   alias RuleMaven.Games.Document
+  alias RuleMaven.{Jobs, PdfCompress, Repo}
 
   @impl Oban.Worker
   def perform(%Oban.Job{id: oban_id, args: %{"document_id" => id}}) do

@@ -34,7 +34,7 @@ defmodule RuleMaven.LLMStreamDeadlineTest do
 
   # A visible-answer content delta.
   defp feed(text),
-    do: feed_raw("data: {\"choices\":[{\"delta\":{\"content\":#{Jason.encode!(text)}}}]}\n\n")
+    do: feed_raw(~s|data: {"choices":[{"delta":{"content":#{Jason.encode!(text)}}}]}\n\n|)
 
   test "keeps consuming (:cont) while the deadline is in the future" do
     assert {:cont, {:req, %{status: 200}}} = feed("Roll the d20.")

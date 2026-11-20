@@ -37,28 +37,28 @@ defmodule RuleMaven.Games.QuestionLogTest do
 
   describe "crew_origin?/1" do
     test "a solo (non-group) row awaiting the publish screen is not crew-origin" do
-      pending_solo = %RuleMaven.Games.QuestionLog{
+      pending_solo = %QuestionLog{
         group_id: nil,
         retracted_at: nil,
         browsable: false
       }
 
-      refute RuleMaven.Games.QuestionLog.crew_origin?(pending_solo)
+      refute QuestionLog.crew_origin?(pending_solo)
     end
 
     test "a group row is still crew-origin while unbrowsable" do
-      group_row = %RuleMaven.Games.QuestionLog{group_id: 1, retracted_at: nil, browsable: false}
-      assert RuleMaven.Games.QuestionLog.crew_origin?(group_row)
+      group_row = %QuestionLog{group_id: 1, retracted_at: nil, browsable: false}
+      assert QuestionLog.crew_origin?(group_row)
     end
 
     test "a deleted group's orphaned row is still crew-origin via retracted_at" do
-      orphaned = %RuleMaven.Games.QuestionLog{
+      orphaned = %QuestionLog{
         group_id: nil,
         retracted_at: DateTime.utc_now(),
         browsable: false
       }
 
-      assert RuleMaven.Games.QuestionLog.crew_origin?(orphaned)
+      assert QuestionLog.crew_origin?(orphaned)
     end
   end
 

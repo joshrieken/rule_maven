@@ -1,6 +1,7 @@
 defmodule RuleMaven.SettingsTest do
   use RuleMaven.DataCase, async: true
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias RuleMaven.Settings
 
   test "put inserts a new key" do
@@ -35,7 +36,7 @@ defmodule RuleMaven.SettingsTest do
     tasks =
       for i <- 1..10 do
         Task.async(fn ->
-          Ecto.Adapters.SQL.Sandbox.allow(RuleMaven.Repo, parent, self())
+          Sandbox.allow(RuleMaven.Repo, parent, self())
           Settings.put(key, "v#{i}")
         end)
       end

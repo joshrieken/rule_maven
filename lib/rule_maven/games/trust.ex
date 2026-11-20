@@ -16,8 +16,8 @@ defmodule RuleMaven.Games.Trust do
 
   import Ecto.Query, warn: false
 
-  alias RuleMaven.Repo
   alias RuleMaven.Games.{QuestionLog, QuestionVote}
+  alias RuleMaven.Repo
   alias RuleMaven.Users.User
 
   # Tunable defaults (overridable via RuleMaven.Settings, mirroring

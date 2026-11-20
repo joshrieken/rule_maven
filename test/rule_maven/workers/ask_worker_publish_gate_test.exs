@@ -11,8 +11,8 @@ defmodule RuleMaven.Workers.AskWorkerPublishGateTest do
   use Oban.Testing, repo: RuleMaven.Repo
 
   alias RuleMaven.{Games, Repo}
-  alias RuleMaven.GroupsFixtures
   alias RuleMaven.Games.Chunk
+  alias RuleMaven.GroupsFixtures
   alias RuleMaven.Workers.{AskWorker, PublishCheckWorker}
 
   # `PublishCheckWorker.enqueue/1` (and `TagQuestionWorker.enqueue/2`) no-op

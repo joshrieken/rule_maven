@@ -1304,14 +1304,14 @@ defmodule RuleMaven.Prompts do
   # answer (e.g. a JSON object missing the "answer" key). Restates the schema
   # and, by altering the messages array, forces a fresh completion past the
   # message-keyed proxy response cache. See RuleMaven.LLM.request_answer/7.
-  @blank_answer_retry "(Your previous reply was not the required JSON object — it had no \"answer\" field. Respond again with ONLY the required JSON object, including the \"answer\" field.)"
+  @blank_answer_retry ~s|(Your previous reply was not the required JSON object — it had no "answer" field. Respond again with ONLY the required JSON object, including the "answer" field.)|
 
   # Appended as a user message when the "answer" field came back as
   # something other than plain English prose (wrong language, encoded text).
   # Same cache-busting effect as the other retry nudges. User role, not
   # system: deepseek ignored a trailing system nudge and repeated the Chinese
   # answer (2026-07-07).
-  @suspicious_answer_retry "(Your previous reply's \"answer\" field was not plain English prose. Respond again with the required JSON object, writing the \"answer\", \"followups\", and \"also_asked\" fields in plain English.)"
+  @suspicious_answer_retry ~s|(Your previous reply's "answer" field was not plain English prose. Respond again with the required JSON object, writing the "answer", "followups", and "also_asked" fields in plain English.)|
 
   @specs [
     %{

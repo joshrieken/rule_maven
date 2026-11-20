@@ -6,14 +6,15 @@ defmodule RuleMaven.CoverageTest do
 
   alias RuleMaven.Coverage
   alias RuleMaven.Coverage.PageCoverage
+  alias RuleMaven.Games.Document
   alias RuleMaven.Repo
 
   test "page coverage row inserts and enforces (document_id, page) uniqueness" do
     game = game_fixture()
 
     {:ok, doc} =
-      %RuleMaven.Games.Document{}
-      |> RuleMaven.Games.Document.changeset(%{
+      %Document{}
+      |> Document.changeset(%{
         label: "Rulebook",
         game_id: game.id,
         page_count: 10,
@@ -37,8 +38,8 @@ defmodule RuleMaven.CoverageTest do
       game = game_fixture()
 
       {:ok, doc} =
-        %RuleMaven.Games.Document{}
-        |> RuleMaven.Games.Document.changeset(%{
+        %Document{}
+        |> Document.changeset(%{
           label: "Base Rulebook",
           game_id: game.id,
           page_count: 12,
@@ -66,8 +67,8 @@ defmodule RuleMaven.CoverageTest do
       game = game_fixture()
 
       {:ok, doc} =
-        %RuleMaven.Games.Document{}
-        |> RuleMaven.Games.Document.changeset(%{
+        %Document{}
+        |> Document.changeset(%{
           label: "Rulebook",
           game_id: game.id,
           page_count: 8,
@@ -146,8 +147,8 @@ defmodule RuleMaven.CoverageTest do
       game = game_fixture()
 
       {:ok, doc} =
-        %RuleMaven.Games.Document{}
-        |> RuleMaven.Games.Document.changeset(%{
+        %Document{}
+        |> Document.changeset(%{
           label: "Rulebook",
           game_id: game.id,
           page_count: 4,
@@ -162,8 +163,8 @@ defmodule RuleMaven.CoverageTest do
       assert_in_delta pct, 0.5, 0.001
 
       {:ok, nild} =
-        %RuleMaven.Games.Document{}
-        |> RuleMaven.Games.Document.changeset(%{
+        %Document{}
+        |> Document.changeset(%{
           label: "Appendix",
           game_id: game.id,
           page_count: nil,
@@ -180,8 +181,8 @@ defmodule RuleMaven.CoverageTest do
       :ok = RuleMaven.Games.link_expansion(expansion.id, game.id)
 
       {:ok, pub} =
-        %RuleMaven.Games.Document{}
-        |> RuleMaven.Games.Document.changeset(%{
+        %Document{}
+        |> Document.changeset(%{
           label: "Rulebook",
           game_id: game.id,
           page_count: 4,
@@ -192,8 +193,8 @@ defmodule RuleMaven.CoverageTest do
       Repo.insert!(%PageCoverage{document_id: pub.id, page: 1})
 
       {:ok, pending} =
-        %RuleMaven.Games.Document{}
-        |> RuleMaven.Games.Document.changeset(%{
+        %Document{}
+        |> Document.changeset(%{
           label: "Draft",
           game_id: game.id,
           page_count: 10,
@@ -204,8 +205,8 @@ defmodule RuleMaven.CoverageTest do
       Repo.insert!(%PageCoverage{document_id: pending.id, page: 1})
 
       {:ok, exp_doc} =
-        %RuleMaven.Games.Document{}
-        |> RuleMaven.Games.Document.changeset(%{
+        %Document{}
+        |> Document.changeset(%{
           label: "Expansion Rulebook",
           game_id: expansion.id,
           page_count: 6,
@@ -231,8 +232,8 @@ defmodule RuleMaven.CoverageTest do
       game = game_fixture()
 
       {:ok, doc} =
-        %RuleMaven.Games.Document{}
-        |> RuleMaven.Games.Document.changeset(%{
+        %Document{}
+        |> Document.changeset(%{
           label: "Rulebook",
           game_id: game.id,
           page_count: 3,
@@ -245,8 +246,8 @@ defmodule RuleMaven.CoverageTest do
       assert Coverage.gaps(doc.id) == [1, 3]
 
       {:ok, nild} =
-        %RuleMaven.Games.Document{}
-        |> RuleMaven.Games.Document.changeset(%{
+        %Document{}
+        |> Document.changeset(%{
           label: "Appendix",
           game_id: game.id,
           page_count: nil,
@@ -261,8 +262,8 @@ defmodule RuleMaven.CoverageTest do
       game = game_fixture()
 
       {:ok, pub} =
-        %RuleMaven.Games.Document{}
-        |> RuleMaven.Games.Document.changeset(%{
+        %Document{}
+        |> Document.changeset(%{
           label: "Rulebook",
           game_id: game.id,
           page_count: 4,
@@ -274,8 +275,8 @@ defmodule RuleMaven.CoverageTest do
       Repo.insert!(%PageCoverage{document_id: pub.id, page: 2})
 
       {:ok, nild} =
-        %RuleMaven.Games.Document{}
-        |> RuleMaven.Games.Document.changeset(%{
+        %Document{}
+        |> Document.changeset(%{
           label: "Appendix",
           game_id: game.id,
           page_count: nil,

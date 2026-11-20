@@ -18,7 +18,7 @@ defmodule RuleMaven.LLMGroupGateTest do
   """
   use RuleMaven.DataCase
 
-  alias RuleMaven.{LLM, Games, Groups, Repo}
+  alias RuleMaven.{Games, Groups, LLM, Repo}
   alias RuleMaven.GroupsFixtures
 
   @emb Enum.to_list(1..768)

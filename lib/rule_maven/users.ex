@@ -4,8 +4,9 @@ defmodule RuleMaven.Users do
   """
 
   import Ecto.Query, warn: false
+  alias RuleMaven.Games.Trust
   alias RuleMaven.Repo
-  alias RuleMaven.Users.{AuthCache, User, UserToken, UserNotifier}
+  alias RuleMaven.Users.{AuthCache, User, UserNotifier, UserToken}
 
   @doc "Human-readable password rule, for forms and error messages (see User.password_requirements/0)."
   def password_requirements, do: User.password_requirements()
@@ -167,13 +168,13 @@ defmodule RuleMaven.Users do
     with {:ok, deleted} <- unless_super_admin(user, &do_delete_user/1) do
       AuthCache.invalidate(deleted.id)
       rows = Repo.all(from q in RuleMaven.Games.QuestionLog, where: q.id in ^voted_on)
-      Enum.each(rows, &RuleMaven.Games.Trust.recompute_trust/1)
+      Enum.each(rows, &Trust.recompute_trust/1)
 
       rows
       |> Enum.map(& &1.user_id)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
-      |> Enum.each(&RuleMaven.Games.Trust.recompute_reputation/1)
+      |> Enum.each(&Trust.recompute_reputation/1)
 
       {:ok, deleted}
     end
@@ -470,9 +471,7 @@ defmodule RuleMaven.Users do
   Returns {:ok, user} or {:error, reason}.
   """
   def change_password(%User{} = user, current_password, new_password) do
-    unless password_matches?(user, current_password) do
-      {:error, "Current password is incorrect."}
-    else
+    if password_matches?(user, current_password) do
       case User.password_changeset(user, %{password: new_password}) do
         %Ecto.Changeset{valid?: true} = changeset ->
           password_hash = Ecto.Changeset.get_change(changeset, :password_hash)
@@ -490,6 +489,8 @@ defmodule RuleMaven.Users do
 
           {:error, message}
       end
+    else
+      {:error, "Current password is incorrect."}
     end
   end
 

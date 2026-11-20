@@ -35,6 +35,7 @@ defmodule Mix.Tasks.RuleMaven.Eval do
   import Ecto.Query
 
   alias RuleMaven.{Games, LLM, Repo}
+  alias RuleMaven.LLM.Pricing
 
   @requirements ["app.start"]
 
@@ -238,31 +239,15 @@ defmodule Mix.Tasks.RuleMaven.Eval do
           }
       )
 
-    cost =
-      Enum.reduce(rows, 0.0, fn r, acc ->
-        cached = get_in(r.detail || %{}, ["cached_tokens"]) || 0
-        gross = to_float(RuleMaven.LLM.Pricing.cost(r.model, r.pt || 0, r.ct || 0))
-        saved = to_float(RuleMaven.LLM.Pricing.cached_savings(r.model, cached))
-        acc + gross - saved
-      end)
+    cost = Enum.reduce(rows, 0.0, &add_row_cost/2)
 
     prompt_total = Enum.sum(Enum.map(rows, &(&1.pt || 0)))
-    cached_total = Enum.sum(Enum.map(rows, &(get_in(&1.detail || %{}, ["cached_tokens"]) || 0)))
+    cached_total = Enum.sum(Enum.map(rows, &cached_tokens/1))
 
     by_op =
       rows
       |> Enum.group_by(& &1.op)
-      |> Enum.map(fn {op, rs} ->
-        c =
-          Enum.reduce(rs, 0.0, fn r, acc ->
-            cached = get_in(r.detail || %{}, ["cached_tokens"]) || 0
-
-            acc + to_float(RuleMaven.LLM.Pricing.cost(r.model, r.pt || 0, r.ct || 0)) -
-              to_float(RuleMaven.LLM.Pricing.cached_savings(r.model, cached))
-          end)
-
-        {op, length(rs), c}
-      end)
+      |> Enum.map(fn {op, rs} -> {op, length(rs), Enum.reduce(rs, 0.0, &add_row_cost/2)} end)
       |> Enum.sort_by(fn {_op, _n, c} -> -c end)
 
     escalate_model = LLM.model(:escalate)
@@ -276,6 +261,15 @@ defmodule Mix.Tasks.RuleMaven.Eval do
       escalates: escalates
     }
   end
+
+  # One llm_logs row's net cost (list price minus the cached-input discount) added to acc.
+  defp add_row_cost(r, acc) do
+    gross = to_float(Pricing.cost(r.model, r.pt || 0, r.ct || 0))
+    saved = to_float(Pricing.cached_savings(r.model, cached_tokens(r)))
+    acc + gross - saved
+  end
+
+  defp cached_tokens(r), do: get_in(r.detail || %{}, ["cached_tokens"]) || 0
 
   defp to_float(n) when is_number(n), do: n * 1.0
 end

@@ -113,12 +113,10 @@ defmodule RuleMavenWeb.AdminLive.Users do
         {:noreply, put_flash(socket, :error, "User not found.")}
 
       user ->
-        cond do
-          user.id == socket.assigns.current_user.id ->
-            {:noreply, put_flash(socket, :error, "You can't demote yourself.")}
-
-          true ->
-            demote(user, socket)
+        if user.id == socket.assigns.current_user.id do
+          {:noreply, put_flash(socket, :error, "You can't demote yourself.")}
+        else
+          demote(user, socket)
         end
     end
   end
@@ -146,9 +144,7 @@ defmodule RuleMavenWeb.AdminLive.Users do
 
       {:error, changeset, _password} ->
         msg =
-          changeset.errors
-          |> Enum.map(fn {field, {msg, _}} -> "#{field}: #{msg}" end)
-          |> Enum.join(", ")
+          Enum.map_join(changeset.errors, ", ", fn {field, {msg, _}} -> "#{field}: #{msg}" end)
 
         {:noreply, put_flash(socket, :error, "Failed: #{msg}")}
     end

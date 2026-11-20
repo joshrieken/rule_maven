@@ -13,6 +13,8 @@ defmodule RuleMavenWeb.GameFormErrorHandlingTest do
   import Phoenix.LiveViewTest
   import RuleMaven.GamesFixtures
 
+  alias RuleMavenWeb.GameLive.Form
+
   defp login(conn, user), do: Plug.Test.init_test_session(conn, %{"user_id" => user.id})
 
   defp admin_user(name) do
@@ -54,7 +56,7 @@ defmodule RuleMavenWeb.GameFormErrorHandlingTest do
   end
 
   test "split_upload_results counts failed copies instead of dropping them" do
-    assert RuleMavenWeb.GameLive.Form.split_upload_results([
+    assert Form.split_upload_results([
              {:ok, %{pdf_path: "a.pdf", label: "a"}},
              {:error, "b.pdf: could not save file (enospc)"},
              {:ok, %{pdf_path: "c.pdf", label: "c"}}
@@ -62,13 +64,13 @@ defmodule RuleMavenWeb.GameFormErrorHandlingTest do
              {[%{pdf_path: "a.pdf", label: "a"}, %{pdf_path: "c.pdf", label: "c"}],
               ["b.pdf: could not save file (enospc)"]}
 
-    assert RuleMavenWeb.GameLive.Form.split_upload_results([
+    assert Form.split_upload_results([
              {:error, "x.pdf: could not save file (eacces)"},
              {:error, "y.pdf: could not save file (eacces)"}
            ]) ==
              {[], ["x.pdf: could not save file (eacces)", "y.pdf: could not save file (eacces)"]}
 
-    assert RuleMavenWeb.GameLive.Form.split_upload_results([]) == {[], []}
+    assert Form.split_upload_results([]) == {[], []}
   end
 
   test "combine_error_messages combines existing and upload errors" do
@@ -76,7 +78,7 @@ defmodule RuleMavenWeb.GameFormErrorHandlingTest do
     upload_errors = ["document.pdf: could not save file (enospc)"]
 
     combined =
-      RuleMavenWeb.GameLive.Form.combine_error_messages(existing_error, upload_errors)
+      Form.combine_error_messages(existing_error, upload_errors)
 
     # Both messages should be present, combined with space
     assert combined ==
@@ -86,7 +88,7 @@ defmodule RuleMavenWeb.GameFormErrorHandlingTest do
   test "combine_error_messages handles nil existing error" do
     upload_errors = ["document.pdf: could not save file (enospc)"]
 
-    combined = RuleMavenWeb.GameLive.Form.combine_error_messages(nil, upload_errors)
+    combined = Form.combine_error_messages(nil, upload_errors)
 
     # Only upload message when no existing error
     assert combined == "1 upload(s) failed: document.pdf: could not save file (enospc)"

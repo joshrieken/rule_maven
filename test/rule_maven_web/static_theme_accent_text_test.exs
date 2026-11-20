@@ -36,15 +36,14 @@ defmodule RuleMavenWeb.StaticThemeAccentTextTest do
     css = File.read!(@css_path)
 
     Regex.scan(~r/([^{}]+)\{([^{}]*--accent:[^{}]*)\}/, css)
-    |> Enum.map(fn [_, selector, body] ->
-      label =
-        case Regex.run(~r/data-theme="([^"]+)"/, selector) do
-          [_, name] -> name
-          nil -> if selector =~ ":root:not", do: "system-dark-fallback", else: ":root"
-        end
+    |> Enum.map(fn [_, selector, body] -> {theme_label(selector), body} end)
+  end
 
-      {label, body}
-    end)
+  defp theme_label(selector) do
+    case Regex.run(~r/data-theme="([^"]+)"/, selector) do
+      [_, name] -> name
+      nil -> if selector =~ ":root:not", do: "system-dark-fallback", else: ":root"
+    end
   end
 
   defp var(body, name) do

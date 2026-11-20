@@ -2,6 +2,7 @@ defmodule RuleMaven.GamesVoteSettlementTest do
   use RuleMaven.DataCase, async: true
 
   alias RuleMaven.{Games, Repo}
+  alias RuleMaven.Games.Curation
   alias RuleMaven.Games.{QuestionLog, QuestionVote}
 
   defp user(name) do
@@ -35,7 +36,7 @@ defmodule RuleMaven.GamesVoteSettlementTest do
     assert {:ok, _} = Games.set_community_vote(q.id, voter.id, "up") |> ok()
 
     # Settlement awards the voter a curator point and freezes the vote.
-    {:ok, _} = RuleMaven.Games.Curation.settle_votes(Repo.get!(QuestionLog, q.id), :confirmed)
+    {:ok, _} = Curation.settle_votes(Repo.get!(QuestionLog, q.id), :confirmed)
 
     vote = Repo.get_by!(QuestionVote, question_log_id: q.id, user_id: voter.id)
     assert vote.settled_at

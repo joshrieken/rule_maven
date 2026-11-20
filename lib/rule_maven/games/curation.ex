@@ -14,6 +14,7 @@ defmodule RuleMaven.Games.Curation do
   import Ecto.Query, warn: false
 
   alias RuleMaven.Games.{QuestionLog, QuestionVote}
+  alias RuleMaven.Games.Trust
   alias RuleMaven.Repo
   alias RuleMaven.Users.User
 
@@ -28,22 +29,8 @@ defmodule RuleMaven.Games.Curation do
   def settle_votes(%QuestionLog{} = q, outcome, event_at \\ NaiveDateTime.utc_now())
       when outcome in [:confirmed, :rejected] do
     correct_value = if outcome == :confirmed, do: "up", else: "down"
-    author_id = q.user_id || -1
     now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    # Admin votes never settle: admins trigger the terminal events themselves
-    # (verify/promote/demote), so settling their own votes would make curator
-    # points/bonus/badges self-awarded. Their seeding votes stay display+trust
-    # signals only.
-    admin_roles = User.roles_with_capability(:admin)
-
-    base =
-      from v in QuestionVote,
-        where:
-          v.question_log_id == ^q.id and is_nil(v.settled_at) and
-            v.user_id != ^author_id and v.weight > 0.0 and
-            v.inserted_at <= ^event_at and
-            v.user_id not in subquery(from u in User, where: u.role in ^admin_roles, select: u.id)
+    base = settleable_votes(q, event_at)
 
     Repo.transaction(fn ->
       {_, correct_ids} =
@@ -69,6 +56,24 @@ defmodule RuleMaven.Games.Curation do
 
       {length(correct_ids), incorrect_count}
     end)
+  end
+
+  # Unsettled, weighted votes on `q` cast by anyone but its author, up to `event_at`.
+  defp settleable_votes(%QuestionLog{} = q, event_at) do
+    author_id = q.user_id || -1
+
+    # Admin votes never settle: admins trigger the terminal events themselves
+    # (verify/promote/demote), so settling their own votes would make curator
+    # points/bonus/badges self-awarded. Their seeding votes stay display+trust
+    # signals only.
+    admin_roles = User.roles_with_capability(:admin)
+
+    from v in QuestionVote,
+      where:
+        v.question_log_id == ^q.id and is_nil(v.settled_at) and
+          v.user_id != ^author_id and v.weight > 0.0 and
+          v.inserted_at <= ^event_at and
+          v.user_id not in subquery(from u in User, where: u.role in ^admin_roles, select: u.id)
   end
 
   def bonus_cap do
@@ -154,7 +159,7 @@ defmodule RuleMaven.Games.Curation do
   # Correct upvotes cast while the row still had fewer than `promotion_quorum`
   # earlier votes from other users — i.e. the voter spotted quality early.
   defp taste_maker_count(user_id) do
-    quorum = RuleMaven.Games.Trust.promotion_quorum()
+    quorum = Trust.promotion_quorum()
 
     Repo.one(
       from v in QuestionVote,
@@ -302,7 +307,7 @@ defmodule RuleMaven.Games.Curation do
 
   @doc """
   Contribution stats for the standing page: reputation (see
-  `RuleMaven.Games.Trust.recompute_reputation/1`) plus how many answers the
+  `Trust.recompute_reputation/1`) plus how many answers the
   user asked that reached the community pool or an admin verify.
   """
   def contributor_stats(user_id) do

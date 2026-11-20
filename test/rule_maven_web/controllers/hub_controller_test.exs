@@ -2,6 +2,7 @@ defmodule RuleMavenWeb.HubControllerTest do
   # The hub secret is global config (Application env): not async.
   use RuleMavenWeb.ConnCase, async: false
 
+  alias RuleMaven.Auth.SignOn
   alias RuleMaven.Users
 
   setup do
@@ -11,7 +12,7 @@ defmodule RuleMavenWeb.HubControllerTest do
     {:ok, user} =
       Users.create_user(%{username: "alice", email: "a@example.com", password: "correct horse 1"})
 
-    {:ok, user} = RuleMaven.Auth.SignOn.link_user(user, "sub-alice")
+    {:ok, user} = SignOn.link_user(user, "sub-alice")
     %{user: user}
   end
 

@@ -2,6 +2,7 @@ defmodule Mix.Tasks.RuleMaven.BackfillWeightTest do
   use RuleMaven.DataCase
   use Oban.Testing, repo: RuleMaven.Repo
 
+  alias Mix.Tasks.RuleMaven.BackfillWeight
   alias RuleMaven.Games
   alias RuleMaven.Workers.BggEnrichWorker
 
@@ -26,7 +27,7 @@ defmodule Mix.Tasks.RuleMaven.BackfillWeightTest do
 
     {:ok, no_bgg_id} = Games.create_game(%{name: "No BGG Id"})
 
-    Mix.Tasks.RuleMaven.BackfillWeight.run([])
+    BackfillWeight.run([])
 
     assert_enqueued(worker: BggEnrichWorker, args: %{game_id: needs_backfill.id})
     refute_enqueued(worker: BggEnrichWorker, args: %{game_id: already_set.id})

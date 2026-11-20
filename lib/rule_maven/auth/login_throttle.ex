@@ -37,22 +37,18 @@ defmodule RuleMaven.Auth.LoginThrottle do
 
   @doc "Records a failed attempt, opening or extending the current window."
   def record_failure(key) do
-    if table_ready?() do
-      case lookup(key) do
-        {count, window_start} ->
-          if within_window?(window_start) do
-            :ets.insert(@table, {key, count + 1, window_start})
-          else
-            :ets.insert(@table, {key, 1, now()})
-          end
-
-        nil ->
-          :ets.insert(@table, {key, 1, now()})
-      end
-    end
+    if table_ready?(), do: :ets.insert(@table, next_entry(key, lookup(key)))
 
     :ok
   end
+
+  defp next_entry(key, {count, window_start}) do
+    if within_window?(window_start),
+      do: {key, count + 1, window_start},
+      else: {key, 1, now()}
+  end
+
+  defp next_entry(key, nil), do: {key, 1, now()}
 
   @doc "Clears a key's counter (call on a successful auth)."
   def clear(key) do

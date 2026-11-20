@@ -22,8 +22,8 @@ defmodule Mix.Tasks.RuleMaven.BackfillWeight do
 
   use Mix.Task
   import Ecto.Query
-  alias RuleMaven.{Repo, Workers.BggEnrichWorker}
   alias RuleMaven.Games.Game
+  alias RuleMaven.{Repo, Workers.BggEnrichWorker}
 
   @impl Mix.Task
   def run(_args) do

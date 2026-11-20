@@ -37,15 +37,7 @@ defmodule RuleMavenWeb.AdminLive.Catalog do
     else
       # Run login + multi-MB dump download + upsert off the LiveView process so
       # the page stays responsive; result comes back via handle_async.
-      socket =
-        start_async(socket, :import_catalog, fn ->
-          # The data-dump page is login-gated and the BGG API token does not
-          # unlock it, so authenticate with the app's stored BGG account first.
-          with {:ok, cookies} <- BGG.login(user, pass),
-               {:ok, csv} <- BGG.fetch_rank_dump(cookies) do
-            {:ok, Games.import_rank_dump(csv)}
-          end
-        end)
+      socket = start_async(socket, :import_catalog, fn -> import_catalog(user, pass) end)
 
       {:noreply, assign(socket, importing: true, error: nil, result: nil)}
     end
@@ -95,6 +87,15 @@ defmodule RuleMavenWeb.AdminLive.Catalog do
 
   def handle_async(:import_catalog, {:exit, reason}, socket) do
     {:noreply, assign(socket, importing: false, error: "Import crashed: #{inspect(reason)}")}
+  end
+
+  # The data-dump page is login-gated and the BGG API token does not
+  # unlock it, so authenticate with the app's stored BGG account first.
+  defp import_catalog(user, pass) do
+    with {:ok, cookies} <- BGG.login(user, pass),
+         {:ok, csv} <- BGG.fetch_rank_dump(cookies) do
+      {:ok, Games.import_rank_dump(csv)}
+    end
   end
 
   defp blank?(nil), do: true

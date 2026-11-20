@@ -54,37 +54,8 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
 
     Jobs.event(run, :info, "Deriving a colour palette from the cover image…")
 
-    status =
-      case build_palette(game) do
-        {:ok, palette, names} ->
-          # Both columns are written together — palette_sets/1 and name_sets/1
-          # readers rely on the two lists staying index-aligned.
-          case Games.update_game(game, %{theme_palette: palette, theme_names: names}) do
-            {:ok, _} -> {:ok, palette, names}
-            {:error, reason} -> {:error, reason}
-          end
-
-        :skip ->
-          :skip
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-
-    case status do
-      {:ok, palette, names} ->
-        Jobs.finish_run(
-          run,
-          "done",
-          "Palette generated (#{length(palette["sets"])} theme sets). #{name_summary(names)}"
-        )
-
-      :skip ->
-        Jobs.finish_run(run, "done", "Skipped — no cover image.")
-
-      {:error, reason} ->
-        Jobs.finish_run(run, "failed", inspect(reason))
-    end
+    status = build_and_save_palette(game)
+    finish_run(run, status)
 
     # Subscribers only care about success vs failure — collapse the success
     # payload (which now carries the palette for the job summary) back to :ok.
@@ -102,6 +73,36 @@ defmodule RuleMaven.Workers.ThemePaletteWorker do
 
     result
   end
+
+  defp build_and_save_palette(game) do
+    case build_palette(game) do
+      {:ok, palette, names} ->
+        # Both columns are written together — palette_sets/1 and name_sets/1
+        # readers rely on the two lists staying index-aligned.
+        case Games.update_game(game, %{theme_palette: palette, theme_names: names}) do
+          {:ok, _} -> {:ok, palette, names}
+          {:error, reason} -> {:error, reason}
+        end
+
+      :skip ->
+        :skip
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp finish_run(run, {:ok, palette, names}) do
+    Jobs.finish_run(
+      run,
+      "done",
+      "Palette generated (#{length(palette["sets"])} theme sets). #{name_summary(names)}"
+    )
+  end
+
+  defp finish_run(run, :skip), do: Jobs.finish_run(run, "done", "Skipped — no cover image.")
+
+  defp finish_run(run, {:error, reason}), do: Jobs.finish_run(run, "failed", inspect(reason))
 
   defp build_palette(%{id: id, name: name, image_url: url}) when is_binary(url) and url != "" do
     with {:ok, anchors} <- LLM.generate_theme_palette(name, url, id),

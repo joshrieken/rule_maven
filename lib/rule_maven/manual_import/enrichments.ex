@@ -166,15 +166,15 @@ defmodule RuleMaven.ManualImport.Enrichments do
       end)
 
   defp validate("expansion_delta", %{} = d) do
-    comps = d["components"] || []
-    setup = d["setup"] || []
-    rules = d["rules"] || []
+    comps = delta_part(d, "components")
+    setup = delta_part(d, "setup")
+    rules = delta_part(d, "rules")
 
     cond do
       Map.keys(d) -- ~w(components setup rules) != [] -> {:error, :shape}
-      comps == [] and setup == [] and rules == [] -> {:error, :empty}
-      not (is_list(comps) and Enum.all?(comps, &str?/1)) -> {:error, :components}
-      not (is_list(rules) and Enum.all?(rules, &str?/1)) -> {:error, :rules}
+      Enum.all?([comps, setup, rules], &(&1 == [])) -> {:error, :empty}
+      not str_list?(comps) -> {:error, :components}
+      not str_list?(rules) -> {:error, :rules}
       not is_list(setup) -> {:error, :setup}
       true -> all(setup, &(str?(&1["title"]) and str?(&1["detail"])))
     end
@@ -190,22 +190,24 @@ defmodule RuleMaven.ManualImport.Enrichments do
   defp validate("symbols", syms) when is_list(syms) and length(syms) <= 120 do
     tokens = Enum.map(syms, & &1["token"])
 
-    cond do
-      length(Enum.uniq(tokens)) != length(tokens) ->
-        {:error, :duplicate_tokens}
-
-      true ->
-        all(syms, fn s ->
-          str?(s["token"]) and String.length(s["token"]) <= 120 and
-            (is_nil(s["name"]) or str?(s["name"])) and
-            (is_nil(s["aliases"]) or
-               (is_list(s["aliases"]) and Enum.all?(s["aliases"], &is_binary/1))) and
-            valid_symbol_image?(s)
-        end)
-    end
+    if length(Enum.uniq(tokens)) != length(tokens),
+      do: {:error, :duplicate_tokens},
+      else: all(syms, &valid_symbol?/1)
   end
 
   defp validate(_step, _value), do: {:error, :shape}
+
+  defp delta_part(d, key), do: d[key] || []
+
+  defp str_list?(xs), do: is_list(xs) and Enum.all?(xs, &str?/1)
+
+  defp valid_symbol?(s) do
+    str?(s["token"]) and String.length(s["token"]) <= 120 and
+      (is_nil(s["name"]) or str?(s["name"])) and
+      (is_nil(s["aliases"]) or
+         (is_list(s["aliases"]) and Enum.all?(s["aliases"], &is_binary/1))) and
+      valid_symbol_image?(s)
+  end
 
   defp valid_symbol_image?(%{"image_base64" => b64}) when is_binary(b64),
     do: match?({:ok, _}, Base.decode64(b64, ignore: :whitespace))

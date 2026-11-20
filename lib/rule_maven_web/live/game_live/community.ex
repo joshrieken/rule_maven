@@ -28,8 +28,8 @@ defmodule RuleMavenWeb.GameLive.Community do
   alias RuleMaven.Games
   alias RuleMaven.Games.QuestionLog
 
-  alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
   alias RuleMavenWeb.{AuditModal, ReportModal}
+  alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
 
   # Load every answer: counts, search and category filters all run over the
   # loaded list, so a cap silently hides answers (Claude pre-fills put 700+ on
@@ -266,17 +266,19 @@ defmodule RuleMavenWeb.GameLive.Community do
 
   @impl true
   def handle_event("toggle_expand", %{"id" => id_str}, socket) do
-    with {id, ""} <- Integer.parse(id_str) do
-      expanded = socket.assigns.expanded
+    case Integer.parse(id_str) do
+      {id, ""} ->
+        expanded = socket.assigns.expanded
 
-      expanded =
-        if MapSet.member?(expanded, id),
-          do: MapSet.delete(expanded, id),
-          else: MapSet.put(expanded, id)
+        expanded =
+          if MapSet.member?(expanded, id),
+            do: MapSet.delete(expanded, id),
+            else: MapSet.put(expanded, id)
 
-      {:noreply, assign(socket, expanded: expanded)}
-    else
-      _ -> {:noreply, socket}
+        {:noreply, assign(socket, expanded: expanded)}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -915,7 +917,7 @@ defmodule RuleMavenWeb.GameLive.Community do
       {:ok, html} ->
         html
         |> RuleMavenWeb.SymbolMarkup.decorate(symbol_marks)
-        |> then(&"<div class=\"md-answer\" style=\"line-height:1.4;margin:0\">#{&1}</div>")
+        |> then(&~s(<div class="md-answer" style="line-height:1.4;margin:0">#{&1}</div>))
         |> Phoenix.HTML.raw()
 
       {:error, _} ->

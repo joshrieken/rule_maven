@@ -4,23 +4,23 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   import Ecto.Query, only: [from: 2]
 
   alias RuleMaven.{
-    Users,
+    CheatSheet,
     Games,
-    Readiness,
-    LLM,
     Jobs,
+    LLM,
+    Readiness,
+    Repo,
+    RulebookDownloader,
     Settings,
     Setup,
-    CheatSheet,
+    Users,
     Voices,
-    Repo,
-    Workers,
-    RulebookDownloader
+    Workers
   }
 
   alias RuleMaven.Games.Chunk
   alias RuleMaven.Readiness.Estimator
-  alias RuleMavenWeb.GameLive.{SubBar, ToolHost, ToolPanel}
+  alias RuleMavenWeb.GameLive.{GameTheme, SubBar, ToolHost, ToolPanel}
 
   @tool_events ToolHost.events()
 
@@ -115,17 +115,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
         docs = Games.list_documents(game)
         Readiness.recompute(game, docs)
 
-        if connected?(socket) do
-          Jobs.subscribe(Readiness.topic(game.id))
-          Jobs.subscribe(Jobs.scope_topic("game", game.id))
-          # Event lines only broadcast on the admin feed; the inline per-step
-          # job log filters them to this game's runs in handle_info.
-          Jobs.subscribe(Jobs.admin_topic())
-
-          for d <- docs do
-            Jobs.subscribe(Jobs.scope_topic("document", d.id))
-          end
-        end
+        if connected?(socket), do: subscribe_topics(game, docs)
 
         {:ok,
          socket
@@ -133,6 +123,18 @@ defmodule RuleMavenWeb.GameLive.Prepare do
          |> ToolHost.mount_header(game)
          |> ToolHost.mount_tools(game)
          |> load(docs)}
+    end
+  end
+
+  defp subscribe_topics(game, docs) do
+    Jobs.subscribe(Readiness.topic(game.id))
+    Jobs.subscribe(Jobs.scope_topic("game", game.id))
+    # Event lines only broadcast on the admin feed; the inline per-step
+    # job log filters them to this game's runs in handle_info.
+    Jobs.subscribe(Jobs.admin_topic())
+
+    for d <- docs do
+      Jobs.subscribe(Jobs.scope_topic("document", d.id))
     end
   end
 
@@ -241,9 +243,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           :two_up_probe_inflight,
           MapSet.union(inflight, MapSet.new(pending, &elem(&1, 0)))
         )
-        |> start_async(:two_up_probe, fn ->
-          Map.new(pending, fn {id, path} -> {id, RulebookDownloader.two_up_suspect?(path)} end)
-        end)
+        |> start_async(:two_up_probe, fn -> probe_two_up(pending) end)
       end
 
     socket
@@ -253,6 +253,9 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       two_up_probe_cache: cache
     )
   end
+
+  defp probe_two_up(pending),
+    do: Map.new(pending, fn {id, path} -> {id, RulebookDownloader.two_up_suspect?(path)} end)
 
   defp two_up_suspect_set(cache, docs) do
     for d <- docs,
@@ -340,31 +343,10 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # and to games with no logged questions (the UI also disables the button, but
   # re-check here — the client can't be trusted).
   def handle_event("reset_all", _params, socket) do
-    game = socket.assigns.game
-
-    cond do
-      not Users.can?(socket.assigns.current_user, :admin) ->
-        {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
-
-      true ->
-        case Games.reset_preparation(game) do
-          {:error, :has_questions} ->
-            {:noreply,
-             socket
-             |> reload()
-             |> put_flash(:error, "Can't reset — this game already has questions.")}
-
-          :ok ->
-            if socket.assigns.playable?,
-              do: Readiness.revoke_publish(game, socket.assigns.current_user)
-
-            Readiness.recompute(game)
-
-            {:noreply,
-             socket
-             |> reload()
-             |> put_flash(:info, "Reset — all rulebooks and generated content removed.")}
-        end
+    if Users.can?(socket.assigns.current_user, :admin) do
+      reset_preparation(socket, socket.assigns.game)
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to do that.")}
     end
   end
 
@@ -636,30 +618,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       true ->
         case Games.update_document(doc, %{two_up: !doc.two_up}) do
           {:ok, updated} ->
-            note =
-              if updated.extracted_at,
-                do: " Re-run Extract to apply it to the stored text.",
-                else: ""
-
-            label = if updated.two_up, do: "on", else: "off"
-
-            # Split is side-by-side only. Warn if a portrait sheet is flipped on
-            # — its two pages may be stacked top/bottom, which the left/right
-            # crop would mangle. Non-blocking; the admin still decides.
-            if updated.two_up and RulebookDownloader.portrait_sheet?(updated.pdf_path) do
-              {:noreply,
-               socket
-               |> put_flash(
-                 :error,
-                 "2-pages-per-sheet on for “#{updated.label}”, but this sheet looks portrait. The split is left→right — if its two pages are stacked top/bottom, extraction will mangle them.#{note}"
-               )
-               |> load()}
-            else
-              {:noreply,
-               socket
-               |> put_flash(:info, "2-pages-per-sheet #{label} for “#{updated.label}”.#{note}")
-               |> load()}
-            end
+            {:noreply, socket |> two_up_flash(updated) |> load()}
 
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Could not update the source.")}
@@ -693,6 +652,49 @@ defmodule RuleMavenWeb.GameLive.Prepare do
           {:error, _changeset} ->
             {:noreply, put_flash(socket, :error, "Couldn't rename the rulebook.")}
         end
+    end
+  end
+
+  defp reset_preparation(socket, game) do
+    case Games.reset_preparation(game) do
+      {:error, :has_questions} ->
+        {:noreply,
+         socket
+         |> reload()
+         |> put_flash(:error, "Can't reset — this game already has questions.")}
+
+      :ok ->
+        if socket.assigns.playable?,
+          do: Readiness.revoke_publish(game, socket.assigns.current_user)
+
+        Readiness.recompute(game)
+
+        {:noreply,
+         socket
+         |> reload()
+         |> put_flash(:info, "Reset — all rulebooks and generated content removed.")}
+    end
+  end
+
+  defp two_up_flash(socket, updated) do
+    note =
+      if updated.extracted_at,
+        do: " Re-run Extract to apply it to the stored text.",
+        else: ""
+
+    label = if updated.two_up, do: "on", else: "off"
+
+    # Split is side-by-side only. Warn if a portrait sheet is flipped on
+    # — its two pages may be stacked top/bottom, which the left/right
+    # crop would mangle. Non-blocking; the admin still decides.
+    if updated.two_up and RulebookDownloader.portrait_sheet?(updated.pdf_path) do
+      put_flash(
+        socket,
+        :error,
+        "2-pages-per-sheet on for “#{updated.label}”, but this sheet looks portrait. The split is left→right — if its two pages are stacked top/bottom, extraction will mangle them.#{note}"
+      )
+    else
+      put_flash(socket, :info, "2-pages-per-sheet #{label} for “#{updated.label}”.#{note}")
     end
   end
 
@@ -920,8 +922,8 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   @impl true
   def render(assigns) do
     ~H"""
-    {RuleMavenWeb.GameLive.GameTheme.style_block(@game)}
-    <RuleMavenWeb.GameLive.GameTheme.blur_background image_url={@game.image_url} />
+    {GameTheme.style_block(@game)}
+    <GameTheme.blur_background image_url={@game.image_url} />
     <SubBar.game_bar
       game={@game}
       sources={@sources}
@@ -1234,7 +1236,7 @@ defmodule RuleMavenWeb.GameLive.Prepare do
       voices: Voices.game_voice_defs(game.id),
       # Full renderable sets (slugs, names, contrast-lifted vars) so the
       # preview can show what the theme picker will actually offer.
-      theme: RuleMavenWeb.GameLive.GameTheme.theme_sets(game),
+      theme: GameTheme.theme_sets(game),
       bgg: game.bgg_data,
       first_player: load_json_list("first_player_#{game.id}"),
       common_mistakes: load_json_list("common_mistakes_#{game.id}"),
@@ -1280,38 +1282,26 @@ defmodule RuleMavenWeb.GameLive.Prepare do
 
   # Suggested questions are stored as a JSON list of %{category, questions}.
   defp load_suggestions(game_id) do
-    case Settings.get("suggestions_#{game_id}") do
-      json when is_binary(json) ->
-        case Jason.decode(json) do
-          {:ok, list} when is_list(list) ->
-            Enum.map(list, fn c ->
-              %{category: c["category"], questions: c["questions"] || []}
-            end)
-
-          _ ->
-            []
-        end
-
-      _ ->
-        []
-    end
+    "suggestions_#{game_id}"
+    |> setting_json_list()
+    |> Enum.map(fn c -> %{category: c["category"], questions: c["questions"] || []} end)
   end
 
   # Unsaved category draft left by a regeneration over an existing set, as the
   # %{name, description} shape `replace_game_categories/2` expects.
   defp category_draft(game_id) do
-    case Settings.get("categories_#{game_id}") do
-      json when is_binary(json) ->
-        case Jason.decode(json) do
-          {:ok, list} when is_list(list) ->
-            Enum.map(list, fn c -> %{name: c["name"], description: c["description"]} end)
+    "categories_#{game_id}"
+    |> setting_json_list()
+    |> Enum.map(fn c -> %{name: c["name"], description: c["description"]} end)
+  end
 
-          _ ->
-            []
-        end
-
-      _ ->
-        []
+  # The JSON list stored under a Settings key; [] when unset or not a list.
+  defp setting_json_list(key) do
+    with json when is_binary(json) <- Settings.get(key),
+         {:ok, list} when is_list(list) <- Jason.decode(json) do
+      list
+    else
+      _ -> []
     end
   end
 
@@ -1686,41 +1676,50 @@ defmodule RuleMavenWeb.GameLive.Prepare do
   # get a collapsible body even before their artifact exists.
   defp step_actions?(_id), do: true
 
+  defp regenerable?(step, flags) do
+    step.id in @regen_steps and step.state != :blocked and
+      not (step.id == :theme and flags.expansion?)
+  end
+
+  # Run/in-flight flags for the document-scoped pipeline steps (extract, cleanup, embed).
+  defp pipeline_action_flags(step, flags) do
+    [
+      extractable?: step.id == :extract and step.state == :pending,
+      # Cleanup can run once extraction is done (state :pending, not :blocked) and
+      # it isn't already cleaned. `cleaning?` reflects an in-flight run — cleanup
+      # jobs are document-scoped, so they don't show up in the game-scoped
+      # `running` MapSet and need their own check.
+      cleanable?: step.id == :cleanup and step.state == :pending,
+      cleaning?: step.id == :cleanup and flags.cleaning?,
+      # Embed can run once cleanup is done (state :pending, not :blocked). Like
+      # cleanup it's document-scoped, so in-flight embedding needs its own check.
+      embeddable?: step.id == :embed and step.state == :pending,
+      embedding?: step.id == :embed and flags.embedding?,
+      # Once embedded, offer a re-chunk: chunking logic evolves (e.g. scenario
+      # headings carried onto continuation pages) and existing games only pick
+      # it up by being chunked again.
+      rechunkable?: step.id == :embed and step.state == :done
+    ]
+  end
+
   attr :step, :map, required: true
   attr :game, :map, required: true
   attr :running, :boolean, default: false
   attr :flags, :map, required: true, doc: "the page's :step_flags (see load/2)"
 
   defp step_actions(assigns) do
-    categories? = assigns.step.id == :categories
+    %{step: step, flags: flags} = assigns
+    categories? = step.id == :categories
 
     assigns =
       assigns
-      |> assign(:link, step_link(assigns.step.id, assigns.game))
-      |> assign(
-        :regen?,
-        assigns.step.id in @regen_steps and assigns.step.state != :blocked and
-          not (assigns.step.id == :theme and assigns.flags.expansion?)
-      )
-      |> assign(:clear?, assigns.step.id in @clear_steps)
-      |> assign(:done?, assigns.step.state == :done)
-      |> assign(:extractable?, assigns.step.id == :extract and assigns.step.state == :pending)
-      # Cleanup can run once extraction is done (state :pending, not :blocked) and
-      # it isn't already cleaned. `cleaning?` reflects an in-flight run — cleanup
-      # jobs are document-scoped, so they don't show up in the game-scoped
-      # `running` MapSet and need their own check.
-      |> assign(:cleanable?, assigns.step.id == :cleanup and assigns.step.state == :pending)
-      |> assign(:cleaning?, assigns.step.id == :cleanup and assigns.flags.cleaning?)
-      # Embed can run once cleanup is done (state :pending, not :blocked). Like
-      # cleanup it's document-scoped, so in-flight embedding needs its own check.
-      |> assign(:embeddable?, assigns.step.id == :embed and assigns.step.state == :pending)
-      |> assign(:embedding?, assigns.step.id == :embed and assigns.flags.embedding?)
-      # Once embedded, offer a re-chunk: chunking logic evolves (e.g. scenario
-      # headings carried onto continuation pages) and existing games only pick
-      # it up by being chunked again.
-      |> assign(:rechunkable?, assigns.step.id == :embed and assigns.step.state == :done)
-      |> assign(:cat_draft?, categories? and assigns.flags.cat_draft?)
-      |> assign(:cat_saved?, categories? and assigns.flags.cat_saved?)
+      |> assign(:link, step_link(step.id, assigns.game))
+      |> assign(:regen?, regenerable?(step, flags))
+      |> assign(:clear?, step.id in @clear_steps)
+      |> assign(:done?, step.state == :done)
+      |> assign(pipeline_action_flags(step, flags))
+      |> assign(:cat_draft?, categories? and flags.cat_draft?)
+      |> assign(:cat_saved?, categories? and flags.cat_saved?)
 
     ~H"""
     <div

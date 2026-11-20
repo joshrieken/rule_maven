@@ -27,8 +27,26 @@ defmodule RuleMaven.Readiness do
   import Ecto.Query
   require Logger
 
-  alias RuleMaven.{Repo, Settings, Games, Voices, Audit, CheatSheet}
-  alias RuleMaven.Games.{Game, Document, Chunk}
+  alias RuleMaven.{Audit, CheatSheet, Games, Repo, Settings, Voices}
+  alias RuleMaven.Games.{Chunk, Document, Game}
+
+  alias RuleMaven.Workers.{
+    BggEnrichWorker,
+    CategoriesWorker,
+    CleanupWorker,
+    CommonMistakesWorker,
+    DidYouKnowWorker,
+    FirstPlayerWorker,
+    QuizWorker,
+    ReadinessWorker,
+    ScoreCategoriesWorker,
+    SuggestionsWorker,
+    SymbolKeyWorker,
+    TeachPitchWorker,
+    ThemePaletteWorker,
+    TurnFlowWorker,
+    VoiceSuggestionsWorker
+  }
 
   @required ~w(bgg source extract review cleanup embed)a
   @enrichment ~w(theme suggestions categories cheat_sheet setup did_you_know voices first_player common_mistakes quiz teach score turn symbols)a
@@ -105,28 +123,29 @@ defmodule RuleMaven.Readiness do
       Enum.map_reduce(all_steps(), true, fn step, prev_done ->
         complete = done[step]
 
-        s =
-          cond do
-            complete -> :done
-            category(step) == :required and not prev_done -> :blocked
-            # Theme only needs the BGG cover image, not the embedded rulebook —
-            # gate it on :bgg instead of the shared embed_done gate so it can run
-            # (and show as runnable) well before the rest of the pipeline.
-            step == :theme -> if done[:bgg], do: :pending, else: :blocked
-            category(step) == :enrichment and not embed_done -> :blocked
-            true -> :pending
-          end
-
         {%{
            id: step,
            label: label(step),
            category: category(step),
            llm: llm_step?(step),
-           state: s
+           state: step_state(step, complete, prev_done, embed_done, done)
          }, prev_done and (complete or category(step) == :enrichment)}
       end)
 
     steps
+  end
+
+  defp step_state(step, complete, prev_done, embed_done, done) do
+    cond do
+      complete -> :done
+      category(step) == :required and not prev_done -> :blocked
+      # Theme only needs the BGG cover image, not the embedded rulebook —
+      # gate it on :bgg instead of the shared embed_done gate so it can run
+      # (and show as runnable) well before the rest of the pipeline.
+      step == :theme -> if done[:bgg], do: :pending, else: :blocked
+      category(step) == :enrichment and not embed_done -> :blocked
+      true -> :pending
+    end
   end
 
   @doc """
@@ -264,7 +283,7 @@ defmodule RuleMaven.Readiness do
   defp doc_cleaned?(%Document{pages: pages}) do
     Enum.all?(pages, fn page ->
       is_binary(page.cleaned) or
-        RuleMaven.Workers.CleanupWorker.skippable_page?(page, :auto, false)
+        CleanupWorker.skippable_page?(page, :auto, false)
     end)
   end
 
@@ -332,7 +351,7 @@ defmodule RuleMaven.Readiness do
 
     unless testing?() do
       %{"game_id" => game.id}
-      |> RuleMaven.Workers.ReadinessWorker.new()
+      |> ReadinessWorker.new()
       |> Oban.insert()
     end
 
@@ -355,7 +374,7 @@ defmodule RuleMaven.Readiness do
   def advance(game_id) when is_integer(game_id) do
     if auto?(game_id) and not testing?() do
       %{"game_id" => game_id}
-      |> RuleMaven.Workers.ReadinessWorker.new()
+      |> ReadinessWorker.new()
       |> Oban.insert()
     end
 
@@ -450,8 +469,8 @@ defmodule RuleMaven.Readiness do
   # avoids a redundant enqueue while a pull is already in flight.
   defp run_bgg(%Game{} = game) do
     if Application.get_env(:rule_maven, Oban)[:testing] != :manual and
-         game.id not in RuleMaven.Workers.BggEnrichWorker.running_game_ids() do
-      %{game_id: game.id} |> RuleMaven.Workers.BggEnrichWorker.new() |> Oban.insert()
+         game.id not in BggEnrichWorker.running_game_ids() do
+      %{game_id: game.id} |> BggEnrichWorker.new() |> Oban.insert()
     end
 
     :ok
@@ -488,51 +507,9 @@ defmodule RuleMaven.Readiness do
   # safe-by-design — it only ever enqueues what's still outstanding.
   @doc false
   def ensure_enrichments(%Game{} = game) do
-    unless step_complete?(:suggestions, game, []),
-      do: RuleMaven.Workers.SuggestionsWorker.enqueue(game.id)
-
-    unless step_complete?(:categories, game, []),
-      do: RuleMaven.Workers.CategoriesWorker.enqueue(game.id)
-
-    unless step_complete?(:did_you_know, game, []),
-      do: RuleMaven.Workers.DidYouKnowWorker.enqueue(game.id)
-
-    unless step_complete?(:voices, game, []),
-      do: RuleMaven.Workers.VoiceSuggestionsWorker.enqueue(game.id)
-
-    unless step_complete?(:first_player, game, []),
-      do: RuleMaven.Workers.FirstPlayerWorker.enqueue(game.id)
-
-    unless step_complete?(:symbols, game, []),
-      do: RuleMaven.Workers.SymbolKeyWorker.enqueue(game.id)
-
-    unless step_complete?(:common_mistakes, game, []),
-      do: RuleMaven.Workers.CommonMistakesWorker.enqueue(game.id)
-
-    unless step_complete?(:quiz, game, []),
-      do: RuleMaven.Workers.QuizWorker.enqueue(game.id)
-
-    unless step_complete?(:teach, game, []),
-      do: RuleMaven.Workers.TeachPitchWorker.enqueue(game.id)
-
-    unless step_complete?(:score, game, []),
-      do: RuleMaven.Workers.ScoreCategoriesWorker.enqueue(game.id)
-
-    unless step_complete?(:turn, game, []),
-      do: RuleMaven.Workers.TurnFlowWorker.enqueue(game.id)
-
-    unless step_complete?(:setup, game, []),
-      do: safe(fn -> RuleMaven.Setup.generate_async(game) end)
-
-    unless step_complete?(:cheat_sheet, game, []),
-      do: safe(fn -> CheatSheet.generate_async(game) end)
-
-    # Theme is normally kicked off much earlier, right when BGG data lands
-    # (see `BggEnrichWorker`) — this is just a safety net for the rare case
-    # where that didn't happen (e.g. a game whose bgg_id was added after the
-    # BGG step already ran).
-    unless step_complete?(:theme, game, []),
-      do: safe(fn -> RuleMaven.Workers.ThemePaletteWorker.enqueue(game) end)
+    for {step, enqueue} <- enrichment_enqueuers(), not step_complete?(step, game, []) do
+      enqueue.(game)
+    end
 
     # Expansions additionally get a "what this expansion changes" delta,
     # composed into their base games' setup checklist + cheat sheet. Not a
@@ -545,6 +522,30 @@ defmodule RuleMaven.Readiness do
     end)
 
     :ok
+  end
+
+  # Each tracked enrichment step and how to (re)start it, in firing order.
+  defp enrichment_enqueuers do
+    [
+      suggestions: &SuggestionsWorker.enqueue(&1.id),
+      categories: &CategoriesWorker.enqueue(&1.id),
+      did_you_know: &DidYouKnowWorker.enqueue(&1.id),
+      voices: &VoiceSuggestionsWorker.enqueue(&1.id),
+      first_player: &FirstPlayerWorker.enqueue(&1.id),
+      symbols: &SymbolKeyWorker.enqueue(&1.id),
+      common_mistakes: &CommonMistakesWorker.enqueue(&1.id),
+      quiz: &QuizWorker.enqueue(&1.id),
+      teach: &TeachPitchWorker.enqueue(&1.id),
+      score: &ScoreCategoriesWorker.enqueue(&1.id),
+      turn: &TurnFlowWorker.enqueue(&1.id),
+      setup: fn game -> safe(fn -> RuleMaven.Setup.generate_async(game) end) end,
+      cheat_sheet: fn game -> safe(fn -> CheatSheet.generate_async(game) end) end,
+      # Theme is normally kicked off much earlier, right when BGG data lands
+      # (see `BggEnrichWorker`) — this is just a safety net for the rare case
+      # where that didn't happen (e.g. a game whose bgg_id was added after the
+      # BGG step already ran).
+      theme: fn game -> safe(fn -> ThemePaletteWorker.enqueue(game) end) end
+    ]
   end
 
   defp pause(%Game{} = game, reason) do

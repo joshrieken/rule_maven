@@ -2,9 +2,14 @@ defmodule RuleMavenWeb.GameLive.Show do
   use RuleMavenWeb, :live_view
 
   alias RuleMaven.Games
+  alias RuleMaven.Games.Curation
   alias RuleMaven.Games.QuestionLog
-  alias RuleMavenWeb.ReportModal
+  alias RuleMaven.Workers.AskWorker
+  alias RuleMaven.Workers.SuggestionsWorker
+  alias RuleMaven.Workers.VoiceSuggestionsWorker
+  alias RuleMaven.Workers.VoiceWorker
   alias RuleMavenWeb.GameLive.{CoveragePanel, GameTheme, SubBar, ToolHost, ToolPanel}
+  alias RuleMavenWeb.ReportModal
 
   # Events delegated to the shared ToolHost; the house-rule subset also
   # recomputes this page's answer overlay after the shared handler runs.
@@ -274,26 +279,23 @@ defmodule RuleMavenWeb.GameLive.Show do
 
       t = params["t"] ->
         case RuleMaven.Hashid.decode(t) do
-          {:ok, tid} ->
-            if Enum.any?(threads, &(&1.id == tid)) do
-              {grouped, threads, tid}
-            else
-              inject_out_of_window_thread(game, socket, grouped, threads, tid)
-            end
-
-          :error ->
-            {grouped, threads, nil}
+          {:ok, tid} -> select_thread(game, socket, grouped, threads, tid)
+          :error -> {grouped, threads, nil}
         end
 
       id = socket.assigns.active_thread_id ->
-        if Enum.any?(threads, &(&1.id == id)) do
-          {grouped, threads, id}
-        else
-          inject_out_of_window_thread(game, socket, grouped, threads, id)
-        end
+        select_thread(game, socket, grouped, threads, id)
 
       true ->
         {grouped, threads, nil}
+    end
+  end
+
+  defp select_thread(game, socket, grouped, threads, id) do
+    if Enum.any?(threads, &(&1.id == id)) do
+      {grouped, threads, id}
+    else
+      inject_out_of_window_thread(game, socket, grouped, threads, id)
     end
   end
 
@@ -396,11 +398,9 @@ defmodule RuleMavenWeb.GameLive.Show do
       |> assign_coverage()
 
     socket =
-      if not is_nil(prev_thread_id) and prev_thread_id != active_thread_id,
-        do: push_event(socket, "reset_answer_scroll", %{}),
-        else: socket
-
-    socket = assign_qa_nav(socket)
+      socket
+      |> maybe_reset_answer_scroll(prev_thread_id, active_thread_id)
+      |> assign_qa_nav()
 
     {:noreply, arm_stale_timer(socket, pending_count)}
   end
@@ -459,15 +459,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     # (or default from their collection). Later handle_params runs (thread
     # nav, ?t=) keep the in-session toggles.
     seeded_before = socket.assigns.expansions_seeded
-
-    included_expansions =
-      if socket.assigns.expansions_seeded do
-        socket.assigns.included_expansions
-      else
-        socket.assigns.current_user.id
-        |> Games.effective_expansion_ids(game, expansions)
-        |> Map.new(&{&1, true})
-      end
+    included_expansions = included_expansions(socket, game, expansions)
 
     community = Games.community_questions(game, socket.assigns.current_user.id)
     community_count = RuleMaven.Faq.community_count(game)
@@ -544,22 +536,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     # same seeded_before gate as the tool windows above — a thread patch must
     # not re-derive it. Stickiness only honors a stashed group the user is
     # still a member of (they may have been removed since the last visit).
-    socket =
-      if seeded_before do
-        socket
-      else
-        my_groups = RuleMaven.Groups.list_for_user(socket.assigns.current_user)
-
-        sticky =
-          RuleMaven.TableSession.get(socket.assigns.current_user.id, game.id)[:active_group_id]
-
-        active_group_id =
-          if sticky && Enum.any?(my_groups, &(&1.id == sticky)), do: sticky, else: nil
-
-        socket
-        |> assign(my_groups: my_groups, active_group_id: active_group_id)
-        |> assign_group_feed()
-      end
+    socket = if seeded_before, do: socket, else: mount_group_selector(socket, game)
 
     # Restyle the just-loaded thread's answers to the current voice (switching
     # threads, ?t navigation, reload). No-op on first mount where the default is
@@ -573,11 +550,9 @@ defmodule RuleMavenWeb.GameLive.Show do
       |> assign_coverage()
 
     socket =
-      if not is_nil(prev_thread_id) and prev_thread_id != active_thread_id,
-        do: push_event(socket, "reset_answer_scroll", %{}),
-        else: socket
-
-    socket = assign_qa_nav(socket)
+      socket
+      |> maybe_reset_answer_scroll(prev_thread_id, active_thread_id)
+      |> assign_qa_nav()
 
     # Onboarding: first-ever game page → the Tour hook auto-starts the tour
     # (via the data-tour-autostart attribute). Only computed on the initial
@@ -587,36 +562,73 @@ defmodule RuleMavenWeb.GameLive.Show do
         do: socket,
         else: assign(socket, :tour_autostart, RuleMavenWeb.Tours.autostart?(socket, "game"))
 
-    {suggestions, socket} =
-      case RuleMaven.Settings.get("suggestions_#{game.id}") do
-        nil ->
-          # Generation is not automatic — it runs when an admin finalizes the
-          # source. Subscribe so a finalize that happens while this page is open
-          # streams the result in live; never enqueue here.
-          socket =
-            if sources != [] do
-              subscribe_once(socket, RuleMaven.Workers.SuggestionsWorker.topic(game.id))
-            else
-              socket
-            end
-
-          {[], socket}
-
-        json ->
-          suggestions =
-            json
-            |> Jason.decode!()
-            |> Enum.map(fn %{"category" => c, "questions" => qs} ->
-              %{category: c, questions: qs}
-            end)
-
-          {suggestions, socket}
-      end
+    {suggestions, socket} = load_suggestions(socket, game, sources)
 
     {:noreply,
      socket
      |> assign(suggestions: suggestions, suggestions_open: false)
      |> arm_stale_timer(pending_count)}
+  end
+
+  # First load of this game: restore the user's remembered expansion set
+  # (or default from their collection); later loads keep the in-session toggles.
+  defp included_expansions(socket, game, expansions) do
+    if socket.assigns.expansions_seeded do
+      socket.assigns.included_expansions
+    else
+      socket.assigns.current_user.id
+      |> Games.effective_expansion_ids(game, expansions)
+      |> Map.new(&{&1, true})
+    end
+  end
+
+  defp mount_group_selector(socket, game) do
+    my_groups = RuleMaven.Groups.list_for_user(socket.assigns.current_user)
+
+    sticky =
+      RuleMaven.TableSession.get(socket.assigns.current_user.id, game.id)[:active_group_id]
+
+    active_group_id =
+      if sticky && Enum.any?(my_groups, &(&1.id == sticky)), do: sticky, else: nil
+
+    socket
+    |> assign(my_groups: my_groups, active_group_id: active_group_id)
+    |> assign_group_feed()
+  end
+
+  defp maybe_reset_answer_scroll(socket, nil, _active_thread_id), do: socket
+
+  defp maybe_reset_answer_scroll(socket, prev_thread_id, active_thread_id) do
+    if prev_thread_id != active_thread_id,
+      do: push_event(socket, "reset_answer_scroll", %{}),
+      else: socket
+  end
+
+  defp load_suggestions(socket, game, sources) do
+    case RuleMaven.Settings.get("suggestions_#{game.id}") do
+      nil ->
+        # Generation is not automatic — it runs when an admin finalizes the
+        # source. Subscribe so a finalize that happens while this page is open
+        # streams the result in live; never enqueue here.
+        socket =
+          if sources != [] do
+            subscribe_once(socket, SuggestionsWorker.topic(game.id))
+          else
+            socket
+          end
+
+        {[], socket}
+
+      json ->
+        suggestions =
+          json
+          |> Jason.decode!()
+          |> Enum.map(fn %{"category" => c, "questions" => qs} ->
+            %{category: c, questions: qs}
+          end)
+
+        {suggestions, socket}
+    end
   end
 
   # Suggested questions for the current table: each toggled-on expansion's own
@@ -689,7 +701,7 @@ defmodule RuleMavenWeb.GameLive.Show do
           [
             "game:#{game.id}",
             RuleMaven.Setup.topic(game.id),
-            RuleMaven.Workers.VoiceSuggestionsWorker.topic(game.id)
+            VoiceSuggestionsWorker.topic(game.id)
             | Enum.map(expansions, &RuleMaven.ExpansionDelta.topic(&1.id))
           ]
 
@@ -1313,66 +1325,68 @@ defmodule RuleMavenWeb.GameLive.Show do
     valid_voice? = voice != "neutral" and voice_valid?(socket, voice)
     socket = assign(socket, default_voice: if(valid_voice?, do: voice, else: "neutral"))
 
-    if not valid_voice? do
-      socket
-    else
-      # Only restyle FINAL answers. Restyling the in-flight "Thinking..."
-      # placeholder produces a garbage stub (the model restyles the placeholder
-      # text), so skip pending / non-final rows — they get restyled on
-      # :ask_complete once the real answer lands. Refused rows are skipped too:
-      # VoiceWorker refuses to restyle them, so enqueueing would leave
-      # voice_pending set forever (they render plain regardless).
-      #
-      # A restyle that already failed must not be re-enqueued here (the
-      # voice_failed reject below): apply_default_voice runs on EVERY
-      # :ask_complete for the game — including other users' asks — so without
-      # this a single doomed {id, voice} pair re-paid an LLM restyle every time
-      # anyone on the game finished a question. Re-picking the voice clears the
-      # flag. Rows already cached/pending locally are skipped the same way, and
-      # the survivors resolve against the shared restyle cache in ONE batched
-      # query (this used to be a single-row lookup per answer).
-      unresolved =
-        socket.assigns.conversation
-        |> Enum.filter(
-          &(&1[:role] == :assistant && &1[:id] && !&1[:pending] && !&1[:refused] &&
-              &1[:content] != "Thinking..." && Map.get(&1, :answer_visible, true))
-        )
-        |> Enum.map(& &1[:id])
-        |> Enum.uniq()
-        |> Enum.reject(fn id ->
-          Map.has_key?(socket.assigns.voice_cache, {id, voice}) or
-            MapSet.member?(socket.assigns.voice_pending, {id, voice}) or
-            MapSet.member?(socket.assigns.voice_failed, {id, voice})
-        end)
+    if valid_voice?, do: restyle_to_voice(socket, voice), else: socket
+  end
 
-      cached = RuleMaven.Voices.get_many(unresolved, voice)
+  defp restyle_to_voice(socket, voice) do
+    # Only restyle FINAL answers. Restyling the in-flight "Thinking..."
+    # placeholder produces a garbage stub (the model restyles the placeholder
+    # text), so skip pending / non-final rows — they get restyled on
+    # :ask_complete once the real answer lands. Refused rows are skipped too:
+    # VoiceWorker refuses to restyle them, so enqueueing would leave
+    # voice_pending set forever (they render plain regardless).
+    #
+    # A restyle that already failed must not be re-enqueued here (the
+    # voice_failed reject below): apply_default_voice runs on EVERY
+    # :ask_complete for the game — including other users' asks — so without
+    # this a single doomed {id, voice} pair re-paid an LLM restyle every time
+    # anyone on the game finished a question. Re-picking the voice clears the
+    # flag. Rows already cached/pending locally are skipped the same way, and
+    # the survivors resolve against the shared restyle cache in ONE batched
+    # query (this used to be a single-row lookup per answer).
+    unresolved =
+      socket.assigns.conversation
+      |> Enum.filter(&restylable_answer?/1)
+      |> Enum.map(& &1[:id])
+      |> Enum.uniq()
+      |> Enum.reject(&voice_tracked?(socket, &1, voice))
 
-      Enum.reduce(unresolved, socket, fn id, acc ->
-        case Map.fetch(cached, id) do
-          {:ok, content} ->
-            assign(acc,
-              voice_cache: Map.put(acc.assigns.voice_cache, {id, voice}, content)
-            )
+    cached = RuleMaven.Voices.get_many(unresolved, voice)
 
-          :error ->
-            %{
-              question_log_id: id,
-              voice: voice,
-              game_id: acc.assigns.game.id,
-              user_id: acc.assigns.current_user.id
-            }
-            |> RuleMaven.Workers.VoiceWorker.new()
-            |> Oban.insert()
+    Enum.reduce(unresolved, socket, &resolve_voice(&2, &1, voice, Map.fetch(cached, &1)))
+  end
 
-            Process.send_after(self(), {:voice_poll, id, voice, 1}, @voice_poll_ms)
+  defp restylable_answer?(msg) do
+    msg[:role] == :assistant && msg[:id] && !msg[:pending] && !msg[:refused] &&
+      msg[:content] != "Thinking..." && Map.get(msg, :answer_visible, true)
+  end
 
-            assign(acc,
-              voice_pending: MapSet.put(acc.assigns.voice_pending, {id, voice}),
-              voice_failed: MapSet.delete(acc.assigns.voice_failed, {id, voice})
-            )
-        end
-      end)
-    end
+  defp voice_tracked?(socket, id, voice) do
+    Map.has_key?(socket.assigns.voice_cache, {id, voice}) or
+      MapSet.member?(socket.assigns.voice_pending, {id, voice}) or
+      MapSet.member?(socket.assigns.voice_failed, {id, voice})
+  end
+
+  defp resolve_voice(socket, id, voice, {:ok, content}) do
+    assign(socket, voice_cache: Map.put(socket.assigns.voice_cache, {id, voice}, content))
+  end
+
+  defp resolve_voice(socket, id, voice, :error) do
+    %{
+      question_log_id: id,
+      voice: voice,
+      game_id: socket.assigns.game.id,
+      user_id: socket.assigns.current_user.id
+    }
+    |> VoiceWorker.new()
+    |> Oban.insert()
+
+    Process.send_after(self(), {:voice_poll, id, voice, 1}, @voice_poll_ms)
+
+    assign(socket,
+      voice_pending: MapSet.put(socket.assigns.voice_pending, {id, voice}),
+      voice_failed: MapSet.delete(socket.assigns.voice_failed, {id, voice})
+    )
   end
 
   # Own (non-pool) answer rows in the current thread. Other players who are
@@ -1488,17 +1502,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   def handle_event("set_active_group", %{"group" => token}, socket) do
     user = socket.assigns.current_user
 
-    group_id =
-      case token do
-        "" ->
-          nil
-
-        t ->
-          case RuleMaven.Groups.get_group_by_token(t) do
-            %{} = group -> if RuleMaven.Groups.member?(user, group), do: group.id, else: nil
-            nil -> nil
-          end
-      end
+    group_id = member_group_id(user, token)
 
     game = socket.assigns.game
     snap = RuleMaven.TableSession.get(user.id, game.id)
@@ -1595,9 +1599,7 @@ defmodule RuleMavenWeb.GameLive.Show do
   # default". Per-answer overrides are cleared so the choice can't be shadowed by
   # a stale selection on another answer.
   def handle_event("set_voice", %{"voice" => voice}, socket) do
-    if not voice_valid?(socket, voice) do
-      {:noreply, socket}
-    else
+    if voice_valid?(socket, voice) do
       record_persona_pick(socket, voice)
 
       {:noreply,
@@ -1608,6 +1610,8 @@ defmodule RuleMavenWeb.GameLive.Show do
        |> assign(voice_failed: clear_failed_for_voice(socket.assigns.voice_failed, voice))
        |> apply_default_voice(voice)
        |> push_event("save_default_voice", %{voice: voice})}
+    else
+      {:noreply, socket}
     end
   end
 
@@ -1807,225 +1811,11 @@ defmodule RuleMavenWeb.GameLive.Show do
     # Strip --- sequences so user input can't inject parser delimiters into LLM output
     question = question |> String.replace("---", "") |> String.trim()
 
-    # Never trust the client's promoted: true rows are pool-eligible
-    # and pool_tier treats them as trusted, so a tampered payload would inject
-    # an unvetted answer into every other user's cache. New asks are always
-    # private; only curation/promotion can make a row community.
-    promoted = false
-
-    cond do
-      Games.taken_down?(socket.assigns.game) ->
-        {:noreply,
-         put_flash(socket, :error, "This game has been removed and can't be asked about.")}
-
-      not socket.assigns.game.playable and not socket.assigns.is_admin ->
-        {:noreply, put_flash(socket, :error, "This game isn't ready yet — check back soon.")}
-
-      not RuleMaven.Flags.enabled?(:asks, socket.assigns.current_user) ->
-        {:noreply, put_flash(socket, :error, RuleMaven.Settings.asks_disabled_message())}
-
-      String.length(question) < @min_question_length ->
-        {:noreply, put_flash(socket, :error, "Please ask a complete question.")}
-
-      String.length(question) > @max_question_length ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "Question is too long (max #{@max_question_length} characters)."
-         )}
-
-      true ->
-        if question != "" do
-          convo = socket.assigns.conversation
-
-          already =
-            Enum.find(convo, fn m ->
-              m.role == :user && String.downcase(m.content) == String.downcase(question)
-            end)
-
-          if already do
-            {:noreply,
-             socket
-             |> assign(question: "")
-             |> put_flash(:info, "This question was already asked — scroll up to see the answer.")}
-          else
-            # Cross-thread duplicate: the asker already has this exact question
-            # answered in a DIFFERENT thread (e.g. clicking a "related question"
-            # suggestion that happens to match an earlier answer). Catching it
-            # here — before the provisional row/AskWorker job exist — jumps
-            # straight to the existing answer with a single voice-restyle loader,
-            # instead of a throwaway "Thinking..." loader that gets discarded when
-            # AskWorker's own (later, semantic) duplicate check redirects anyway.
-            cross_thread_dup =
-              Games.find_user_exact_repeat(
-                socket.assigns.game.id,
-                socket.assigns.current_user.id,
-                question,
-                Map.keys(socket.assigns.included_expansions)
-              )
-
-            if cross_thread_dup do
-              {:noreply,
-               socket
-               |> assign(
-                 question: "",
-                 active_thread_id: cross_thread_dup.id,
-                 sidebar_open: false,
-                 reask_typed:
-                   stash_reask(socket.assigns.reask_typed, cross_thread_dup.id, question)
-               )
-               |> assign_qa_nav()
-               |> put_flash(:info, "You already asked this — here's your answer.")
-               |> push_event("reset_answer_scroll", %{})
-               |> push_patch(
-                 to:
-                   ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(cross_thread_dup.id)}"
-               )}
-            else
-              if socket.assigns.pending_count >= @max_concurrent do
-                {:noreply,
-                 put_flash(
-                   socket,
-                   :error,
-                   "Maximum #{@max_concurrent} concurrent questions. Please wait for one to finish."
-                 )}
-              else
-                %{game: game, included_expansions: included} = socket.assigns
-                expansion_ids = Map.keys(included)
-
-                # `convo` is already scoped to the active thread (it's built
-                # per-thread), so just drop in-flight "Thinking..." turns and
-                # superseded regeneration history; keep the root + followup
-                # turns in order. build_recent_pairs/1 takes the last two pairs.
-                #
-                # The old `m.id == active_thread_id` filter kept ONLY the root
-                # pair — whose id equals the thread id — silently dropping every
-                # followup, so a continued conversation lost its recent turns.
-                group_id = live_group_id(socket)
-
-                # The DESTINATION decides what may be quoted: an unscreened crew
-                # turn may go home to its own crew, but never into a solo row that
-                # will be pooled and listed.
-                recent =
-                  convo
-                  |> Enum.reject(&(&1[:pending] || &1[:history]))
-                  |> build_recent_pairs(group_id)
-
-                case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
-                       game_id: game.id,
-                       question: question,
-                       answer: "Thinking...",
-                       user_id: socket.assigns.current_user.id,
-                       promoted: promoted,
-                       group_id: group_id,
-                       expansion_ids: Enum.sort(expansion_ids)
-                     }) do
-                  {:ok, question_log} ->
-                    %{
-                      game_id: game.id,
-                      question_log_id: question_log.id,
-                      question: question,
-                      expansion_ids: expansion_ids,
-                      recent_context: recent,
-                      user_id: socket.assigns.current_user.id,
-                      group_id: group_id,
-                      voice: socket.assigns.default_voice
-                    }
-                    |> RuleMaven.Workers.AskWorker.new()
-                    |> Oban.insert()
-                    |> case do
-                      {:ok, _job} ->
-                        :ok
-
-                      # The row is already committed with answer: "Thinking...". If
-                      # the job never enqueues, nothing will ever finish it: the row
-                      # is stranded non-terminal, and `pending_count` (recomputed
-                      # from the DB on every mount) permanently eats one of the
-                      # user's concurrency slots for this game. Mark it failed so it
-                      # gets the normal retry affordance.
-                      {:error, reason} ->
-                        require Logger
-
-                        Logger.error("AskWorker enqueue failed: #{inspect(reason)}")
-
-                        Games.log_question_update(question_log, %{
-                          answer: "⚠️ Couldn't start that question. Please retry.",
-                          error_kind: "unknown"
-                        })
-                    end
-
-                    {:noreply,
-                     socket
-                     # Keep the cached grouped load coherent: the provisional
-                     # row must be rebuildable on a thread switch-and-back.
-                     |> grouped_cache_add(question_log)
-                     |> assign(
-                       question: "",
-                       active_thread_id: question_log.id,
-                       rule_card: ToolHost.fact_card(socket.assigns.dyk_facts),
-                       pending_count: socket.assigns.pending_count + 1,
-                       conversation: [
-                         %{
-                           id: question_log.id,
-                           role: :user,
-                           content: question,
-                           timestamp: DateTime.utc_now()
-                         },
-                         %{
-                           id: question_log.id,
-                           role: :assistant,
-                           content: "Thinking...",
-                           pending: true,
-                           timestamp: DateTime.utc_now()
-                         }
-                       ],
-                       threads:
-                         sort_thread_summaries([
-                           # Full thread-summary shape (see build_thread_summaries/3):
-                           # the cached handle_params path renders this map as-is
-                           # instead of rebuilding it from a re-query, so every key
-                           # the sidebar reads must be present. `asker` matters for
-                           # admins (the sidebar renders "<asker>:"): the row is the
-                           # current user's own, so asker_label/2 yields "You" —
-                           # nil would render an empty label + stray colon.
-                           %{
-                             id: question_log.id,
-                             question: question,
-                             answer: "Thinking...",
-                             pending: true,
-                             refused: false,
-                             favorited: false,
-                             inserted_at: DateTime.utc_now(),
-                             asker: asker_label(question_log, socket.assigns.current_user.id)
-                           }
-                           | socket.assigns.threads
-                         ]),
-                       community_questions:
-                         Games.community_questions(game, socket.assigns.current_user.id)
-                     )
-                     |> assign_qa_nav()
-                     |> sync_ask_stream_subscriptions()
-                     |> push_patch(
-                       to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}"
-                     )
-                     |> push_event("reset_answer_scroll", %{})}
-
-                  {:error, reason} when is_binary(reason) ->
-                    {:noreply, put_flash(socket, :error, reason)}
-
-                  {:error, _changeset} ->
-                    {:noreply, put_flash(socket, :error, "Failed to save question")}
-                end
-              end
-            end
-          end
-        else
-          {:noreply, socket}
-        end
+    # Every accepted question is at least @min_question_length long, so never blank.
+    case ask_rejection(socket, question) do
+      nil -> ask_question(socket, question)
+      message -> {:noreply, put_flash(socket, :error, message)}
     end
-
-    # cond true ->
   end
 
   @impl true
@@ -2193,7 +1983,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       {:noreply, put_flash(socket, :error, "Enter both sides of the argument.")}
     else
       q =
-        "Settle an argument — Player A says: \"#{a}\" Player B says: \"#{b}\" " <>
+        ~s(Settle an argument — Player A says: "#{a}" Player B says: "#{b}" ) <>
           "Which is right under the rules?"
 
       socket = assign(socket, settle_modal: false)
@@ -2209,22 +1999,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     if q do
       case Games.toggle_favorite(get_question_log_by_id(id)) do
         {:ok, updated} ->
-          conversation =
-            Enum.map(socket.assigns.conversation, fn m ->
-              if m.id == id, do: Map.put(m, :favorited, updated.favorited), else: m
-            end)
-
-          threads =
-            Enum.map(socket.assigns.threads, fn t ->
-              if t.id == id, do: %{t | favorited: updated.favorited}, else: t
-            end)
-            |> sort_thread_summaries()
-
-          {:noreply,
-           socket
-           |> assign(conversation: conversation, threads: threads)
-           |> assign_qa_nav()
-           |> grouped_cache_update(id, &%{&1 | favorited: updated.favorited})}
+          {:noreply, show_favorited(socket, id, updated.favorited)}
 
         _ ->
           {:noreply, socket}
@@ -2399,6 +2174,253 @@ defmodule RuleMavenWeb.GameLive.Show do
     end
   end
 
+  # Why this ask can't go ahead (flash message), or nil when it may.
+  defp ask_rejection(socket, question) do
+    cond do
+      Games.taken_down?(socket.assigns.game) ->
+        "This game has been removed and can't be asked about."
+
+      not socket.assigns.game.playable and not socket.assigns.is_admin ->
+        "This game isn't ready yet — check back soon."
+
+      not RuleMaven.Flags.enabled?(:asks, socket.assigns.current_user) ->
+        RuleMaven.Settings.asks_disabled_message()
+
+      String.length(question) < @min_question_length ->
+        "Please ask a complete question."
+
+      String.length(question) > @max_question_length ->
+        "Question is too long (max #{@max_question_length} characters)."
+
+      true ->
+        nil
+    end
+  end
+
+  defp ask_question(socket, question) do
+    cond do
+      asked_in_thread?(socket.assigns.conversation, question) ->
+        {:noreply,
+         socket
+         |> assign(question: "")
+         |> put_flash(:info, "This question was already asked — scroll up to see the answer.")}
+
+      # Cross-thread duplicate: the asker already has this exact question
+      # answered in a DIFFERENT thread (e.g. clicking a "related question"
+      # suggestion that happens to match an earlier answer). Catching it
+      # here — before the provisional row/AskWorker job exist — jumps
+      # straight to the existing answer with a single voice-restyle loader,
+      # instead of a throwaway "Thinking..." loader that gets discarded when
+      # AskWorker's own (later, semantic) duplicate check redirects anyway.
+      cross_thread_dup = cross_thread_duplicate(socket, question) ->
+        jump_to_existing_answer(socket, cross_thread_dup, question)
+
+      socket.assigns.pending_count >= @max_concurrent ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Maximum #{@max_concurrent} concurrent questions. Please wait for one to finish."
+         )}
+
+      true ->
+        start_ask(socket, question)
+    end
+  end
+
+  defp asked_in_thread?(convo, question) do
+    Enum.any?(convo, fn m ->
+      m.role == :user && String.downcase(m.content) == String.downcase(question)
+    end)
+  end
+
+  defp cross_thread_duplicate(socket, question) do
+    Games.find_user_exact_repeat(
+      socket.assigns.game.id,
+      socket.assigns.current_user.id,
+      question,
+      Map.keys(socket.assigns.included_expansions)
+    )
+  end
+
+  defp jump_to_existing_answer(socket, dup, question) do
+    {:noreply,
+     socket
+     |> assign(
+       question: "",
+       active_thread_id: dup.id,
+       sidebar_open: false,
+       reask_typed: stash_reask(socket.assigns.reask_typed, dup.id, question)
+     )
+     |> assign_qa_nav()
+     |> put_flash(:info, "You already asked this — here's your answer.")
+     |> push_event("reset_answer_scroll", %{})
+     |> push_patch(to: ~p"/games/#{socket.assigns.game}?t=#{RuleMaven.Hashid.encode(dup.id)}")}
+  end
+
+  defp start_ask(socket, question) do
+    %{game: game, included_expansions: included} = socket.assigns
+    expansion_ids = Map.keys(included)
+
+    # `convo` is already scoped to the active thread (it's built
+    # per-thread), so just drop in-flight "Thinking..." turns and
+    # superseded regeneration history; keep the root + followup
+    # turns in order. build_recent_pairs/1 takes the last two pairs.
+    #
+    # The old `m.id == active_thread_id` filter kept ONLY the root
+    # pair — whose id equals the thread id — silently dropping every
+    # followup, so a continued conversation lost its recent turns.
+    group_id = live_group_id(socket)
+
+    # The DESTINATION decides what may be quoted: an unscreened crew
+    # turn may go home to its own crew, but never into a solo row that
+    # will be pooled and listed.
+    recent =
+      socket.assigns.conversation
+      |> Enum.reject(&(&1[:pending] || &1[:history]))
+      |> build_recent_pairs(group_id)
+
+    # Never trust the client's promoted: true rows are pool-eligible
+    # and pool_tier treats them as trusted, so a tampered payload would inject
+    # an unvetted answer into every other user's cache. New asks are always
+    # private; only curation/promotion can make a row community.
+    case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
+           game_id: game.id,
+           question: question,
+           answer: "Thinking...",
+           user_id: socket.assigns.current_user.id,
+           promoted: false,
+           group_id: group_id,
+           expansion_ids: Enum.sort(expansion_ids)
+         }) do
+      {:ok, question_log} ->
+        enqueue_ask(question_log, %{
+          game_id: game.id,
+          question_log_id: question_log.id,
+          question: question,
+          expansion_ids: expansion_ids,
+          recent_context: recent,
+          user_id: socket.assigns.current_user.id,
+          group_id: group_id,
+          voice: socket.assigns.default_voice
+        })
+
+        {:noreply, show_provisional_ask(socket, question_log, question)}
+
+      {:error, reason} when is_binary(reason) ->
+        {:noreply, put_flash(socket, :error, reason)}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Failed to save question")}
+    end
+  end
+
+  defp enqueue_ask(question_log, args) do
+    case args |> AskWorker.new() |> Oban.insert() do
+      {:ok, _job} ->
+        :ok
+
+      # The row is already committed with answer: "Thinking...". If
+      # the job never enqueues, nothing will ever finish it: the row
+      # is stranded non-terminal, and `pending_count` (recomputed
+      # from the DB on every mount) permanently eats one of the
+      # user's concurrency slots for this game. Mark it failed so it
+      # gets the normal retry affordance.
+      {:error, reason} ->
+        require Logger
+
+        Logger.error("AskWorker enqueue failed: #{inspect(reason)}")
+
+        Games.log_question_update(question_log, %{
+          answer: "⚠️ Couldn't start that question. Please retry.",
+          error_kind: "unknown"
+        })
+    end
+  end
+
+  defp show_provisional_ask(socket, question_log, question) do
+    game = socket.assigns.game
+
+    socket
+    # Keep the cached grouped load coherent: the provisional
+    # row must be rebuildable on a thread switch-and-back.
+    |> grouped_cache_add(question_log)
+    |> assign(
+      question: "",
+      active_thread_id: question_log.id,
+      rule_card: ToolHost.fact_card(socket.assigns.dyk_facts),
+      pending_count: socket.assigns.pending_count + 1,
+      conversation: [
+        %{
+          id: question_log.id,
+          role: :user,
+          content: question,
+          timestamp: DateTime.utc_now()
+        },
+        %{
+          id: question_log.id,
+          role: :assistant,
+          content: "Thinking...",
+          pending: true,
+          timestamp: DateTime.utc_now()
+        }
+      ],
+      threads:
+        sort_thread_summaries([
+          # Full thread-summary shape (see build_thread_summaries/3):
+          # the cached handle_params path renders this map as-is
+          # instead of rebuilding it from a re-query, so every key
+          # the sidebar reads must be present. `asker` matters for
+          # admins (the sidebar renders "<asker>:"): the row is the
+          # current user's own, so asker_label/2 yields "You" —
+          # nil would render an empty label + stray colon.
+          %{
+            id: question_log.id,
+            question: question,
+            answer: "Thinking...",
+            pending: true,
+            refused: false,
+            favorited: false,
+            inserted_at: DateTime.utc_now(),
+            asker: asker_label(question_log, socket.assigns.current_user.id)
+          }
+          | socket.assigns.threads
+        ]),
+      community_questions: Games.community_questions(game, socket.assigns.current_user.id)
+    )
+    |> assign_qa_nav()
+    |> sync_ask_stream_subscriptions()
+    |> push_patch(to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}")
+    |> push_event("reset_answer_scroll", %{})
+  end
+
+  defp show_favorited(socket, id, favorited) do
+    conversation =
+      Enum.map(socket.assigns.conversation, fn m ->
+        if m.id == id, do: Map.put(m, :favorited, favorited), else: m
+      end)
+
+    threads =
+      socket.assigns.threads
+      |> Enum.map(fn t -> if t.id == id, do: %{t | favorited: favorited}, else: t end)
+      |> sort_thread_summaries()
+
+    socket
+    |> assign(conversation: conversation, threads: threads)
+    |> assign_qa_nav()
+    |> grouped_cache_update(id, &%{&1 | favorited: favorited})
+  end
+
+  # The group `token` names, but only when `user` is a member of it; else nil.
+  defp member_group_id(_user, ""), do: nil
+
+  defp member_group_id(user, token) do
+    case RuleMaven.Groups.get_group_by_token(token) do
+      %{} = group -> if RuleMaven.Groups.member?(user, group), do: group.id, else: nil
+      nil -> nil
+    end
+  end
+
   defp do_community_vote(socket, id, uid, value, new_upvote?) do
     case Games.set_community_vote(id, uid, value, socket.assigns.is_admin) do
       {:error, reason} ->
@@ -2559,14 +2581,6 @@ defmodule RuleMavenWeb.GameLive.Show do
   end
 
   defp resubmit_question(id, socket, opts) do
-    skip_pool = Keyword.get(opts, :skip_pool, false)
-    # Verbatim ("Ask exactly this"): re-ask the raw text the asker typed instead
-    # of the cleaned bubble content, and skip normalization so it isn't rewritten
-    # again. The raw text comes from the DB row below, not the conversation.
-    verbatim = Keyword.get(opts, :verbatim, false)
-    cooldowns = socket.assigns.retry_cooldowns
-    now = System.system_time(:second)
-
     existing = find_question_log(socket.assigns.game, id)
 
     # Sourced from the ROW, not from the rendered bubble. The bubble's `content`
@@ -2595,260 +2609,275 @@ defmodule RuleMavenWeb.GameLive.Show do
         {:noreply, socket}
 
       true ->
-        %{game: game, included_expansions: included} = socket.assigns
-        expansion_ids = Map.keys(included)
-
-        old_q = existing
-
-        # Verbatim re-ask uses the raw text as stored, rather than the
-        # canonical/cleaned text `display_question/1` prefers above.
-        question = if verbatim && old_q, do: old_q.question, else: question
-
-        # Resubmitting a failed (or stuck-"Thinking...") answer consumes one of
-        # the question's bounded error retries; the count rides along to the
-        # replacement row since the old one is deleted below. A resubmit of a
-        # healthy answer (regenerate, report-redo) starts fresh at 0.
-        carried_retries =
-          if old_q && (Games.failed_answer?(old_q) || old_q.answer == "Thinking..."),
-            do: old_q.error_retries + 1,
-            else: 0
-
-        # An answer that already has community votes is never solo-deleted:
-        # doing so would cascade-wipe those votes and silently swap the
-        # shared answer every other user sees, with no review. Instead, spin
-        # off a private, never-pooled copy for just this user and leave the
-        # existing (voted-on) row untouched for everyone else.
-        #
-        # A promoted (community) row gets the same protection even with zero
-        # votes yet: it is shared content the moment it is promoted, and its
-        # author regenerating must not delete it out from under other viewers.
-        # A crew row that isn't the actor's own is protected too. Regenerating
-        # DELETES the source row when it isn't protected, and admins pass
-        # `foreign_row?` by design — so one click on an admin's view of a crew
-        # member's question removed that Q&A from the crew's feed permanently, for
-        # everyone, with no trace and no way back. The crew's shared history is not
-        # the admin's to rewrite; the regen goes to a fresh private copy instead.
-        #
-        # `crew_origin?/1`, not `group_id` — the nilify trap. Keyed on the column,
-        # this guard was blind to precisely the rows that need it most: a DELETED
-        # crew's rows, whose text was never screened and which no longer carry the
-        # marker saying so.
-        protect_existing? =
-          old_q &&
-            (Games.has_votes?(old_q.id) or old_q.promoted or
-               (QuestionLog.crew_origin?(old_q) and
-                  old_q.user_id != socket.assigns.current_user.id))
-
-        # Drop cached persona restyles only when the row's answer is actually
-        # going away. A PROTECTED row keeps its answer (the regen goes to a
-        # fresh private copy), so clearing its restyles just made every other
-        # persona viewer re-pay an LLM call for identical text.
-        if old_q && not protect_existing? do
-          RuleMaven.Voices.clear_for_question(id)
-          Games.delete_question(old_q)
-        end
-
-        promoted =
-          cond do
-            protect_existing? -> false
-            old_q -> old_q.promoted
-            true -> false
-          end
-
-        now_dt = DateTime.utc_now()
-
-        # Collect recent Q&A for followup context (from current visible conversation)
-        remaining_convo =
-          Enum.reject(socket.assigns.conversation, fn
-            %{id: ^id} -> true
-            _ -> false
-          end)
-
-        # Scope context to the retried thread only
-        retried_tid = id
-
-        # A re-ask inherits the SOURCE row's boundary — it must not be able to
-        # take its text from one context and its publishability from another.
-        #
-        # `question` above came from `old_q` (verbatim re-ask reuses the raw
-        # column outright), so reading `group_id` from the socket's current
-        # selector was a laundering path: ask in the crew, flip the selector back
-        # to "Just me", hit "Ask exactly this" on your own answer, and the crew's
-        # unscreened wording lands in a group_id: nil, browsable: true row that
-        # the public Unverified tab lists verbatim. Two clicks, no forgery.
-        source_group_id = old_q && old_q.group_id
-        uid = socket.assigns.current_user.id
-
-        # A row that CAME from a crew falls back to no crew at all — never to the
-        # actor's own. `foreign_row?` lets admins through by design, and an admin's
-        # thread list carries every user's rows, so regenerating a crew member's
-        # question re-homed it into whatever crew the ADMIN happened to have
-        # selected: the victim crew's wording, rendered in a different crew's feed,
-        # readable by people who were never in the room. Falling through to
-        # `live_group_id/1` is only correct when the source row had no crew of its
-        # own to inherit.
-        #
-        # The crew-provenance test is `crew_origin?/1`, not `source_group_id`: for a
-        # DELETED crew the id is already nil, so the group_id-keyed version fell
-        # straight through to the actor's own crew — laundering the retraction
-        # `delete_group/2` had just performed.
-        crew_row? = old_q && QuestionLog.crew_origin?(old_q)
-
-        group_id =
-          cond do
-            source_group_id && RuleMaven.Groups.member_of_group_id?(uid, source_group_id) ->
-              source_group_id
-
-            crew_row? ->
-              nil
-
-            true ->
-              live_group_id(socket)
-          end
-
-        # A re-ask's row never inherits clearance from the row it was derived
-        # from — regenerate/retry/"Ask exactly this" all create a BRAND NEW row
-        # whose text may differ from (or, for a verbatim re-ask, is the RAW,
-        # never-screened form of) the source row's. That new row must take its
-        # own trip through the publish gate like any fresh ask, so no explicit
-        # `browsable` is passed to `log_question_with_rate_limit/2` below —
-        # `QuestionLog.default_unbrowsable/1` forces every such insert closed
-        # uniformly, crew or solo, exactly as it does for a first-time ask.
-        #
-        # (This used to inherit `old_q.browsable` for a solo row: since most
-        # solo rows are already cleared, that let a regenerate/retry/verbatim
-        # re-ask mint a fresh, unscreened row that was immediately browsable —
-        # bypassing PublishCheckWorker entirely.)
-
-        # Computed here, not above: the filter needs the DESTINATION group, which
-        # only exists once the row's boundary has been resolved. An unscreened crew
-        # turn must not ride into a solo re-ask's prompt.
-        recent =
-          remaining_convo
-          |> Enum.filter(fn m -> m.id == retried_tid end)
-          |> Enum.reject(& &1[:pending])
-          |> build_recent_pairs(group_id)
-
-        case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
-               game_id: game.id,
-               question: question,
-               answer: "Thinking...",
-               user_id: socket.assigns.current_user.id,
-               promoted: promoted,
-               group_id: group_id,
-               expansion_ids: Enum.sort(expansion_ids),
-               error_retries: carried_retries
-             }) do
-          {:ok, question_log} ->
-            %{
-              game_id: game.id,
-              question_log_id: question_log.id,
-              question: question,
-              expansion_ids: expansion_ids,
-              recent_context: recent,
-              user_id: socket.assigns.current_user.id,
-              group_id: group_id,
-              skip_pool: skip_pool,
-              skip_normalize: verbatim,
-              # A private one-off (regenerate/report redo of an already-voted
-              # answer) keeps the answer out of the shared pool. `protect_existing?`
-              # is `old_q && (...)`, which can be `nil` (not a strict boolean) when
-              # there's no prior row — `||` tolerates that where `or` would raise.
-              # A re-ask of a WITHDRAWN row must not put its answer back into the
-              # commons through the side door: the crew pulled it, and copying the
-              # text into a fresh row does not un-pull it.
-              never_pool:
-                ((protect_existing? || false) or
-                   (old_q && not is_nil(old_q.retracted_at))) || false,
-              # Without the voice a persona user's regenerate skips the
-              # single-call persona path and pays a separate restyle call.
-              voice: socket.assigns.default_voice
-            }
-            |> RuleMaven.Workers.AskWorker.new()
-            |> Oban.insert()
-            |> case do
-              {:ok, _job} ->
-                :ok
-
-              # Same stranded-row hazard as the composer path: the row is already
-              # committed on "Thinking...", so a dropped enqueue leaves it
-              # non-terminal and permanently pending.
-              {:error, reason} ->
-                require Logger
-
-                Logger.error("AskWorker re-ask enqueue failed: #{inspect(reason)}")
-
-                Games.log_question_update(question_log, %{
-                  answer: "⚠️ Couldn't start that question. Please retry.",
-                  error_kind: "unknown"
-                })
-            end
-
-            # Build threads list — remove old thread, add new pending one
-            threads =
-              sort_thread_summaries([
-                # Full thread-summary shape — see the ask-submit provisional
-                # entry (incl. why `asker` is asker_label/2, not nil); the
-                # cached handle_params path renders this map as-is.
-                %{
-                  id: question_log.id,
-                  question: question,
-                  answer: "Thinking...",
-                  pending: true,
-                  refused: false,
-                  favorited: false,
-                  inserted_at: now_dt,
-                  asker: asker_label(question_log, socket.assigns.current_user.id)
-                }
-                | Enum.reject(socket.assigns.threads, &(&1.id == id))
-              ])
-
-            {:noreply,
-             socket
-             # Cached grouped load: the old entry goes only when its row was
-             # actually deleted above (a protected row keeps serving other
-             # viewers / ?t= links); the replacement provisional row is added
-             # either way so a thread switch-and-back can rebuild it.
-             |> then(fn s ->
-               if protect_existing?, do: s, else: grouped_cache_remove(s, id)
-             end)
-             |> grouped_cache_add(question_log)
-             |> assign(
-               conversation: [
-                 %{id: question_log.id, role: :user, content: question, timestamp: now_dt},
-                 %{
-                   id: question_log.id,
-                   role: :assistant,
-                   content: "Thinking...",
-                   pending: true,
-                   timestamp: now_dt
-                 }
-               ],
-               threads: threads,
-               active_thread_id: question_log.id,
-               question: "",
-               # Counted from the freshly-built list, as everywhere else.
-               # Arithmetic on the old counter drifted: `was_pending` reads the
-               # DB row ("Thinking..."), but :check_stale marks a stuck thread
-               # non-pending in ASSIGNS only — retrying it skipped the
-               # increment while inserting a pending thread, so @max_concurrent
-               # then admitted an extra in-flight ask.
-               pending_count: Enum.count(threads, & &1.pending),
-               retry_cooldowns: Map.put(cooldowns, id, now),
-               community_questions:
-                 Games.community_questions(game, socket.assigns.current_user.id)
-             )
-             |> assign_qa_nav()
-             |> sync_ask_stream_subscriptions()
-             |> push_patch(to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}")}
-
-          {:error, reason} when is_binary(reason) ->
-            {:noreply, put_flash(socket, :error, reason)}
-
-          {:error, _changeset} ->
-            {:noreply, put_flash(socket, :error, "Failed to retry question")}
-        end
+        do_resubmit(socket, id, existing, question, opts)
     end
+  end
+
+  defp do_resubmit(socket, id, old_q, question, opts) do
+    skip_pool = Keyword.get(opts, :skip_pool, false)
+    # Verbatim ("Ask exactly this"): re-ask the raw text the asker typed instead
+    # of the cleaned bubble content, and skip normalization so it isn't rewritten
+    # again. The raw text comes from the DB row, not the conversation.
+    verbatim = Keyword.get(opts, :verbatim, false)
+    %{game: game, included_expansions: included} = socket.assigns
+    expansion_ids = Map.keys(included)
+
+    # Verbatim re-ask uses the raw text as stored, rather than the
+    # canonical/cleaned text `display_question/1` prefers.
+    question = if verbatim && old_q, do: old_q.question, else: question
+
+    carried_retries = carried_retries(old_q)
+    protect_existing? = protect_existing?(old_q, socket.assigns.current_user.id)
+
+    # Drop cached persona restyles only when the row's answer is actually
+    # going away. A PROTECTED row keeps its answer (the regen goes to a
+    # fresh private copy), so clearing its restyles just made every other
+    # persona viewer re-pay an LLM call for identical text.
+    if old_q && not protect_existing? do
+      RuleMaven.Voices.clear_for_question(id)
+      Games.delete_question(old_q)
+    end
+
+    group_id = reask_group_id(socket, old_q)
+
+    # A re-ask's row never inherits clearance from the row it was derived
+    # from — regenerate/retry/"Ask exactly this" all create a BRAND NEW row
+    # whose text may differ from (or, for a verbatim re-ask, is the RAW,
+    # never-screened form of) the source row's. That new row must take its
+    # own trip through the publish gate like any fresh ask, so no explicit
+    # `browsable` is passed to `log_question_with_rate_limit/2` below —
+    # `QuestionLog.default_unbrowsable/1` forces every such insert closed
+    # uniformly, crew or solo, exactly as it does for a first-time ask.
+    #
+    # (This used to inherit `old_q.browsable` for a solo row: since most
+    # solo rows are already cleared, that let a regenerate/retry/verbatim
+    # re-ask mint a fresh, unscreened row that was immediately browsable —
+    # bypassing PublishCheckWorker entirely.)
+
+    # Computed here, not earlier: the filter needs the DESTINATION group, which
+    # only exists once the row's boundary has been resolved. An unscreened crew
+    # turn must not ride into a solo re-ask's prompt. Context is scoped to the
+    # retried thread only, taken from the conversation minus the retried row.
+    recent =
+      socket.assigns.conversation
+      |> Enum.reject(fn
+        %{id: ^id} -> true
+        _ -> false
+      end)
+      |> Enum.filter(fn m -> m.id == id end)
+      |> Enum.reject(& &1[:pending])
+      |> build_recent_pairs(group_id)
+
+    case Games.log_question_with_rate_limit(socket.assigns.current_user, %{
+           game_id: game.id,
+           question: question,
+           answer: "Thinking...",
+           user_id: socket.assigns.current_user.id,
+           promoted: reask_promoted?(old_q, protect_existing?),
+           group_id: group_id,
+           expansion_ids: Enum.sort(expansion_ids),
+           error_retries: carried_retries
+         }) do
+      {:ok, question_log} ->
+        enqueue_reask(question_log, %{
+          game_id: game.id,
+          question_log_id: question_log.id,
+          question: question,
+          expansion_ids: expansion_ids,
+          recent_context: recent,
+          user_id: socket.assigns.current_user.id,
+          group_id: group_id,
+          skip_pool: skip_pool,
+          skip_normalize: verbatim,
+          never_pool: never_pool?(old_q, protect_existing?),
+          # Without the voice a persona user's regenerate skips the
+          # single-call persona path and pays a separate restyle call.
+          voice: socket.assigns.default_voice
+        })
+
+        {:noreply, show_reask(socket, id, question_log, question, protect_existing?)}
+
+      {:error, reason} when is_binary(reason) ->
+        {:noreply, put_flash(socket, :error, reason)}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Failed to retry question")}
+    end
+  end
+
+  # Resubmitting a failed (or stuck-"Thinking...") answer consumes one of
+  # the question's bounded error retries; the count rides along to the
+  # replacement row since the old one is deleted. A resubmit of a
+  # healthy answer (regenerate, report-redo) starts fresh at 0.
+  defp carried_retries(old_q) do
+    if old_q && (Games.failed_answer?(old_q) || old_q.answer == "Thinking..."),
+      do: old_q.error_retries + 1,
+      else: 0
+  end
+
+  # An answer that already has community votes is never solo-deleted:
+  # doing so would cascade-wipe those votes and silently swap the
+  # shared answer every other user sees, with no review. Instead, spin
+  # off a private, never-pooled copy for just this user and leave the
+  # existing (voted-on) row untouched for everyone else.
+  #
+  # A promoted (community) row gets the same protection even with zero
+  # votes yet: it is shared content the moment it is promoted, and its
+  # author regenerating must not delete it out from under other viewers.
+  # A crew row that isn't the actor's own is protected too. Regenerating
+  # DELETES the source row when it isn't protected, and admins pass
+  # `foreign_row?` by design — so one click on an admin's view of a crew
+  # member's question removed that Q&A from the crew's feed permanently, for
+  # everyone, with no trace and no way back. The crew's shared history is not
+  # the admin's to rewrite; the regen goes to a fresh private copy instead.
+  #
+  # `crew_origin?/1`, not `group_id` — the nilify trap. Keyed on the column,
+  # this guard was blind to precisely the rows that need it most: a DELETED
+  # crew's rows, whose text was never screened and which no longer carry the
+  # marker saying so.
+  defp protect_existing?(old_q, uid) do
+    old_q &&
+      (Games.has_votes?(old_q.id) or old_q.promoted or
+         (QuestionLog.crew_origin?(old_q) and old_q.user_id != uid))
+  end
+
+  defp reask_promoted?(old_q, protect_existing?) do
+    cond do
+      protect_existing? -> false
+      old_q -> old_q.promoted
+      true -> false
+    end
+  end
+
+  # A private one-off (regenerate/report redo of an already-voted
+  # answer) keeps the answer out of the shared pool. `protect_existing?`
+  # is `old_q && (...)`, which can be `nil` (not a strict boolean) when
+  # there's no prior row — `||` tolerates that where `or` would raise.
+  # A re-ask of a WITHDRAWN row must not put its answer back into the
+  # commons through the side door: the crew pulled it, and copying the
+  # text into a fresh row does not un-pull it.
+  defp never_pool?(old_q, protect_existing?) do
+    ((protect_existing? || false) or (old_q && not is_nil(old_q.retracted_at))) || false
+  end
+
+  # A re-ask inherits the SOURCE row's boundary — it must not be able to
+  # take its text from one context and its publishability from another.
+  #
+  # The question came from `old_q` (verbatim re-ask reuses the raw
+  # column outright), so reading `group_id` from the socket's current
+  # selector was a laundering path: ask in the crew, flip the selector back
+  # to "Just me", hit "Ask exactly this" on your own answer, and the crew's
+  # unscreened wording lands in a group_id: nil, browsable: true row that
+  # the public Unverified tab lists verbatim. Two clicks, no forgery.
+  #
+  # A row that CAME from a crew falls back to no crew at all — never to the
+  # actor's own. `foreign_row?` lets admins through by design, and an admin's
+  # thread list carries every user's rows, so regenerating a crew member's
+  # question re-homed it into whatever crew the ADMIN happened to have
+  # selected: the victim crew's wording, rendered in a different crew's feed,
+  # readable by people who were never in the room. Falling through to
+  # `live_group_id/1` is only correct when the source row had no crew of its
+  # own to inherit.
+  #
+  # The crew-provenance test is `crew_origin?/1`, not `source_group_id`: for a
+  # DELETED crew the id is already nil, so the group_id-keyed version fell
+  # straight through to the actor's own crew — laundering the retraction
+  # `delete_group/2` had just performed.
+  defp reask_group_id(socket, old_q) do
+    source_group_id = old_q && old_q.group_id
+    uid = socket.assigns.current_user.id
+
+    cond do
+      source_group_id && RuleMaven.Groups.member_of_group_id?(uid, source_group_id) ->
+        source_group_id
+
+      old_q && QuestionLog.crew_origin?(old_q) ->
+        nil
+
+      true ->
+        live_group_id(socket)
+    end
+  end
+
+  defp enqueue_reask(question_log, args) do
+    case args |> AskWorker.new() |> Oban.insert() do
+      {:ok, _job} ->
+        :ok
+
+      # Same stranded-row hazard as the composer path: the row is already
+      # committed on "Thinking...", so a dropped enqueue leaves it
+      # non-terminal and permanently pending.
+      {:error, reason} ->
+        require Logger
+
+        Logger.error("AskWorker re-ask enqueue failed: #{inspect(reason)}")
+
+        Games.log_question_update(question_log, %{
+          answer: "⚠️ Couldn't start that question. Please retry.",
+          error_kind: "unknown"
+        })
+    end
+  end
+
+  defp show_reask(socket, id, question_log, question, protect_existing?) do
+    game = socket.assigns.game
+    now_dt = DateTime.utc_now()
+
+    # Build threads list — remove old thread, add new pending one
+    threads =
+      sort_thread_summaries([
+        # Full thread-summary shape — see the ask-submit provisional
+        # entry (incl. why `asker` is asker_label/2, not nil); the
+        # cached handle_params path renders this map as-is.
+        %{
+          id: question_log.id,
+          question: question,
+          answer: "Thinking...",
+          pending: true,
+          refused: false,
+          favorited: false,
+          inserted_at: now_dt,
+          asker: asker_label(question_log, socket.assigns.current_user.id)
+        }
+        | Enum.reject(socket.assigns.threads, &(&1.id == id))
+      ])
+
+    socket
+    # Cached grouped load: the old entry goes only when its row was
+    # actually deleted above (a protected row keeps serving other
+    # viewers / ?t= links); the replacement provisional row is added
+    # either way so a thread switch-and-back can rebuild it.
+    |> then(fn s ->
+      if protect_existing?, do: s, else: grouped_cache_remove(s, id)
+    end)
+    |> grouped_cache_add(question_log)
+    |> assign(
+      conversation: [
+        %{id: question_log.id, role: :user, content: question, timestamp: now_dt},
+        %{
+          id: question_log.id,
+          role: :assistant,
+          content: "Thinking...",
+          pending: true,
+          timestamp: now_dt
+        }
+      ],
+      threads: threads,
+      active_thread_id: question_log.id,
+      question: "",
+      # Counted from the freshly-built list, as everywhere else.
+      # Arithmetic on the old counter drifted: `was_pending` reads the
+      # DB row ("Thinking..."), but :check_stale marks a stuck thread
+      # non-pending in ASSIGNS only — retrying it skipped the
+      # increment while inserting a pending thread, so @max_concurrent
+      # then admitted an extra in-flight ask.
+      pending_count: Enum.count(threads, & &1.pending),
+      retry_cooldowns: Map.put(socket.assigns.retry_cooldowns, id, System.system_time(:second)),
+      community_questions: Games.community_questions(game, socket.assigns.current_user.id)
+    )
+    |> assign_qa_nav()
+    |> sync_ask_stream_subscriptions()
+    |> push_patch(to: ~p"/games/#{game}?t=#{RuleMaven.Hashid.encode(question_log.id)}")
   end
 
   # Scope the lookup to the current game so an id from another game can't be
@@ -2965,7 +2994,6 @@ defmodule RuleMavenWeb.GameLive.Show do
   @impl true
   def handle_info({:ask_complete, data}, socket) do
     question_log_id = data.question_log_id
-    game = socket.assigns.game
 
     # Task 11 (group feed): the broadcast is game-wide, so every viewer's
     # session gets it — not just the asker's. When the answered question was
@@ -2976,14 +3004,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     # second `handle_info({:ask_complete, ...})` clause) deliberately: Elixir
     # matches clauses top-down, and a second clause guarded on `group_id`
     # would either swallow the asker's own conversation update or be dead code.
-    socket =
-      case Map.get(data, :group_id) do
-        gid when not is_nil(gid) ->
-          if gid == live_group_id(socket), do: assign_group_feed(socket), else: socket
-
-        _ ->
-          socket
-      end
+    socket = refresh_group_feed_for(socket, Map.get(data, :group_id))
 
     # The broadcast goes to the public game topic, so EVERY connected viewer
     # of the game receives it. Only sockets actually showing this thread (the
@@ -3002,168 +3023,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     # branch of `if ql` (same path as a deleted row).
     ql = if involved?, do: get_question_log_by_id(question_log_id), else: nil
 
-    if ql do
-      # Update thread status in threads list (only when answer is actually ready)
-      threads =
-        if ql.answer != "Thinking..." do
-          updated =
-            Enum.map(socket.assigns.threads, fn
-              %{id: ^question_log_id} = t ->
-                %{
-                  t
-                  | pending: false,
-                    refused: ql.refused,
-                    question:
-                      shown_question(ql, socket.assigns.current_user.id, socket.assigns.is_admin),
-                    answer: ql.answer
-                }
-
-              t ->
-                t
-            end)
-
-          updated
-        else
-          socket.assigns.threads
-        end
-
-      # Targeted update if this thread is currently active
-      conversation =
-        if socket.assigns.active_thread_id == question_log_id do
-          Enum.map(socket.assigns.conversation, fn
-            %{id: ^question_log_id, role: :user} = msg ->
-              msg
-              |> Map.put(
-                :content,
-                shown_question(ql, socket.assigns.current_user.id, socket.assigns.is_admin)
-              )
-              |> Map.put(:cleaned_question, ql.cleaned_question)
-              |> Map.put(:question_normalized, ql.question_normalized)
-              |> Map.put(
-                :original_question,
-                own_raw_question(ql, socket.assigns.current_user.id)
-              )
-
-            %{id: ^question_log_id, role: :assistant} = msg ->
-              if ql.answer == "Thinking..." do
-                msg
-              else
-                msg
-                |> Map.delete(:pending)
-                |> Map.put(
-                  :content,
-                  shown_answer(ql, socket.assigns.current_user.id, socket.assigns.is_admin)
-                )
-                |> Map.put(:cited_passage, ql.cited_passage)
-                |> Map.put(:cited_page, data[:cited_page] || ql.cited_page)
-                |> Map.put(:cited_source, data[:cited_source] || ql.cited_source)
-                |> Map.put(:citations, ql.citations)
-                |> Map.put(:verdict, data[:verdict] || ql.verdict)
-                |> Map.put(:followups, shown_followups(ql, socket.assigns.current_user.id))
-                # Re-gated on every live update, not just at build_conversation
-                # time — otherwise the broadcast quietly puts the raw text back.
-                |> Map.put(:also_asked, own_also_asked(ql, socket.assigns.current_user.id))
-                |> Map.put(:refused, ql.refused)
-                |> Map.put(:raw_response, own_raw_response(ql, socket.assigns.current_user.id))
-                |> Map.put(:llm_provider, ql.llm_provider)
-                |> Map.put(:llm_model, ql.llm_model)
-                |> Map.put(:pool_hit, ql.llm_provider == "pool")
-                |> Map.put(:pool_provisional, ql.llm_model == "cached-unverified")
-                |> Map.put(:pool_source_id, ql.pool_source_id)
-                |> Map.put(:rulebook_checked, Games.answer_rulebook_checked?(ql))
-                |> Map.put(:spoiler, QuestionLog.spoiler?(ql, socket.assigns.spoiler_index))
-                |> Map.put(:promoted, ql.promoted)
-                |> Map.put(:error_kind, ql.error_kind)
-                |> Map.put(:error_retries, ql.error_retries)
-              end
-
-            msg ->
-              msg
-          end)
-        else
-          socket.assigns.conversation
-        end
-
-      pending_count = Enum.count(threads, & &1.pending)
-
-      community = Games.community_questions(game, socket.assigns.current_user.id)
-
-      # When the real answer lands on the active thread, jump the reader to the
-      # top of it so they start at the beginning; while still "Thinking..." just
-      # keep the pending bubble in view at the bottom.
-      answer_ready? =
-        ql.answer != "Thinking..." && socket.assigns.active_thread_id == question_log_id
-
-      socket =
-        socket
-        |> assign(
-          conversation: conversation,
-          threads: threads,
-          pending_count: pending_count,
-          community_questions: community,
-          ask_partial: Map.delete(socket.assigns.ask_partial, question_log_id),
-          ask_stage: Map.delete(socket.assigns.ask_stage, question_log_id),
-          refresh: socket.assigns.refresh + 1
-        )
-        # Refresh the cached grouped entry with the answered row so a thread
-        # switch-and-back rebuilds the final answer, not the stale
-        # "Thinking..." snapshot. The cached primary's preloaded :user is
-        # grafted back on (get_question_log_by_id/1 doesn't preload it).
-        |> grouped_cache_update(question_log_id, fn p -> %{ql | user: p.user} end)
-        |> sync_ask_stream_subscriptions()
-        |> record_personal_coverage()
-        |> assign_coverage()
-
-      # Persona-direct path (Task 5): the ask call already produced the styled
-      # answer in the same LLM response, so populate voice_cache straight from
-      # the broadcast — apply_default_voice/2 below already skips re-enqueuing
-      # a VoiceWorker restyle for a voice already present in voice_cache.
-      socket =
-        if data[:styled_answer] && data[:styled_voice] &&
-             answer_visible?(ql, socket.assigns.current_user.id) do
-          assign(socket,
-            voice_cache:
-              Map.put(
-                socket.assigns.voice_cache,
-                {question_log_id, data[:styled_voice]},
-                data[:styled_answer]
-              )
-          )
-        else
-          socket
-        end
-
-      # A freshly-answered row inherits the current voice: restyle it to the
-      # active default so it doesn't show plain while every other answer is in
-      # character. No-op when the default is neutral.
-      socket =
-        if ql.answer != "Thinking...",
-          do: apply_default_voice(socket, socket.assigns.default_voice),
-          else: socket
-
-      # The answered question now has an embedding — surface any of the user's
-      # house rules that sit near it.
-      socket = if answer_ready?, do: load_hr_overlay(socket), else: socket
-
-      # First real answer this user has ever seen: walk them through its
-      # anatomy (verdict, confidence, citations, voting → curator points).
-      # The live answer is the tour's demo data, so it never runs on an empty
-      # page; tour_done marks it seen and it stops auto-starting.
-      socket =
-        if answer_ready? and not ql.refused and
-             RuleMavenWeb.Tours.autostart?(socket, "answer"),
-           do: RuleMavenWeb.Tours.push_tour(socket, "answer"),
-           else: socket
-
-      # No scroll when the answer finishes — the AnswerPane hook already pinned
-      # the pane to the top when the thread became active, and the answer pane
-      # is the only scroll region, so it never needs nudging as content lands
-      # below the fold. `threads` (and possibly `active_thread_id`, on a fresh
-      # ask) changed above, so refresh the chip/pager state to match.
-      {:noreply, assign_qa_nav(socket)}
-    else
-      {:noreply, socket}
-    end
+    if ql, do: {:noreply, apply_ask_complete(socket, data, ql)}, else: {:noreply, socket}
   end
 
   def handle_info({:question_tagged, ql_id}, socket) do
@@ -3468,71 +3328,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     if question_log_id && question_log_id not in known_ids do
       {:noreply, socket}
     else
-      # Pull the persisted failure classification once, for every known thread —
-      # not just the active one. If the user switched away before the error
-      # landed, the cached grouped entry would otherwise keep "Thinking...":
-      # switching back re-marked it pending (mark_pending_thinking), armed no
-      # stale timer path out, and resubscribed a dead ask_stream topic.
-      err_q = if question_log_id, do: get_question_log_by_id(question_log_id)
-
-      # Refresh the cached grouped entry so a thread switch-and-back rebuilds
-      # the failed answer instead of the stale "Thinking..." snapshot (the
-      # mirror of what :ask_complete does; the preloaded :user is grafted back
-      # on since get_question_log_by_id/1 doesn't preload it).
-      socket =
-        if err_q do
-          grouped_cache_update(socket, question_log_id, fn p -> %{err_q | user: p.user} end)
-        else
-          socket
-        end
-
-      threads =
-        if question_log_id do
-          Enum.map(socket.assigns.threads, fn
-            %{id: ^question_log_id} = t ->
-              # The sidebar shows a ⚠ marker for answers with the "⚠️" prefix —
-              # carry the persisted error text (or the broadcast's) into the
-              # summary so the failed state is visible without a reload.
-              %{t | pending: false, answer: (err_q && err_q.answer) || "⚠️ #{data[:error]}"}
-
-            t ->
-              t
-          end)
-        else
-          socket.assigns.threads
-        end
-
-      # Only the conversation rewrite stays behind the active-thread check —
-      # it patches the on-screen bubble; every other socket showing this
-      # thread in its sidebar already got the cache + summary fix above.
-      conversation =
-        if question_log_id && socket.assigns.active_thread_id == question_log_id do
-          Enum.map(socket.assigns.conversation, fn
-            %{id: ^question_log_id, role: :assistant} = msg ->
-              msg
-              |> Map.delete(:pending)
-              |> Map.put(:content, "⚠️ #{data.error}")
-              |> Map.put(:error_kind, err_q && err_q.error_kind)
-              |> Map.put(:error_retries, (err_q && err_q.error_retries) || 0)
-
-            msg ->
-              msg
-          end)
-        else
-          socket.assigns.conversation
-        end
-
-      {:noreply,
-       socket
-       |> assign(
-         conversation: conversation,
-         threads: threads,
-         pending_count: Enum.count(threads, & &1.pending),
-         ask_partial: Map.delete(socket.assigns.ask_partial, question_log_id),
-         ask_stage: Map.delete(socket.assigns.ask_stage, question_log_id)
-       )
-       |> assign_qa_nav()
-       |> sync_ask_stream_subscriptions()}
+      {:noreply, apply_ask_error(socket, data, question_log_id)}
     end
   end
 
@@ -3558,9 +3354,7 @@ defmodule RuleMavenWeb.GameLive.Show do
 
     {conversation, stale_count} =
       Enum.reduce(socket.assigns.conversation, {[], 0}, fn msg, {acc, count} ->
-        if msg[:pending] && msg.role == :assistant && msg.content == "Thinking..." &&
-             not is_nil(msg.timestamp) &&
-             DateTime.compare(msg.timestamp, stale_cutoff) != :gt do
+        if stale_thinking?(msg, stale_cutoff) do
           {[Map.delete(msg, :pending) | acc], count + 1}
         else
           {[msg | acc], count}
@@ -3570,15 +3364,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     if stale_count > 0 do
       conversation = Enum.reverse(conversation)
 
-      threads =
-        Enum.map(socket.assigns.threads, fn t ->
-          if t.pending && not is_nil(t.inserted_at) &&
-               DateTime.compare(t.inserted_at, stale_cutoff) != :gt do
-            %{t | pending: false}
-          else
-            t
-          end
-        end)
+      threads = Enum.map(socket.assigns.threads, &unstale_thread(&1, stale_cutoff))
 
       pending_count = Enum.count(threads, & &1.pending)
 
@@ -3604,6 +3390,256 @@ defmodule RuleMavenWeb.GameLive.Show do
       {:noreply, assign(socket, stale_timer: timer)}
     end
   end
+
+  defp refresh_group_feed_for(socket, nil), do: socket
+
+  defp refresh_group_feed_for(socket, gid) do
+    if gid == live_group_id(socket), do: assign_group_feed(socket), else: socket
+  end
+
+  defp apply_ask_complete(socket, data, ql) do
+    question_log_id = data.question_log_id
+    game = socket.assigns.game
+
+    # Update thread status in threads list (only when answer is actually ready)
+    threads =
+      if ql.answer != "Thinking..." do
+        Enum.map(socket.assigns.threads, &complete_thread(&1, question_log_id, ql, socket))
+      else
+        socket.assigns.threads
+      end
+
+    # Targeted update if this thread is currently active
+    conversation =
+      if socket.assigns.active_thread_id == question_log_id do
+        Enum.map(
+          socket.assigns.conversation,
+          &complete_message(&1, question_log_id, ql, data, socket)
+        )
+      else
+        socket.assigns.conversation
+      end
+
+    pending_count = Enum.count(threads, & &1.pending)
+
+    community = Games.community_questions(game, socket.assigns.current_user.id)
+
+    # When the real answer lands on the active thread, jump the reader to the
+    # top of it so they start at the beginning; while still "Thinking..." just
+    # keep the pending bubble in view at the bottom.
+    answer_ready? =
+      ql.answer != "Thinking..." && socket.assigns.active_thread_id == question_log_id
+
+    socket =
+      socket
+      |> assign(
+        conversation: conversation,
+        threads: threads,
+        pending_count: pending_count,
+        community_questions: community,
+        ask_partial: Map.delete(socket.assigns.ask_partial, question_log_id),
+        ask_stage: Map.delete(socket.assigns.ask_stage, question_log_id),
+        refresh: socket.assigns.refresh + 1
+      )
+      # Refresh the cached grouped entry with the answered row so a thread
+      # switch-and-back rebuilds the final answer, not the stale
+      # "Thinking..." snapshot. The cached primary's preloaded :user is
+      # grafted back on (get_question_log_by_id/1 doesn't preload it).
+      |> grouped_cache_update(question_log_id, fn p -> %{ql | user: p.user} end)
+      |> sync_ask_stream_subscriptions()
+      |> record_personal_coverage()
+      |> assign_coverage()
+      |> cache_styled_answer(data, ql)
+
+    # A freshly-answered row inherits the current voice: restyle it to the
+    # active default so it doesn't show plain while every other answer is in
+    # character. No-op when the default is neutral.
+    socket =
+      if ql.answer != "Thinking...",
+        do: apply_default_voice(socket, socket.assigns.default_voice),
+        else: socket
+
+    # The answered question now has an embedding — surface any of the user's
+    # house rules that sit near it.
+    socket = if answer_ready?, do: load_hr_overlay(socket), else: socket
+
+    # No scroll when the answer finishes — the AnswerPane hook already pinned
+    # the pane to the top when the thread became active, and the answer pane
+    # is the only scroll region, so it never needs nudging as content lands
+    # below the fold. `threads` (and possibly `active_thread_id`, on a fresh
+    # ask) changed above, so refresh the chip/pager state to match.
+    socket
+    |> maybe_start_answer_tour(answer_ready?, ql)
+    |> assign_qa_nav()
+  end
+
+  defp complete_thread(%{id: id} = t, id, ql, socket) do
+    %{
+      t
+      | pending: false,
+        refused: ql.refused,
+        question: shown_question(ql, socket.assigns.current_user.id, socket.assigns.is_admin),
+        answer: ql.answer
+    }
+  end
+
+  defp complete_thread(t, _id, _ql, _socket), do: t
+
+  defp complete_message(%{id: id, role: :user} = msg, id, ql, _data, socket) do
+    msg
+    |> Map.put(
+      :content,
+      shown_question(ql, socket.assigns.current_user.id, socket.assigns.is_admin)
+    )
+    |> Map.put(:cleaned_question, ql.cleaned_question)
+    |> Map.put(:question_normalized, ql.question_normalized)
+    |> Map.put(:original_question, own_raw_question(ql, socket.assigns.current_user.id))
+  end
+
+  defp complete_message(%{id: id, role: :assistant} = msg, id, ql, data, socket) do
+    if ql.answer == "Thinking..." do
+      msg
+    else
+      uid = socket.assigns.current_user.id
+
+      msg
+      |> Map.delete(:pending)
+      |> Map.put(:content, shown_answer(ql, uid, socket.assigns.is_admin))
+      |> Map.put(:cited_passage, ql.cited_passage)
+      |> Map.put(:cited_page, data[:cited_page] || ql.cited_page)
+      |> Map.put(:cited_source, data[:cited_source] || ql.cited_source)
+      |> Map.put(:citations, ql.citations)
+      |> Map.put(:verdict, data[:verdict] || ql.verdict)
+      |> Map.put(:followups, shown_followups(ql, uid))
+      # Re-gated on every live update, not just at build_conversation
+      # time — otherwise the broadcast quietly puts the raw text back.
+      |> Map.put(:also_asked, own_also_asked(ql, uid))
+      |> Map.put(:refused, ql.refused)
+      |> Map.put(:raw_response, own_raw_response(ql, uid))
+      |> Map.put(:llm_provider, ql.llm_provider)
+      |> Map.put(:llm_model, ql.llm_model)
+      |> Map.put(:pool_hit, ql.llm_provider == "pool")
+      |> Map.put(:pool_provisional, ql.llm_model == "cached-unverified")
+      |> Map.put(:pool_source_id, ql.pool_source_id)
+      |> Map.put(:rulebook_checked, Games.answer_rulebook_checked?(ql))
+      |> Map.put(:spoiler, QuestionLog.spoiler?(ql, socket.assigns.spoiler_index))
+      |> Map.put(:promoted, ql.promoted)
+      |> Map.put(:error_kind, ql.error_kind)
+      |> Map.put(:error_retries, ql.error_retries)
+    end
+  end
+
+  defp complete_message(msg, _id, _ql, _data, _socket), do: msg
+
+  # Persona-direct path (Task 5): the ask call already produced the styled
+  # answer in the same LLM response, so populate voice_cache straight from
+  # the broadcast — apply_default_voice/2 already skips re-enqueuing
+  # a VoiceWorker restyle for a voice already present in voice_cache.
+  defp cache_styled_answer(socket, data, ql) do
+    if data[:styled_answer] && data[:styled_voice] &&
+         answer_visible?(ql, socket.assigns.current_user.id) do
+      assign(socket,
+        voice_cache:
+          Map.put(
+            socket.assigns.voice_cache,
+            {data.question_log_id, data[:styled_voice]},
+            data[:styled_answer]
+          )
+      )
+    else
+      socket
+    end
+  end
+
+  # First real answer this user has ever seen: walk them through its
+  # anatomy (verdict, confidence, citations, voting → curator points).
+  # The live answer is the tour's demo data, so it never runs on an empty
+  # page; tour_done marks it seen and it stops auto-starting.
+  defp maybe_start_answer_tour(socket, answer_ready?, ql) do
+    if answer_ready? and not ql.refused and RuleMavenWeb.Tours.autostart?(socket, "answer"),
+      do: RuleMavenWeb.Tours.push_tour(socket, "answer"),
+      else: socket
+  end
+
+  defp stale_thinking?(msg, stale_cutoff) do
+    msg[:pending] && msg.role == :assistant && msg.content == "Thinking..." &&
+      not is_nil(msg.timestamp) &&
+      DateTime.compare(msg.timestamp, stale_cutoff) != :gt
+  end
+
+  # A pending thread asked at/before the cutoff stops counting as pending.
+  defp unstale_thread(t, stale_cutoff) do
+    if t.pending && not is_nil(t.inserted_at) &&
+         DateTime.compare(t.inserted_at, stale_cutoff) != :gt,
+       do: %{t | pending: false},
+       else: t
+  end
+
+  defp apply_ask_error(socket, data, question_log_id) do
+    # Pull the persisted failure classification once, for every known thread —
+    # not just the active one. If the user switched away before the error
+    # landed, the cached grouped entry would otherwise keep "Thinking...":
+    # switching back re-marked it pending (mark_pending_thinking), armed no
+    # stale timer path out, and resubscribed a dead ask_stream topic.
+    err_q = if question_log_id, do: get_question_log_by_id(question_log_id)
+
+    # Refresh the cached grouped entry so a thread switch-and-back rebuilds
+    # the failed answer instead of the stale "Thinking..." snapshot (the
+    # mirror of what :ask_complete does; the preloaded :user is grafted back
+    # on since get_question_log_by_id/1 doesn't preload it).
+    socket =
+      if err_q do
+        grouped_cache_update(socket, question_log_id, fn p -> %{err_q | user: p.user} end)
+      else
+        socket
+      end
+
+    threads =
+      if question_log_id do
+        Enum.map(socket.assigns.threads, &fail_thread(&1, question_log_id, err_q, data))
+      else
+        socket.assigns.threads
+      end
+
+    # Only the conversation rewrite stays behind the active-thread check —
+    # it patches the on-screen bubble; every other socket showing this
+    # thread in its sidebar already got the cache + summary fix above.
+    conversation =
+      if question_log_id && socket.assigns.active_thread_id == question_log_id do
+        Enum.map(socket.assigns.conversation, &fail_message(&1, question_log_id, err_q, data))
+      else
+        socket.assigns.conversation
+      end
+
+    socket
+    |> assign(
+      conversation: conversation,
+      threads: threads,
+      pending_count: Enum.count(threads, & &1.pending),
+      ask_partial: Map.delete(socket.assigns.ask_partial, question_log_id),
+      ask_stage: Map.delete(socket.assigns.ask_stage, question_log_id)
+    )
+    |> assign_qa_nav()
+    |> sync_ask_stream_subscriptions()
+  end
+
+  # The sidebar shows a ⚠ marker for answers with the "⚠️" prefix —
+  # carry the persisted error text (or the broadcast's) into the
+  # summary so the failed state is visible without a reload.
+  defp fail_thread(%{id: id} = t, id, err_q, data),
+    do: %{t | pending: false, answer: (err_q && err_q.answer) || "⚠️ #{data[:error]}"}
+
+  defp fail_thread(t, _id, _err_q, _data), do: t
+
+  defp fail_message(%{id: id, role: :assistant} = msg, id, err_q, data) do
+    msg
+    |> Map.delete(:pending)
+    |> Map.put(:content, "⚠️ #{data.error}")
+    |> Map.put(:error_kind, err_q && err_q.error_kind)
+    |> Map.put(:error_retries, (err_q && err_q.error_retries) || 0)
+  end
+
+  defp fail_message(msg, _id, _err_q, _data), do: msg
 
   attr :rules, :list, required: true
   attr :deltas, :map, required: true
@@ -5511,7 +5547,6 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp build_recent_pairs(msgs, dest_group_id) do
     msgs
     |> Enum.zip(Enum.drop(msgs, 1))
-    |> Enum.filter(fn {a, b} -> a.role == :user && b.role == :assistant end)
     # A turn whose text was never scrubbed is DROPPED from the context, not
     # substituted. Preferring `cleaned_question` and falling back to `content` was
     # a no-op on exactly the turns that matter: a `skip_normalize` row stores
@@ -5525,7 +5560,9 @@ defmodule RuleMavenWeb.GameLive.Show do
     # turn 2 — even with the crew switched off, since the thread's conversation
     # survives in the socket — and turn 1's names ride into the commons inside
     # turn 2's answer, on a row the publish screen never even looks at.
-    |> Enum.filter(fn {user, _asst} -> quotable_turn?(user, dest_group_id) end)
+    |> Enum.filter(fn {user, asst} ->
+      user.role == :user && asst.role == :assistant && quotable_turn?(user, dest_group_id)
+    end)
     |> Enum.map(fn {user, asst} -> %{q: recent_q(user), a: asst.content} end)
     |> Enum.take(-2)
   end
@@ -6021,7 +6058,8 @@ defmodule RuleMavenWeb.GameLive.Show do
   defp bgg_stats(game) do
     [
       player_stat(game),
-      game.playing_time && {"⏱️", "#{game.playing_time} min"},
+      # Escaped: a literal U+FE0F here trips credo's string scanner.
+      game.playing_time && {"\u23F1\uFE0F", "#{game.playing_time} min"},
       game.year_published && {"📅", "#{game.year_published}"},
       game.bgg_rank && {"🏆", "BGG ##{game.bgg_rank}"}
     ]
@@ -6069,7 +6107,7 @@ defmodule RuleMavenWeb.GameLive.Show do
     citations
     |> Enum.group_by(&{&1["page"], &1["source"]})
     |> Enum.map(fn {{page, source}, group} ->
-      joined_quote = group |> Enum.map(& &1["quote"]) |> Enum.join(" … ")
+      joined_quote = Enum.map_join(group, " … ", & &1["quote"])
       %{"page" => page, "source" => source, "quote" => joined_quote}
     end)
     |> Enum.sort_by(fn %{"page" => page} -> {page == nil, page} end)
@@ -6083,7 +6121,7 @@ defmodule RuleMavenWeb.GameLive.Show do
       {:ok, html} ->
         html
         |> RuleMavenWeb.SymbolMarkup.decorate(symbol_marks)
-        |> then(&"<div class=\"md-answer\" style=\"line-height:1.4;margin:0\">#{&1}</div>")
+        |> then(&~s(<div class="md-answer" style="line-height:1.4;margin:0">#{&1}</div>))
         |> Phoenix.HTML.raw()
 
       {:error, _} ->
@@ -6099,8 +6137,8 @@ defmodule RuleMavenWeb.GameLive.Show do
     user = socket.assigns.current_user
 
     with true <- connected?(socket),
-         n when n > 0 <- RuleMaven.Games.Curation.unseen_correct_count(user) do
-      RuleMaven.Games.Curation.mark_notices_seen(user)
+         n when n > 0 <- Curation.unseen_correct_count(user) do
+      Curation.mark_notices_seen(user)
 
       msg =
         if n == 1 do

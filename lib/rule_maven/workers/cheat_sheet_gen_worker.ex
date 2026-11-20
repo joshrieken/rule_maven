@@ -17,7 +17,7 @@ defmodule RuleMaven.Workers.CheatSheetGenWorker do
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
-  alias RuleMaven.{Games, Jobs, Settings, CheatSheet}
+  alias RuleMaven.{CheatSheet, Games, Jobs, Settings}
 
   def topic(game_id), do: "cheat:#{game_id}"
 

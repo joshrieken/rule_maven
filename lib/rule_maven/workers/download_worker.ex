@@ -22,7 +22,7 @@ defmodule RuleMaven.Workers.DownloadWorker do
     ]
 
   import Ecto.Query
-  alias RuleMaven.{Games, Jobs, Settings, RulebookDownloader}
+  alias RuleMaven.{Games, Jobs, RulebookDownloader, Settings}
 
   @worker "RuleMaven.Workers.DownloadWorker"
   @active_states ~w(available scheduled executing retryable suspended)
@@ -212,7 +212,7 @@ defmodule RuleMaven.Workers.DownloadWorker do
         {:error, "No files to extract"}
 
       {[], errors} ->
-        {:error, errors |> Enum.map(fn {:error, r} -> r end) |> Enum.join("; ")}
+        {:error, Enum.map_join(errors, "; ", fn {:error, r} -> r end)}
 
       {[{:ok, source} | _], _errors} ->
         {:ok, source}
